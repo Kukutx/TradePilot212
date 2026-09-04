@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": [
+      "node",
+      "vite/client",
+      "./worker-configuration.d.ts"
+    ],
+    "noEmit": true
+  },
+  "include": [
+    "src/core",
+    "src/app",
+    "src/adapters",
+    "src/shared",
+    "src/ui",
+    "vite.config.ts",
+    "scripts",
+    "worker-configuration.d.ts"
+  ]
+}

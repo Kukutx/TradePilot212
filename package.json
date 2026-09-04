@@ -1,0 +1,74 @@
+{
+  "name": "tradepilot212",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted Trading 212 MCP / ChatGPT App with Demo/Live dashboards and human-confirmed orders.",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "deploy": "node scripts/deploy-selfhost.mjs",
+    "dev": "pnpm build:widget && tsx watch src/adapters/node/index.ts",
+    "dev:chatgpt": "node scripts/dev-chatgpt.mjs",
+    "start": "node dist/node/adapters/node/index.js",
+    "dev:cloudflare": "pnpm build:widget && wrangler dev",
+    "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
+    "build:widget": "vite build",
+    "build": "pnpm build:widget && pnpm build:node",
+    "typecheck": "pnpm cf:types && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "smoke": "node scripts/smoke.mjs",
+    "cf:types": "wrangler types",
+    "build:node": "tsc -p tsconfig.node.json",
+    "release:check": "node scripts/release-check.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "dotenv": "^17.2.3",
+    "hono": "^4.13.5",
+    "@hono/node-server": "^2.1.1",
+    "jose": "^6.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.129.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kukutx/TradePilot212.git"
+  },
+  "homepage": "https://github.com/Kukutx/TradePilot212#readme",
+  "bugs": {
+    "url": "https://github.com/Kukutx/TradePilot212/issues"
+  },
+  "keywords": [
+    "trading212",
+    "mcp",
+    "chatgpt",
+    "chatgpt-app",
+    "self-hosted",
+    "cloudflare-workers",
+    "typescript",
+    "react",
+    "hono"
+  ]
+}

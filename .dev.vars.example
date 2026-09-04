@@ -1,0 +1,10 @@
+# Copy to .dev.vars for `pnpm dev:cloudflare`; never commit .dev.vars.
+APP_LOGIN_PASSWORD=replace-with-at-least-16-characters
+AUTH_SIGNING_SECRET=replace-with-at-least-32-random-characters
+T212_DEMO_API_KEY=
+T212_DEMO_API_SECRET=
+T212_LIVE_API_KEY=
+T212_LIVE_API_SECRET=
+MAX_ORDER_NOTIONAL=5000
+MAX_ORDER_QUANTITY=100000
+CONFIRMATION_TTL_SECONDS=90
