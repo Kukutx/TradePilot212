@@ -1,13 +1,18 @@
 import type {
   AccountSummary,
+  ActivityEvent,
+  ActivityType,
   CancelPreview,
   DashboardPayload,
   EnrichedTradeCandidate,
+  ExecutionVerificationResult,
   Instrument,
   OrderDraft,
   OrderExecutionResult,
   OrderIntent,
+  OrderNotice,
   OrderPreview,
+  PendingOrder,
   Position,
   ResolvedOrderIntent,
   TradeCandidate,
@@ -15,12 +20,16 @@ import type {
   TradingEnvironment,
 } from "../shared/contracts.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
-import { ExecutionStatusUnknownError, Trading212Client } from "./trading212-client.js";
+import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string };
+type VerificationRecord =
+  | { kind: "order"; environment: TradingEnvironment; draft: OrderDraft; baselineQuantity: number; createdAt: string }
+  | { kind: "cancel"; environment: TradingEnvironment; orderId: string; createdAt: string };
 export interface InstrumentCacheEntry { expiresAt: number; instruments: Instrument[] }
 export type InstrumentCache = Map<TradingEnvironment, InstrumentCacheEntry>;
 export interface TradingServiceDeps { config: RuntimeConfig; store: StateStore; audit?: Audit; fetcher?: typeof fetch; instrumentCache?: InstrumentCache }
@@ -32,6 +41,26 @@ function positiveNumber(name: string, value?: number): asserts value is number {
 function floorQuantity(value: number, digits = 8): number {
   const factor = 10 ** digits;
   return Math.floor((value + Number.EPSILON) * factor) / factor;
+}
+
+const ACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const REFERENCE_STALE_SECONDS = 300;
+
+function dateAgeSeconds(value?: string, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(0, Math.floor((now - parsed) / 1000));
+}
+
+function closeQuantity(a: number, b: number): boolean {
+  const tolerance = Math.max(1e-8, Math.abs(b) * 1e-6);
+  return Math.abs(a - b) <= tolerance;
+}
+
+function orderQuantity(order: PendingOrder): number | undefined {
+  return typeof order.quantity === "number" && Number.isFinite(order.quantity) ? Math.abs(order.quantity) : undefined;
 }
 
 export function resolveInstrumentFromList(instruments: Instrument[], query: string): Instrument {
@@ -155,6 +184,47 @@ export class TradingService {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
 
+  private async recordActivity(
+    type: ActivityType,
+    environment: TradingEnvironment,
+    details: Omit<ActivityEvent, "id" | "timestamp" | "environment" | "type"> = {},
+  ): Promise<ActivityEvent> {
+    const timestamp = new Date().toISOString();
+    const event: ActivityEvent = { id: crypto.randomUUID(), timestamp, environment, type, ...details };
+    try {
+      await this.deps.store.put(`activity:${timestamp}:${event.id}`, event, Date.now() + ACTIVITY_TTL_MS);
+      const existing = await this.deps.store.list<ActivityEvent>("activity:");
+      if (existing.length > 120) {
+        const stale = existing
+          .sort((a, b) => a.value.timestamp.localeCompare(b.value.timestamp))
+          .slice(0, existing.length - 100);
+        await Promise.all(stale.map((item) => this.deps.store.delete(item.key)));
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot activity persistence failed", error: error instanceof Error ? error.message : String(error) }));
+    }
+    try {
+      await this.deps.audit?.(type, { environment, ...details });
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error instanceof Error ? error.message : String(error) }));
+    }
+    return event;
+  }
+
+  async getActivity(environment?: TradingEnvironment, limit = 12): Promise<ActivityEvent[]> {
+    try {
+      const entries = await this.deps.store.list<ActivityEvent>("activity:");
+      return entries
+        .map((item) => item.value)
+        .filter((event) => !environment || event.environment === environment)
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+        .slice(0, Math.max(1, Math.min(limit, 50)));
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot activity read failed", error: error instanceof Error ? error.message : String(error) }));
+      return [];
+    }
+  }
+
   async searchInstruments(environment: TradingEnvironment, query: string, limit = 20) {
     if (!credentialStatus(this.deps.config)[environment]) return [];
     const q = query.trim().toUpperCase();
@@ -174,13 +244,14 @@ export class TradingService {
         account: null,
         positions: [],
         orders: [],
+        activity: await this.getActivity(environment),
         timestamp: new Date().toISOString(),
         warning: `${environment.toUpperCase()} credentials are not configured`,
       };
     }
     const client = this.client(environment);
-    const [account, positions, orders] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders()]);
-    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders, timestamp: new Date().toISOString() };
+    const [account, positions, orders, activity] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders(), this.getActivity(environment)]);
+    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders, activity, timestamp: new Date().toISOString() };
   }
 
   async getTradePlan(environment: TradingEnvironment, candidates: TradeCandidate[]): Promise<TradePlanPayload> {
@@ -214,6 +285,7 @@ export class TradingService {
     if (!credentials[intent.environment]) throw new Error(`${intent.environment.toUpperCase()} credentials are not configured`);
 
     const client = this.client(intent.environment);
+    const fetchedAt = new Date().toISOString();
     const [instruments, positions, account] = await Promise.all([
       this.instruments(intent.environment),
       client.getPositions(),
@@ -228,6 +300,7 @@ export class TradingService {
     let requestedNotionalCurrency: string | undefined;
     let estimatedQuoteNotional: number | undefined;
     let referencePrice = intent.referencePrice;
+    let referencePriceAt = intent.referencePriceAt;
 
     if (sizing.mode === "quantity") {
       positiveNumber("quantity", sizing.quantity);
@@ -244,6 +317,7 @@ export class TradingService {
         ?? (intent.type === "stop" ? intent.stopPrice : undefined)
         ?? position?.currentPrice;
       positiveNumber("referencePrice", pricingReference);
+      if (referencePrice === undefined && position?.currentPrice === pricingReference) referencePriceAt = fetchedAt;
       referencePrice ??= pricingReference;
       const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
       const instrumentCurrency = instrument.currencyCode.toUpperCase();
@@ -269,6 +343,7 @@ export class TradingService {
       if (quantity <= 0) throw new Error("The requested position percentage is too small to produce a tradable quantity");
       if (quantity > available + Number.EPSILON)
         throw new Error(`Selling ${sizing.percent}% of the held position requires ${quantity} share(s), but only ${available} are currently tradable. Use an exact quantity or all_available.`);
+      if (referencePrice === undefined && position?.currentPrice !== undefined) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
     } else if (sizing.mode === "all_available") {
@@ -276,6 +351,7 @@ export class TradingService {
       const available = position?.quantityAvailableForTrading ?? 0;
       if (available <= 0) throw new Error(`There is no tradable ${instrument.ticker} position to sell`);
       quantity = available;
+      if (referencePrice === undefined && position?.currentPrice !== undefined) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell all currently tradable shares: ${quantity}.`;
     } else {
@@ -285,6 +361,7 @@ export class TradingService {
         ?? (intent.type === "stop" ? intent.stopPrice : undefined)
         ?? position?.currentPrice;
       positiveNumber("referencePrice", pricingReference);
+      if (referencePrice === undefined && position?.currentPrice === pricingReference) referencePriceAt = fetchedAt;
       referencePrice ??= pricingReference;
 
       const requestedCurrency = (sizing.currency || instrument.currencyCode).trim().toUpperCase();
@@ -315,6 +392,8 @@ export class TradingService {
       ...(intent.limitPrice === undefined ? {} : { limitPrice: intent.limitPrice }),
       ...(intent.stopPrice === undefined ? {} : { stopPrice: intent.stopPrice }),
       ...(referencePrice === undefined ? {} : { referencePrice }),
+      ...(referencePriceAt ? { referencePriceAt } : {}),
+      ...(intent.fxRateAt ? { fxRateAt: intent.fxRateAt } : {}),
     };
 
     // Validate what can be validated now. This remains read-only; no order is submitted.
@@ -349,22 +428,46 @@ export class TradingService {
     return { token, expiresAt: new Date(expiresAt).toISOString() };
   }
 
+  private async createVerificationRecord(record: VerificationRecord): Promise<string | undefined> {
+    const verificationId = randomToken(20);
+    try {
+      await this.deps.store.put(`verify:${verificationId}`, record, Date.now() + VERIFICATION_TTL_MS);
+      return verificationId;
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot verification persistence failed", error: error instanceof Error ? error.message : String(error) }));
+      return undefined;
+    }
+  }
+
   async prepareOrder(raw: OrderDraft): Promise<OrderPreview> {
     const draft = { ...raw, ticker: raw.ticker.trim() };
     const current = await this.current(draft);
-    const warnings: string[] = [];
-    if (draft.environment === "live") warnings.push("LIVE: this uses real money when you confirm.");
+    const snapshotAt = new Date().toISOString();
+    const notices: OrderNotice[] = [];
+    if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === undefined) {
-      warnings.push("No reference price was supplied, so the app cannot estimate the order amount before submission. Trading 212 remains the final funds check.");
+      notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
     } else if (!current.cashCheckApplied && draft.side === "buy") {
-      warnings.push(`The instrument is priced in ${current.estimatedNotionalCurrency} while the account cash is ${current.accountCurrency ?? "another currency"}. The app-level notional cap was applied; Trading 212 remains the final funds check.`);
+      notices.push({
+        code: "CROSS_CURRENCY_FUNDS_CHECK",
+        message: "The account and instrument use different currencies, so Trading 212 remains the final funds check.",
+        details: { instrumentCurrency: current.estimatedNotionalCurrency, accountCurrency: current.accountCurrency ?? "" },
+      });
+      const fxAgeSeconds = dateAgeSeconds(draft.fxRateAt);
+      if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
-    if (draft.type === "market") warnings.push("Market orders can execute away from the reference price because of slippage.");
+    if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (draft.referencePrice !== undefined) {
+      const ageSeconds = dateAgeSeconds(draft.referencePriceAt);
+      if (ageSeconds === undefined) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });
+      else if (ageSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "REFERENCE_PRICE_STALE", message: "The reference price may be stale.", details: { ageSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
+    }
     const confirmation = await this.issue({ kind: "order", draft });
-    await this.deps.audit?.("order_prepared", { environment: draft.environment, ticker: draft.ticker, expiresAt: confirmation.expiresAt });
+    await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
       kind: "order_preview",
       ...confirmation,
+      snapshotAt,
       draft,
       instrument: current.instrument,
       ...(current.estimatedNotional === undefined ? {} : { estimatedNotional: current.estimatedNotional }),
@@ -372,43 +475,104 @@ export class TradingService {
       ...(current.accountCurrency ? { accountCurrency: current.accountCurrency } : {}),
       ...(current.availableCash === undefined ? {} : { availableCash: current.availableCash }),
       ...(current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {}),
-      warnings,
+      notices,
+      warnings: notices.map((notice) => notice.message),
     };
   }
 
-  async executeOrder(token: string): Promise<OrderExecutionResult> {
-    const pending = await this.deps.store.consume<Pending>(`confirm:${token}`);
-    if (!pending || pending.kind !== "order") throw new Error("Confirmation token is invalid or expired");
+  async executeOrder(confirmationId: string): Promise<OrderExecutionResult> {
+    const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const draft = pending.draft;
+    let baselineQuantity = 0;
     try {
-      await this.current(draft);
+      const current = await this.current(draft);
+      baselineQuantity = current.position?.quantity ?? 0;
       const order = await this.client(draft.environment).placeOrder(draft);
-      await this.deps.audit?.("order_submitted", { environment: draft.environment, ticker: draft.ticker });
+      await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
       return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
     } catch (error) {
-      const unknown = error instanceof ExecutionStatusUnknownError;
-      await this.deps.audit?.(unknown ? "order_status_unknown" : "order_rejected", { environment: draft.environment, ticker: draft.ticker });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: unknown ? "unknown" : "rejected", message: error instanceof Error ? error.message : String(error) };
+      if (error instanceof ExecutionStatusUnknownError) {
+        const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString() });
+        await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
+        return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), error: asStructuredError(error), message: error.message };
+      }
+      await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async prepareCancel(environment: TradingEnvironment, orderId: string): Promise<CancelPreview> {
     const id = orderId.trim();
-    if (!id) throw new Error("orderId is required");
+    if (!id) fail("INVALID_INPUT", "orderId is required", { field: "orderId" });
     await this.client(environment).getOrder(id);
-    return { kind: "cancel_preview", ...(await this.issue({ kind: "cancel", environment, orderId: id })), environment, orderId: id };
+    const preview = { kind: "cancel_preview" as const, ...(await this.issue({ kind: "cancel", environment, orderId: id })), environment, orderId: id };
+    await this.recordActivity("cancel_prepared", environment, { orderId: id });
+    return preview;
   }
 
-  async executeCancel(token: string): Promise<OrderExecutionResult> {
-    const pending = await this.deps.store.consume<Pending>(`confirm:${token}`);
-    if (!pending || pending.kind !== "cancel") throw new Error("Confirmation token is invalid or expired");
+  async executeCancel(confirmationId: string): Promise<OrderExecutionResult> {
+    const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== "cancel") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     try {
       const order = await this.client(pending.environment).cancelOrder(pending.orderId);
-      await this.deps.audit?.("order_cancelled", { environment: pending.environment, orderId: pending.orderId });
-      return { kind: "order_execution", environment: pending.environment, ok: true, status: "submitted", order, message: `${pending.environment.toUpperCase()} cancel submitted` };
+      await this.recordActivity("cancel_submitted", pending.environment, { orderId: pending.orderId });
+      return { kind: "order_execution", environment: pending.environment, ok: true, status: "submitted", order, message: `${pending.environment.toUpperCase()} cancellation submitted` };
     } catch (error) {
-      const unknown = error instanceof ExecutionStatusUnknownError;
-      return { kind: "order_execution", environment: pending.environment, ok: false, status: unknown ? "unknown" : "rejected", message: error instanceof Error ? error.message : String(error) };
+      if (error instanceof ExecutionStatusUnknownError) {
+        const verificationId = await this.createVerificationRecord({ kind: "cancel", environment: pending.environment, orderId: pending.orderId, createdAt: new Date().toISOString() });
+        await this.recordActivity("cancel_status_unknown", pending.environment, { orderId: pending.orderId, outcome: "unknown" });
+        return { kind: "order_execution", environment: pending.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), error: asStructuredError(error), message: error.message };
+      }
+      await this.recordActivity("cancel_rejected", pending.environment, { orderId: pending.orderId });
+      return { kind: "order_execution", environment: pending.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
     }
   }
+
+  async verifyExecution(verificationId: string): Promise<ExecutionVerificationResult> {
+    const record = await this.deps.store.get<VerificationRecord>(`verify:${verificationId}`);
+    if (!record) fail("VERIFICATION_NOT_FOUND", "Verification record is missing or expired", { verificationId });
+    const checkedAt = new Date().toISOString();
+    const client = this.client(record.environment);
+    let result: ExecutionVerificationResult;
+
+    if (record.kind === "order") {
+      const [orders, positions] = await Promise.all([client.getOrders(), client.getPositions()]);
+      const recordTime = Date.parse(record.createdAt);
+      const pendingMatch = orders.find((order) => {
+        if ((order.ticker ?? "").toUpperCase() !== record.draft.ticker.toUpperCase()) return false;
+        const quantity = orderQuantity(order);
+        if (quantity === undefined || !closeQuantity(quantity, record.draft.quantity)) return false;
+        if (order.type && String(order.type).replaceAll("-", "_").toUpperCase() !== record.draft.type.toUpperCase()) return false;
+        if (order.createdAt && Number.isFinite(recordTime)) {
+          const orderTime = Date.parse(order.createdAt);
+          if (Number.isFinite(orderTime) && orderTime < recordTime - 60_000) return false;
+        }
+        return true;
+      });
+      const currentQuantity = this.positionFor(positions, record.draft.ticker)?.quantity ?? 0;
+      const positionDelta = currentQuantity - record.baselineQuantity;
+      const expectedMovement = record.draft.side === "buy" ? positionDelta : -positionDelta;
+      if (pendingMatch) {
+        result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "confirmed_pending", checkedAt, ticker: record.draft.ticker, positionDelta, message: "A matching pending order is visible in Trading 212. Do not resubmit it." };
+      } else if (record.draft.type === "market" && expectedMovement >= record.draft.quantity - Math.max(1e-8, record.draft.quantity * 1e-6)) {
+        result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "likely_executed", checkedAt, ticker: record.draft.ticker, positionDelta, message: "The position moved in the expected direction by the requested size. The market order was likely executed; verify broker activity before any retry." };
+      } else {
+        result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "no_evidence", checkedAt, ticker: record.draft.ticker, positionDelta, message: "No matching pending order or conclusive position change is visible yet. Do not retry automatically; verify Trading 212 activity first." };
+      }
+    } else {
+      try {
+        await client.getOrder(record.orderId);
+        result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "cancel", status: "still_pending", checkedAt, orderId: record.orderId, message: "The order is still visible. Refresh Trading 212 before deciding whether to retry the cancellation." };
+      } catch (error) {
+        if (error instanceof Trading212ApiError && error.status === 404) {
+          result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "cancel", status: "no_longer_pending", checkedAt, orderId: record.orderId, message: "The order is no longer visible as pending. The cancellation may have completed or the order may have filled; check broker activity for the final outcome." };
+        } else throw error;
+      }
+    }
+
+    await this.recordActivity("order_verification", record.environment, { ...(record.kind === "order" ? { ticker: record.draft.ticker } : { orderId: record.orderId }), outcome: result.status });
+    return result;
+  }
+
 }

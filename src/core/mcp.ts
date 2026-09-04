@@ -9,6 +9,7 @@ import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { TradingService } from "./trading-service.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
+import { asStructuredError } from "./errors.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -20,11 +21,11 @@ function result(data: unknown, text: string) {
 }
 
 function toolError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const structured = asStructuredError(error);
   return {
     isError: true,
-    content: [{ type: "text" as const, text: message }],
-    structuredContent: { kind: "error", message },
+    content: [{ type: "text" as const, text: structured.message }],
+    structuredContent: { kind: "error", message: structured.message, error: structured },
   };
 }
 
@@ -40,6 +41,13 @@ const candidateSchema = z.object({
   risk: z.enum(["low", "medium", "high"]),
   suggestedQuantity: z.number().positive().optional(),
   referencePrice: z.number().positive().optional(),
+  referencePriceAt: z.string().datetime().optional(),
+  analysisAsOf: z.string().datetime().optional(),
+  thesis: z.string().min(1).max(3000).optional(),
+  catalysts: z.array(z.string().min(1).max(500)).max(12).optional(),
+  risks: z.array(z.string().min(1).max(500)).max(12).optional(),
+  counterCase: z.string().min(1).max(3000).optional(),
+  sources: z.array(z.string().min(1).max(500)).max(12).optional(),
 });
 
 const orderDraftSchema = z.object({
@@ -53,6 +61,8 @@ const orderDraftSchema = z.object({
   limitPrice: z.number().positive().optional(),
   stopPrice: z.number().positive().optional(),
   referencePrice: z.number().positive().optional(),
+  referencePriceAt: z.string().datetime().optional(),
+  fxRateAt: z.string().datetime().optional(),
 });
 
 const orderSizingSchema = z.discriminatedUnion("mode", [
@@ -150,11 +160,34 @@ export function createMcpServer(
 
   registerAppTool(
     server,
+    "get_recent_trading_activity",
+    {
+      title: "Recent Trading Activity",
+      description: "Read recent TradePilot order/cancellation lifecycle events for the selected environment. This is an audit trail only and never submits or changes an order.",
+      inputSchema: {
+        environment: environmentWithDefault,
+        limit: z.number().int().min(1).max(50).default(12),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {},
+    },
+    async ({ environment, limit }) => {
+      try {
+        const activity = await trading.getActivity(environment, limit);
+        return result({ environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "show_daily_trade_plan",
     {
       title: "Trading 212 Daily Trade Plan",
       description:
-        "Render stock candidates already researched by ChatGPT as actionable short (<=1 week), medium (<=1 month), and long (>=1 year) cards. This tool never places orders. Include a current referencePrice for actionable Market-order candidates whenever possible, especially when the app-level notional cap is enabled.",
+        "Render supplied stock candidates as actionable short (<=1 week), medium (<=1 month), and long (>=1 year) cards. This tool never places orders. Include a current referencePrice for actionable Market-order candidates whenever possible, especially when the app-level notional cap is enabled.",
       inputSchema: {
         environment: environmentWithDefault,
         candidates: z.array(candidateSchema).min(1).max(30),
@@ -167,7 +200,7 @@ export function createMcpServer(
         const data = { ...(await trading.getTradePlan(environment, candidates as TradeCandidate[])), writeEnabled: canWrite };
         return result(
           data,
-          `Rendered ${candidates.length} researched candidates. No trade has been placed; execution is only available after explicit user confirmation in the widget.`,
+          `Rendered ${candidates.length} candidates. No trade has been placed; execution is only available after explicit user confirmation in the widget.`,
         );
       } catch (error) {
         return toolError(error);
@@ -194,6 +227,8 @@ export function createMcpServer(
           limitPrice: z.number().positive().optional(),
           stopPrice: z.number().positive().optional(),
           referencePrice: z.number().positive().optional(),
+          referencePriceAt: z.string().datetime().optional(),
+          fxRateAt: z.string().datetime().optional(),
         },
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -208,6 +243,7 @@ export function createMcpServer(
               resolvedInstrument: resolved.instrument,
               resolution: {
                 sizing: resolved.sizing,
+                resolvedQuantity: resolved.draft.quantity,
                 ...(resolved.accountCurrency ? { accountCurrency: resolved.accountCurrency } : {}),
                 ...(resolved.heldQuantity === undefined ? {} : { heldQuantity: resolved.heldQuantity }),
                 ...(resolved.availableToSell === undefined ? {} : { availableToSell: resolved.availableToSell }),
@@ -322,6 +358,26 @@ export function createMcpServer(
       async ({ token }) => {
         try {
           const data = await trading.executeOrder(token);
+          return result(data, data.message);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_verify_unknown_execution",
+      {
+        title: "Verify uncertain execution",
+        description: "App-only read-back verification after an ambiguous write result. This never retries the original order or cancellation.",
+        inputSchema: { verificationId: z.string().min(1) },
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ verificationId }) => {
+        try {
+          const data = await trading.verifyExecution(verificationId);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

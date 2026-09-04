@@ -1,43 +1,59 @@
 # TradePilot 212
 
-[中文](./README.zh-CN.md) · English
+[简体中文](./README.zh-CN.md) · English
 
-Self-hosted Trading 212 MCP / ChatGPT App for **one user per deployment**. It gives ChatGPT a clean Demo/Live portfolio UI and lets the user review orders with explicit human confirmation.
+TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
 
-> **You own the server and the credentials.** Each person deploys their own instance and uses their own Trading 212 API keys. This project is not a shared brokerage SaaS.
+Each deployment belongs to one user. Your Trading 212 credentials stay in your own environment; the repository owner does not run a shared brokerage backend.
 
-## Highlights
+## Design goals
 
-- Trading 212 Invest account, positions and pending orders
-- DEMO / LIVE switching with separate credentials
-- Short / medium / long trade-plan cards for ChatGPT
-- Human review before every order or cancellation
-- No automatic retry for Trading 212 write requests
-- OAuth + PKCE for the ChatGPT connection
-- Responsive ChatGPT App UI with inline/fullscreen layouts
-- English + Simplified Chinese, with an extensible locale registry
-- One core codebase for Node.js, Docker/VPS and Cloudflare Workers
-- Cloudflare Durable Object state for atomic one-time confirmation tokens
+- **ChatGPT-first workflow** — use symbols, company names, amounts, percentages, or exact quantities in normal conversation.
+- **Explicit execution boundary** — analysis and order preparation are read-only; a broker write happens only after confirmation in the app UI.
+- **Self-hosted by default** — Cloudflare Workers is the recommended hosted path; Node.js and Docker/VPS are also supported.
+- **Small runtime surface** — the Worker handles account access, instrument resolution, validation, state, and execution. Research and scheduling stay outside the broker bridge.
+- **Recoverable failures** — ambiguous write outcomes are never retried automatically and can be checked against current broker state.
+- **Portable UI** — responsive inline/fullscreen layouts, English and Simplified Chinese, with an extensible locale registry.
 
-## Recommended setup: Cloudflare Workers
+## What is included
 
-This is the easiest self-hosted path. For normal personal use it is designed to work on the Cloudflare Workers Free plan, so you do not need a VPS or a domain.
+- Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
+- separate Demo and Live credentials and UI states
+- short / medium / long trade-plan cards
+- expandable thesis, catalysts, risks, counter-case, sources, and data timestamps
+- ticker, symbol, company-name, and partial-name resolution
+- order sizing by:
+  - exact quantity
+  - target monetary amount
+  - percentage of available cash for buys
+  - percentage of the total held position for sells
+  - all currently tradable shares for sells
+- Market, Limit, Stop, and Stop-Limit order drafts
+- transparent intent-to-quantity conversion with manual-edit indication
+- reference-price freshness notices
+- structured errors rendered in the selected UI language
+- one-time confirmation state and no automatic write retries
+- read-back verification after an uncertain order/cancellation response
+- OAuth + PKCE for the MCP connection
+- Cloudflare Durable Objects or local file-backed state through the same `StateStore` contract
 
-### 1. Requirements
+## Requirements
 
 - Node.js 22+
 - pnpm 11+
-- A free Cloudflare account
-- A Trading 212 Invest account with Public API access
-- ChatGPT with custom Apps / MCP support
+- a Trading 212 Invest account with Public API access
+- a Cloudflare account for the recommended hosted deployment
+- a ChatGPT plan/client that supports custom Apps / MCP connections
 
-If pnpm is not installed:
+Install pnpm if needed:
 
 ```bash
 npm install -g pnpm@11
 ```
 
-### 2. Clone and install
+## Setup
+
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/Kukutx/TradePilot212.git
@@ -45,18 +61,15 @@ cd TradePilot212
 pnpm install
 ```
 
-### 3. Create your private config
+### 2. Create local configuration
 
 ```bash
 pnpm setup
 ```
 
-This creates `.env.local` and automatically generates strong values for:
+`pnpm setup` creates `.env.local` if it does not already exist and generates strong local values for the OAuth login password and signing secret.
 
-- `APP_LOGIN_PASSWORD`
-- `AUTH_SIGNING_SECRET`
-
-Now open `.env.local` and paste your Trading 212 credentials.
+Open `.env.local` and add the Trading 212 environments you intend to use:
 
 ```env
 T212_DEMO_API_KEY=
@@ -66,124 +79,126 @@ T212_LIVE_API_KEY=
 T212_LIVE_API_SECRET=
 ```
 
-You may configure only Demo, only Live, or both.
+Demo and Live use separate Trading 212 credentials. Configure either one or both.
 
-Optional personal defaults:
-
-```env
-DEFAULT_TRADING_ENV=demo
-MAX_ORDER_NOTIONAL=5000
-MAX_ORDER_QUANTITY=100000
-```
-
-`DEFAULT_TRADING_ENV` is used only when you do not explicitly say Demo or Live. Set either `MAX_ORDER_*` value to `0` to disable that app-level cap; broker/account limits and final human confirmation still apply.
-
-### 4. Get Trading 212 API credentials
-
-Official guide:
+Trading 212 API documentation:
 
 - https://helpcentre.trading212.com/hc/en-us/articles/14584770928157-Trading-212-API-key
 - https://docs.trading212.com/
 
-In Trading 212, go to **Settings → API (Beta) → Generate API key**. Demo and Live use separate credentials, so create each environment you want to use.
+For portfolio-only use, read permissions are sufficient. Order review/execution requires the corresponding order permissions on the Trading 212 API key.
 
-For dashboard-only use, read permissions are enough. For the order buttons, also enable the permissions needed to create/cancel orders.
-
-Never commit or share the API key/secret.
-
-### 5. Verify everything before deployment
+### 3. Check the configuration
 
 ```bash
 pnpm doctor
 ```
 
-This performs safe read-only checks and tells you whether Demo/Live can connect. It does not place an order.
+This checks the runtime, local OAuth configuration, and Trading 212 connectivity with read-only requests. It does not place an order.
 
-### 6. Deploy
+### 4. Deploy a personal Worker
 
 ```bash
 pnpm deploy
 ```
 
-The script will:
+The deployment command:
 
-1. run the project checks,
-2. open Cloudflare login if needed,
-3. upload your private values as Worker secrets,
-4. deploy the Worker,
-5. print your public App and MCP URLs.
+1. validates the local configuration and project,
+2. opens Cloudflare authentication when required,
+3. synchronizes the instance settings through Worker Secrets,
+4. builds the app,
+5. deploys the Worker,
+6. prints the App and MCP endpoints.
 
-Example:
+Typical output:
 
 ```text
 App: https://tradepilot212.<your-subdomain>.workers.dev
 MCP: https://tradepilot212.<your-subdomain>.workers.dev/mcp
 ```
 
-To validate deployment without publishing:
+Check the deployment without publishing it:
 
 ```bash
 pnpm deploy -- --dry-run
 ```
 
-To use a different Worker name:
+Use a different Worker name:
 
 ```bash
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 7. Connect it to ChatGPT
+### 5. Connect ChatGPT
 
-In ChatGPT:
+In ChatGPT, open the Apps settings and create a custom MCP connection. Use the `/mcp` URL printed by the deployment command.
 
-1. Open **Settings → Apps**.
-2. Enable **Developer mode / Advanced settings** if needed.
-3. Create a custom App / MCP connection.
-4. Name it `TradePilot 212`.
-5. Use the MCP URL printed by `pnpm deploy`.
-6. Connect.
-7. On the TradePilot authorization page, enter the `APP_LOGIN_PASSWORD` stored in `.env.local`.
+The OAuth page asks for the `APP_LOGIN_PASSWORD` stored in your own `.env.local`. Do not paste Trading 212 API credentials into ChatGPT.
 
-Then try:
+After the connection is established, normal prompts can be simple:
 
 ```text
-Open my Trading 212 Demo portfolio.
+Show my Trading 212 Live portfolio.
+Analyze Nvidia in the context of my current positions.
+Compare AMD, Nvidia, and Broadcom for a one-month horizon.
+Prepare a Demo order for 0.2 shares of NVDA.
+Use about €100 to buy Nvidia in Live.
+Sell half of my Apple position.
+Sell all currently tradable Apple shares.
+Prepare a 220 USD limit buy for 0.5 NVDA. Do not submit it.
 ```
 
-or:
+TradePilot resolves and normalizes the request into an editable quantity-based order. The broker write still requires the final confirmation in the UI.
+
+## Order flow
 
 ```text
-Open my Trading 212 Live portfolio.
+User request
+  ↓
+Instrument resolution + account/position read
+  ↓
+Sizing and editable order draft
+  ↓
+Server validation + data freshness notices
+  ↓
+Short-lived one-time confirmation
+  ↓
+Explicit user confirmation
+  ↓
+Trading 212 write
 ```
 
-**LIVE uses real funds.** TradePilot intentionally keeps final execution behind a separate confirmation action.
+If a write times out or returns an ambiguous server error, TradePilot does **not** resend it. The UI offers a read-only status check that looks for a matching pending order or a corresponding position change. An inconclusive result remains inconclusive; it is never converted into an automatic retry.
 
-## Use it entirely from ChatGPT
+See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 
-After connecting TradePilot, ChatGPT can be your normal interface. You do not need to memorize Trading 212 tickers or open a separate trading UI for routine use.
+## Scheduling and market research
 
-Examples:
+TradePilot intentionally does not contain a stock-research scheduler, news crawler, or autonomous trading loop.
 
-```text
-Analyze Nvidia and compare it with my current portfolio.
-Is Apple worth buying for 1 week / 1 month / 1+ year?
-Buy 0.2 shares of NVDA in Demo.
-Buy about €100 of Nvidia in Live.
-Use 20% of my available cash to buy Apple.
-Sell half of my Nvidia position.
-Sell all available Apple shares.
-Place a 220 USD limit buy for 0.5 NVDA.
-Prepare the order only; do not submit it.
+A scheduled ChatGPT task can perform market research, read the portfolio through TradePilot, and render a trade plan. Execution remains a separate interactive action.
+
+See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
+
+## Configuration
+
+Common instance settings:
+
+```env
+DEFAULT_TRADING_ENV=demo
+MAX_ORDER_NOTIONAL=5000
+MAX_ORDER_QUANTITY=100000
+CONFIRMATION_TTL_SECONDS=90
 ```
 
-TradePilot resolves symbols/company names to the broker ticker, reads the current account/position when sizing depends on it, converts flexible sizing into an editable standard quantity order, and then shows the normal two-step confirmation UI. Amount-based orders may require ChatGPT to supply a current reference price and, when currencies differ, a current FX rate.
+`DEFAULT_TRADING_ENV` applies only when a request does not explicitly select Demo or Live.
 
-The intended boundary is simple: **natural-language input stays flexible; actual execution stays explicit and strict.**
-
+Set `MAX_ORDER_NOTIONAL=0` or `MAX_ORDER_QUANTITY=0` to disable the corresponding TradePilot application-level cap. Trading 212 account/instrument rules and explicit confirmation still apply.
 
 ## Local development
 
-### Node.js
+Node development server:
 
 ```bash
 pnpm setup
@@ -192,23 +207,21 @@ pnpm doctor
 pnpm dev
 ```
 
-Local endpoint:
+Local MCP endpoint:
 
 ```text
 http://localhost:8000/mcp
 ```
 
-### Local Node + temporary public URL
-
-For development/testing with ChatGPT:
+For temporary ChatGPT testing from a local Node process:
 
 ```bash
 pnpm dev:chatgpt
 ```
 
-This uses a Cloudflare Quick Tunnel. The temporary URL can change when restarted, so use the Worker deployment for normal always-online use.
+This uses a Cloudflare Quick Tunnel. The URL is temporary; use a normal Worker deployment for a stable personal endpoint.
 
-### Local Cloudflare runtime
+Local Cloudflare runtime:
 
 ```bash
 cp .dev.vars.example .dev.vars
@@ -216,90 +229,89 @@ cp .dev.vars.example .dev.vars
 pnpm dev:cloudflare
 ```
 
-## Useful commands
+## Validation
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm setup` | Create `.env.local` and generate strong OAuth secrets |
-| `pnpm doctor` | Safe read-only environment + Trading 212 connectivity check |
-| `pnpm dev` | Run the Node development server |
-| `pnpm dev:chatgpt` | Node + temporary Cloudflare tunnel |
-| `pnpm dev:cloudflare` | Run with the local Workers runtime |
-| `pnpm deploy` | Validate, sync secrets and deploy your personal Worker |
-| `pnpm check` | Types + tests + production builds |
-| `pnpm smoke` | OAuth + PKCE + MCP smoke test |
-| `pnpm release:check` | Check publishable files for accidental local credential leakage |
-
-## Security model
-
-TradePilot is intentionally **single-user / single-instance**:
-
-```text
-Your ChatGPT
-    ↓
-Your TradePilot Worker
-    ↓
-Your Trading 212 API keys
-    ↓
-Your Trading 212 account
+```bash
+pnpm check
+pnpm smoke
+pnpm audit --prod
+pnpm release:check
+pnpm deploy -- --dry-run
 ```
 
-A second user should deploy a second Worker with their own credentials.
-
-Important safeguards:
-
-- secrets stay in `.env.local` locally and Cloudflare Worker secrets online,
-- `.env.local`, `.dev.vars` and runtime state are ignored by Git,
-- order/cancel confirmation tokens are short-lived and one-time,
-- writes are never automatically retried when execution status is uncertain,
-- Live is clearly separated from Demo,
-- server-side quantity/notional checks run before submission.
-
-See [SECURITY.md](./SECURITY.md) for details.
-
-More: [Flexible ordering](./docs/ORDERING.md) · [ChatGPT automation](./docs/AUTOMATION.md)
-
-## Internationalization
-
-The UI currently includes:
-
-- English (`en`)
-- Simplified Chinese (`zh-CN`)
-
-The ChatGPT widget follows the host locale by default and also has a manual language switch. The OAuth page supports the same languages.
-
-Adding another language does not require changing trading logic. See [docs/I18N.md](./docs/I18N.md).
+The repository CI runs type checking, tests, production builds, dependency audit, release-safety checks, and a Wrangler deployment dry run.
 
 ## Architecture
 
 ```text
-src/
-├─ adapters/
-│  ├─ node/            # Local / VPS / Docker
-│  └─ cloudflare/      # Workers + Durable Object + Static Assets
-├─ app/                # Shared HTTP / MCP application
-├─ core/               # OAuth, MCP, Trading 212, risk rules, state interfaces
-├─ shared/             # Contracts and app metadata
-└─ ui/
-   ├─ i18n/            # Locale dictionaries
-   ├─ App.tsx          # ChatGPT App UI
-   └─ styles.css
+ChatGPT / MCP host
+        │
+        ▼
+  Hono + OAuth/PKCE
+        │
+        ▼
+ TradingService ───── Trading212Client
+        │                   │
+        │                   ▼
+        │              Trading 212
+        ▼
+    StateStore
+     ├─ file-backed state (Node)
+     └─ Durable Object / SQLite (Workers)
+
+React App UI ← MCP App resource
 ```
 
-Runtime-specific code stays in adapters; business and safety logic is shared.
+The core does not depend on the Node filesystem or Cloudflare APIs. Runtime-specific concerns live under `src/adapters/`.
 
-## Documentation
+More detail: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
-- [Chinese setup guide](./README.zh-CN.md)
-- [Internationalization](./docs/I18N.md)
-- [Publishing / self-host model](./docs/PUBLISHING.md)
-- [Security](./SECURITY.md)
-- [Contributing](./CONTRIBUTING.md)
+## Self-hosting model
 
-## Disclaimer
+```text
+User A → User A's ChatGPT → User A's Worker → User A's Trading 212 credentials
+User B → User B's ChatGPT → User B's Worker → User B's Trading 212 credentials
+```
 
-This project is a self-hosted software tool, not investment advice. Review all market information and every order yourself. Trading can result in financial loss. Trading 212 API availability, permissions and limits are controlled by Trading 212 and may change.
+Do not publish a personal deployed Worker as a shared endpoint for unrelated users. A multi-user hosted service requires separate identity, credential isolation, and authorization architecture that this repository intentionally does not implement.
+
+See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
+
+## Security notes
+
+- `.env.local`, `.dev.vars`, `.data`, build output, and Wrangler state are excluded from Git.
+- Trading 212 API credentials are deployed as Worker Secrets, not source configuration.
+- Demo and Live credentials are separate.
+- order and cancellation confirmations are short-lived and one-time.
+- write requests are never automatically retried after an ambiguous response.
+- order constraints are revalidated immediately before submission.
+- recent activity stores order metadata only; it does not store API credentials.
+
+Run `pnpm release:check` before publishing changes.
+
+See [SECURITY.md](./SECURITY.md).
+
+## Project layout
+
+```text
+src/
+├─ adapters/
+│  ├─ cloudflare/       Workers + Durable Objects + Static Assets
+│  └─ node/             Node server + file-backed state
+├─ app/                 shared HTTP/MCP application
+├─ core/                OAuth, MCP tools, broker client, trading rules, state
+├─ shared/              runtime-neutral contracts and metadata
+└─ ui/                  React MCP App UI and locale dictionaries
+
+scripts/                 setup, diagnostics, deployment, smoke checks
+docs/                    architecture, ordering, automation, publishing, i18n
+.github/workflows/        CI
+```
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
+
+## Disclaimer
+
+TradePilot 212 is a software integration project, not investment advice. Review market information and every order yourself. Trading 212 controls API availability, permissions, instruments, and broker-side limits, and those may change independently of this repository.

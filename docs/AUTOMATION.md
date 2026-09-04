@@ -1,45 +1,56 @@
-# ChatGPT automation model
+# Scheduled analysis
 
-TradePilot 212 deliberately does **not** embed its own stock-research scheduler or autonomous trading bot.
+TradePilot 212 does not run its own market-research scheduler and does not support unattended broker writes.
 
-The recommended architecture is:
-
-```text
-ChatGPT Automation
-  → market/news/research
-  → read TradePilot portfolio/positions/orders
-  → produce short / medium / long candidates
-  → render the TradePilot plan UI
-  → user decides whether to open an order draft
-  → explicit human confirmation for execution
-```
-
-This keeps responsibilities small and makes self-hosting easier: the Worker is an account/read/execute bridge, while ChatGPT handles language, research and scheduled reasoning.
-
-## Recommended recurring task
-
-Use one daily ChatGPT automation. A good prompt is:
+The intended split is:
 
 ```text
-Create my daily Trading 212 Invest decision brief. First read my current TradePilot 212 portfolio and pending orders. Research current market conditions, material company news, earnings/catalysts and major risks using fresh sources. Reassess existing positions and search for new opportunities. Separate actionable ideas into short (<=1 week), medium (<=1 month) and long (>=1 year). Be selective: it is valid to recommend no trade. For every candidate include buy/sell/watch, a 0-100 score, risk level, concise rationale and a current reference price when actionable. Resolve ambiguous names/tickers through TradePilot and render the final candidates with the TradePilot daily trade-plan UI. Do not place, confirm or automatically execute any order. Keep the output concise and decision-oriented.
+Scheduled ChatGPT task
+  → current market/news/research
+  → read TradePilot portfolio and pending orders
+  → reassess existing positions and new candidates
+  → produce short / medium / long ideas
+  → render the TradePilot trade-plan UI
+
+Interactive session
+  → user chooses an idea
+  → TradePilot prepares an editable order
+  → user confirms the broker write
 ```
 
-## Why execution stays outside the scheduler
+This keeps the self-hosted Worker focused on broker access and makes scheduled runs read-only.
 
-Scheduled research and actual brokerage writes have different risk profiles. Keeping scheduled runs read-only prevents a stale or unattended analysis from turning into a real-money order.
+## Suggested recurring prompt
 
-A user can return to the generated brief and say things such as:
+```text
+Prepare my Trading 212 Invest decision brief. Read the current TradePilot 212 portfolio and pending orders first. Research current market conditions, material company news, earnings or catalysts, and major risks using fresh sources. Reassess existing positions and consider new opportunities. Separate actionable ideas into short (<=1 week), medium (<=1 month), and long (>=1 year). It is valid to recommend no trade. For each candidate provide buy/sell/watch, a 0-100 score, risk level, a concise rationale, the key thesis, catalysts, risks, a counter-case when relevant, source references, analysis timestamp, and a current reference price with its timestamp when actionable. Resolve ambiguous names or tickers through TradePilot and render the final candidates with the TradePilot trade-plan UI. Do not place, confirm, or automatically execute an order. Keep the main brief compact; put supporting detail in the expandable candidate fields.
+```
+
+## Why execution stays interactive
+
+A scheduled analysis can become stale before a market opens or while conditions change. It can also run when the user is not present. Treating the scheduler as read-only prevents an unattended research result from becoming a real-money action.
+
+The user can later open the brief and continue normally:
 
 ```text
 Buy about €100 of the top long-term idea.
-Sell half of the position you marked as Sell.
-Prepare the order in Live.
+Sell half of the position marked Sell.
+Prepare that order in Live.
 ```
 
-TradePilot then resolves and sizes the request and requires the normal confirmation flow.
+TradePilot then resolves the instrument, sizes an editable order, validates it against current broker state, and uses the normal confirmation flow.
 
-## 中文说明
+## Recommended cadence
 
-推荐保持“体验合一、代码分离”：定时分析由 ChatGPT Automation 负责，TradePilot 只负责读取 Trading 212、解析股票、展示交易计划和人工确认后的执行。
+For a primarily US-equity portfolio in Europe, a weekday pre-market brief is a sensible default. The exact schedule belongs to the ChatGPT automation, not the Worker, and can be changed without redeploying TradePilot.
 
-不要把自动选股 cron、新闻抓取和自动下单塞进 Worker。每天的任务可以自动分析和给建议，但**不要自动下单或自动确认真实资金订单**。
+## Boundaries
+
+Keep these behaviors outside the scheduled task:
+
+- order submission;
+- order cancellation;
+- automatic confirmation;
+- automatic retry of a failed or uncertain broker write.
+
+The scheduler may read current account state and render recommendations, but broker writes remain interactive.

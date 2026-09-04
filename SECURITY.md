@@ -30,7 +30,9 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 - Live orders require explicit user confirmation in the UI.
 - Confirmation tokens are short-lived and one-time.
 - Trading 212 write requests are never automatically retried after an ambiguous network/write failure.
+- Unknown write outcomes can be checked through a read-only verification flow; verification never resubmits the original write.
 - The server revalidates order constraints before submission.
+- Recent activity stores order/cancellation metadata only and does not contain API credentials or confirmation secrets.
 - Server-side quantity and notional caps are configurable per self-hosted instance; positive values are enforced before submission. Setting a cap to `0` deliberately disables only that app-level cap.
 
 These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.

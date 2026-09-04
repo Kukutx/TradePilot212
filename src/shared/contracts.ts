@@ -5,6 +5,38 @@ export type TimeValidity = "DAY" | "GOOD_TILL_CANCEL";
 export type Horizon = "short" | "medium" | "long";
 export type CandidateAction = "buy" | "sell" | "watch";
 
+export type TradePilotErrorCode =
+  | "INVALID_INPUT"
+  | "CREDENTIALS_NOT_CONFIGURED"
+  | "INSTRUMENT_NOT_FOUND"
+  | "INSTRUMENT_AMBIGUOUS"
+  | "NO_AVAILABLE_POSITION"
+  | "NO_AVAILABLE_CASH"
+  | "INSUFFICIENT_SELLABLE_QUANTITY"
+  | "INSUFFICIENT_CASH"
+  | "ORDER_NOTIONAL_LIMIT"
+  | "ORDER_QUANTITY_LIMIT"
+  | "REFERENCE_PRICE_REQUIRED"
+  | "UNSUPPORTED_EXTENDED_HOURS"
+  | "CONFIRMATION_EXPIRED"
+  | "VERIFICATION_NOT_FOUND"
+  | "BROKER_RATE_LIMITED"
+  | "BROKER_REQUEST_FAILED"
+  | "EXECUTION_STATUS_UNKNOWN"
+  | "INTERNAL_ERROR";
+
+export interface StructuredError {
+  code: TradePilotErrorCode;
+  message: string;
+  details?: Record<string, string | number | boolean | null>;
+}
+
+export interface ErrorPayload {
+  kind: "error";
+  message: string;
+  error: StructuredError;
+}
+
 export interface CredentialStatus {
   demo: boolean;
   live: boolean;
@@ -65,6 +97,30 @@ export interface PendingOrder {
   [key: string]: unknown;
 }
 
+export type ActivityType =
+  | "order_prepared"
+  | "order_submitted"
+  | "order_rejected"
+  | "order_status_unknown"
+  | "order_verification"
+  | "cancel_prepared"
+  | "cancel_submitted"
+  | "cancel_rejected"
+  | "cancel_status_unknown";
+
+export interface ActivityEvent {
+  id: string;
+  timestamp: string;
+  environment: TradingEnvironment;
+  type: ActivityType;
+  ticker?: string;
+  orderId?: string;
+  side?: OrderSide;
+  orderType?: OrderType;
+  quantity?: number;
+  outcome?: string;
+}
+
 export interface PortfolioSnapshot {
   kind: "portfolio";
   environment: TradingEnvironment;
@@ -73,6 +129,7 @@ export interface PortfolioSnapshot {
   account: AccountSummary | null;
   positions: Position[];
   orders: PendingOrder[];
+  activity?: ActivityEvent[];
   timestamp: string;
   warning?: string;
 }
@@ -88,6 +145,13 @@ export interface TradeCandidate {
   risk: "low" | "medium" | "high";
   suggestedQuantity?: number;
   referencePrice?: number;
+  referencePriceAt?: string;
+  analysisAsOf?: string;
+  thesis?: string;
+  catalysts?: string[];
+  risks?: string[];
+  counterCase?: string;
+  sources?: string[];
 }
 
 export interface EnrichedTradeCandidate extends TradeCandidate {
@@ -118,6 +182,8 @@ export interface OrderDraft {
   limitPrice?: number;
   stopPrice?: number;
   referencePrice?: number;
+  referencePriceAt?: string;
+  fxRateAt?: string;
 }
 
 export type OrderSizing =
@@ -138,6 +204,8 @@ export interface OrderIntent {
   limitPrice?: number;
   stopPrice?: number;
   referencePrice?: number;
+  referencePriceAt?: string;
+  fxRateAt?: string;
 }
 
 export interface ResolvedOrderIntent {
@@ -153,19 +221,47 @@ export interface ResolvedOrderIntent {
   note: string;
 }
 
+export interface OrderResolution {
+  sizing: OrderSizing;
+  resolvedQuantity: number;
+  accountCurrency?: string;
+  heldQuantity?: number;
+  availableToSell?: number;
+  requestedNotional?: number;
+  requestedNotionalCurrency?: string;
+  estimatedQuoteNotional?: number;
+}
+
 export interface OrderDraftPayload {
   kind: "order_draft";
   draft: OrderDraft;
   credentials: CredentialStatus;
   writeEnabled?: boolean;
   resolvedInstrument?: Instrument;
+  resolution?: OrderResolution;
   note?: string;
+}
+
+export type OrderNoticeCode =
+  | "LIVE_FUNDS"
+  | "MARKET_SLIPPAGE"
+  | "REFERENCE_PRICE_STALE"
+  | "REFERENCE_PRICE_TIME_UNKNOWN"
+  | "FX_RATE_STALE"
+  | "CROSS_CURRENCY_FUNDS_CHECK"
+  | "NOTIONAL_ESTIMATE_UNAVAILABLE";
+
+export interface OrderNotice {
+  code: OrderNoticeCode;
+  message: string;
+  details?: Record<string, string | number | boolean | null>;
 }
 
 export interface OrderPreview {
   kind: "order_preview";
   token: string;
   expiresAt: string;
+  snapshotAt: string;
   draft: OrderDraft;
   instrument: Instrument;
   estimatedNotional?: number;
@@ -173,7 +269,8 @@ export interface OrderPreview {
   accountCurrency?: string;
   availableCash?: number;
   availableToSell?: number;
-  warnings: string[];
+  notices: OrderNotice[];
+  warnings?: string[];
 }
 
 export interface OrderExecutionResult {
@@ -182,6 +279,29 @@ export interface OrderExecutionResult {
   ok: boolean;
   status: "submitted" | "unknown" | "rejected";
   order?: unknown;
+  message: string;
+  error?: StructuredError;
+  verificationId?: string;
+}
+
+export type ExecutionVerificationStatus =
+  | "confirmed_pending"
+  | "likely_executed"
+  | "still_pending"
+  | "no_longer_pending"
+  | "no_evidence"
+  | "indeterminate";
+
+export interface ExecutionVerificationResult {
+  kind: "execution_verification";
+  verificationId: string;
+  environment: TradingEnvironment;
+  operation: "order" | "cancel";
+  status: ExecutionVerificationStatus;
+  checkedAt: string;
+  ticker?: string;
+  orderId?: string;
+  positionDelta?: number;
   message: string;
 }
 

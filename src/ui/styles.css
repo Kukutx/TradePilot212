@@ -227,6 +227,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .orderIdentity strong { font-size: 11px; }
 .orderIdentity span { margin-top: 2px; color: var(--tp-muted); font-size: 9px; }
 .orderQuantity { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.activityPanel details > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; font-size: 12px; font-weight: 730; }
+.activityPanel details > summary::-webkit-details-marker { display: none; }
+.activityPanel details > summary b { min-width: 24px; height: 24px; display: grid; place-items: center; padding: 0 6px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 9px; }
+.activityPanel details[open] > summary { margin-bottom: 12px; }
+.activityList { display: grid; }
+.activityRow { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 9px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--tp-border); }
+.activityRow:first-child { border-top: 0; }
+.activityDot { width: 7px; height: 7px; border-radius: 50%; background: var(--tp-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tp-green) 10%, transparent); }
+.activityDot.warning { background: var(--tp-amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tp-amber) 10%, transparent); }
+.activityRow strong, .activityRow small { display: block; }
+.activityRow strong { font-size: 10px; }
+.activityRow small { margin-top: 2px; color: var(--tp-muted); font-size: 8px; }
+.activityRow time { color: var(--tp-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
 
 .horizonTabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-bottom: 15px; }
 .horizonTabs button { position: relative; min-width: 0; min-height: 58px; padding: 9px 34px 9px 11px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg); color: var(--tp-muted); text-align: left; }
@@ -259,6 +272,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .inlineError { margin-top: 8px; padding: 7px 8px; border-radius: 9px; background: var(--tp-red-soft); color: var(--tp-red); font-size: 9px; line-height: 1.35; }
 .candidateHolding { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; color: var(--tp-muted); font-size: 9px; }
 .candidateHolding strong { color: var(--tp-text); }
+.candidateDetails { margin-top: 10px; border-top: 1px solid var(--tp-border); padding-top: 9px; }
+.candidateDetails summary { width: fit-content; color: var(--tp-muted); font-size: 9px; font-weight: 700; cursor: pointer; user-select: none; }
+.candidateDetails summary:hover { color: var(--tp-text); }
+.candidateDetailBody { display: grid; gap: 11px; margin-top: 10px; padding: 11px; border-radius: 11px; background: var(--tp-bg-soft); }
+.candidateDetailBody section { min-width: 0; }
+.candidateDetailBody h3 { margin: 0 0 5px; font-size: 9px; letter-spacing: .02em; }
+.candidateDetailBody p { margin: 0; color: var(--tp-muted); font-size: 9px; line-height: 1.5; }
+.candidateDetailBody ul { margin: 0; padding-left: 16px; color: var(--tp-muted); font-size: 9px; line-height: 1.5; }
+.candidateFreshness { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 7px; border-top: 1px solid var(--tp-border); color: var(--tp-muted); font-size: 8px; }
 .tradeButton { width: 100%; min-height: 38px; margin-top: auto; padding: 0 12px; border-radius: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; font-weight: 760; }
 .tradeButton .icon { width: 14px; }
 .tradeButton.buy { background: #18241e; color: #fff; }
@@ -270,6 +292,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .notice.warning { background: var(--tp-amber-soft); border-color: color-mix(in srgb, var(--tp-amber) 18%, transparent); color: #79500e; }
 .notice.error { background: var(--tp-red-soft); border-color: color-mix(in srgb, var(--tp-red) 18%, transparent); color: var(--tp-red); }
 .notice.success { background: var(--tp-green-soft); border-color: color-mix(in srgb, var(--tp-green) 18%, transparent); color: var(--tp-green); }
+.executionNotice { justify-content: space-between; align-items: center; }
+.noticeCopy { display: grid; gap: 3px; min-width: 0; }
+.noticeCopy span { overflow-wrap: anywhere; }
+.verificationResult { margin-top: 2px; font-weight: 650; }
 .compactNotice { margin: 7px 0 0; }
 .emptyState { display: grid; place-items: center; min-height: 132px; padding: 24px; border: 1px dashed var(--tp-border); border-radius: var(--tp-radius); color: var(--tp-muted); text-align: center; font-size: 11px; }
 .emptyState.compact { min-height: 72px; padding: 16px; border: 0; background: var(--tp-bg-soft); }
@@ -305,6 +331,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .resolutionCard > div { display: grid; gap: 3px; min-width: 0; }
 .resolutionCard span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
 .resolutionCard strong { overflow-wrap: anywhere; font-size: 11px; line-height: 1.35; }
+.resolutionEdited { grid-column: 1 / -1; grid-template-columns: auto 1fr auto !important; align-items: center; gap: 8px !important; padding-top: 9px; border-top: 1px solid var(--tp-border); }
+.resolutionEdited strong { color: var(--tp-amber); }
+.resolutionEdited button { border: 0; border-radius: 8px; padding: 5px 8px; background: var(--tp-bg); color: var(--tp-text); font-size: 9px; font-weight: 700; cursor: pointer; }
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
@@ -342,6 +371,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 }
 
 @container (max-width: 640px) {
+  .secondaryButton, .primaryButton, .dangerButton, .tradeButton { min-height: 44px; }
+  .closeButton, .iconAction { min-width: 44px; min-height: 44px; }
+  .environmentSwitch button { min-height: 38px; }
   .appShell { padding: 12px; }
   .appHeader { align-items: flex-start; flex-direction: column; gap: 11px; }
   .headerActions { width: 100%; justify-content: space-between; gap: 6px; }
@@ -368,7 +400,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .candidateCard { min-height: 224px; }
   .orderRow { grid-template-columns: minmax(0, 1fr) auto; }
   .orderRow .secondaryButton { grid-column: 1 / -1; width: 100%; }
-  .notice { display: grid; gap: 3px; }
+  .notice { display: grid; gap: 5px; }
+  .executionNotice .secondaryButton { width: 100%; margin-top: 4px; }
+  .activityRow { grid-template-columns: auto minmax(0,1fr); }
+  .activityRow time { grid-column: 2; }
   .resolutionCard { grid-template-columns: 1fr; align-items: start; }
   .formGrid { grid-template-columns: 1fr; }
   .modalBackdrop { align-items: end; padding: 0; }

@@ -1,59 +1,101 @@
-# Flexible ordering from ChatGPT
+# Order review and flexible sizing
 
-TradePilot 212 is designed so the user can speak naturally while the execution layer stays explicit.
+TradePilot accepts flexible order intent but always converts it to an explicit Trading 212 quantity before execution.
 
-## Supported intent styles
+## Supported inputs
 
-After connecting the MCP App, ChatGPT may use a ticker, market symbol, company name, or partial name and let TradePilot resolve the exact Trading 212 instrument.
+The instrument may be supplied as a Trading 212 ticker, a market symbol, a company name, or a partial name. TradePilot resolves the broker instrument and rejects genuinely ambiguous matches.
 
-Examples:
+Typical requests:
 
 ```text
 Buy 0.2 shares of NVDA in Demo.
 Buy about €100 of Nvidia in Live.
 Use 20% of my available cash to buy Apple.
 Sell half of my Nvidia position.
-Sell all available Apple shares.
+Sell all currently tradable Apple shares.
 Buy 0.5 NVDA at a 220 USD limit.
-Place a stop / stop-limit order.
 Prepare the order only; do not submit it.
 ```
 
-TradePilot supports these sizing modes:
+## Sizing modes
 
-- exact quantity,
-- target monetary amount,
-- percentage of available cash for a buy,
-- percentage of the currently tradable position for a sell,
-- all currently tradable shares for a sell.
+### Exact quantity
 
-## How flexible input becomes a broker order
+The requested quantity is preserved as-is and validated against the selected instrument and current account state.
 
-Trading 212 ultimately receives a standard quantity-based order. For flexible requests TradePilot first resolves the instrument and reads the account/position when needed, then creates an editable order draft.
+### Target monetary amount
 
-Amount-based sizing needs a current price. If the requested amount currency differs from the instrument quote currency, ChatGPT must also supply a current FX conversion rate. The computed quantity is rounded down to avoid intentionally overshooting the target amount.
+A target amount is converted to quantity using the supplied reference price. When the requested currency differs from the instrument quote currency, an FX rate is also required.
 
-The order is still not sent at this point.
+The calculated quantity is rounded down so the conversion does not intentionally overshoot the target amount.
 
-## Confirmation boundary
+### Percentage of available cash
 
-Every actual order keeps the same flow:
+For buys, TradePilot reads the account's current available cash, applies the requested percentage, then converts that amount to a quantity.
+
+If the account currency differs from the instrument quote currency, an FX rate is required.
+
+### Percentage of held position
+
+For sells, the percentage is calculated from the **total held position**, not from only the currently tradable subset.
+
+If the requested share count is larger than the currently tradable quantity, TradePilot rejects the conversion rather than silently changing the meaning of the request.
+
+### All currently tradable shares
+
+`all_available` is the explicit sell mode for the entire quantity Trading 212 currently reports as tradable.
+
+## Review flow
 
 ```text
-Natural-language request
-→ read/resolve/size
-→ editable order draft
-→ server validation
-→ one-time short-lived confirmation
-→ explicit user confirmation
-→ Trading 212 write
+Flexible request
+  ↓
+resolve broker instrument
+  ↓
+read account/position when required
+  ↓
+calculate exact quantity
+  ↓
+editable order draft
+  ↓
+server validation
+  ↓
+short-lived one-time confirmation
+  ↓
+explicit user confirmation
+  ↓
+Trading 212 write
 ```
 
-LIVE orders are never auto-confirmed by TradePilot. Ambiguous write failures are never retried automatically.
+The order editor shows both the original sizing rule and the calculated quantity. If the quantity is edited manually, the UI marks it as changed and offers a restore action for the calculated value.
 
-## Personal limits
+## Price and FX timestamps
 
-Self-hosters can configure:
+Amount-based sizing should provide a current reference price and, when applicable, a current FX rate. The optional timestamp fields are:
+
+- `referencePriceAt`
+- `fxRateAt`
+
+The final confirmation shows when the account snapshot was checked and warns when the reference price is missing a timestamp or is older than the configured freshness threshold used by the app.
+
+A timestamp is context, not a price guarantee. Market orders can still execute away from the reference price.
+
+## Unknown write results
+
+Trading 212 writes are sent once. A network timeout or ambiguous server response does not trigger an automatic retry.
+
+When a write result is unknown, TradePilot creates a short-lived verification record. The UI can then perform a **read-only** check:
+
+- matching pending order found → do not resubmit;
+- market-order position moved by the requested size → likely executed, verify broker activity before any retry;
+- no conclusive evidence → remain uncertain and check Trading 212 before taking further action.
+
+The verification action never repeats the original write.
+
+## Instance limits
+
+Self-hosters may configure:
 
 ```env
 DEFAULT_TRADING_ENV=demo
@@ -61,6 +103,6 @@ MAX_ORDER_NOTIONAL=5000
 MAX_ORDER_QUANTITY=100000
 ```
 
-`DEFAULT_TRADING_ENV` applies only when the user did not explicitly choose Demo or Live.
+`DEFAULT_TRADING_ENV` applies only when the request does not explicitly select Demo or Live.
 
-Set either `MAX_ORDER_NOTIONAL=0` or `MAX_ORDER_QUANTITY=0` to disable that TradePilot app-level cap. Trading 212's own instrument/account rules still apply, and explicit confirmation remains required.
+Set either application-level cap to `0` to disable that specific TradePilot limit. Trading 212 instrument/account constraints and explicit confirmation still apply.

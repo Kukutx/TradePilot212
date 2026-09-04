@@ -98,7 +98,7 @@ function fakeFetch(): typeof fetch {
 }
 
 describe("flexible order intent", () => {
-  it("resolves a company name and sells a percentage of the tradable position", async () => {
+  it("resolves a company name and sells a percentage of the total held position", async () => {
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fakeFetch() });
     const resolved = await service.resolveOrderIntent({
       environment: "demo",
@@ -166,4 +166,62 @@ describe("flexible order intent", () => {
     });
     expect(resolved.draft.quantity).toBe(1.6);
   });
+
+  it("records reviewed orders and returns structured freshness notices", async () => {
+    const store = new MemoryStateStore();
+    const service = new TradingService({ config: config(), store, fetcher: fakeFetch() });
+    const preview = await service.prepareOrder({
+      environment: "demo",
+      ticker: "AAPL_US_EQ",
+      side: "sell",
+      type: "market",
+      quantity: 1,
+      referencePrice: 100,
+      referencePriceAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    expect(preview.snapshotAt).toBeTruthy();
+    expect(preview.notices.map((notice) => notice.code)).toContain("REFERENCE_PRICE_STALE");
+    expect(preview.notices.map((notice) => notice.code)).toContain("MARKET_SLIPPAGE");
+    const activity = await service.getActivity("demo");
+    expect(activity[0]?.type).toBe("order_prepared");
+    expect(activity[0]?.ticker).toBe("AAPL_US_EQ");
+    expect(activity[0]?.quantity).toBe(1);
+  });
+
+  it("flags a stale FX timestamp when cross-currency sizing metadata is present", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fakeFetch() });
+    const preview = await service.prepareOrder({
+      environment: "demo",
+      ticker: "AAPL_US_EQ",
+      side: "buy",
+      type: "market",
+      quantity: 0.5,
+      referencePrice: 100,
+      referencePriceAt: new Date().toISOString(),
+      fxRateAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    expect(preview.notices.map((notice) => notice.code)).toContain("CROSS_CURRENCY_FUNDS_CHECK");
+    expect(preview.notices.map((notice) => notice.code)).toContain("FX_RATE_STALE");
+  });
+
+  it("verifies an uncertain market order without retrying the write", async () => {
+    const store = new MemoryStateStore();
+    const service = new TradingService({ config: config(), store, fetcher: fakeFetch() });
+    await store.put("verify:test-order", {
+      kind: "order",
+      environment: "demo",
+      draft: { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 100 },
+      baselineQuantity: 1,
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await service.verifyExecution("test-order");
+    expect(result.status).toBe("likely_executed");
+    expect(result.positionDelta).toBe(1);
+    const activity = await service.getActivity("demo");
+    expect(activity.some((event) => event.type === "order_verification" && event.outcome === "likely_executed")).toBe(true);
+  });
+
 });

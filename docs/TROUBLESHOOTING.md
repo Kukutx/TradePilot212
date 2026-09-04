@@ -74,7 +74,13 @@ Check all of the following:
 
 Do **not** immediately resubmit the order. An `unknown` status means Trading 212 may have received the write but the response was lost/ambiguous.
 
-Refresh pending orders and account activity first. TradePilot intentionally does not retry ambiguous writes automatically.
+Use **Verify status** in the TradePilot notice. It performs read-only checks against current pending orders and positions; it never repeats the original write.
+
+- Matching pending order: do not submit the order again.
+- Matching market-order position change: the order was likely executed; confirm it in Trading 212 activity before any retry.
+- No conclusive evidence: keep the result as unknown and check Trading 212 directly.
+
+TradePilot intentionally does not retry ambiguous writes automatically.
 
 ## Cloudflare Worker name is already in use in your account
 

@@ -1,18 +1,24 @@
-﻿import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
+import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ActivityEvent,
   CancelPreview,
   CredentialStatus,
   DashboardPayload,
   EnrichedTradeCandidate,
+  ErrorPayload,
+  ExecutionVerificationResult,
   Horizon,
   Instrument,
   OrderDraft,
   OrderExecutionResult,
+  OrderNotice,
   OrderPreview,
+  OrderResolution,
   OrderSizing,
   Position,
+  StructuredError,
   TradeCandidate,
   TradePlanPayload,
   TradingEnvironment,
@@ -37,21 +43,11 @@ type BasePayload =
       resolvedInstrument?: Instrument;
       resolution?: OrderResolution;
     }
-  | { kind: "error"; message: string };
+  | ErrorPayload;
 
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
 type Translator = (key: MessageKey) => string;
-type OrderResolution = {
-  sizing: OrderSizing;
-  accountCurrency?: string;
-  heldQuantity?: number;
-  availableToSell?: number;
-  requestedNotional?: number;
-  requestedNotionalCurrency?: string;
-  estimatedQuoteNotional?: number;
-};
-
 const LOCALE_STORAGE_KEY = "tradepilot212.locale";
 
 function readSavedLocale(): SupportedLocale | null {
@@ -61,6 +57,92 @@ function readSavedLocale(): SupportedLocale | null {
   } catch {
     return null;
   }
+}
+
+class ToolCallError extends Error {
+  constructor(readonly problem: StructuredError) {
+    super(problem.message);
+    this.name = "ToolCallError";
+  }
+}
+
+function formatProblem(problem: StructuredError, t: Translator, locale: SupportedLocale): string {
+  const details = problem.details ?? {};
+  const number = (key: string) => typeof details[key] === "number" ? num(details[key] as number, locale) : String(details[key] ?? "—");
+  switch (problem.code) {
+    case "CREDENTIALS_NOT_CONFIGURED": return t("errorCredentials");
+    case "INSTRUMENT_NOT_FOUND": return t("errorInstrumentNotFound");
+    case "INSTRUMENT_AMBIGUOUS": return details.matches ? `${t("errorInstrumentAmbiguous")} ${details.matches}` : t("errorInstrumentAmbiguous");
+    case "NO_AVAILABLE_POSITION": return t("errorNoPosition");
+    case "NO_AVAILABLE_CASH": return t("errorNoCash");
+    case "INSUFFICIENT_SELLABLE_QUANTITY": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorSellable")} ${number("requested")} / ${number("available")}` : t("errorSellable");
+    case "INSUFFICIENT_CASH": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorCash")} ${number("requested")} / ${number("available")} ${details.currency ?? ""}`.trim() : t("errorCash");
+    case "ORDER_NOTIONAL_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorNotionalLimit")} ${number("requested")} / ${number("limit")} ${details.currency ?? ""}`.trim() : t("errorNotionalLimit");
+    case "ORDER_QUANTITY_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorQuantityLimit")} ${number("requested")} / ${number("limit")}` : t("errorQuantityLimit");
+    case "REFERENCE_PRICE_REQUIRED": return t("errorReferencePrice");
+    case "UNSUPPORTED_EXTENDED_HOURS": return t("errorExtendedHours");
+    case "CONFIRMATION_EXPIRED": return t("errorConfirmationExpired");
+    case "VERIFICATION_NOT_FOUND": return t("errorVerificationMissing");
+    case "BROKER_RATE_LIMITED": return t("errorBrokerRateLimit");
+    case "BROKER_REQUEST_FAILED": return t("errorBroker");
+    case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
+    case "INVALID_INPUT": return problem.message;
+    default: return problem.message || t("errorInternal");
+  }
+}
+
+function noticeText(notice: OrderNotice, t: Translator, locale: SupportedLocale): string {
+  switch (notice.code) {
+    case "LIVE_FUNDS": return t("liveFundsNotice");
+    case "MARKET_SLIPPAGE": return t("marketSlippageNotice");
+    case "REFERENCE_PRICE_STALE": {
+      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
+      return seconds === undefined ? t("referenceStaleNotice") : `${t("referenceStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
+    }
+    case "REFERENCE_PRICE_TIME_UNKNOWN": return t("referenceTimeUnknownNotice");
+    case "FX_RATE_STALE": {
+      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
+      return seconds === undefined ? t("fxStaleNotice") : `${t("fxStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
+    }
+    case "CROSS_CURRENCY_FUNDS_CHECK": return t("crossCurrencyNotice");
+    case "NOTIONAL_ESTIMATE_UNAVAILABLE": return t("notionalUnavailableNotice");
+    default: return notice.message;
+  }
+}
+
+function verificationText(result: ExecutionVerificationResult, t: Translator): string {
+  switch (result.status) {
+    case "confirmed_pending": return t("verificationConfirmedPending");
+    case "likely_executed": return t("verificationLikelyExecuted");
+    case "still_pending": return t("verificationStillPending");
+    case "no_longer_pending": return t("verificationNoLongerPending");
+    case "no_evidence": return t("verificationNoEvidence");
+    default: return result.message;
+  }
+}
+
+function useDialogFocus<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(container.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])'));
+    const first = focusable()[0];
+    first?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const firstItem = items[0]!;
+      const lastItem = items[items.length - 1]!;
+      if (event.shiftKey && document.activeElement === firstItem) { event.preventDefault(); lastItem.focus(); }
+      else if (!event.shiftKey && document.activeElement === lastItem) { event.preventDefault(); firstItem.focus(); }
+    };
+    container.addEventListener("keydown", onKeyDown);
+    return () => { container.removeEventListener("keydown", onKeyDown); previous?.focus(); };
+  }, []);
+  return ref;
 }
 
 function textFromToolResult(value: Awaited<ReturnType<McpApp["callServerTool"]>>): string {
@@ -100,6 +182,18 @@ function time(value: string | undefined, locale: SupportedLocale): string {
   }).format(date);
 }
 
+function dateTime(value: string | undefined, locale: SupportedLocale): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(localeTag(locale), {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function signedClass(value: number | undefined): string {
   if (!value) return "neutral";
   return value > 0 ? "positive" : "negative";
@@ -122,6 +216,13 @@ function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate 
     risk: candidate.risk,
     ...(candidate.suggestedQuantity ? { suggestedQuantity: candidate.suggestedQuantity } : {}),
     ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
+    ...(candidate.referencePriceAt ? { referencePriceAt: candidate.referencePriceAt } : {}),
+    ...(candidate.analysisAsOf ? { analysisAsOf: candidate.analysisAsOf } : {}),
+    ...(candidate.thesis ? { thesis: candidate.thesis } : {}),
+    ...(candidate.catalysts ? { catalysts: candidate.catalysts } : {}),
+    ...(candidate.risks ? { risks: candidate.risks } : {}),
+    ...(candidate.counterCase ? { counterCase: candidate.counterCase } : {}),
+    ...(candidate.sources ? { sources: candidate.sources } : {}),
   };
 }
 
@@ -132,8 +233,8 @@ function sizingText(
   t: Translator,
 ): string {
   if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${num(sizing.quantity, locale)}`;
-  if (sizing.mode === "notional") return `${t("targetAmount")} · ${num(sizing.amount, locale)} ${sizing.currency ?? instrument?.currencyCode ?? ""}`.trim();
-  if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%`;
+  if (sizing.mode === "notional") return `${t("targetAmount")} · ${num(sizing.amount, locale)} ${sizing.currency ?? instrument?.currencyCode ?? ""}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`.trim();
+  if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
   return t("allAvailableShares");
 }
@@ -157,6 +258,7 @@ function defaultDraft(
     type: "market",
     quantity: candidate.suggestedQuantity ?? 1,
     ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
+    ...(candidate.referencePriceAt ? { referencePriceAt: candidate.referencePriceAt } : {}),
   };
 }
 
@@ -179,6 +281,7 @@ export default function App() {
   const [preview, setPreview] = useState<OrderPreview | null>(null);
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
   const [execution, setExecution] = useState<OrderExecutionResult | null>(null);
+  const [verification, setVerification] = useState<ExecutionVerificationResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -241,8 +344,16 @@ export default function App() {
   async function callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
     if (!app) throw new Error("ChatGPT app connection is not ready");
     const result = await app.callServerTool({ name, arguments: args });
-    if (result.isError) throw new Error(textFromToolResult(result));
+    if (result.isError) {
+      const payload = result.structuredContent as unknown as ErrorPayload | undefined;
+      if (payload?.kind === "error" && payload.error) throw new ToolCallError(payload.error);
+      throw new ToolCallError({ code: "INTERNAL_ERROR", message: textFromToolResult(result) });
+    }
     return result.structuredContent as unknown as T;
+  }
+
+  function caughtMessage(value: unknown): string {
+    return value instanceof ToolCallError ? formatProblem(value.problem, t, locale) : value instanceof Error ? value.message : String(value);
   }
 
   async function refresh(env = environment): Promise<void> {
@@ -258,7 +369,7 @@ export default function App() {
         setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment: env }));
       }
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     } finally {
       setStatus("idle");
     }
@@ -268,6 +379,7 @@ export default function App() {
     if (next === environment) return;
     setEnvironment(next);
     setExecution(null);
+    setVerification(null);
     setPreview(null);
     setCancelPreview(null);
     if (draft) setDraft({ ...draft, environment: next });
@@ -286,7 +398,7 @@ export default function App() {
       const result = await app.requestDisplayMode({ mode: target });
       setDisplayMode(result.mode);
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     }
   }
 
@@ -297,7 +409,7 @@ export default function App() {
     try {
       setPreview(await callTool<OrderPreview>("app_prepare_order", draft as unknown as Record<string, unknown>));
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     } finally {
       setStatus("idle");
     }
@@ -311,11 +423,12 @@ export default function App() {
       const confirmationCode = preview["token"];
       const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode });
       setExecution(result);
+      setVerification(null);
       setPreview(null);
       setDraft(null);
       await refresh(environment);
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     } finally {
       setStatus("idle");
     }
@@ -327,7 +440,7 @@ export default function App() {
     try {
       setCancelPreview(await callTool<CancelPreview>("app_prepare_cancel", { environment, orderId }));
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     } finally {
       setStatus("idle");
     }
@@ -341,14 +454,41 @@ export default function App() {
       const confirmationCode = cancelPreview["token"];
       const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode });
       setExecution(result);
+      setVerification(null);
       setCancelPreview(null);
       await refresh(environment);
     } catch (requestError) {
-      setErrorMessage(requestError instanceof Error ? requestError.message : String(requestError));
+      setErrorMessage(caughtMessage(requestError));
     } finally {
       setStatus("idle");
     }
   }
+
+  async function verifyUnknownExecution(): Promise<void> {
+    if (!execution?.verificationId) return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const result = await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId: execution.verificationId });
+      setVerification(result);
+      await refresh(environment);
+    } catch (requestError) {
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (cancelPreview) setCancelPreview(null);
+      else if (preview) setPreview(null);
+      else if (draft) { setDraft(null); setPreview(null); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [cancelPreview, preview, draft]);
 
   if (!app && !error) {
     return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
@@ -420,15 +560,23 @@ export default function App() {
       {!writeEnabled && base && base.kind !== "error" && (
         <div className="notice warning"><strong>{t("readonlyMode")}</strong><span>{t("readonlyHint")}</span></div>
       )}
-      {errorMessage && <div className="notice error"><strong>{t("syncError")}</strong><span>{errorMessage}</span></div>}
+      {errorMessage && <div className="notice error" role="alert"><strong>{t("syncError")}</strong><span>{errorMessage}</span></div>}
       {execution && (
-        <div className={`notice ${execution.ok ? "success" : execution.status === "unknown" ? "warning" : "error"}`}>
-          <strong>{execution.status === "unknown" ? t("unknownStatus") : execution.ok ? t("submitted") : t("notSubmitted")}</strong>
-          <span>{execution.message}</span>
+        <div className={`notice executionNotice ${execution.ok ? "success" : execution.status === "unknown" ? "warning" : "error"}`} role="status" aria-live="polite">
+          <div className="noticeCopy">
+            <strong>{execution.status === "unknown" ? t("unknownStatus") : execution.ok ? t("submitted") : t("notSubmitted")}</strong>
+            <span>{execution.error ? formatProblem(execution.error, t, locale) : execution.message}</span>
+            {verification && <span className="verificationResult">{verificationText(verification, t)}</span>}
+          </div>
+          {execution.status === "unknown" && execution.verificationId && (
+            <button className="secondaryButton" type="button" disabled={status === "loading"} onClick={() => void verifyUnknownExecution()}>
+              {status === "loading" ? t("verifying") : t("verifyExecution")}
+            </button>
+          )}
         </div>
       )}
 
-      {base?.kind === "error" && <div className="emptyState">{base.message}</div>}
+      {base?.kind === "error" && <div className="emptyState">{formatProblem(base.error, t, locale)}</div>}
       {base?.kind === "portfolio" && (
         <PortfolioView payload={base} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
       )}
@@ -453,6 +601,7 @@ export default function App() {
       {draft && (
         <OrderEditor
           draft={draft}
+          originalDraft={base?.kind === "order_draft" ? base.draft : undefined}
           resolution={base?.kind === "order_draft" ? base.resolution : undefined}
           resolvedInstrument={base?.kind === "order_draft" ? base.resolvedInstrument : undefined}
           locale={locale}
@@ -578,8 +727,45 @@ function PortfolioView({
           </div>
         )}
       </section>
+
+      <ActivityPanel activity={payload.activity ?? []} locale={locale} t={t} />
     </main>
   );
+}
+
+function ActivityPanel({ activity, locale, t }: { activity: ActivityEvent[]; locale: SupportedLocale; t: Translator }) {
+  return (
+    <section className="dataPanel activityPanel">
+      <details>
+        <summary><span>{t("recentActivity")}</span><b>{activity.length}</b></summary>
+        {activity.length === 0 ? <div className="emptyState compact">{t("noActivity")}</div> : (
+          <div className="activityList">
+            {activity.map((event) => (
+              <div className="activityRow" key={event.id}>
+                <span className={`activityDot ${event.type.includes("unknown") || event.type.includes("rejected") ? "warning" : ""}`} />
+                <div><strong>{activityLabel(event, t)}</strong><small>{[event.ticker, event.orderId].filter(Boolean).join(" · ") || event.environment.toUpperCase()}</small></div>
+                <time>{time(event.timestamp, locale)}</time>
+              </div>
+            ))}
+          </div>
+        )}
+      </details>
+    </section>
+  );
+}
+
+function activityLabel(event: ActivityEvent, t: Translator): string {
+  switch (event.type) {
+    case "order_prepared": return t("activityOrderPrepared");
+    case "order_submitted": return t("activityOrderSubmitted");
+    case "order_rejected": return t("activityOrderRejected");
+    case "order_status_unknown": return t("activityOrderUnknown");
+    case "order_verification": return t("activityVerified");
+    case "cancel_prepared": return t("activityCancelPrepared");
+    case "cancel_submitted": return t("activityCancelSubmitted");
+    case "cancel_rejected": return t("activityCancelRejected");
+    case "cancel_status_unknown": return t("activityCancelUnknown");
+  }
 }
 
 function AssetIdentity({ position }: { position: Position }) {
@@ -717,6 +903,24 @@ function CandidateCard({
         {candidate.referencePrice && <span>{t("reference")} · {money(candidate.referencePrice, instrument?.currencyCode ?? "USD", locale)}</span>}
       </div>
       <p className="candidateRationale">{candidate.rationale}</p>
+      {(candidate.thesis || candidate.catalysts?.length || candidate.risks?.length || candidate.counterCase || candidate.sources?.length) && (
+        <details className="candidateDetails">
+          <summary>{t("details")}</summary>
+          <div className="candidateDetailBody">
+            {candidate.thesis && <DetailSection title={t("thesis")} text={candidate.thesis} />}
+            {!!candidate.catalysts?.length && <DetailList title={t("catalysts")} items={candidate.catalysts} />}
+            {!!candidate.risks?.length && <DetailList title={t("risksTitle")} items={candidate.risks} />}
+            {candidate.counterCase && <DetailSection title={t("counterCase")} text={candidate.counterCase} />}
+            {!!candidate.sources?.length && <DetailList title={t("sources")} items={candidate.sources} />}
+            {(candidate.analysisAsOf || candidate.referencePriceAt) && (
+              <div className="candidateFreshness">
+                {candidate.analysisAsOf && <span>{t("analysisAsOf")} · {dateTime(candidate.analysisAsOf, locale)}</span>}
+                {candidate.referencePriceAt && <span>{t("referenceAsOf")} · {dateTime(candidate.referencePriceAt, locale)}</span>}
+              </div>
+            )}
+          </div>
+        </details>
+      )}
       {candidate.resolutionError && <div className="inlineError">{candidate.resolutionError}</div>}
       {(candidate.heldQuantity !== undefined || candidate.availableToSell !== undefined) && (
         <div className="candidateHolding"><span>{t("holding")}</span><strong>{num(candidate.heldQuantity, locale)}</strong><span>· {t("availableToSell")}</span><strong>{num(candidate.availableToSell, locale)}</strong></div>
@@ -734,6 +938,14 @@ function CandidateCard({
   );
 }
 
+function DetailSection({ title, text }: { title: string; text: string }) {
+  return <section><h3>{title}</h3><p>{text}</p></section>;
+}
+
+function DetailList({ title, items }: { title: string; items: string[] }) {
+  return <section><h3>{title}</h3><ul>{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>;
+}
+
 function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
 }
@@ -744,6 +956,7 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 function OrderEditor({
   draft,
+  originalDraft,
   resolution,
   resolvedInstrument,
   locale,
@@ -754,6 +967,7 @@ function OrderEditor({
   onReview,
 }: {
   draft: OrderDraft;
+  originalDraft?: OrderDraft;
   resolution?: OrderResolution;
   resolvedInstrument?: Instrument;
   locale: SupportedLocale;
@@ -764,9 +978,12 @@ function OrderEditor({
   onReview: () => void;
 }) {
   const set = <K extends keyof OrderDraft>(key: K, value: OrderDraft[K]) => onChange({ ...draft, [key]: value });
+  const quantityEdited = resolution ? Math.abs(draft.quantity - resolution.resolvedQuantity) > 1e-8 : false;
+  const orderEdited = originalDraft ? (["side", "type", "quantity", "extendedHours", "timeValidity", "limitPrice", "stopPrice", "referencePrice"] as const).some((key) => originalDraft[key] !== draft[key]) : quantityEdited;
+  const dialogRef = useDialogFocus<HTMLElement>();
   return (
     <div className="modalBackdrop" role="presentation">
-      <section className={`dialogPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true" aria-label={t("orderDraft")}>
+      <section ref={dialogRef} className={`dialogPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true" aria-label={t("orderDraft")}>
         <div className="dialogHeader">
           <div><span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span><h2>{t("orderDraft")}</h2><p>{draft.ticker}</p></div>
           <button className="closeButton" type="button" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
@@ -774,14 +991,15 @@ function OrderEditor({
         {resolution && (
           <div className="resolutionCard">
             <div><span>{t("resolvedFromRequest")}</span><strong>{sizingText(resolution.sizing, resolvedInstrument, locale, t)}</strong></div>
-            <div><span>{t("resolvedQuantity")}</span><strong>{num(draft.quantity, locale)}</strong></div>
+            <div><span>{t("calculatedQuantity")}</span><strong>{num(resolution.resolvedQuantity, locale)}</strong></div>
+            {orderEdited && <div className="resolutionEdited"><span>{t("manualEdited")}</span><strong>{quantityEdited ? num(draft.quantity, locale) : t("otherFieldsChanged")}</strong>{quantityEdited && <button type="button" onClick={() => set("quantity", resolution.resolvedQuantity)}>{t("restoreCalculated")}</button>}</div>}
           </div>
         )}
         <div className="formGrid">
           <Field label={t("side")}><select value={draft.side} onChange={(event) => set("side", event.target.value as OrderDraft["side"])}><option value="buy">{t("buy")}</option><option value="sell">{t("sell")}</option></select></Field>
           <Field label={t("type")}><select value={draft.type} onChange={(event) => set("type", event.target.value as OrderDraft["type"])}><option value="market">{t("market")}</option><option value="limit">{t("limit")}</option><option value="stop">{t("stop")}</option><option value="stop_limit">{t("stopLimit")}</option></select></Field>
           <Field label={t("quantity")}><input type="number" min="0" step="any" value={draft.quantity} onChange={(event) => set("quantity", Number(event.target.value))} /></Field>
-          <Field label={t("referencePrice")}><input type="number" min="0" step="any" value={draft.referencePrice ?? ""} placeholder="—" onChange={(event) => set("referencePrice", event.target.value ? Number(event.target.value) : undefined)} /></Field>
+          <Field label={t("referencePrice")}><input type="number" min="0" step="any" value={draft.referencePrice ?? ""} placeholder="—" onChange={(event) => onChange({ ...draft, referencePrice: event.target.value ? Number(event.target.value) : undefined, referencePriceAt: undefined })} /></Field>
           {(draft.type === "limit" || draft.type === "stop_limit") && <Field label={t("limitPrice")}><input type="number" min="0" step="any" value={draft.limitPrice ?? ""} onChange={(event) => set("limitPrice", event.target.value ? Number(event.target.value) : undefined)} /></Field>}
           {(draft.type === "stop" || draft.type === "stop_limit") && <Field label={t("stopPrice")}><input type="number" min="0" step="any" value={draft.stopPrice ?? ""} onChange={(event) => set("stopPrice", event.target.value ? Number(event.target.value) : undefined)} /></Field>}
           {draft.type !== "market" && <Field label={t("validity")}><select value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select></Field>}
@@ -814,10 +1032,11 @@ function OrderConfirmation({
   onConfirm: () => void;
 }) {
   const draft = preview.draft;
+  const dialogRef = useDialogFocus<HTMLElement>();
   const amountCurrency = preview.estimatedNotionalCurrency || preview.instrument.currencyCode;
   return (
     <div className="modalBackdrop topLayer">
-      <section className={`dialogPanel confirmationPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
+      <section ref={dialogRef} className={`dialogPanel confirmationPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
         <div className="confirmationHero">
           <span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span>
           <span className="sectionEyebrow">{t("finalConfirmation")}</span>
@@ -831,8 +1050,11 @@ function OrderConfirmation({
           <DetailRow label={t("quantity")} value={num(draft.quantity, locale)} />
           {draft.limitPrice && <DetailRow label={t("limitPrice")} value={num(draft.limitPrice, locale)} />}
           {draft.stopPrice && <DetailRow label={t("stopPrice")} value={num(draft.stopPrice, locale)} />}
+          {draft.referencePriceAt && <DetailRow label={t("referenceAsOf")} value={dateTime(draft.referencePriceAt, locale)} />}
+          {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
+          <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
-        {preview.warnings.map((warning) => <div className="notice warning compactNotice" key={warning}>{warning}</div>)}
+        {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
         <div className="dialogFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
@@ -863,9 +1085,10 @@ function ConfirmModal({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const dialogRef = useDialogFocus<HTMLElement>();
   return (
     <div className="modalBackdrop topLayer">
-      <section className={`dialogPanel smallDialog ${danger ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
+      <section ref={dialogRef} className={`dialogPanel smallDialog ${danger ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
         <h2>{title}</h2><p>{body}</p>
         <div className="dialogFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
       </section>

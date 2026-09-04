@@ -146,8 +146,10 @@ try {
   const toolsText = await tools.text();
   assert(tools.ok, `Authenticated MCP tools/list failed: ${tools.status} ${toolsText}`);
   assert(toolsText.includes("review_trading212_order_intent"), "Flexible natural-language order tool is missing");
+  assert(toolsText.includes("get_recent_trading_activity"), "Recent activity tool is missing");
+  assert(toolsText.includes("app_verify_unknown_execution"), "Unknown-execution verification tool is missing");
 
-  console.log("SMOKE_OK OAuth + PKCE + MCP initialize + flexible-order tool passed");
+  console.log("SMOKE_OK OAuth + PKCE + MCP initialize + order review/recovery tools passed");
 } finally {
   if (child.exitCode === null) {
     const exited = new Promise((resolve) => child.once("exit", resolve));
