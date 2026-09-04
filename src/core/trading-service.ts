@@ -55,9 +55,27 @@ export function resolveInstrumentFromList(instruments: Instrument[], query: stri
     throw new Error(`Symbol ${query} is ambiguous. Use an exact Trading 212 ticker: ${symbols.slice(0, 8).map((item) => item.ticker).join(", ")}`);
   }
 
+  const exactNames = instruments.filter((item) => norm(item.name ?? "") === q);
+  if (exactNames.length === 1) return exactNames[0]!;
+  if (exactNames.length > 1) {
+    const exactStocks = exactNames.filter((item) => norm(item.type ?? "") === "STOCK");
+    if (exactStocks.length === 1) return exactStocks[0]!;
+    const exactUsStocks = exactStocks.filter((item) => /_US_EQ$/i.test(item.ticker));
+    if (exactUsStocks.length === 1) return exactUsStocks[0]!;
+    const exactUsdStocks = exactStocks.filter((item) => norm(item.currencyCode) === "USD");
+    if (exactUsdStocks.length === 1) return exactUsdStocks[0]!;
+    throw new Error(`Instrument ${query} is ambiguous. Use an exact ticker: ${exactNames.slice(0, 8).map((item) => item.ticker).join(", ")}`);
+  }
+
   const names = instruments.filter((item) => `${item.name ?? ""} ${item.shortName ?? ""}`.toUpperCase().includes(q));
   if (names.length === 1) return names[0]!;
-  if (names.length > 1) throw new Error(`Instrument ${query} is ambiguous. Use an exact ticker: ${names.slice(0, 8).map((item) => item.ticker).join(", ")}`);
+  if (names.length > 1) {
+    const stocks = names.filter((item) => norm(item.type ?? "") === "STOCK");
+    if (stocks.length === 1) return stocks[0]!;
+    const usStocks = stocks.filter((item) => /_US_EQ$/i.test(item.ticker));
+    if (usStocks.length === 1) return usStocks[0]!;
+    throw new Error(`Instrument ${query} is ambiguous. Use an exact ticker: ${names.slice(0, 8).map((item) => item.ticker).join(", ")}`);
+  }
   throw new Error(`No Trading 212 instrument matched ${query}`);
 }
 
@@ -244,12 +262,15 @@ export class TradingService {
       if (intent.side !== "sell") throw new Error("position_percent sizing is only valid for sell orders");
       positiveNumber("percent", sizing.percent);
       if (sizing.percent > 100) throw new Error("position_percent cannot exceed 100");
+      const held = position?.quantity ?? 0;
       const available = position?.quantityAvailableForTrading ?? 0;
-      if (available <= 0) throw new Error(`There is no tradable ${instrument.ticker} position to sell`);
-      quantity = sizing.percent === 100 ? available : floorQuantity(available * sizing.percent / 100);
+      if (held <= 0 || available <= 0) throw new Error(`There is no tradable ${instrument.ticker} position to sell`);
+      quantity = sizing.percent === 100 ? held : floorQuantity(held * sizing.percent / 100);
       if (quantity <= 0) throw new Error("The requested position percentage is too small to produce a tradable quantity");
+      if (quantity > available + Number.EPSILON)
+        throw new Error(`Selling ${sizing.percent}% of the held position requires ${quantity} share(s), but only ${available} are currently tradable. Use an exact quantity or all_available.`);
       referencePrice ??= position?.currentPrice;
-      note = `Sell ${sizing.percent}% of the currently tradable position: ${quantity} share(s).`;
+      note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");
       const available = position?.quantityAvailableForTrading ?? 0;

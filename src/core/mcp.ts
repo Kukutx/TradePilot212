@@ -182,7 +182,7 @@ export function createMcpServer(
       {
         title: "Review Flexible Trading 212 Order",
         description:
-          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the current tradable position, or selling all available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50; 'sell all NVDA' => all_available.",
+          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
         inputSchema: {
           environment: environmentWithDefault,
           instrument: z.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -206,6 +206,15 @@ export function createMcpServer(
               kind: "order_draft",
               draft: resolved.draft,
               resolvedInstrument: resolved.instrument,
+              resolution: {
+                sizing: resolved.sizing,
+                ...(resolved.accountCurrency ? { accountCurrency: resolved.accountCurrency } : {}),
+                ...(resolved.heldQuantity === undefined ? {} : { heldQuantity: resolved.heldQuantity }),
+                ...(resolved.availableToSell === undefined ? {} : { availableToSell: resolved.availableToSell }),
+                ...(resolved.requestedNotional === undefined ? {} : { requestedNotional: resolved.requestedNotional }),
+                ...(resolved.requestedNotionalCurrency ? { requestedNotionalCurrency: resolved.requestedNotionalCurrency } : {}),
+                ...(resolved.estimatedQuoteNotional === undefined ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional }),
+              },
               note: resolved.note,
               credentials: credentialStatus(config),
               writeEnabled: true,

@@ -301,6 +301,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .environmentTag.live { background: var(--tp-red-soft); color: var(--tp-red); }
 .closeButton { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: transparent; color: var(--tp-muted); }
 .closeButton:hover { background: var(--tp-bg-soft); color: var(--tp-text); }
+.resolutionCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 0 0 14px; padding: 12px 13px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg-soft); }
+.resolutionCard > div { display: grid; gap: 3px; min-width: 0; }
+.resolutionCard span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
+.resolutionCard strong { overflow-wrap: anywhere; font-size: 11px; line-height: 1.35; }
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
@@ -365,6 +369,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .orderRow { grid-template-columns: minmax(0, 1fr) auto; }
   .orderRow .secondaryButton { grid-column: 1 / -1; width: 100%; }
   .notice { display: grid; gap: 3px; }
+  .resolutionCard { grid-template-columns: 1fr; align-items: start; }
   .formGrid { grid-template-columns: 1fr; }
   .modalBackdrop { align-items: end; padding: 0; }
   .dialogPanel { width: 100%; max-height: 91vh; border-radius: 22px 22px 0 0; border-left: 0; border-right: 0; border-bottom: 0; padding: 18px 16px; }

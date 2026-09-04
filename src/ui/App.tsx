@@ -7,9 +7,11 @@ import type {
   DashboardPayload,
   EnrichedTradeCandidate,
   Horizon,
+  Instrument,
   OrderDraft,
   OrderExecutionResult,
   OrderPreview,
+  OrderSizing,
   Position,
   TradeCandidate,
   TradePlanPayload,
@@ -32,12 +34,23 @@ type BasePayload =
       draft: OrderDraft;
       credentials: CredentialStatus;
       writeEnabled?: boolean;
+      resolvedInstrument?: Instrument;
+      resolution?: OrderResolution;
     }
   | { kind: "error"; message: string };
 
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
 type Translator = (key: MessageKey) => string;
+type OrderResolution = {
+  sizing: OrderSizing;
+  accountCurrency?: string;
+  heldQuantity?: number;
+  availableToSell?: number;
+  requestedNotional?: number;
+  requestedNotionalCurrency?: string;
+  estimatedQuoteNotional?: number;
+};
 
 const LOCALE_STORAGE_KEY = "tradepilot212.locale";
 
@@ -110,6 +123,19 @@ function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate 
     ...(candidate.suggestedQuantity ? { suggestedQuantity: candidate.suggestedQuantity } : {}),
     ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
   };
+}
+
+function sizingText(
+  sizing: OrderSizing,
+  instrument: Instrument | undefined,
+  locale: SupportedLocale,
+  t: Translator,
+): string {
+  if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${num(sizing.quantity, locale)}`;
+  if (sizing.mode === "notional") return `${t("targetAmount")} · ${num(sizing.amount, locale)} ${sizing.currency ?? instrument?.currencyCode ?? ""}`.trim();
+  if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%`;
+  if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
+  return t("allAvailableShares");
 }
 
 function initialEnvironment(payload: BasePayload | null): TradingEnvironment {
@@ -427,6 +453,8 @@ export default function App() {
       {draft && (
         <OrderEditor
           draft={draft}
+          resolution={base?.kind === "order_draft" ? base.resolution : undefined}
+          resolvedInstrument={base?.kind === "order_draft" ? base.resolvedInstrument : undefined}
           locale={locale}
           t={t}
           busy={status === "loading"}
@@ -716,6 +744,8 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 function OrderEditor({
   draft,
+  resolution,
+  resolvedInstrument,
   locale,
   t,
   busy,
@@ -724,6 +754,8 @@ function OrderEditor({
   onReview,
 }: {
   draft: OrderDraft;
+  resolution?: OrderResolution;
+  resolvedInstrument?: Instrument;
   locale: SupportedLocale;
   t: Translator;
   busy: boolean;
@@ -739,6 +771,12 @@ function OrderEditor({
           <div><span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span><h2>{t("orderDraft")}</h2><p>{draft.ticker}</p></div>
           <button className="closeButton" type="button" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
         </div>
+        {resolution && (
+          <div className="resolutionCard">
+            <div><span>{t("resolvedFromRequest")}</span><strong>{sizingText(resolution.sizing, resolvedInstrument, locale, t)}</strong></div>
+            <div><span>{t("resolvedQuantity")}</span><strong>{num(draft.quantity, locale)}</strong></div>
+          </div>
+        )}
         <div className="formGrid">
           <Field label={t("side")}><select value={draft.side} onChange={(event) => set("side", event.target.value as OrderDraft["side"])}><option value="buy">{t("buy")}</option><option value="sell">{t("sell")}</option></select></Field>
           <Field label={t("type")}><select value={draft.type} onChange={(event) => set("type", event.target.value as OrderDraft["type"])}><option value="market">{t("market")}</option><option value="limit">{t("limit")}</option><option value="stop">{t("stop")}</option><option value="stop_limit">{t("stopLimit")}</option></select></Field>

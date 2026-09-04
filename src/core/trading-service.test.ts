@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Instrument, OrderDraft } from "../shared/contracts.js";
 import type { RuntimeConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
-import { TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
+import { resolveInstrumentFromList, TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
 
 const instrument: Instrument = {
   ticker: "AAPL_US_EQ",
@@ -13,6 +13,28 @@ const instrument: Instrument = {
   extendedHours: true,
 };
 const draft: OrderDraft = { environment: "demo", ticker: instrument.ticker, side: "buy", type: "market", quantity: 2, referencePrice: 100 };
+
+describe("instrument resolution", () => {
+  it("prefers the underlying stock when a company name also matches derivative ETFs", () => {
+    const stock: Instrument = { ...instrument, name: "Apple Inc.", type: "STOCK" };
+    const derivative: Instrument = {
+      ticker: "AAPYd_EQ",
+      name: "IncomeShares Apple AAPL Options (Dist)",
+      shortName: "AAPY",
+      currencyCode: "EUR",
+      type: "ETF",
+    };
+    const europeanListing: Instrument = {
+      ticker: "APCd_EQ",
+      name: "Apple Inc.",
+      shortName: "APC",
+      currencyCode: "EUR",
+      type: "STOCK",
+    };
+    expect(resolveInstrumentFromList([derivative, europeanListing, stock], "Apple Inc.").ticker).toBe("AAPL_US_EQ");
+    expect(resolveInstrumentFromList([derivative, stock], "Apple").ticker).toBe("AAPL_US_EQ");
+  });
+});
 
 describe("trade safety", () => {
   it("enforces cash and notional limits", () => {
@@ -86,9 +108,20 @@ describe("flexible order intent", () => {
       sizing: { mode: "position_percent", percent: 50 },
     });
     expect(resolved.draft.ticker).toBe("AAPL_US_EQ");
-    expect(resolved.draft.quantity).toBe(0.8);
+    expect(resolved.draft.quantity).toBe(1);
     expect(resolved.draft.referencePrice).toBe(100);
     expect(resolved.availableToSell).toBe(1.6);
+  });
+
+  it("does not silently reinterpret a held-position percentage as a percentage of only tradable shares", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fakeFetch() });
+    await expect(service.resolveOrderIntent({
+      environment: "demo",
+      instrument: "AAPL",
+      side: "sell",
+      type: "market",
+      sizing: { mode: "position_percent", percent: 90 },
+    })).rejects.toThrow(/only 1\.6 are currently tradable/i);
   });
 
   it("converts a target amount to quantity using an explicit FX rate and reference price", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "tradepilot212",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "type": "module",
   "description": "Self-hosted Trading 212 MCP / ChatGPT App with Demo/Live dashboards and human-confirmed orders.",
