@@ -7,17 +7,33 @@ const root = process.cwd();
 const dryRun = process.argv.includes("--dry-run");
 const workerNameArg = process.argv.find((arg) => arg.startsWith("--name="));
 const workerName = workerNameArg?.slice("--name=".length) || process.env.TRADEPILOT_WORKER_NAME || "tradepilot212";
-const pnpm = "pnpm";
-const shell = process.platform === "win32";
+
+if (!/^[a-z0-9][a-z0-9-]{0,62}$/i.test(workerName)) {
+  console.error("Worker name must contain only letters, numbers and hyphens, and be at most 63 characters.");
+  process.exit(1);
+}
 
 dotenv.config({ path: path.join(root, ".env.local"), quiet: true });
 dotenv.config({ path: path.join(root, ".env"), quiet: true });
 
-function run(args, options = {}) {
-  const result = spawnSync(pnpm, args, {
+function managerCommand(args, options = {}) {
+  const npmExecPath = process.env.npm_execpath;
+  const command = npmExecPath ? process.execPath : process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "pnpm";
+  const commandArgs = npmExecPath
+    ? [npmExecPath, ...args]
+    : process.platform === "win32"
+      ? ["/d", "/s", "/c", ["pnpm", ...args].map((part) => `"${String(part).replaceAll('"', '""')}"`).join(" ")]
+      : args;
+  return spawnSync(command, commandArgs, {
     cwd: root,
     encoding: "utf8",
-    shell,
+    shell: false,
+    ...options,
+  });
+}
+
+function run(args, options = {}) {
+  const result = managerCommand(args, {
     stdio: options.capture ? ["inherit", "pipe", "pipe"] : "inherit",
     ...options,
   });
@@ -77,7 +93,8 @@ console.log(`TradePilot 212 self-host deployment${dryRun ? " (dry run)" : ""}`);
 console.log(`Worker name: ${workerName}`);
 console.log("");
 
-console.log("1/3 Validating project…");
+console.log("1/3 Validating local configuration and project…");
+run(["doctor"]);
 run(["check"]);
 
 if (dryRun) {
@@ -89,11 +106,7 @@ if (dryRun) {
 }
 
 console.log("2/3 Checking Cloudflare login and syncing secrets…");
-const whoami = spawnSync(pnpm, ["exec", "wrangler", "whoami"], {
-  cwd: root,
-  encoding: "utf8",
-  shell,
-});
+const whoami = managerCommand(["exec", "wrangler", "whoami"]);
 const authenticated = whoami.status === 0 && !`${whoami.stdout ?? ""}${whoami.stderr ?? ""}`.includes("not authenticated");
 if (!authenticated) {
   console.log("Cloudflare login required. Your browser will open once.");
@@ -103,22 +116,22 @@ if (!authenticated) {
 const secrets = {
   APP_LOGIN_PASSWORD: process.env.APP_LOGIN_PASSWORD,
   AUTH_SIGNING_SECRET: process.env.AUTH_SIGNING_SECRET,
+  DEFAULT_TRADING_ENV: process.env.DEFAULT_TRADING_ENV || "demo",
+  MAX_ORDER_NOTIONAL: process.env.MAX_ORDER_NOTIONAL || "5000",
+  MAX_ORDER_QUANTITY: process.env.MAX_ORDER_QUANTITY || "100000",
+  CONFIRMATION_TTL_SECONDS: process.env.CONFIRMATION_TTL_SECONDS || "90",
 };
 for (const [, keyName, secretName] of pairs) {
   if (process.env[keyName] && process.env[secretName]) {
     secrets[keyName] = process.env[keyName];
     secrets[secretName] = process.env[secretName];
   } else {
-    // Explicitly remove previously configured credentials when this environment is disabled locally.
     secrets[keyName] = null;
     secrets[secretName] = null;
   }
 }
-const secretResult = spawnSync(pnpm, ["exec", "wrangler", "secret", "bulk", "--name", workerName], {
-  cwd: root,
+const secretResult = managerCommand(["exec", "wrangler", "secret", "bulk", "--name", workerName], {
   input: JSON.stringify(secrets),
-  encoding: "utf8",
-  shell,
   stdio: ["pipe", "inherit", "inherit"],
 });
 if (secretResult.error || secretResult.status !== 0) {

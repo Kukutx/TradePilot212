@@ -20,6 +20,19 @@ const signing = process.env.AUTH_SIGNING_SECRET ?? "";
 result("OAuth login password", password.length >= 16 && password !== "change-this-password", password ? "configured" : "missing");
 result("OAuth signing secret", signing.length >= 32 && !signing.startsWith("change-this-"), signing ? "configured" : "missing");
 
+const defaultEnvironment = (process.env.DEFAULT_TRADING_ENV ?? "demo").trim().toLowerCase();
+result("Default trading environment", ["demo", "live"].includes(defaultEnvironment), defaultEnvironment);
+
+function nonNegativeSetting(name, fallback) {
+  const raw = process.env[name] ?? String(fallback);
+  const value = Number(raw);
+  result(name, Number.isFinite(value) && value >= 0, value === 0 ? "app-level cap disabled" : raw);
+}
+nonNegativeSetting("MAX_ORDER_NOTIONAL", 5000);
+nonNegativeSetting("MAX_ORDER_QUANTITY", 100000);
+const confirmationTtl = Number(process.env.CONFIRMATION_TTL_SECONDS ?? "90");
+result("CONFIRMATION_TTL_SECONDS", Number.isFinite(confirmationTtl) && confirmationTtl > 0, String(confirmationTtl));
+
 function pair(prefix) {
   const key = process.env[`T212_${prefix}_API_KEY`] ?? "";
   const secret = process.env[`T212_${prefix}_API_SECRET`] ?? "";

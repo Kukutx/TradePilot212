@@ -9,13 +9,14 @@ export interface RuntimeConfig {
   confirmationTtlSeconds: number;
   maxOrderNotional: number;
   maxOrderQuantity: number;
+  defaultTradingEnvironment: TradingEnvironment;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
 export type RuntimeEnv = Partial<Record<
   | "PUBLIC_BASE_URL" | "APP_LOGIN_PASSWORD" | "AUTH_SIGNING_SECRET"
   | "ACCESS_TOKEN_TTL_SECONDS" | "REFRESH_TOKEN_TTL_SECONDS" | "CONFIRMATION_TTL_SECONDS"
-  | "MAX_ORDER_NOTIONAL" | "MAX_ORDER_QUANTITY"
+  | "MAX_ORDER_NOTIONAL" | "MAX_ORDER_QUANTITY" | "DEFAULT_TRADING_ENV"
   | "T212_DEMO_API_KEY" | "T212_DEMO_API_SECRET" | "T212_LIVE_API_KEY" | "T212_LIVE_API_SECRET",
   string
 >>;
@@ -28,6 +29,20 @@ function positive(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number): nu
   return value;
 }
 
+function nonNegative(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
+  return value;
+}
+
+function tradingEnvironment(env: RuntimeEnv): TradingEnvironment {
+  const value = (env.DEFAULT_TRADING_ENV ?? "demo").trim().toLowerCase();
+  if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
+  return value;
+}
+
 export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeConfig {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   return {
@@ -37,8 +52,9 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     accessTokenTtlSeconds: Math.floor(positive(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
     refreshTokenTtlSeconds: Math.floor(positive(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
     confirmationTtlSeconds: Math.floor(positive(env, "CONFIRMATION_TTL_SECONDS", 90)),
-    maxOrderNotional: positive(env, "MAX_ORDER_NOTIONAL", 5000),
-    maxOrderQuantity: positive(env, "MAX_ORDER_QUANTITY", 100000),
+    maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5000),
+    maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 100000),
+    defaultTradingEnvironment: tradingEnvironment(env),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },

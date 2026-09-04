@@ -120,13 +120,55 @@ export interface OrderDraft {
   referencePrice?: number;
 }
 
+export type OrderSizing =
+  | { mode: "quantity"; quantity: number }
+  | { mode: "notional"; amount: number; currency?: string; fxRateToInstrumentCurrency?: number }
+  | { mode: "cash_percent"; percent: number; fxRateToInstrumentCurrency?: number }
+  | { mode: "position_percent"; percent: number }
+  | { mode: "all_available" };
+
+export interface OrderIntent {
+  environment: TradingEnvironment;
+  instrument: string;
+  side: OrderSide;
+  type: OrderType;
+  sizing: OrderSizing;
+  extendedHours?: boolean;
+  timeValidity?: TimeValidity;
+  limitPrice?: number;
+  stopPrice?: number;
+  referencePrice?: number;
+}
+
+export interface ResolvedOrderIntent {
+  draft: OrderDraft;
+  instrument: Instrument;
+  sizing: OrderSizing;
+  accountCurrency?: string;
+  heldQuantity?: number;
+  availableToSell?: number;
+  requestedNotional?: number;
+  requestedNotionalCurrency?: string;
+  estimatedQuoteNotional?: number;
+  note: string;
+}
+
+export interface OrderDraftPayload {
+  kind: "order_draft";
+  draft: OrderDraft;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
+  resolvedInstrument?: Instrument;
+  note?: string;
+}
+
 export interface OrderPreview {
   kind: "order_preview";
   token: string;
   expiresAt: string;
   draft: OrderDraft;
   instrument: Instrument;
-  estimatedNotional: number;
+  estimatedNotional?: number;
   estimatedNotionalCurrency: string;
   accountCurrency?: string;
   availableCash?: number;

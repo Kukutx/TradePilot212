@@ -68,6 +68,16 @@ T212_LIVE_API_SECRET=
 
 You may configure only Demo, only Live, or both.
 
+Optional personal defaults:
+
+```env
+DEFAULT_TRADING_ENV=demo
+MAX_ORDER_NOTIONAL=5000
+MAX_ORDER_QUANTITY=100000
+```
+
+`DEFAULT_TRADING_ENV` is used only when you do not explicitly say Demo or Live. Set either `MAX_ORDER_*` value to `0` to disable that app-level cap; broker/account limits and final human confirmation still apply.
+
 ### 4. Get Trading 212 API credentials
 
 Official guide:
@@ -148,6 +158,29 @@ Open my Trading 212 Live portfolio.
 
 **LIVE uses real funds.** TradePilot intentionally keeps final execution behind a separate confirmation action.
 
+## Use it entirely from ChatGPT
+
+After connecting TradePilot, ChatGPT can be your normal interface. You do not need to memorize Trading 212 tickers or open a separate trading UI for routine use.
+
+Examples:
+
+```text
+Analyze Nvidia and compare it with my current portfolio.
+Is Apple worth buying for 1 week / 1 month / 1+ year?
+Buy 0.2 shares of NVDA in Demo.
+Buy about €100 of Nvidia in Live.
+Use 20% of my available cash to buy Apple.
+Sell half of my Nvidia position.
+Sell all available Apple shares.
+Place a 220 USD limit buy for 0.5 NVDA.
+Prepare the order only; do not submit it.
+```
+
+TradePilot resolves symbols/company names to the broker ticker, reads the current account/position when sizing depends on it, converts flexible sizing into an editable standard quantity order, and then shows the normal two-step confirmation UI. Amount-based orders may require ChatGPT to supply a current reference price and, when currencies differ, a current FX rate.
+
+The intended boundary is simple: **natural-language input stays flexible; actual execution stays explicit and strict.**
+
+
 ## Local development
 
 ### Node.js
@@ -223,6 +256,8 @@ Important safeguards:
 - server-side quantity/notional checks run before submission.
 
 See [SECURITY.md](./SECURITY.md) for details.
+
+More: [Flexible ordering](./docs/ORDERING.md) · [ChatGPT automation](./docs/AUTOMATION.md)
 
 ## Internationalization
 

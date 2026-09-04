@@ -134,7 +134,20 @@ try {
   assert(initialize.ok, `Authenticated MCP initialize failed: ${initialize.status} ${initializeText}`);
   assert(initializeText.includes("tradepilot212"), "MCP initialize response did not identify TradePilot 212");
 
-  console.log("SMOKE_OK OAuth + PKCE + protected MCP initialize passed");
+  const tools = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token.access_token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }),
+  });
+  const toolsText = await tools.text();
+  assert(tools.ok, `Authenticated MCP tools/list failed: ${tools.status} ${toolsText}`);
+  assert(toolsText.includes("review_trading212_order_intent"), "Flexible natural-language order tool is missing");
+
+  console.log("SMOKE_OK OAuth + PKCE + MCP initialize + flexible-order tool passed");
 } finally {
   if (child.exitCode === null) {
     const exited = new Promise((resolve) => child.once("exit", resolve));

@@ -31,7 +31,7 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 - Confirmation tokens are short-lived and one-time.
 - Trading 212 write requests are never automatically retried after an ambiguous network/write failure.
 - The server revalidates order constraints before submission.
-- Server-side quantity and notional caps are enforced.
+- Server-side quantity and notional caps are configurable per self-hosted instance; positive values are enforced before submission. Setting a cap to `0` deliberately disables only that app-level cap.
 
 These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.
 

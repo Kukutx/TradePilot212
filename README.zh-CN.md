@@ -82,6 +82,16 @@ T212_LIVE_API_SECRET=
 
 你可以只配置 Demo、只配置 Live，也可以两个都配置。
 
+还可以按个人习惯调整：
+
+```env
+DEFAULT_TRADING_ENV=demo
+MAX_ORDER_NOTIONAL=5000
+MAX_ORDER_QUANTITY=100000
+```
+
+`DEFAULT_TRADING_ENV` 只在你没有明确说 Demo / Live 时生效。`MAX_ORDER_NOTIONAL` 或 `MAX_ORDER_QUANTITY` 设为 `0` 可以关闭对应的 TradePilot 应用层限制；Trading 212 自身限制和最终人工确认仍然保留。
+
 ### 4. Trading 212 密钥在哪里生成
 
 官方说明：
@@ -197,6 +207,29 @@ MCP URL: pnpm deploy 输出的 /mcp 地址
 ```
 
 LIVE 是真实资金环境，最终提交订单仍然必须经过人工确认。
+
+## 日常可以完全 All in ChatGPT
+
+连接后，平时不需要记 Trading 212 的复杂 ticker，也不需要为了日常操作再打开另一个交易界面。直接对 ChatGPT 说自然语言即可。
+
+例如：
+
+```text
+分析英伟达，结合我现在的持仓告诉我值不值得买。
+Apple 短期一周、中期一个月、长期一年以上分别怎么看？
+DEMO 买 0.2 股 NVDA。
+LIVE 大概用 100 欧元买英伟达。
+用我 20% 的可用现金买 Apple。
+卖掉我一半的英伟达。
+把 Apple 可卖的全部卖掉。
+NVDA 220 美元挂限价买 0.5 股。
+只准备订单，不要提交。
+```
+
+TradePilot 会把代码、简称或公司名解析成 Trading 212 的准确 ticker；如果你说“一半”“全部”“可用现金的 20%”，它会先读取账户/持仓再换算成可编辑的标准数量订单，然后仍然进入两步人工确认。按金额下单时，如果交易币种不同，ChatGPT 需要提供当前参考价和必要的实时汇率。
+
+核心原则：**输入尽量自由，真正执行必须明确。**
+
 
 ## 本地使用
 
@@ -336,3 +369,12 @@ TradePilot 212 是自托管软件工具，不构成投资建议。所有市场�
 ## License
 
 MIT，见 [LICENSE](./LICENSE)。
+
+
+## 更多文档
+
+- [自然语言与灵活下单](./docs/ORDERING.md)
+- [ChatGPT 定时分析架构](./docs/AUTOMATION.md)
+- [国际化](./docs/I18N.md)
+- [发布模型](./docs/PUBLISHING.md)
+- [故障排查](./docs/TROUBLESHOOTING.md)
