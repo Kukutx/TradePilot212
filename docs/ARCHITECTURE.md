@@ -151,3 +151,7 @@ The UI is intentionally compact:
 New brokerage logic should normally enter through `TradingService` and shared contracts, not through platform adapters. New runtime support should implement `StateStore` and provide the shared Hono application with configuration, widget HTML, and optional audit hooks.
 
 Market-data providers, research workflows, and recurring tasks should remain external to the broker bridge unless they are required for broker correctness.
+
+### Transaction workspace
+
+Order editing, final confirmation, and cancellation confirmation render in normal document flow rather than a fixed-position iframe overlay. This lets the MCP host measure the real content height and avoids compressed dialogs in short embedded views. If the host exposes fullscreen and the current viewport is unusually short, the UI makes a best-effort fullscreen request; the in-flow layout remains the fallback. Only one transaction step is mounted at a time, so there is no nested modal stack or duplicate scroll container.

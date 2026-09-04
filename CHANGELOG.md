@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.0
+
+- Replaced fixed order-review modals with an in-flow transaction workspace that can resize with the ChatGPT host.
+- When the host provides a very short embedded viewport, TradePilot requests fullscreen when available and falls back cleanly when it is not.
+- Only one transaction step is rendered at a time; the portfolio is no longer layered behind order review.
+- Removed nested modal scrolling and made confirmation rows stack on narrow embeds.
+- Closing a model-opened order draft returns to the portfolio instead of leaving an empty order state.
+- Added a layout regression test for fixed-overlay and nested-scroll regressions.
+
 ## 2.3.0
 
 - Added structured error codes and bilingual UI error rendering.

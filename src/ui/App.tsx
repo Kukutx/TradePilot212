@@ -121,30 +121,6 @@ function verificationText(result: ExecutionVerificationResult, t: Translator): s
   }
 }
 
-function useDialogFocus<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
-  useEffect(() => {
-    const container = ref.current;
-    if (!container) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusable = () => Array.from(container.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])'));
-    const first = focusable()[0];
-    first?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (!items.length) return;
-      const firstItem = items[0]!;
-      const lastItem = items[items.length - 1]!;
-      if (event.shiftKey && document.activeElement === firstItem) { event.preventDefault(); lastItem.focus(); }
-      else if (!event.shiftKey && document.activeElement === lastItem) { event.preventDefault(); firstItem.focus(); }
-    };
-    container.addEventListener("keydown", onKeyDown);
-    return () => { container.removeEventListener("keydown", onKeyDown); previous?.focus(); };
-  }, []);
-  return ref;
-}
-
 function textFromToolResult(value: Awaited<ReturnType<McpApp["callServerTool"]>>): string {
   return (
     value.content
@@ -289,6 +265,7 @@ export default function App() {
   );
   const [displayMode, setDisplayMode] = useState<DisplayMode>("inline");
   const [availableDisplayModes, setAvailableDisplayModes] = useState<DisplayMode[]>(["inline"]);
+  const transactionExpansionAttempted = useRef(false);
 
   const t = useMemo(() => createTranslator(locale), [locale]);
 
@@ -316,6 +293,25 @@ export default function App() {
   });
 
   useHostStyles(app, app?.getHostContext());
+
+  const transactionActive = Boolean(draft || preview || cancelPreview);
+
+  useEffect(() => {
+    if (!transactionActive) {
+      transactionExpansionAttempted.current = false;
+      return;
+    }
+    if (transactionExpansionAttempted.current || !app || displayMode === "fullscreen") return;
+    if (!availableDisplayModes.includes("fullscreen")) return;
+    if (typeof window === "undefined" || window.innerHeight >= 560) return;
+
+    transactionExpansionAttempted.current = true;
+    void app.requestDisplayMode({ mode: "fullscreen" })
+      .then((result) => setDisplayMode(result.mode))
+      .catch(() => {
+        // The in-flow transaction layout is the fallback when the host declines fullscreen.
+      });
+  }, [app, availableDisplayModes, displayMode, transactionActive]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -402,6 +398,12 @@ export default function App() {
     }
   }
 
+  async function closeOrderDraft(): Promise<void> {
+    setDraft(null);
+    setPreview(null);
+    if (base?.kind === "order_draft") await refresh(environment);
+  }
+
   async function reviewOrder(): Promise<void> {
     if (!draft) return;
     setStatus("loading");
@@ -484,11 +486,11 @@ export default function App() {
       if (event.key !== "Escape") return;
       if (cancelPreview) setCancelPreview(null);
       else if (preview) setPreview(null);
-      else if (draft) { setDraft(null); setPreview(null); }
+      else if (draft) { setDraft(null); setPreview(null); if (base?.kind === "order_draft") void refresh(environment); }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [cancelPreview, preview, draft]);
+  }, [base, cancelPreview, draft, environment, preview]);
 
   if (!app && !error) {
     return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
@@ -576,29 +578,35 @@ export default function App() {
         </div>
       )}
 
-      {base?.kind === "error" && <div className="emptyState">{formatProblem(base.error, t, locale)}</div>}
-      {base?.kind === "portfolio" && (
-        <PortfolioView payload={base} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
-      )}
-      {base?.kind === "trade_plan" && (
-        <TradePlanView
-          payload={base}
-          locale={locale}
-          t={t}
-          writeEnabled={writeEnabled}
-          onTrade={(candidate) => {
-            const next = defaultDraft(environment, candidate);
-            if (!next) return;
-            setDraft(next);
-            setPreview(null);
-            setExecution(null);
-          }}
-        />
-      )}
-      {base?.kind === "order_draft" && !draft && <div className="emptyState">{t("orderLoaded")}</div>}
-      {!base && <div className="emptyState">{t("waiting")}</div>}
+      {!transactionActive && (
+        <>
+        {base?.kind === "error" && <div className="emptyState">{formatProblem(base.error, t, locale)}</div>}
+        {base?.kind === "portfolio" && (
+          <PortfolioView payload={base} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
+        )}
+        {base?.kind === "trade_plan" && (
+          <TradePlanView
+            payload={base}
+            locale={locale}
+            t={t}
+            writeEnabled={writeEnabled}
+            onTrade={(candidate) => {
+              const next = defaultDraft(environment, candidate);
+              if (!next) return;
+              setDraft(next);
+              setPreview(null);
+              setExecution(null);
+            }}
+          />
+        )}
+        {base?.kind === "order_draft" && !draft && <div className="emptyState">{t("orderLoaded")}</div>}
+        {!base && <div className="emptyState">{t("waiting")}</div>}
 
-      {draft && (
+
+        </>
+      )}
+
+      {draft && !preview && !cancelPreview && (
         <OrderEditor
           draft={draft}
           originalDraft={base?.kind === "order_draft" ? base.draft : undefined}
@@ -608,12 +616,12 @@ export default function App() {
           t={t}
           busy={status === "loading"}
           onChange={setDraft}
-          onClose={() => { setDraft(null); setPreview(null); }}
+          onClose={() => void closeOrderDraft()}
           onReview={() => void reviewOrder()}
         />
       )}
 
-      {preview && (
+      {preview && !cancelPreview && (
         <OrderConfirmation
           preview={preview}
           locale={locale}
@@ -980,11 +988,10 @@ function OrderEditor({
   const set = <K extends keyof OrderDraft>(key: K, value: OrderDraft[K]) => onChange({ ...draft, [key]: value });
   const quantityEdited = resolution ? Math.abs(draft.quantity - resolution.resolvedQuantity) > 1e-8 : false;
   const orderEdited = originalDraft ? (["side", "type", "quantity", "extendedHours", "timeValidity", "limitPrice", "stopPrice", "referencePrice"] as const).some((key) => originalDraft[key] !== draft[key]) : quantityEdited;
-  const dialogRef = useDialogFocus<HTMLElement>();
   return (
-    <div className="modalBackdrop" role="presentation">
-      <section ref={dialogRef} className={`dialogPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true" aria-label={t("orderDraft")}>
-        <div className="dialogHeader">
+    <main className="transactionStage">
+      <section className={`transactionPanel ${draft.environment === "live" ? "liveTransaction" : ""}`} aria-label={t("orderDraft")}>
+        <div className="transactionHeader">
           <div><span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span><h2>{t("orderDraft")}</h2><p>{draft.ticker}</p></div>
           <button className="closeButton" type="button" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
         </div>
@@ -1005,10 +1012,10 @@ function OrderEditor({
           {draft.type !== "market" && <Field label={t("validity")}><select value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select></Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
         </div>
-        <div className="dialogFooter"><button className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
         <span className="visuallyHidden">{locale}</span>
       </section>
-    </div>
+    </main>
   );
 }
 
@@ -1032,11 +1039,10 @@ function OrderConfirmation({
   onConfirm: () => void;
 }) {
   const draft = preview.draft;
-  const dialogRef = useDialogFocus<HTMLElement>();
   const amountCurrency = preview.estimatedNotionalCurrency || preview.instrument.currencyCode;
   return (
-    <div className="modalBackdrop topLayer">
-      <section ref={dialogRef} className={`dialogPanel confirmationPanel ${draft.environment === "live" ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
+    <main className="transactionStage">
+      <section className={`transactionPanel confirmationPanel ${draft.environment === "live" ? "liveTransaction" : ""}`} aria-label={t("finalConfirmation")}>
         <div className="confirmationHero">
           <span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span>
           <span className="sectionEyebrow">{t("finalConfirmation")}</span>
@@ -1056,9 +1062,9 @@ function OrderConfirmation({
         </div>
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
-        <div className="dialogFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
-    </div>
+    </main>
   );
 }
 
@@ -1085,14 +1091,13 @@ function ConfirmModal({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useDialogFocus<HTMLElement>();
   return (
-    <div className="modalBackdrop topLayer">
-      <section ref={dialogRef} className={`dialogPanel smallDialog ${danger ? "liveDialog" : ""}`} role="dialog" aria-modal="true">
+    <main className="transactionStage">
+      <section className={`transactionPanel smallDialog ${danger ? "liveTransaction" : ""}`} aria-label={title}>
         <h2>{title}</h2><p>{body}</p>
-        <div className="dialogFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
       </section>
-    </div>
+    </main>
   );
 }
 

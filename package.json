@@ -1,9 +1,9 @@
 {
   "name": "tradepilot212",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
-  "description": "Self-hosted Trading 212 MCP application with bilingual portfolio UI, flexible order review, OAuth/PKCE, and explicit execution confirmation.",
+  "description": "Self-hosted Trading 212 MCP app for ChatGPT with portfolio dashboards, flexible order sizing, OAuth/PKCE, Demo/Live separation, and human-confirmed execution.",
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/doctor.mjs",

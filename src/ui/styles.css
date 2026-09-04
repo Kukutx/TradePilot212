@@ -316,49 +316,76 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .primaryButton { background: #191a1c; color: #fff; }
 .dangerButton { background: #a92329; color: #fff; }
 
-.modalBackdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.42); backdrop-filter: blur(5px); }
-.modalBackdrop.topLayer { z-index: 60; }
-.dialogPanel { width: min(600px, 100%); max-height: min(90vh, 720px); overflow: auto; padding: 20px; border: 1px solid var(--tp-border); border-radius: 20px; background: var(--tp-bg); color: var(--tp-text); box-shadow: var(--tp-shadow); }
-.dialogPanel.liveDialog { border-color: color-mix(in srgb, var(--tp-red) 45%, var(--tp-border)); box-shadow: 0 18px 55px rgba(119,28,32,.18); }
-.dialogHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 17px; }
-.dialogHeader h2 { margin: 8px 0 2px; font-size: 20px; letter-spacing: -.035em; }
-.dialogHeader p { margin: 0; color: var(--tp-muted); font-size: 10px; }
+.transactionStage {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0 8px;
+}
+.transactionPanel {
+  width: min(820px, 100%);
+  min-width: 0;
+  min-height: 420px;
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px solid var(--tp-border);
+  border-radius: 20px;
+  background: var(--tp-bg);
+  color: var(--tp-text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .055);
+}
+.transactionPanel.liveTransaction {
+  border-color: color-mix(in srgb, var(--tp-red) 36%, var(--tp-border));
+  box-shadow: 0 8px 30px rgba(119, 28, 32, .09);
+}
+.transactionHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+.transactionHeader h2 { margin: 8px 0 2px; font-size: 22px; letter-spacing: -.035em; }
+.transactionHeader p { margin: 0; color: var(--tp-muted); font-size: 10px; }
 .environmentTag { display: inline-flex; align-items: center; min-height: 22px; padding: 0 7px; border-radius: 7px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 9px; font-weight: 800; letter-spacing: .05em; }
 .environmentTag.live { background: var(--tp-red-soft); color: var(--tp-red); }
-.closeButton { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: transparent; color: var(--tp-muted); }
+.closeButton { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: transparent; color: var(--tp-muted); }
 .closeButton:hover { background: var(--tp-bg-soft); color: var(--tp-text); }
-.resolutionCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 0 0 14px; padding: 12px 13px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg-soft); }
+.resolutionCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 0 0 18px; padding: 13px 14px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg-soft); }
 .resolutionCard > div { display: grid; gap: 3px; min-width: 0; }
 .resolutionCard span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
 .resolutionCard strong { overflow-wrap: anywhere; font-size: 11px; line-height: 1.35; }
 .resolutionEdited { grid-column: 1 / -1; grid-template-columns: auto 1fr auto !important; align-items: center; gap: 8px !important; padding-top: 9px; border-top: 1px solid var(--tp-border); }
 .resolutionEdited strong { color: var(--tp-amber); }
 .resolutionEdited button { border: 0; border-radius: 8px; padding: 5px 8px; background: var(--tp-bg); color: var(--tp-text); font-size: 9px; font-weight: 700; cursor: pointer; }
-.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { color: var(--tp-muted); font-size: 9px; font-weight: 650; }
-.field input, .field select { width: 100%; height: 42px; min-width: 0; padding: 0 11px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 11px; }
+.field input, .field select { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 11px; }
 .field input:hover, .field select:hover { border-color: var(--tp-border-strong); }
-.toggleField { display: flex; align-items: center; gap: 9px; align-self: end; min-height: 42px; color: var(--tp-muted); font-size: 10px; cursor: pointer; }
+.toggleField { display: flex; align-items: center; gap: 9px; align-self: end; min-height: 44px; color: var(--tp-muted); font-size: 10px; cursor: pointer; }
 .toggleField input { position: absolute; opacity: 0; pointer-events: none; }
 .toggleTrack { width: 32px; height: 19px; padding: 2px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--tp-border-strong); transition: background .16s ease; }
 .toggleTrack > span { width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform .16s ease; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
 .toggleField input:checked + .toggleTrack { background: #333; }
 .toggleField input:checked + .toggleTrack > span { transform: translateX(13px); }
-.dialogFooter { position: sticky; bottom: -20px; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -20px -20px; padding: 13px 20px; border-top: 1px solid var(--tp-border); background: color-mix(in srgb, var(--tp-bg) 94%, transparent); backdrop-filter: blur(10px); }
-.confirmationPanel { width: min(560px, 100%); }
-.confirmationHero { display: flex; flex-direction: column; align-items: flex-start; padding-bottom: 16px; }
+.transactionFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin: 24px -24px -24px;
+  padding: 15px 24px;
+  border-top: 1px solid var(--tp-border);
+  border-radius: 0 0 20px 20px;
+  background: color-mix(in srgb, var(--tp-bg) 97%, transparent);
+}
+.mode-fullscreen .transactionFooter { position: sticky; bottom: 0; z-index: 3; backdrop-filter: blur(10px); }
+.confirmationPanel { width: min(720px, 100%); }
+.confirmationHero { display: flex; flex-direction: column; align-items: flex-start; padding-bottom: 18px; }
 .confirmationHero .sectionEyebrow { margin-top: 14px; margin-bottom: 4px; }
-.confirmationHero h2 { margin: 0; font-size: 19px; letter-spacing: -.035em; }
-.confirmationAmount { margin-top: 10px; font-size: 31px; letter-spacing: -.05em; }
+.confirmationHero h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }
+.confirmationAmount { margin-top: 10px; font-size: 34px; letter-spacing: -.05em; }
 .confirmationRows { overflow: hidden; border: 1px solid var(--tp-border); border-radius: 13px; }
-.confirmationRows > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--tp-border); font-size: 10px; }
+.confirmationRows > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border-bottom: 1px solid var(--tp-border); font-size: 10px; }
 .confirmationRows > div:last-child { border-bottom: 0; }
 .confirmationRows span { color: var(--tp-muted); }
-.confirmationRows strong { text-align: right; }
-.expiryLine { margin-top: 11px; color: var(--tp-muted); font-size: 9px; }
-.smallDialog { width: min(440px, 100%); }
-.smallDialog h2 { margin: 0 0 8px; font-size: 18px; letter-spacing: -.025em; }
+.confirmationRows strong { text-align: right; overflow-wrap: anywhere; }
+.expiryLine { margin-top: 12px; color: var(--tp-muted); font-size: 9px; }
+.smallDialog { width: min(560px, 100%); min-height: 0; }
+.smallDialog h2 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.025em; }
 .smallDialog p { margin: 0; color: var(--tp-muted); font-size: 11px; }
 .visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -406,13 +433,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .activityRow time { grid-column: 2; }
   .resolutionCard { grid-template-columns: 1fr; align-items: start; }
   .formGrid { grid-template-columns: 1fr; }
-  .modalBackdrop { align-items: end; padding: 0; }
-  .dialogPanel { width: 100%; max-height: 91vh; border-radius: 22px 22px 0 0; border-left: 0; border-right: 0; border-bottom: 0; padding: 18px 16px; }
-  .dialogFooter { bottom: -18px; margin: 18px -16px -18px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
-  .dialogFooter > button { flex: 1 1 0; }
+  .transactionStage { padding: 0; }
+  .transactionPanel { width: 100%; min-height: 0; padding: 18px 16px; border-radius: 16px; box-shadow: none; }
+  .transactionHeader { margin-bottom: 16px; }
+  .transactionHeader h2 { font-size: 20px; }
+  .transactionFooter { position: static !important; margin: 20px -16px -18px; padding: 13px 16px calc(13px + env(safe-area-inset-bottom)); border-radius: 0 0 16px 16px; }
+  .transactionFooter > button { flex: 1 1 0; min-width: 0; }
 }
 
 @container (max-width: 420px) {
+  .confirmationRows > div { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .confirmationRows strong { text-align: left; }
+  .resolutionEdited { grid-template-columns: 1fr !important; align-items: start; }
+  .resolutionEdited button { width: fit-content; }
   .brandMark { width: 38px; height: 38px; border-radius: 12px; }
   .brandCopy h1 { font-size: 18px; }
   .brokerLabel { font-size: 9px; }

@@ -13,7 +13,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - **Self-hosted by default** — Cloudflare Workers is the recommended hosted path; Node.js and Docker/VPS are also supported.
 - **Small runtime surface** — the Worker handles account access, instrument resolution, validation, state, and execution. Research and scheduling stay outside the broker bridge.
 - **Recoverable failures** — ambiguous write outcomes are never retried automatically and can be checked against current broker state.
-- **Portable UI** — responsive inline/fullscreen layouts, English and Simplified Chinese, with an extensible locale registry.
+- **Portable UI** — responsive inline/fullscreen layouts, an in-flow order workspace that does not depend on fixed iframe overlays, English and Simplified Chinese, with an extensible locale registry.
 
 ## What is included
 
