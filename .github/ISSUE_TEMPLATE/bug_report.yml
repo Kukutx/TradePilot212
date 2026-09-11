@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem in TradePilot 212
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include Trading 212 API keys, secrets, login passwords, auth signing secrets, account details, or private deployment URLs.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use Demo mode where possible and provide the smallest safe reproduction.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: e.g. 2.4.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Cloudflare Workers
+        - Node / VPS
+        - Docker
+        - Local development
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only redacted logs. Never include credentials, confirmation tokens, account identifiers, or private URLs.
