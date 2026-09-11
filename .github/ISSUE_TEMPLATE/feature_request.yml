@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement to TradePilot 212
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow or limitation would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Trading and security impact
+      description: Explain any impact on Live/Demo separation, order confirmation, credentials, OAuth, limits, or deployment security.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional workarounds or alternative designs.
