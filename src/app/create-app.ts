@@ -1,4 +1,4 @@
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";

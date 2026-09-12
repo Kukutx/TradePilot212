@@ -3,7 +3,7 @@ import {
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { TradingService } from "./trading-service.js";
@@ -92,10 +92,7 @@ export function createMcpServer(
     server,
     "TradePilot 212 trading dashboard",
     WIDGET_URI,
-    {
-      mimeType: RESOURCE_MIME_TYPE,
-      description: "Interactive Trading 212 Demo/Live dashboard with explicit human order confirmation.",
-    },
+    {},
     async () => ({
       contents: [
         {
@@ -114,7 +111,7 @@ export function createMcpServer(
       title: "Trading 212 Portfolio Dashboard",
       description:
         "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
-      inputSchema: { environment: environmentWithDefault },
+      inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
@@ -135,11 +132,11 @@ export function createMcpServer(
       title: "Search Trading 212 Instruments",
       description:
         "Resolve a stock ticker, symbol, company name, or partial name to Trading 212 instruments. Read-only. Use this whenever the user's code/name is ambiguous or you need the broker's exact ticker.",
-      inputSchema: {
+      inputSchema: z.object({
         environment: environmentWithDefault,
         query: z.string().min(1),
         limit: z.number().int().min(1).max(50).default(20),
-      },
+      }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: {},
     },
@@ -164,10 +161,10 @@ export function createMcpServer(
     {
       title: "Recent Trading Activity",
       description: "Read recent TradePilot order/cancellation lifecycle events for the selected environment. This is an audit trail only and never submits or changes an order.",
-      inputSchema: {
+      inputSchema: z.object({
         environment: environmentWithDefault,
         limit: z.number().int().min(1).max(50).default(12),
-      },
+      }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       _meta: {},
     },
@@ -188,10 +185,10 @@ export function createMcpServer(
       title: "Trading 212 Daily Trade Plan",
       description:
         "Render supplied stock candidates as actionable short (<=1 week), medium (<=1 month), and long (>=1 year) cards. This tool never places orders. Include a current referencePrice for actionable Market-order candidates whenever possible, especially when the app-level notional cap is enabled.",
-      inputSchema: {
+      inputSchema: z.object({
         environment: environmentWithDefault,
         candidates: z.array(candidateSchema).min(1).max(30),
-      },
+      }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
@@ -216,7 +213,7 @@ export function createMcpServer(
         title: "Review Flexible Trading 212 Order",
         description:
           "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
-        inputSchema: {
+        inputSchema: z.object({
           environment: environmentWithDefault,
           instrument: z.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
           side: z.enum(["buy", "sell"]),
@@ -229,7 +226,7 @@ export function createMcpServer(
           referencePrice: z.number().positive().optional(),
           referencePriceAt: z.string().datetime().optional(),
           fxRateAt: z.string().datetime().optional(),
-        },
+        }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
@@ -270,7 +267,7 @@ export function createMcpServer(
         title: "Review Exact Trading 212 Order",
         description:
           "Advanced exact-order entry. Open an editable order draft when the exact Trading 212 ticker and quantity are already known. This is review-only and never places an order. Prefer review_trading212_order_intent for natural-language sizing such as money amounts, half, percentages, or all shares.",
-        inputSchema: orderDraftSchema.shape,
+        inputSchema: orderDraftSchema,
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
@@ -289,7 +286,7 @@ export function createMcpServer(
     {
       title: "Refresh dashboard",
       description: "App-only dashboard refresh.",
-      inputSchema: { environment: environmentEnum },
+      inputSchema: z.object({ environment: environmentEnum }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { visibility: ["app"] } },
     },
@@ -309,7 +306,7 @@ export function createMcpServer(
     {
       title: "Refresh trade plan",
       description: "App-only trade plan refresh when the user switches Demo/Live.",
-      inputSchema: { environment: environmentEnum, candidates: z.array(candidateSchema).min(1).max(30) },
+      inputSchema: z.object({ environment: environmentEnum, candidates: z.array(candidateSchema).min(1).max(30) }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { visibility: ["app"] } },
     },
@@ -330,7 +327,7 @@ export function createMcpServer(
       {
         title: "Prepare order confirmation",
         description: "App-only validation. Creates a short-lived one-time confirmation token; does not place an order.",
-        inputSchema: orderDraftSchema.shape,
+        inputSchema: orderDraftSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
@@ -351,7 +348,7 @@ export function createMcpServer(
         title: "Execute confirmed order",
         description:
           "App-only destructive external write. Consumes a one-time token created by app_prepare_order. Never retry automatically.",
-        inputSchema: { token: z.string().min(20) },
+        inputSchema: z.object({ token: z.string().min(20) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
@@ -371,7 +368,7 @@ export function createMcpServer(
       {
         title: "Verify uncertain execution",
         description: "App-only read-back verification after an ambiguous write result. This never retries the original order or cancellation.",
-        inputSchema: { verificationId: z.string().min(1) },
+        inputSchema: z.object({ verificationId: z.string().min(1) }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
@@ -391,7 +388,7 @@ export function createMcpServer(
       {
         title: "Prepare order cancellation",
         description: "App-only cancellation validation; does not cancel yet.",
-        inputSchema: { environment: environmentEnum, orderId: z.string().min(1) },
+        inputSchema: z.object({ environment: environmentEnum, orderId: z.string().min(1) }),
         annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
@@ -411,7 +408,7 @@ export function createMcpServer(
       {
         title: "Execute confirmed cancellation",
         description: "App-only destructive write. Consumes a one-time cancellation token.",
-        inputSchema: { token: z.string().min(20) },
+        inputSchema: z.object({ token: z.string().min(20) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },

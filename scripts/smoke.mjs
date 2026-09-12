@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
-import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
 
 const root = process.cwd();
 dotenv.config({ path: path.join(root, ".env.local"), quiet: true });
