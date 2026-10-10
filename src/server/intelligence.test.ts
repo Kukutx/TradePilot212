@@ -25,6 +25,9 @@ describe("V3 portfolio intelligence and local monitoring", () => {
     const portfolio = await service.portfolio("demo");
     const risk = await service.analysis("demo");
     const brief = await service.dailyBrief("demo");
+    const attention=await service.attention("demo");
+    expect(attention.source).toBe("sample");
+    expect(attention.brokerWrites).toBe(0);
     const history = await service.recentOrders("demo");
     expect(portfolio.source).toBe("sample");
     expect(risk.source).toBe("sample");
