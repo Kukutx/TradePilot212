@@ -16,6 +16,19 @@ describe("personal trade intent and risk policy",()=>{
   it("finds company names without confusing derivatives",()=>{
     expect(resolveInstrument([...instruments,{ticker:"AAPY_EQ",name:"Option Income Apple",shortName:"AAPY",currencyCode:"EUR",type:"ETF"}],"Apple Inc.").ticker).toBe("AAPL_US_EQ");
   });
+  it("never silently prefers US ticker or US company listing when broker symbol is ambiguous",()=>{
+    const dual=[
+      instruments[0]!,
+      {ticker:"AAPL_DE_EQ",name:"Apple Inc.",shortName:"AAPL",
+       currencyCode:"EUR",type:"STOCK"},
+    ];
+    expect(()=>resolveInstrument(dual,"AAPL")).toThrow(/exact Trading 212 ticker/);
+    expect(()=>resolveInstrument(dual,"Apple Inc.")).toThrow(/exact Trading 212 ticker/);
+    expect(resolveInstrument(dual,"AAPL_US_EQ").ticker).toBe("AAPL_US_EQ");
+    expect(resolveInstrument(dual,"AAPL_DE_EQ").ticker).toBe("AAPL_DE_EQ");
+    const proposal={...intent({mode:"quantity",quantity:1}),instrument:"AAPL"};
+    expect(()=>resolveTradeIntent(proposal,dual,snapshot,limits)).toThrow(/Ambiguous/);
+  });
   it("resolves precise shares, target money, percentages, and all tradable",()=>{
     expect(resolveTradeIntent(intent({mode:"quantity",quantity:0.5}),instruments,snapshot,limits).draft.quantity).toBe(0.5);
     expect(resolveTradeIntent(intent({mode:"notional",amount:200,currency:"USD"}),instruments,snapshot,limits).draft.quantity).toBe(2);
