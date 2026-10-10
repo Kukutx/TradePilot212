@@ -108,7 +108,11 @@ export class Trading212Reader implements BrokerReader {
       const currency = row.instrument.currencyCode;
       const price = row.currentPrice ?? null;
       const rawBrokerValue = row.walletImpact?.currentValue;
-      const brokerValue = typeof rawBrokerValue === "number" && Number.isFinite(rawBrokerValue) && rawBrokerValue >= 0
+      const declaredValueCurrency = row.walletImpact?.currency;
+      // Broker wallets can be in a different currency from the primary account.
+      // Never trust walletImpact.currentValue without matching ISO currency evidence.
+      const brokerValue = declaredValueCurrency === raw.currency &&
+        typeof rawBrokerValue === "number" && Number.isFinite(rawBrokerValue) && rawBrokerValue >= 0
         ? rawBrokerValue : null;
       const verifiedSameCurrency = currency === raw.currency && price !== null;
       const value = brokerValue ?? (verifiedSameCurrency ? row.quantity * price : null);
