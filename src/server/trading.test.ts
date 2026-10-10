@@ -4,7 +4,7 @@ import {readConfiguration} from "../infra/config.js";
 import {MemoryStore} from "../infra/state.js";
 import type {BrokerTradePort} from "../infra/trade-gateway.js";
 import {BrokerOperationUnknown} from "../infra/trade-gateway.js";
-import type {TradeDraft} from "../domain/trading.js";
+import type {PendingOrder,TradeDraft} from "../domain/trading.js";
 import {personalApprovalProof} from "../domain/approval-proof.js";
 import type {PortfolioSnapshot} from "../domain/types.js";
 import {PersonalTradingService} from "./trading.js";
@@ -22,7 +22,7 @@ const snapshot:PortfolioSnapshot={
   holdings:[{ticker:"AAPL_US_EQ",name:"Apple",currency:"USD",quantity:5,tradableQuantity:4,price:100,valueInAccountCurrency:500,valueProvenance:"same_currency_quote"}],
   notes:[],
 };
-function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot}={}){
+function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot;pending?:PendingOrder[]}={}){
   const placeOrder=vi.fn(async(_draft:TradeDraft)=>{
     if(opts.unknown)throw new BrokerOperationUnknown("response lost");
     return {orderId:"11"};
@@ -30,7 +30,7 @@ function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot}={}){
   const cancelOrder=vi.fn(async()=>({orderId:"11"}));
   const broker:BrokerTradePort={
     getInstruments:async()=>[{ticker:"AAPL_US_EQ",name:"Apple Inc.",shortName:"AAPL",currencyCode:"USD",extendedHours:true}],
-    getPendingOrders:async()=>[],
+    getPendingOrders:async()=>opts.pending??[],
     getOrder:async()=>({id:"11",ticker:"AAPL_US_EQ",quantity:1}),
     placeOrder,cancelOrder,
   };
@@ -62,6 +62,37 @@ describe("personal trading workflow",()=>{
     expect(result.status).toBe("unknown");
     expect(result.verificationId).toBeTruthy();
     await svc.verifyOutcome(result.verificationId!,"demo");
+    expect(placeOrder).toHaveBeenCalledTimes(1);
+  });
+  it("does not confuse an old or opposite-side pending order with the uncertain write",async()=>{
+    const newOrder:TradeDraft={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"market",quantity:1,referencePrice:100};
+    for(const prior of [
+      {id:"41",ticker:"AAPL_US_EQ",quantity:1,side:"SELL",type:"MARKET",createdAt:new Date().toISOString()},
+      {id:"42",ticker:"AAPL_US_EQ",quantity:1,side:"BUY",type:"MARKET",createdAt:new Date(Date.now()-3_600_000).toISOString()},
+      {id:"43",ticker:"AAPL_US_EQ",quantity:1,side:"BUY",type:"MARKET"},
+    ]){
+      const {svc,placeOrder}=fixture({unknown:true,pending:[prior]});
+      const preview=await svc.prepareOrder(newOrder);
+      const proof=await personalApprovalProof(secret,"order",preview.token);
+      const execution=await svc.executeOrder(preview.token,proof,"demo");
+      expect(execution.status).toBe("unknown");
+      const result=await svc.verifyOutcome(execution.verificationId!,"demo");
+      expect(result.status).toBe("inconclusive");
+      expect(placeOrder).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("recognizes recent exact-side pending orders as potential matches only",async()=>{
+    const {svc,placeOrder}=fixture({unknown:true,pending:[{
+      id:"44",ticker:"AAPL_US_EQ",quantity:1,side:"BUY",type:"MARKET",
+      createdAt:new Date().toISOString(),
+    }]});
+    const preview=await svc.prepareOrder({environment:"demo",ticker:"AAPL_US_EQ",
+      side:"buy",type:"market",quantity:1,referencePrice:100});
+    const proof=await personalApprovalProof(secret,"order",preview.token);
+    const submission=await svc.executeOrder(preview.token,proof,"demo");
+    const verified=await svc.verifyOutcome(submission.verificationId!,"demo");
+    expect(verified.status).toBe("matching_pending");
+    expect(verified.message).toMatch(/not definitive proof/);
     expect(placeOrder).toHaveBeenCalledTimes(1);
   });
   it("does not silently enable Live trading",async()=>{
