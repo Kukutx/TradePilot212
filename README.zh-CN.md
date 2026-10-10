@@ -20,8 +20,8 @@
 
 ```bash
 pnpm install --frozen-lockfile
-cp .env.example .env.local
-# 生成独立的强 OWNER_PASSWORD、JWT_SIGNING_SECRET
+pnpm setup
+pnpm doctor
 pnpm check
 pnpm dev
 ```
