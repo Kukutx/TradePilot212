@@ -39,6 +39,18 @@ export class InsightStore extends DurableObject<WorkerEnv> {
     }
     return result;
   }
+  async reserve(key:string,spacingMs:number,nowMs:number,maxWaitMs:number):Promise<number|null>{
+    return this.ctx.storage.transaction(async transaction=>{
+      if(!Number.isFinite(nowMs)||!Number.isFinite(spacingMs)||spacingMs<=0||maxWaitMs<0)
+        throw new Error("Invalid broker reservation");
+      const previous=await transaction.get<Stored<number>>(key);
+      const next=previous && (!previous.expiresAt||previous.expiresAt>nowMs)?previous.value:nowMs;
+      const allocatedAt=Math.max(nowMs,next);
+      if(allocatedAt-nowMs>maxWaitMs)return null;
+      await transaction.put(key,{value:allocatedAt+spacingMs,expiresAt:allocatedAt+spacingMs+60_000});
+      return allocatedAt;
+    });
+  }
   async increment(key:string,durationMs:number):Promise<number>{
     return this.ctx.storage.transaction(async transaction=>{
       const stored=await transaction.get<Stored<number>>(key);
@@ -58,6 +70,7 @@ function state(env:WorkerEnv):StateStore{
     remove:(k:string)=>stub.remove(k),
     list:<T>(p:string)=>stub.list(p) as Promise<Array<{key:string;value:T}>>,
     increment:(k:string,d:number)=>stub.increment(k,d),
+    reserve:(k:string,d:number,n:number,m:number)=>stub.reserve(k,d,n,m),
   };
 }
 export default {

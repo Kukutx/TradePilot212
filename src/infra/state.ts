@@ -6,6 +6,8 @@ export interface StateStore {
   remove(key: string): Promise<void>;
   list<T>(prefix: string): Promise<Array<{ key: string; value: T }>>;
   increment(key: string, durationMs: number): Promise<number>;
+  /** Atomically allocates an API request slot; null means the wait budget was exceeded. */
+  reserve(key: string, spacingMs: number, nowMs: number, maxWaitMs: number): Promise<number | null>;
 }
 
 /** Single-owner memory store; atomic operations are serialized for concurrent requests. */
@@ -54,6 +56,19 @@ export class MemoryStore implements StateStore {
         if (entry && key.startsWith(prefix)) rows.push({ key, value: entry.value as T });
       }
       return rows;
+    });
+  }
+  reserve(key: string, spacingMs: number, nowMs: number, maxWaitMs: number): Promise<number | null> {
+    return this.locked(async () => {
+      if (!Number.isFinite(nowMs) || !Number.isFinite(spacingMs) || spacingMs <= 0 || maxWaitMs < 0)
+        throw new Error("Invalid broker reservation");
+      const previous = this.valid(key, nowMs)?.value;
+      const next = typeof previous === "number" && Number.isFinite(previous) ? previous : nowMs;
+      const allocatedAt = Math.max(nowMs, next);
+      if (allocatedAt - nowMs > maxWaitMs) return null;
+      this.values.set(key, { value: allocatedAt + spacingMs, expiresAt: allocatedAt + spacingMs + 60_000 });
+      await this.changed();
+      return allocatedAt;
     });
   }
   increment(key: string, durationMs: number): Promise<number> {
