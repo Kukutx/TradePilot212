@@ -5,6 +5,7 @@ import { ExecutionStatusUnknownError } from "./trading212-client.js";
 import { MemoryStateStore } from "./state-store.js";
 import { TradingService } from "./trading-service.js";
 import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
+import { createExecutionApprovalProof } from "../shared/execution-proof.js";
 
 const instrument = {
   ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL",
@@ -43,12 +44,15 @@ describe("order lifecycle boundary", () => {
   it("rejects missing or wrong human approval without consuming the token or trading", async () => {
     const { service, placeOrder } = fixture();
     const preview = await service.prepareOrder(draft);
+    const proof = await createExecutionApprovalProof(secret, "order", preview.token);
     await expect(service.executeOrder(preview.token, "")).rejects.toThrow(/incorrect/);
+    const wrongActionProof = await createExecutionApprovalProof(secret, "cancel", preview.token);
+    await expect(service.executeOrder(preview.token, wrongActionProof)).rejects.toThrow(/incorrect/);
     expect(placeOrder).not.toHaveBeenCalled();
-    const result = await service.executeOrder(preview.token, secret);
+    const result = await service.executeOrder(preview.token, proof);
     expect(result.status).toBe("submitted");
     expect(placeOrder).toHaveBeenCalledTimes(1);
-    await expect(service.executeOrder(preview.token, secret)).rejects.toThrow(/expired/);
+    await expect(service.executeOrder(preview.token, proof)).rejects.toThrow(/expired/);
     expect(placeOrder).toHaveBeenCalledTimes(1);
   });
 
@@ -57,7 +61,8 @@ describe("order lifecycle boundary", () => {
       placeOrder: async () => { throw new ExecutionStatusUnknownError("upstream connection lost"); },
     });
     const preview = await service.prepareOrder(draft);
-    const result = await service.executeOrder(preview.token, secret);
+    const proof = await createExecutionApprovalProof(secret, "order", preview.token);
+    const result = await service.executeOrder(preview.token, proof);
     expect(result.status).toBe("unknown");
     expect(result.verificationId).toBeTruthy();
     const verification = await service.verifyExecution(result.verificationId!);
@@ -68,12 +73,13 @@ describe("order lifecycle boundary", () => {
   it("requires separate approval for Live cancellation and preserves environment", async () => {
     const { service, cancelOrder } = fixture();
     const preview = await service.prepareCancel("live", "1000");
+    const proof = await createExecutionApprovalProof(secret, "cancel", preview.token);
     await expect(service.executeCancel(preview.token, "wrong")).rejects.toThrow(/incorrect/);
     expect(cancelOrder).not.toHaveBeenCalled();
-    const result = await service.executeCancel(preview.token, secret);
+    const result = await service.executeCancel(preview.token, proof);
     expect(result.environment).toBe("live");
     expect(result.status).toBe("submitted");
     expect(cancelOrder).toHaveBeenCalledTimes(1);
-    await expect(service.executeCancel(preview.token, secret)).rejects.toThrow(/expired/);
+    await expect(service.executeCancel(preview.token, proof)).rejects.toThrow(/expired/);
   });
 });
