@@ -16,7 +16,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "dev:cloudflare": "pnpm build:widget && wrangler dev",
     "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
-    "smoke": "node scripts/smoke.mjs",
+    "smoke": "tsx scripts/smoke.ts",
     "monitor:once": "tsx src/transport/monitor-once.ts"
   },
   "dependencies": {
