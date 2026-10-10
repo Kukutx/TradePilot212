@@ -85,7 +85,8 @@ export default function App(){
   useEffect(()=>{if(appError)setError(appError.message);},[appError]);
   const currency=payload?.kind==="portfolio"?payload.account.currency:
     payload?.kind==="analysis"?payload.accountCurrency:
-    payload?.kind==="daily_brief"?payload.currency:"USD";
+    payload?.kind==="daily_brief"?payload.currency:
+    payload?.kind==="scenario"?payload.currency:"USD";
   const source=payload&&"source" in payload?payload.source:"sample";
   async function load(kind:"overview"|"risk"|"stress"|"brief",environment=env){
     if(!app)return;
