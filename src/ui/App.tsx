@@ -24,6 +24,7 @@ import type {
   TradingEnvironment,
 } from "../shared/contracts";
 import { APP_META } from "../shared/meta";
+import { createExecutionApprovalProof } from "../shared/execution-proof";
 import {
   createTranslator,
   localeTag,
@@ -423,7 +424,9 @@ export default function App() {
     setErrorMessage(null);
     try {
       const confirmationCode = preview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, approvalSecret });
+      // The host only receives a one-use HMAC proof, never the user's actual secret.
+      const approvalProof = await createExecutionApprovalProof(approvalSecret, "order", confirmationCode);
+      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, approvalProof });
       setExecution(result);
       setVerification(null);
       setPreview(null);
@@ -454,7 +457,8 @@ export default function App() {
     setErrorMessage(null);
     try {
       const confirmationCode = cancelPreview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode, approvalSecret });
+      const approvalProof = await createExecutionApprovalProof(approvalSecret, "cancel", confirmationCode);
+      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode, approvalProof });
       setExecution(result);
       setVerification(null);
       setCancelPreview(null);
