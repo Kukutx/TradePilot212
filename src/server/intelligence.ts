@@ -70,9 +70,18 @@ export class IntelligenceService {
       orders: history.items.slice(0, 20).map((raw) => {
         const row = raw as Record<string, unknown>;
         // An intentionally narrow whitelist excludes account IDs and raw brokerage payloads.
-        return { id: String(row.id ?? ""), ticker: String(row.ticker ?? ""),
-          type: String(row.type ?? ""), status: String(row.status ?? ""),
-          quantity: typeof row.quantity === "number" ? row.quantity : null,
+        // Historical order IDs are int64. Unsafe JS numbers might have
+        // silently lost digits during JSON parsing; NEVER display a rounded
+        // identifier as though it could safely identify an actual order.
+        const rawId=row.id;
+        const id=typeof rawId==="string" && /^[0-9]{1,20}$/.test(rawId)
+          ? rawId
+          : typeof rawId==="number" && Number.isSafeInteger(rawId) && rawId>=0
+            ? String(rawId) : null;
+        return { id, ticker: typeof row.ticker==="string"?row.ticker:"",
+          type: typeof row.type==="string"?row.type:"",
+          status: typeof row.status==="string"?row.status:"",
+          quantity: typeof row.quantity === "number" && Number.isFinite(row.quantity) ? row.quantity : null,
           createdAt: typeof row.createdAt === "string" ? row.createdAt : null };
       }),
       nextCursor: history.nextCursor,
