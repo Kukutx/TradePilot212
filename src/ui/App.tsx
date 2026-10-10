@@ -70,7 +70,7 @@ export default function App(){
   const [canFullscreen,setCanFullscreen]=useState(false);
   const t=useMemo(()=>wording[locale],[locale]);
   const {app, error:appError}=useApp({
-    appInfo:{name:"TradePilot 212 Personal",version:"3.0.0-alpha.2"},
+    appInfo:{name:"TradePilot 212 Personal",version:"3.0.0-alpha.3"},
     capabilities:{},
     onAppCreated:(created:HostApp)=>{
       created.ontoolresult=result=>{
