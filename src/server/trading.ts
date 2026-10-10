@@ -216,16 +216,25 @@ export class PersonalTradingService {
     let result:TradeVerification;
     if(record.kind==="order"){
       const [pending,portfolio]=await Promise.all([this.broker.getPendingOrders(environment),this.snapshot(environment)]);
-      const matching=pending.find(p=>p.ticker===record.draft.ticker&&
-        relativeDifference(Math.abs(p.quantity),record.draft.quantity)<1e-6 &&
-        (!p.type||p.type.toLowerCase().replaceAll("-","_")===record.draft.type));
+      const uncertainAt=Date.parse(record.at);
+      const matching=pending.find(p=>{
+        // A pre-existing BUY/SELL of the same size is not proof of this write.
+        // Require broker-reported side, type and a valid recent timestamp.
+        const created=p.createdAt?Date.parse(p.createdAt):NaN;
+        if(!Number.isFinite(uncertainAt)||!Number.isFinite(created)||
+           created<uncertainAt-120_000||created>Date.now()+60_000)return false;
+        return p.ticker.toUpperCase()===record.draft.ticker.toUpperCase()&&
+          p.side?.toUpperCase()===record.draft.side.toUpperCase()&&
+          p.type?.toUpperCase().replaceAll("-","_")===record.draft.type.toUpperCase()&&
+          relativeDifference(Math.abs(p.quantity),record.draft.quantity)<1e-6;
+      });
       const nowQuantity=portfolio.holdings.find(h=>h.ticker===record.draft.ticker)?.quantity??0;
       const change=(nowQuantity-record.baselineQuantity)*(record.draft.side==="buy"?1:-1);
       const status=matching?"matching_pending" as const:
         record.draft.type==="market"&&change>=record.draft.quantity*0.999999?"likely_filled" as const:
         "inconclusive" as const;
       result={kind:"trade_verification",operation:"order",environment,status,checkedAt,ticker:record.draft.ticker,
-        message:status==="matching_pending"?"A matching pending order is visible. Do not submit again.":
+        message:status==="matching_pending"?"A recent matching pending order is visible (not definitive proof of provenance). Do not submit again without broker reconciliation.":
           status==="likely_filled"?"Position moved as expected, but other activity can cause similar changes; inspect broker history.":
           "No conclusive broker evidence; do not retry automatically."};
     }else{
