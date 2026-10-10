@@ -3,6 +3,7 @@ import type { Stored, StateStore } from "../infra/state.js";
 import type { RuntimeEnv } from "../infra/config.js";
 import { readConfiguration } from "../infra/config.js";
 import { Trading212Reader } from "../infra/broker.js";
+import { BrokerPacer } from "../infra/broker-pacer.js";
 import { IntelligenceService } from "../server/intelligence.js";
 import { createHttpApp } from "../server/http.js";
 
@@ -95,7 +96,8 @@ export default {
     if(!env.PUBLIC_ORIGIN)throw new Error("Configure PUBLIC_ORIGIN before enabling scheduled monitoring");
     const config=readConfiguration(env);
     if(config.source==="sample")return;
-    const svc=new IntelligenceService(config,state(env),new Trading212Reader(config));
+    const store=state(env);
+    const svc=new IntelligenceService(config,store,new Trading212Reader(config,fetch,new BrokerPacer(store)));
     for(const environment of ["demo","live"] as const){
       if(!config.broker[environment].key)continue;
       try{
