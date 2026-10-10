@@ -29,7 +29,7 @@ function fixture(overrides: { placeOrder?: BrokerGateway["placeOrder"] } = {}) {
   const factory = (environment: TradingEnvironment): BrokerGateway => ({
     environment,
     getAccountSummary: async () => ({ currency: "USD", cash: { availableToTrade: 1000 } }),
-    getPositions: async () => [],
+    getPositions: async () => [{ instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 }],
     getOrders: async () => [],
     getOrder: async (id) => ({ id, ticker: "AAPL_US_EQ" }),
     getInstruments: async () => [instrument],
