@@ -25,7 +25,12 @@ const instrumentSchema=z.object({
 });
 const instrumentList=z.union([z.array(instrumentSchema),z.object({items:z.array(instrumentSchema)})]);
 const rawOrder=z.object({
-  id:z.union([z.number().int().nonnegative(),z.string().min(1)]),
+  // Trading 212 documents int64 IDs; unsafe JS numbers can be silently rounded.
+  // Reject rather than risk looking up/cancelling the WRONG broker order.
+  id:z.union([
+    z.number().int().nonnegative().refine(Number.isSafeInteger),
+    z.string().regex(/^[0-9]{1,20}$/),
+  ]),
   ticker:z.string().optional(),
   instrument:z.object({ticker:z.string().min(1)}).optional(),
   quantity:z.number().finite().optional(),
