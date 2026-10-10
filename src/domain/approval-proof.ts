@@ -1,6 +1,6 @@
 /** The raw human-held secret never becomes an MCP tool parameter. */
 export async function personalApprovalProof(
-  secret:string, action:"order"|"cancel", token:string,
+  secret:string, action:"order"|"cancel"|"reconcile", token:string,
 ):Promise<string>{
   if(!secret||!token)throw new Error("Secret and confirmation token are required");
   const key=await crypto.subtle.importKey(
