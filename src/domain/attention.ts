@@ -93,7 +93,7 @@ export function buildAttentionCenter(
     });
   }
   const newestEvents = savedEvents.filter(x =>
-    x.environment === snapshot.environment &&
+    x.environment === snapshot.environment && x.source === snapshot.source &&
     x.status === "triggered" &&
     Number.isFinite(Date.parse(x.observedAt)) &&
     Date.parse(x.observedAt) <= now.getTime() &&
