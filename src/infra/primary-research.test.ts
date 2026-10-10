@@ -28,7 +28,7 @@ describe("primary sourced SEC research",()=>{
     expect(first.filings).toHaveLength(1);
     expect(first.filings[0]?.documentUrl).toBe(
       "https://www.sec.gov/Archives/edgar/data/320193/000032019326000099/aapl-20261009.htm");
-    expect(first.source).toContain("SEC");
+    expect(first.source).toContain("Securities and Exchange Commission");
     expect(first.limitation).toBe("filing_metadata_only_not_analyzed");
     expect(again.filings).toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
