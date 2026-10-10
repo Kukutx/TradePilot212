@@ -4,7 +4,9 @@ import type {StateStore} from "./state.js";
 
 const secTickerEntry=z.object({cik_str:z.number().int().nonnegative(),ticker:z.string(),title:z.string()});
 const submission=z.object({
-  cik:z.number().int().nonnegative(),name:z.string(),
+  // SEC submissions JSON uses a zero-padded 10-digit CIK *string*.
+  // Do not silently strip padding or coerce malformed identifiers.
+  cik:z.string().regex(/^[0-9]{10}$/),name:z.string(),
   filings:z.object({recent:z.object({
     accessionNumber:z.array(z.string()),
     form:z.array(z.string()),
@@ -78,7 +80,7 @@ export class SecResearchService {
     const sourceUrl=`https://data.sec.gov/submissions/CIK${cik}.json`;
     const cached=await this.store.get<z.infer<typeof submission>>(`v3:sec-submissions:${cik}`);
     const parsed=cached || submission.parse(await this.read(sourceUrl,5*1024*1024));
-    if(parsed.cik!==info.cik_str)throw new Error("SEC filing CIK mismatch");
+    if(parsed.cik!==cik)throw new Error("SEC filing CIK mismatch");
     if(!cached)await this.store.put(`v3:sec-submissions:${cik}`,parsed,Date.now()+60*60_000);
     const {accessionNumber,form,filingDate,primaryDocument}=parsed.filings.recent;
     const filings:SecFiling[]=[];
