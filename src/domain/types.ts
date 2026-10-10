@@ -80,6 +80,7 @@ export interface RuleEvaluation {
   explanation: string;
 }
 export interface MonitorEvent {
+  source: Source;
   id: string;
   ruleId: string;
   environment: Environment;
