@@ -54,6 +54,17 @@ describe("personal trade intent and risk policy",()=>{
     expect(()=>resolveTradeIntent(intent({mode:"quantity",quantity:101}),instruments,snapshot,limits)).toThrow(/MAX_ORDER_QUANTITY/);
     expect(resolveTradeIntent(intent({mode:"quantity",quantity:1}),instruments,snapshot,limits).warnings.join(" ")).toMatch(/slippage|different price/);
   });
+  it("rejects malformed direct service inputs even when MCP schemas are bypassed",()=>{
+    const valid={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"market",quantity:1};
+    for(const invalid of [
+      {side:"hold"},{type:"paper"},{timeValidity:"GTC"},{extendedHours:"yes"},{referencePrice:-1},
+    ]){
+      expect(()=>checkDraft(
+        {...valid,...invalid} as Parameters<typeof checkDraft>[0],
+        instruments[0]!,snapshot,limits,
+      )).toThrow();
+    }
+  });
   it("distinguishes action and token for HMAC proof",async()=>{
     const order=await personalApprovalProof("private-secret","order","token-a");
     expect(order).toMatch(/^[A-Za-z0-9_-]{43}$/);
