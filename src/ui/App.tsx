@@ -63,7 +63,7 @@ export default function App(){
   const [error,setError]=useState<string|null>(null);
   const t=useMemo(()=>wording[locale],[locale]);
   const {app, error:appError}=useApp({
-    appInfo:{name:"TradePilot Insight",version:"3.0.0-alpha.1"},
+    appInfo:{name:"TradePilot 212 Personal",version:"3.0.0-alpha.2"},
     capabilities:{},
     onAppCreated:(created:HostApp)=>{
       created.ontoolresult=result=>{
@@ -98,7 +98,7 @@ export default function App(){
     payload?.kind==="daily_brief"?payload.currency:
     payload?.kind==="scenario"?payload.currency:
     payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):"USD";
-  const source=payload&&"source" in payload?payload.source:"sample";
+  const source=personalPayload&&"source" in personalPayload?personalPayload.source:(payload&&"source" in payload?payload.source:"sample");
   async function load(kind:"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
     if(!app)return;
     const names={
@@ -117,7 +117,7 @@ export default function App(){
   function date(value?:string){return value?new Date(value).toLocaleString(locale==="zh"?"zh-CN":"en-US"):"—";}
   return <main className="shell">
     <header className="top">
-      <div className="identity"><span className="mark">T<span>P</span></span><div><span className="eyebrow">{t.brand}</span><h1>Portfolio Intelligence</h1></div></div>
+      <div className="identity"><span className="mark">T<span>P</span></span><div><span className="eyebrow">{t.brand}</span><h1>TradePilot 212 Personal</h1></div></div>
       <div className="topActions">
         <select aria-label="Account environment" value={env} onChange={e=>{setEnv(e.target.value as Environment);setPayload(null);setPersonalPayload(null);}}><option value="demo">DEMO</option><option value="live">LIVE</option></select>
         <button type="button" onClick={()=>setLocale(locale==="zh"?"en":"zh")}>{locale==="zh"?"EN":"中文"}</button>
