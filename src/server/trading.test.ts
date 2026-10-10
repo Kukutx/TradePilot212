@@ -22,14 +22,14 @@ const snapshot:PortfolioSnapshot={
   holdings:[{ticker:"AAPL_US_EQ",name:"Apple",currency:"USD",quantity:5,tradableQuantity:4,price:100,valueInAccountCurrency:500,valueProvenance:"same_currency_quote"}],
   notes:[],
 };
-function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot;pending?:PendingOrder[];pauseOrder?:Promise<void>;onWriteEntered?:()=>void}={}){
+function fixture(opts:{unknown?:boolean;unknownCancel?:boolean;source?:PortfolioSnapshot;pending?:PendingOrder[];pauseOrder?:Promise<void>;onWriteEntered?:()=>void}={}){
   const placeOrder=vi.fn(async(_draft:TradeDraft)=>{
     opts.onWriteEntered?.();
     if(opts.pauseOrder)await opts.pauseOrder;
     if(opts.unknown)throw new BrokerOperationUnknown("response lost");
     return {orderId:"11"};
   });
-  const cancelOrder=vi.fn(async()=>({orderId:"11"}));
+  const cancelOrder=vi.fn(async()=>{if(opts.unknownCancel)throw new BrokerOperationUnknown("cancel response lost");return {orderId:"11"};});
   const broker:BrokerTradePort={
     getInstruments:async()=>[{ticker:"AAPL_US_EQ",name:"Apple Inc.",shortName:"AAPL",currencyCode:"USD",extendedHours:true}],
     getPendingOrders:async()=>opts.pending??[],
@@ -40,7 +40,8 @@ function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot;pending?:Pendi
     getPortfolio:async(env)=>({...opts.source||snapshot,environment:env}),
     getRecentOrders:async()=>({items:[],nextCursor:null}),
   };
-  return {svc:new PersonalTradingService(config,new MemoryStore(),reader,broker),placeOrder,cancelOrder};
+  const state=new MemoryStore();
+  return {svc:new PersonalTradingService(config,state,reader,broker),state,placeOrder,cancelOrder};
 }
 describe("personal trading workflow",()=>{
   it("never executes without independent approval proof and token",async()=>{
@@ -143,6 +144,50 @@ describe("personal trading workflow",()=>{
     expect(idea.evidence.completenessPercent).toBeLessThan(100);
     expect(idea.evidence.warningMessages.join(" ")).toMatch(/reference price timestamp/);
     expect(idea.warning).toMatch(/not verified/);
+  });
+  it("durably blocks any second order after UNKNOWN even when the temporary lock has expired",async()=>{
+    const {svc,state,placeOrder}=fixture({unknown:true});
+    const draft:TradeDraft={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"limit",quantity:1,limitPrice:100};
+    const first=await svc.prepareOrder(draft);
+    const second=await svc.prepareOrder(draft);
+    const firstProof=await personalApprovalProof(secret,"order",first.token);
+    const secondProof=await personalApprovalProof(secret,"order",second.token);
+    const incident=await svc.executeOrder(first.token,firstProof,"demo");
+    expect(incident.status).toBe("unknown");
+    expect(incident.verificationId).toMatch(/^[a-f0-9]{64}$/);
+    expect((await svc.unresolvedWrite("demo"))?.status).toBe("unknown");
+    // Simulate restart/expiry of the short execution lease: the persistent
+    // uncertainty marker must STILL prevent a second broker write.
+    await state.remove("v3:broker-write-lock:demo");
+    await expect(svc.executeOrder(second.token,secondProof,"demo")).rejects.toThrow(/unresolved/);
+    expect(placeOrder).toHaveBeenCalledTimes(1);
+    const evidence=incident.verificationId!;
+    const proof=await personalApprovalProof(secret,"reconcile",evidence);
+    await expect(svc.acknowledgeUnresolved("demo",evidence,proof,"I CHECKED TRADING 212"))
+      .rejects.toThrow(/read-only broker verification/);
+    await svc.verifyOutcome(evidence,"demo");
+    await expect(svc.acknowledgeUnresolved("demo",evidence,"x".repeat(43),"I CHECKED TRADING 212"))
+      .rejects.toThrow(/incorrect/);
+    await expect(svc.acknowledgeUnresolved("demo",evidence,proof,"YES"))
+      .rejects.toThrow(/Manually inspect/);
+    const ok=await svc.acknowledgeUnresolved("demo",evidence,proof,"I CHECKED TRADING 212");
+    expect(ok.brokerWrites).toBe(0);
+    expect(await svc.unresolvedWrite("demo")).toBeNull();
+    await expect(svc.acknowledgeUnresolved("demo",evidence,proof,"I CHECKED TRADING 212"))
+      .rejects.toThrow(/No matching/);
+  });
+  it("retains a separate durable blocker for uncertain cancellation",async()=>{
+    const {svc,state,cancelOrder}=fixture({unknownCancel:true});
+    const pending=await svc.prepareCancel("demo","11");
+    const proof=await personalApprovalProof(secret,"cancel",pending.token);
+    const response=await svc.executeCancel(pending.token,proof,"demo");
+    expect(response.status).toBe("unknown");
+    expect((await svc.unresolvedWrite("demo"))?.operation).toBe("cancel");
+    await state.remove("v3:broker-write-lock:demo");
+    const next=await svc.prepareCancel("demo","11");
+    const nextProof=await personalApprovalProof(secret,"cancel",next.token);
+    await expect(svc.executeCancel(next.token,nextProof,"demo")).rejects.toThrow(/unresolved/);
+    expect(cancelOrder).toHaveBeenCalledTimes(1);
   });
   it("does not silently enable Live trading",async()=>{
     const {svc,placeOrder}=fixture();
