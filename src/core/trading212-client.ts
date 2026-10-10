@@ -1,5 +1,6 @@
 import type { AccountSummary, Instrument, OrderDraft, PendingOrder, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { RuntimeConfig } from "./config.js";
+import type { BrokerGateway } from "./broker-port.js";
 
 export class Trading212ApiError extends Error {
   constructor(message: string, readonly status: number, readonly responseBody: unknown) { super(message); this.name = "Trading212ApiError"; }
@@ -57,7 +58,7 @@ export function retryDelayMs(response: Response, attempt: number, now = Date.now
   return Math.min(300 * 2 ** Math.max(0, attempt - 1), 5000);
 }
 
-export class Trading212Client {
+export class Trading212Client implements BrokerGateway {
   private readonly target;
   private readonly fetcher: typeof fetch;
   constructor(readonly environment: TradingEnvironment, config: RuntimeConfig, fetcher?: typeof fetch) {
