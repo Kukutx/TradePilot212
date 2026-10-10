@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — 2026 cross-host security redesign (breaking, draft)
+
+- Expanded portable MCP App support for ChatGPT, Claude and other compatible hosts; added modern CIMD client metadata and RFC 9207 OAuth issuer.
+- Enforced a separate human-held execution secret, used only to derive scoped, single-use HMAC order/cancellation proofs in the UI.
+- Introduced broker-neutral `BrokerGateway` and a pure order-policy module, with new security tests.
+- Added replay-proof OAuth refresh-token rotation backed by atomic `StateStore.consume`.
+- Fixed unreadable broker-write responses to remain UNKNOWN and never cause automatic retry.
+- Blocked AI-only reference prices from authorizing capped Market buys of unheld instruments; bounded-price Limit/Stop-Limit is the safe fallback.
+- Hardened streamed MCP upload limits and removed credential flags from anonymous health status.
+- Updated MCP SDK dependencies and pinned the patched client transitive dependency; added a production dependency audit gate.
+- Expanded CI with OAuth/MCP smoke tests, read-only scope tests, and failure-injection regression tests.
+- Added architecture, migration, privacy, compatibility and safety rule documentation.
+
+**Migration:** [docs/MIGRATION_2026.md](./docs/MIGRATION_2026.md). Not a released version; do not deploy to Live accounts without separate acceptance testing.
+
+
 ## 2.4.0
 
 - Replaced fixed order-review modals with an in-flow transaction workspace that can resize with the ChatGPT host.
