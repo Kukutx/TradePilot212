@@ -14,7 +14,7 @@ A human enters the independent secret into the sandboxed UI for each operation. 
 - Broker state and order constraints are revalidated before writing.
 - Confirmation is stored as one-use and expires within 30–300 seconds.
 - Each Trading 212 POST or DELETE is sent **at most once**; loss of response never triggers retry.
-- A per-environment atomic write lease prevents two independent confirmation tokens from concurrently spending the same cash; UNKNOWN outcomes leave a 120-second cooldown. Lock expiration NEVER implies execution failed.
+- A per-environment atomic write lease prevents two independent confirmation tokens from concurrently spending the same cash. BEFORE every real POST/DELETE, the system saves a durable incident marker and readback record. A known result clears the marker; UNKNOWN and process interruption leave a persistent write block across the 120-second cooldown, lock expiry and server restarts. The Owner Console may clear it only after a successful read-only broker check, the owner independently examines Trading 212 records, types `I CHECKED TRADING 212` and supplies a separate action-bound HMAC proof. Clearing this marker never resubmits the order.
 - Rate reservations are per account/API endpoint, including reads and command writes; refusing a reservation must occur before any broker request.
 - Without separately opting into `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=true`, unheld Live Market buys and Buy Stops must use a bounded-price order type when app-level notional caps are enabled.
 - UNKNOWN statuses must be read back before a person takes any further action.
