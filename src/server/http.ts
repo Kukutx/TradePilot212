@@ -5,6 +5,7 @@ import { Trading212Reader, type BrokerReader } from "../infra/broker.js";
 import { Trading212TradeGateway, type BrokerTradePort } from "../infra/trade-gateway.js";
 import { BrokerPacer } from "../infra/broker-pacer.js";
 import { PersonalTradingService } from "./trading.js";
+import { installOwnerConsole } from "./owner-console.js";
 import type { StateStore } from "../infra/state.js";
 import { IntelligenceService } from "./intelligence.js";
 import { authenticateBearer, installOAuth } from "./oauth.js";
@@ -42,6 +43,7 @@ export function createHttpApp(deps:HttpDeps) {
     return c.body(null,204);
   });
   installOAuth(app,deps.config,deps.state,fetcher);
+  installOwnerConsole(app,deps.config,deps.state,service,personal);
   app.get("/health",c=>c.json({ok:true,service:"TradePilot 212 Personal",version:"3.0.0-alpha.2"}));
   app.post("/mcp",async c=>{
     const scopes=await authenticateBearer(c.req.header("authorization"),deps.config);
