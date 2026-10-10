@@ -12,6 +12,7 @@ describe("private personal execution gates",()=>{
     const config=readConfiguration({...base,DATA_SOURCE:"trading212"});
     expect(executionPermitted(config,"demo")).toBe(false);
     expect(executionPermitted(config,"live")).toBe(false);
+    expect(config.personalTrading.allowUnquotedLiveBuys).toBe(false);
   });
   it("cannot enable execution using synthetic sample data",()=>{
     expect(()=>readConfiguration({...base,DATA_SOURCE:"sample",PERSONAL_TRADING_ENABLED:"true",PERSONAL_APPROVAL_SECRET:"a".repeat(48)})).toThrow(/real source/);
@@ -25,6 +26,13 @@ describe("private personal execution gates",()=>{
       PERSONAL_TRADING_ENABLED:"true",PERSONAL_APPROVAL_SECRET:"a".repeat(48)});
     expect(executionPermitted(config,"demo")).toBe(true);
     expect(executionPermitted(config,"live")).toBe(false);
+  });
+  it("supports a separate explicit owner decision about unpriced Live buys",()=>{
+    const selected=readConfiguration({...base,DATA_SOURCE:"trading212",
+      PERSONAL_TRADING_ENABLED:"true",PERSONAL_LIVE_TRADING_ENABLED:"true",
+      PERSONAL_APPROVAL_SECRET:"x".repeat(48),PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS:"true"});
+    expect(selected.personalTrading.allowUnquotedLiveBuys).toBe(true);
+    expect(executionPermitted(selected,"live")).toBe(true);
   });
   it("requires separate Live opt-in and broker credentials",()=>{
     expect(()=>readConfiguration({...base,DATA_SOURCE:"trading212",PERSONAL_LIVE_TRADING_ENABLED:"true"})).toThrow(/requires/);
