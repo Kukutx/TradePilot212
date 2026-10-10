@@ -26,6 +26,24 @@ describe("Trading 212 personal command gateway",()=>{
       expect(fetcher).toHaveBeenCalledTimes(1);
     }
   });
+  it("refuses unsafe int64 order IDs rather than rounding and targeting a different cancellation",async()=>{
+    for(const invalid of [
+      {id:Number.MAX_SAFE_INTEGER+10,ticker:"AAPL_US_EQ"},
+      {id:"other",ticker:"AAPL_US_EQ"},{id:-2,ticker:"AAPL_US_EQ"},
+    ]){
+      const fetcher=vi.fn(async()=>new Response(JSON.stringify([invalid]),{status:200}));
+      await expect(new Trading212TradeGateway(config,fetcher as typeof fetch)
+        .getPendingOrders("demo")).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+    const preciseId="9223372036854775807";
+    const safe=vi.fn(async()=>new Response(JSON.stringify([
+      {id:preciseId,ticker:"AAPL_US_EQ",quantity:2},
+    ]),{status:200}));
+    const result=await new Trading212TradeGateway(config,safe as typeof fetch)
+      .getPendingOrders("demo");
+    expect(result[0]?.id).toBe(preciseId);
+  });
   it("preserves actual broker partial fills and pending status without pretending quantity is remaining",async()=>{
     const response={
       id:901,ticker:"AAPL_US_EQ",quantity:3,filledQuantity:1.25,filledValue:125,
