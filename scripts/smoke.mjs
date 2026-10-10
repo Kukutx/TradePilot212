@@ -93,8 +93,10 @@ try {
   assert(authorization.status === 302, `Authorization failed: ${authorization.status}`);
   const location = authorization.headers.get("location");
   assert(location, "Authorization did not return a redirect");
-  const code = new URL(location).searchParams.get("code");
+  const oauthCallback = new URL(location);
+  const code = oauthCallback.searchParams.get("code");
   assert(code, "Authorization redirect did not contain a code");
+  assert(oauthCallback.searchParams.get("iss") === base, "OAuth response must identify its issuer");
 
   const tokenResponse = await fetch(`${base}/oauth/token`, {
     method: "POST",
@@ -149,7 +151,50 @@ try {
   assert(toolsText.includes("get_recent_trading_activity"), "Recent activity tool is missing");
   assert(toolsText.includes("app_verify_unknown_execution"), "Unknown-execution verification tool is missing");
 
-  console.log("SMOKE_OK OAuth + PKCE + MCP initialize + order review/recovery tools passed");
+  // A read-only host connection must never even advertise write-path tools.
+  const readOnlyAuthorization = await fetch(`${base}/oauth/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      ...Object.fromEntries(authorizeParams),
+      scope: "trade:read",
+      password,
+    }),
+  });
+  assert(readOnlyAuthorization.status === 302, "Read-only authorization failed");
+  const readOnlyCode = new URL(readOnlyAuthorization.headers.get("location")).searchParams.get("code");
+  const readOnlyTokenResponse = await fetch(`${base}/oauth/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: readOnlyCode,
+      client_id: registration.client_id,
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+      resource: `${base}/mcp`,
+    }),
+  });
+  assert(readOnlyTokenResponse.ok, "Read-only token exchange failed");
+  const readOnlyToken = await readOnlyTokenResponse.json();
+  const readOnlyTools = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${readOnlyToken.access_token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} }),
+  });
+  const readOnlyText = await readOnlyTools.text();
+  assert(readOnlyTools.ok, "Read-only MCP tools/list failed");
+  assert(readOnlyText.includes("get_portfolio_dashboard"), "Read-only portfolio tool is missing");
+  assert(!readOnlyText.includes("review_trading212_order_intent"), "Read-only token exposes order preview tool");
+  assert(!readOnlyText.includes("app_execute_order"), "Read-only token exposes broker execution tool");
+  assert(!readOnlyText.includes("app_execute_cancel"), "Read-only token exposes broker cancellation tool");
+
+  console.log("SMOKE_OK OAuth PKCE + issuer + MCP tools + read-only scope enforcement");
 } finally {
   if (child.exitCode === null) {
     const exited = new Promise((resolve) => child.once("exit", resolve));
