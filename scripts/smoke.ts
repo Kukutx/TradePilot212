@@ -80,3 +80,100 @@ assert.equal(missing.status,401);
 const reg=await app.request("/oauth/register",{method:"POST"});
 assert.equal(reg.status,404,"DCR must not exist in the clean-slate v3");
 console.log("SMOKE_OK V3 modern-only MCP, PKCE, CIMD, refresh replay and read-only tools");
+
+
+/**
+ * Private-owner compatibility acceptance against *mocked* broker ports.
+ * CI never has real brokerage keys, and no Trading 212 POST/DELETE is emitted.
+ */
+const personalOrigin="https://private-insight.example.test";
+const privateConfig=readConfiguration({
+  PUBLIC_ORIGIN:personalOrigin,DATA_SOURCE:"trading212",
+  OWNER_PASSWORD:"private-test-owner-password-1234567",
+  JWT_SIGNING_SECRET:"1234567890abcdef".repeat(3),
+  T212_DEMO_KEY:"synthetic-demo-test-key",T212_DEMO_SECRET:"synthetic-demo-test-secret",
+  PERSONAL_TRADING_ENABLED:"true",PERSONAL_APPROVAL_SECRET:"fake-independent-human-approval-secret-12345",
+});
+let mockBrokerWrites=0;
+const privateApp=createHttpApp({
+  config:privateConfig,state:new MemoryStore(),fetcher:fakeFetch,
+  widgetHtml:async()=>"<html>Private test dashboard</html>",
+  broker:{
+    async getPortfolio(environment){
+      return {
+        kind:"portfolio" as const,environment,source:"trading212" as const,
+        asOf:new Date().toISOString(),
+        account:{currency:"USD",availableCash:1500,totalValue:2500,investmentValue:1000,unrealizedProfitLoss:75},
+        holdings:[{ticker:"AAPL_US_EQ",name:"Apple",currency:"USD",quantity:5,tradableQuantity:4,price:100,
+          valueInAccountCurrency:500,valueProvenance:"same_currency_quote" as const}],
+        notes:[],
+      };
+    },
+    async getRecentOrders(){return {items:[],nextCursor:null};},
+  },
+  tradeGateway:{
+    async getInstruments(){return [{ticker:"AAPL_US_EQ",name:"Apple",shortName:"AAPL",currencyCode:"USD",extendedHours:true}];},
+    async getPendingOrders(){return [];},
+    async getOrder(_environment,id){return {id,ticker:"AAPL_US_EQ",quantity:1};},
+    async placeOrder(){mockBrokerWrites++;return {orderId:"999"};},
+    async cancelOrder(_environment,id){mockBrokerWrites++;return {orderId:id};},
+  },
+});
+async function personalToken(scope:string):Promise<string>{
+  const params=new URLSearchParams({...Object.fromEntries(authParams),
+    resource:`${personalOrigin}/mcp`,scope});
+  const authorized=await privateApp.request("/oauth/authorize",{
+    method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({...Object.fromEntries(params),password:privateConfig.ownerPassword}).toString(),
+  });
+  assert.equal(authorized.status,302,await authorized.text());
+  const code=new URL(authorized.headers.get("location")!).searchParams.get("code")!;
+  const exchange=await privateApp.request("/oauth/token",{
+    method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id:clientId,grant_type:"authorization_code",
+      code,redirect_uri:redirectUri,code_verifier:verifier,resource:`${personalOrigin}/mcp`}).toString(),
+  });
+  assert.equal(exchange.status,200,await exchange.text());
+  const token=await exchange.json() as {access_token:string};
+  return token.access_token;
+}
+async function personalCall(token:string,method:string,params:Record<string,unknown>,id:number){
+  const response=await privateApp.request("/mcp",{
+    method:"POST",
+    headers:{
+      Authorization:`Bearer ${token}`,"Content-Type":"application/json",
+      Accept:"application/json, text/event-stream",
+      "MCP-Protocol-Version":"2026-07-28","Mcp-Method":method,
+      ...(params.name?{"Mcp-Name":String(params.name)}:{}),
+    },
+    body:JSON.stringify({jsonrpc:"2.0",id,method,params:{...params,_meta:envelope}}),
+  });
+  return {status:response.status,text:await response.text()};
+}
+const readonlyToken=await personalToken("portfolio:read");
+const privateRead=await personalCall(readonlyToken,"tools/list",{},21);
+assert.equal(privateRead.status,200,privateRead.text);
+assert.doesNotMatch(privateRead.text,/review_personal_trade_intent|app_execute_personal_order/);
+const reviewToken=await personalToken("portfolio:read trading:review");
+const reviewList=await personalCall(reviewToken,"tools/list",{},22);
+assert.equal(reviewList.status,200,reviewList.text);
+assert.match(reviewList.text,/review_personal_trade_intent/);
+assert.doesNotMatch(reviewList.text,/app_execute_personal_order/);
+const reviewed=await personalCall(reviewToken,"tools/call",{
+  name:"review_personal_trade_intent",arguments:{
+    environment:"demo",instrument:"Apple",side:"buy",type:"market",
+    sizing:{mode:"quantity",quantity:0.5},referencePrice:100,
+  },
+},23);
+assert.equal(reviewed.status,200,reviewed.text);
+assert.match(reviewed.text,/trade_draft/);
+const executionToken=await personalToken("portfolio:read trading:review trading:execute");
+const forged=await personalCall(executionToken,"tools/call",{
+  name:"app_execute_personal_order",arguments:{
+    environment:"demo",token:"a".repeat(64),proof:"b".repeat(43),
+  },
+},24);
+assert.equal(forged.status,200,forged.text);
+assert.match(forged.text,/incorrect|error/i);
+assert.equal(mockBrokerWrites,0,"Host tool calls without human proof must never reach brokerage writes");
+console.log("SMOKE_OK Personal review scope, write-scope isolation, proof enforcement and zero broker writes");
