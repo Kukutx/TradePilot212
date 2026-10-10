@@ -7,6 +7,8 @@ export interface Account {
   availableCash: number;
   investmentValue: number;
   unrealizedProfitLoss: number | null;
+  realizedProfitLoss?: number | null;
+  totalCost?: number | null;
 }
 export interface Holding {
   ticker: string;
@@ -15,6 +17,8 @@ export interface Holding {
   quantity: number;
   tradableQuantity: number;
   price: number | null;
+  averagePricePaid?: number | null;
+  unrealizedProfitLossInAccountCurrency?: number | null;
   // Only populated if broker supplied the holding value in account currency,
   // or the quote currency and account currency are identical.
   valueInAccountCurrency: number | null;

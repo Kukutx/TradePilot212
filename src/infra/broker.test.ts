@@ -43,6 +43,22 @@ describe("read-only official broker adapter", () => {
     expect(accepted.holdings[0]?.valueInAccountCurrency).toBe(700);
     expect(accepted.holdings[0]?.valueProvenance).toBe("broker_account_value");
   });
+  it("displays actual average cost and account-currency P/L only with broker evidence", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
+      String(input).includes("/account/summary")
+        ? { currency: "EUR", totalValue: 1000, cash: { availableToTrade: 300 },
+            investments: { currentValue: 700, realizedProfitLoss: 12, totalCost: 650 } }
+        : [{ instrument: { ticker: "TEST_US_EQ", currencyCode: "USD" },
+          quantity: 2, quantityAvailableForTrading: 2, currentPrice: 100, averagePricePaid: 88,
+          walletImpact: { currency: "USD", unrealizedProfitLoss: 25 } }]
+    )));
+    const result = await new Trading212Reader(config, fetcher as typeof fetch).getPortfolio("demo");
+    expect(result.holdings[0]?.averagePricePaid).toBe(88);
+    expect(result.holdings[0]?.unrealizedProfitLossInAccountCurrency).toBeNull();
+    expect(result.account.realizedProfitLoss).toBe(12);
+    expect(result.account.totalCost).toBe(650);
+  });
+
   it("fails closed for invalid broker payload, with no sample fallback", async () => {
     const fake = vi.fn(async () => new Response(JSON.stringify({ result: "unexpected" }), { status: 200 }));
     await expect(new Trading212Reader(config, fake as typeof fetch).getPortfolio("demo")).rejects.toThrow();

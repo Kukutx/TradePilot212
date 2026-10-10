@@ -9,6 +9,8 @@ const accountSchema = z.object({
   investments: z.object({
     currentValue: z.number().finite().nonnegative(),
     unrealizedProfitLoss: z.number().finite().optional(),
+    realizedProfitLoss: z.number().finite().optional(),
+    totalCost: z.number().finite().nonnegative().optional(),
   }),
 });
 const holdingSchema = z.object({
@@ -21,6 +23,7 @@ const holdingSchema = z.object({
   quantity: z.number().finite().nonnegative(),
   quantityAvailableForTrading: z.number().finite().nonnegative(),
   currentPrice: z.number().finite().nonnegative().optional(),
+  averagePricePaid: z.number().finite().nonnegative().optional(),
   walletImpact: z.record(z.string(), z.unknown()).optional(),
 });
 const listSchema = z.union([z.array(holdingSchema), z.object({ items: z.array(holdingSchema) })]);
@@ -102,11 +105,14 @@ export class Trading212Reader implements BrokerReader {
       currency: raw.currency, totalValue: raw.totalValue,
       availableCash: raw.cash.availableToTrade, investmentValue: raw.investments.currentValue,
       unrealizedProfitLoss: raw.investments.unrealizedProfitLoss ?? null,
+      realizedProfitLoss: raw.investments.realizedProfitLoss ?? null,
+      totalCost: raw.investments.totalCost ?? null,
     };
     const notes: string[] = [];
     const holdings: Holding[] = positions.map(row => {
       const currency = row.instrument.currencyCode;
       const price = row.currentPrice ?? null;
+      const averagePricePaid = row.averagePricePaid ?? null;
       const rawBrokerValue = row.walletImpact?.currentValue;
       const declaredValueCurrency = row.walletImpact?.currency;
       // Broker wallets can be in a different currency from the primary account.
@@ -115,6 +121,9 @@ export class Trading212Reader implements BrokerReader {
         typeof rawBrokerValue === "number" && Number.isFinite(rawBrokerValue) && rawBrokerValue >= 0
         ? rawBrokerValue : null;
       const verifiedSameCurrency = currency === raw.currency && price !== null;
+      const rawPnl = row.walletImpact?.unrealizedProfitLoss;
+      const pnlInAccountCurrency = declaredValueCurrency === raw.currency &&
+        typeof rawPnl === "number" && Number.isFinite(rawPnl) ? rawPnl : null;
       const value = brokerValue ?? (verifiedSameCurrency ? row.quantity * price : null);
       const provenance: Holding["valueProvenance"] = brokerValue !== null ? "broker_account_value"
         : verifiedSameCurrency ? "same_currency_quote" : "unknown";
@@ -122,7 +131,8 @@ export class Trading212Reader implements BrokerReader {
       return {
         ticker: row.instrument.ticker, name: row.instrument.name || row.instrument.shortName || row.instrument.ticker,
         currency, quantity: row.quantity, tradableQuantity: row.quantityAvailableForTrading,
-        price, valueInAccountCurrency: value, valueProvenance: provenance,
+        price, averagePricePaid, unrealizedProfitLossInAccountCurrency: pnlInAccountCurrency,
+        valueInAccountCurrency: value, valueProvenance: provenance,
       };
     });
     return { kind: "portfolio", source: "trading212", environment, asOf: new Date().toISOString(), account, holdings, notes };
