@@ -62,6 +62,31 @@ describe("V3 portfolio intelligence and local monitoring", () => {
     expect(getRecentOrders).not.toHaveBeenCalled();
   });
 
+  it("enables basic monitoring once and retains preexisting custom thresholds",async()=>{
+    const {service,getPortfolio}=fixture();
+    const custom=await service.createRule("demo","cash_below",12);
+    const result=await service.enableBasicMonitoring("demo");
+    expect(result.kind).toBe("monitoring_setup");
+    expect(result.created).toHaveLength(2);
+    expect(result.activeRules).toHaveLength(3);
+    expect(result.activeRules.find(x=>x.kind==="cash_below")?.id).toBe(custom.id);
+    expect(result.activeRules.find(x=>x.kind==="cash_below")?.thresholdPercent).toBe(12);
+    expect(result.brokerWrites).toBe(0);
+    const repeat=await service.enableBasicMonitoring("demo");
+    expect(repeat.created).toHaveLength(0);
+    expect(repeat.activeRules).toHaveLength(3);
+    expect(repeat.scheduledEvaluation).toMatch(/Sample mode/);
+    expect(getPortfolio).not.toHaveBeenCalled();
+  });
+  it("keeps monitoring presets separate for Demo and Live environments",async()=>{
+    const {service}=fixture();
+    await service.enableBasicMonitoring("demo");
+    const live=await service.enableBasicMonitoring("live");
+    expect(live.activeRules).toHaveLength(3);
+    expect((await service.listRules("demo"))).toHaveLength(3);
+    expect((await service.listRules("live"))).toHaveLength(3);
+  });
+
   it("rejects invalid threshold combinations", async () => {
     const { service } = fixture();
     await expect(service.createRule("demo", "unrealized_loss_below", 20)).rejects.toThrow();
