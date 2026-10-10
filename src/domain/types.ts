@@ -56,6 +56,7 @@ export interface Scenario {
   source: Source;
   asOf: string;
   shockPercent: number;
+  currency: string;
   hypotheticalPortfolioChange: number | null;
   hypotheticalPortfolioValue: number | null;
   assumptions: string[];
