@@ -51,7 +51,7 @@ export function stressPortfolio(snapshot: PortfolioSnapshot, shockPercent: numbe
   const change = complete ? rounded(snapshot.account.investmentValue * shockPercent / 100) : null;
   return {
     kind: "scenario", environment: snapshot.environment, source: snapshot.source, asOf: snapshot.asOf,
-    shockPercent,
+    shockPercent, currency: snapshot.account.currency,
     hypotheticalPortfolioChange: change,
     hypotheticalPortfolioValue: change === null ? null : rounded(snapshot.account.totalValue + change),
     assumptions: [
