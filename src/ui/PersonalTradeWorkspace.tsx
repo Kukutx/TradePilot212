@@ -11,6 +11,8 @@ type Locale="zh"|"en";
 interface Capability{kind:"personal_capabilities";environment:Environment;source:string;canReview:boolean;canExecute:boolean;}
 interface PendingPayload{kind:"pending_orders";environment:Environment;source:string;orders:PendingOrder[];personalExecutionEnabled:boolean;}
 interface PlanPayload{kind:"trade_plan";environment:Environment;source:string;asOf:string;candidates:Array<TradeIdea & {resolvedTicker?:string;warning?:string;heldQuantity?:number;availableToSell?:number}>;}
+interface ActivityEntry{id:string;asOf:string;action:string;ticker?:string;orderId?:string;detail?:string;}
+interface ActivityPayload{kind:"trading_activity";environment:Environment;events:ActivityEntry[];}
 export type PersonalPayload=TradeResolution|TradePreview|TradeExecution|TradeVerification|CancelPreview|PendingPayload|PlanPayload;
 const strings={
   en:{
@@ -27,6 +29,9 @@ const strings={
     result:"Broker result",verify:"Read-only verification",unknown:"Unknown broker outcome: never retry automatically.",
     warnings:"Review every warning",notConfigured:"Review not enabled for this connection; reconnect with trading:review scope.",
     loading:"Checking…",sample:"SYNTHETIC sample mode cannot place real orders.",
+    activity:"Recent TradePilot activity",loadActivity:"Refresh activity",noActivity:"No activity recorded",
+    modified:"Quantity was manually changed after the AI draft was resolved",restore:"Restore calculated quantity",
+    referenceAsOf:"Reference price as of",fxAsOf:"FX estimate as of",fullscreen:"Fullscreen",
     sizeModes:{quantity:"Exact shares",notional:"Target money",cash_percent:"% available cash",position_percent:"% held position",all_available:"All tradable shares"},
   },
   zh:{
@@ -43,6 +48,9 @@ const strings={
     result:"券商执行结果",verify:"只读核对状态",unknown:"券商执行状态不明，严禁自动重试。",
     warnings:"请逐条核对风险提示",notConfigured:"当前连接未开启交易审查权限，请重新授权 trading:review。",
     loading:"校验中…",sample:"合成示例数据不能执行真实交易。",
+    activity:"最近交易操作",loadActivity:"刷新操作记录",noActivity:"暂无操作记录",
+    modified:"你已手动修改根据 AI 指令换算的股数",restore:"恢复换算股数",
+    referenceAsOf:"参考价格时间",fxAsOf:"汇率估算时间",fullscreen:"全屏",
     sizeModes:{quantity:"准确股数",notional:"目标金额",cash_percent:"可用现金比例",position_percent:"总持仓比例",all_available:"当前全部可卖股数"},
   },
 } as const;
@@ -82,9 +90,19 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
   const [verification,setVerification]=useState<TradeVerification|null>(null);
   const [plan,setPlan]=useState<PlanPayload|null>(null);
   const [pending,setPending]=useState<PendingOrder[]>([]);
+  const [activity,setActivity]=useState<ActivityEntry[]>([]);
   const [approval,setApproval]=useState("");
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
+  useEffect(()=>{
+    setDraft(null);setPreview(null);setCancelPreview(null);setExecution(null);setVerification(null);setApproval("");setResolution(null);
+    setPending([]);setActivity([]);setCap(null);
+    if(!app)return;
+    void call<Capability>(app,"get_personal_trading_capabilities",{environment})
+      .then(setCap).catch(e=>setError(e instanceof Error?e.message:String(e)));
+  },[app,environment]);
+  // Apply the host's initial model-opened trade after environment initialization;
+  // otherwise a simultaneous mount would erase the model-provided draft.
   useEffect(()=>{
     if(!initial|| !("kind" in initial))return;
     if(initial.kind==="trade_draft"){setResolution(initial);setDraft(initial.draft);setPreview(null);}
@@ -95,13 +113,6 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
     else if(initial.kind==="cancel_preview"){setCancelPreview(initial);}
     else if(initial.kind==="trade_verification"){setVerification(initial);}
   },[initial]);
-  useEffect(()=>{
-    setDraft(null);setPreview(null);setCancelPreview(null);setExecution(null);setVerification(null);setApproval("");setResolution(null);
-    setPending([]);setCap(null);
-    if(!app)return;
-    void call<Capability>(app,"get_personal_trading_capabilities",{environment})
-      .then(setCap).catch(e=>setError(e instanceof Error?e.message:String(e)));
-  },[app,environment]);
   async function perform(operation:()=>Promise<void>){
     setBusy(true);setError(null);
     try{await operation();}catch(e){setError(e instanceof Error?e.message:String(e));}
@@ -148,8 +159,16 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
       const result=await call<TradeExecution>(app,"app_execute_personal_order",
         {environment:preview.environment,token:preview.token,proof});
       setExecution(result);setPreview(null);setDraft(null);setResolution(null);
-      await refreshPending();
+      // Execution has already been acknowledged; a failed read-only refresh
+      // must not make a successful submission appear to have failed.
+      await refreshPending().catch(()=>undefined);
+      await refreshActivity().catch(()=>undefined);
     });
+  }
+  async function refreshActivity(){
+    if(!app||!cap?.canReview)return;
+    const result=await call<ActivityPayload>(app,"get_personal_trading_activity",{environment});
+    setActivity(result.events);
   }
   async function refreshPending(){
     if(!app||!cap?.canReview)return;
@@ -170,7 +189,9 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
       setApproval("");
       const result=await call<TradeExecution>(app,"app_execute_personal_cancel",
         {environment:cancelPreview.environment,token:cancelPreview.token,proof});
-      setExecution(result);setCancelPreview(null);await refreshPending();
+      setExecution(result);setCancelPreview(null);
+      await refreshPending().catch(()=>undefined);
+      await refreshActivity().catch(()=>undefined);
     });
   }
   async function verify(){
@@ -187,7 +208,7 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
   </div>;
   return <section className="tradeStack">
     <div className="tradeIntro"><div><h2>{t.title}</h2><p>{t.notice}</p></div>
-      <span className="tradeFlag">{environment.toUpperCase()} · {cap?.canExecute?"EXECUTION ON":"REVIEW ONLY"}</span>
+      <span className={`tradeFlag ${environment==="live"?"live":""}`}>{environment.toUpperCase()} · {cap?.canExecute?"EXECUTION ON":"REVIEW ONLY"}</span>
     </div>
     {!cap?.canReview&&<div className="callout">{cap?.source==="sample"?t.sample:t.notConfigured}</div>}
     {cap?.canReview&&!cap.canExecute&&<div className="callout">{t.disabled}</div>}
@@ -207,6 +228,8 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         <span>{preview.draft.side.toUpperCase()} · {preview.draft.type.toUpperCase()} · {amount(preview.draft.quantity)}</span>
         <span>{preview.estimatedNotional===null?"Notional unavailable":`${amount(preview.estimatedNotional)} ${preview.instrument.currencyCode} (estimate)`}</span>
         <small>Expires: {new Date(preview.expiresAt).toLocaleString()}</small>
+        {preview.draft.referencePriceAt&&<small>{t.referenceAsOf}: {new Date(preview.draft.referencePriceAt).toLocaleString()}</small>}
+        {preview.draft.fxRateAt&&<small>{t.fxAsOf}: {new Date(preview.draft.fxRateAt).toLocaleString()}</small>}
       </div>
       <h3>{t.warnings}</h3>{preview.warnings.map((warning,i)=><p key={i} className="tradeWarning">{warning}</p>)}
       {approvalField}
@@ -229,6 +252,9 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         <h2>{draft?t.prepare:t.review}</h2>
         {resolution&&<p className="tradeNotice">{resolution.note}</p>}
         {resolution?.warnings.map((x,i)=><p className="tradeWarning" key={i}>{x}</p>)}
+        {draft&&resolution&&draft.quantity!==resolution.draft.quantity&&<div className="tradeManualEdit">
+          <span>{t.modified}</span><button type="button" onClick={()=>setDraft({...draft,quantity:resolution.draft.quantity})}>{t.restore}</button>
+        </div>}
         {draft?<div className="tradeFields">
           <label>{t.ticker}<input value={draft.ticker} disabled /></label>
           <label>{t.side}<select value={draft.side} onChange={e=>setDraft({...draft,side:e.target.value as TradeSide})}><option value="buy">{t.buy}</option><option value="sell">{t.sell}</option></select></label>
@@ -274,6 +300,16 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
             onClick={()=>void reviewCancellation(p.id)}>{t.reviewCancel}</button>
         </div>):<p>—</p>}
       </section>
+      <section className="panel">
+        <div className="tradeTitle"><h2>{t.activity}</h2>
+          <button type="button" disabled={!cap?.canReview||busy}
+            onClick={()=>void perform(refreshActivity)}>{t.loadActivity}</button></div>
+        {activity.length?activity.map(event=><div className="pendingRow" key={event.id}>
+          <div><strong>{event.action.replaceAll("_"," ")}</strong>
+            <small>{[event.ticker,event.orderId,event.detail].filter(Boolean).join(" · ")}</small></div>
+          <small>{new Date(event.asOf).toLocaleString(locale==="zh"?"zh-CN":"en-US")}</small>
+        </div>):<p>{t.noActivity}</p>}
+      </section>
     </div>}
     {!!plan?.candidates.length&&!preview&&!cancelPreview&&<section className="panel">
       <h2>{t.plans}</h2><div className="planCards">{plan.candidates.map((p,i)=><article className="planCard" key={i}>
@@ -282,6 +318,7 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         <p>{p.rationale}</p>{p.thesis&&<details><summary>Thesis / Details</summary><p>{p.thesis}</p>
           {p.catalysts?.map((x,j)=><p key={j}>+ {x}</p>)}{p.risks?.map((x,j)=><p key={j}>! {x}</p>)}
           {p.counterCase&&<p>{p.counterCase}</p>}{p.sources?.map((x,j)=><p key={j}>{x}</p>)}</details>}
+        {(p.analysisAsOf||p.referencePriceAt)&&<small>{p.analysisAsOf?`Research: ${new Date(p.analysisAsOf).toLocaleString()} `:""}{p.referencePriceAt?`· Price: ${new Date(p.referencePriceAt).toLocaleString()}`:""}</small>}
         {p.warning&&<p className="tradeWarning">{p.warning}</p>}
         {p.action!=="watch"&&<button disabled={!cap?.canReview||busy} type="button"
           onClick={()=>void checkIntent({instrument:p.resolvedTicker||p.ticker||p.symbol||p.name||"",side:p.action==="sell"?"sell":"buy",
