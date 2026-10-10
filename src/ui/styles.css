@@ -103,3 +103,37 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 .researchAudit details{font-size:11px;line-height:1.6}
 .researchAudit details summary{cursor:pointer;font-weight:650}
 .researchAudit details p{margin:7px 0 0}
+
+
+/* Attention-first MCP Apps view. Keep inline cards compact and present only two CTAs. */
+.extraViews{position:relative;align-self:center}
+.extraViews summary{border:1px solid var(--border);background:var(--soft);padding:9px 12px;
+  border-radius:9px;cursor:pointer;font-weight:600;list-style:none;font-size:12px}
+.extraViews summary::-webkit-details-marker{display:none}
+.extraViews summary::after{content:" ▾"}
+.extraViews[open] summary::after{content:" ▴"}
+.extraViewOptions{display:flex;gap:5px;flex-wrap:wrap;padding-top:7px}
+.extraViewOptions button{font-size:12px}
+.attentionPanel{display:grid;gap:13px}
+.attentionHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.attentionHeader h2{margin:0 0 4px}
+.attentionHeader .muted{margin:0}
+.attentionValue{font-size:clamp(16px,2vw,24px);font-variant-numeric:tabular-nums;white-space:nowrap}
+.attentionStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.attentionStats span{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--border);
+  border-radius:9px;font-size:11px;color:inherit}
+.attentionStats strong{font-size:15px;font-variant-numeric:tabular-nums}
+.attentionList{display:grid;gap:9px}
+.attentionItem{padding:10px 12px;border:1px solid var(--border);border-radius:10px;min-width:0}
+.attentionItem.review{border-left:3px solid #b77934}
+.attentionItem strong{font-size:12px}
+.attentionItem p{font-size:12px;margin:5px 0 0;line-height:1.55}
+.attentionItem small{display:block;margin-top:6px;color:#738094;font-size:10px}
+.attentionActions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.attentionActions button:first-child{background:#116b5a;color:#fff}
+@media(max-width:650px){
+  .attentionHeader{flex-direction:column}
+  .attentionValue{white-space:normal}
+  .attentionStats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .extraViewOptions{position:relative;max-width:100%}
+}
