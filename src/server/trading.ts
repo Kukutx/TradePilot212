@@ -298,34 +298,46 @@ export class PersonalTradingService {
     const lockKey=`v3:broker-write-lock:${environment}`;
     if(!(await this.store.claim(lockKey,token,Date.now()+120_000)))
       throw new Error("Another broker operation is in progress or was recently uncertain. No new write was sent.");
-    let pending:Pending|undefined;
+    let marker:UnresolvedBrokerWrite|undefined;
+    let brokerAttempted=false,indeterminate=false;
     try{
-      pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
+      if(await this.unresolvedWrite(environment))
+        throw new Error("Previous broker write remains unresolved. Reconcile it in the Owner Console before cancelling another order.");
+      const pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
       if(!pending||pending.kind!=="cancel"||pending.environment!==environment)
         throw new Error("Cancellation confirmation expired or does not match environment");
-    }catch(error){
-      await this.store.release(lockKey,token).catch(()=>undefined);
-      throw error;
-    }
-    let indeterminate=false;
-    try{
-      await this.broker.getOrder(environment,pending.orderId);
-      const result=await this.broker.cancelOrder(environment,pending.orderId);
-      await this.activityEvent(environment,"cancel_submitted",{orderId:result.orderId,ticker:pending.ticker??undefined});
-      return {kind:"trade_execution",environment,operation:"cancel",status:"submitted",
-        message:"Cancellation request sent once. Confirm broker status.",orderId:result.orderId};
-    }catch(error){
-      if(error instanceof BrokerOperationUnknown){
-        indeterminate=true;
-        const verificationId=await this.verificationRecord({kind:"cancel",environment,orderId:pending.orderId,at:new Date().toISOString()});
-        await this.activityEvent(environment,"cancel_unknown",{orderId:pending.orderId});
-        return {kind:"trade_execution",environment,operation:"cancel",status:"unknown",
-          message:"Cancellation outcome UNKNOWN. Check broker before retry.",
-          orderId:pending.orderId,...(verificationId?{verificationId}:{})};
+      try{
+        await this.broker.getOrder(environment,pending.orderId);
+        marker=await this.beginBrokerWrite(environment,"cancel",{
+          kind:"cancel",environment,orderId:pending.orderId,at:new Date().toISOString(),
+        },{orderId:pending.orderId,ticker:pending.ticker??undefined});
+        brokerAttempted=true;
+        const result=await this.broker.cancelOrder(environment,pending.orderId);
+        await this.finishBrokerWrite(environment);
+        await this.activityEvent(environment,"cancel_submitted",{
+          orderId:result.orderId,ticker:pending.ticker??undefined,
+        });
+        return {kind:"trade_execution",environment,operation:"cancel",status:"submitted",
+          message:"Cancellation request sent once. Confirm broker status.",orderId:result.orderId};
+      }catch(error){
+        if(marker && brokerAttempted && !(error instanceof BrokerKnownRejection)){
+          indeterminate=true;
+          await this.markUnknown(marker).catch(()=>undefined);
+          await this.activityEvent(environment,"cancel_unknown",{orderId:pending.orderId});
+          return {kind:"trade_execution",environment,operation:"cancel",status:"unknown",
+            message:"Cancellation outcome UNKNOWN. Further broker writes are BLOCKED until independent owner reconciliation.",
+            orderId:pending.orderId,verificationId:marker.verificationId};
+        }
+        if(marker && error instanceof BrokerKnownRejection){
+          try{await this.finishBrokerWrite(environment);}
+          catch{indeterminate=true;}
+        }
+        await this.activityEvent(environment,"cancel_rejected",{orderId:pending.orderId});
+        return {kind:"trade_execution",environment,operation:"cancel",status:"rejected",
+          message:error instanceof BrokerKnownRejection?error.message:
+            "Cancellation could not be validated; no automatic retry was attempted.",
+          orderId:pending.orderId};
       }
-      await this.activityEvent(environment,"cancel_rejected",{orderId:pending.orderId});
-      return {kind:"trade_execution",environment,operation:"cancel",status:"rejected",
-        message:"Cancellation could not be validated or accepted by the broker.",orderId:pending.orderId};
     }finally{
       if(!indeterminate)await this.store.release(lockKey,token).catch(()=>undefined);
     }
@@ -372,6 +384,7 @@ export class PersonalTradingService {
         }else throw error;
       }
     }
+    await this.store.put(`v3:verification-checked:${id}`,{checkedAt},Date.now()+90*86400_000);
     await this.activityEvent(environment,"verification",{orderId:result.orderId,ticker:result.ticker,detail:result.status});
     return result;
   }
