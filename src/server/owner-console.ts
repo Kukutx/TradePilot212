@@ -181,6 +181,7 @@ export function installOwnerConsole(
         catch{pending={kind:"pending_unavailable",message:"Pending orders could not be read from the broker."};}
       }
       return c.json({kind:"owner_overview",environment:env,center,portfolio,pending,
+        unresolved:await trading.unresolvedWrite(env),
         executionEnabled:config.source==="trading212" && config.personalTrading.enabled &&
           (env==="demo"||config.personalTrading.liveEnabled)});
     }catch(error){return c.json({error:exceptionMessage(error)},502);}
@@ -211,6 +212,25 @@ export function installOwnerConsole(
     try{
       const args=execute.parse(await body(c));
       return c.json(await trading.executeCancel(args.token,args.proof,args.environment));
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
+  });
+  app.get("/owner/api/unresolved",async c=>{
+    const parsed=environment.safeParse(c.req.query("environment")||"demo");
+    if(!parsed.success)return c.json({error:"Invalid environment"},400);
+    return c.json({kind:"unresolved_status",environment:parsed.data,
+      incident:await trading.unresolvedWrite(parsed.data)});
+  });
+  app.post("/owner/api/reconcile",async c=>{
+    try{
+      const args=z.object({
+        environment,
+        verificationId:z.string().regex(/^[a-f0-9]{64}$/),
+        proof:z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+        confirmation:z.literal("I CHECKED TRADING 212"),
+      }).strict().parse(await body(c));
+      return c.json(await trading.acknowledgeUnresolved(
+        args.environment,args.verificationId,args.proof,args.confirmation,
+      ));
     }catch(error){return c.json({error:exceptionMessage(error)},400);}
   });
   app.get("/owner/api/verify",async c=>{
