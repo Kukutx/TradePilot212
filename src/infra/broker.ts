@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Account, Environment, Holding, PortfolioSnapshot } from "../domain/types.js";
 import type { Configuration } from "./config.js";
+import { BrokerPacer } from "./broker-pacer.js";
 
 const accountSchema = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/),
@@ -71,7 +72,7 @@ async function boundedJson(response: Response, maxBytes: number): Promise<unknow
   return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
 }
 export class Trading212Reader implements BrokerReader {
-  constructor(private readonly config: Configuration, private readonly fetcher: typeof fetch = fetch) {}
+  constructor(private readonly config: Configuration, private readonly fetcher: typeof fetch = fetch, private readonly pacer?: BrokerPacer) {}
   private async get(environment: Environment, path: string): Promise<unknown> {
     if (!path.startsWith("/api/v0/equity/") || path.includes(".."))
       throw new Error("Blocked untrusted Trading 212 request path");
@@ -83,7 +84,10 @@ export class Trading212Reader implements BrokerReader {
     if (!creds.key || !creds.secret) throw new Error(`Missing ${environment} Trading 212 read credentials`);
     const auth = encodeBasic(`${creds.key}:${creds.secret}`);
     let response: Response | undefined;
+    const bucket = path.startsWith(HISTORY_PREFIX) ? "history-orders" as const :
+      path.endsWith("/positions") ? "positions" as const : "account" as const;
     for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.pacer?.pace(environment, bucket);
       response = await this.fetcher(`${creds.origin}${path}`, {
         method: "GET", redirect: "error",
         headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
