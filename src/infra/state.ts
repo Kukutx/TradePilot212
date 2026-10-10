@@ -8,6 +8,9 @@ export interface StateStore {
   increment(key: string, durationMs: number): Promise<number>;
   /** Atomically allocates an API request slot; null means the wait budget was exceeded. */
   reserve(key: string, spacingMs: number, nowMs: number, maxWaitMs: number): Promise<number | null>;
+  /** Acquire/release an exclusive lease with owner compare-and-swap. */
+  claim(key: string, owner: string, expiresAt: number): Promise<boolean>;
+  release(key: string, owner: string): Promise<boolean>;
 }
 
 /** Single-owner memory store; atomic operations are serialized for concurrent requests. */
@@ -56,6 +59,23 @@ export class MemoryStore implements StateStore {
         if (entry && key.startsWith(prefix)) rows.push({ key, value: entry.value as T });
       }
       return rows;
+    });
+  }
+  claim(key: string, owner: string, expiresAt: number): Promise<boolean> {
+    return this.locked(async () => {
+      if(!owner||expiresAt<=Date.now())throw new Error("Invalid broker execution lease");
+      if(this.valid(key))return false;
+      this.values.set(key,{value:owner,expiresAt});
+      await this.changed();
+      return true;
+    });
+  }
+  release(key: string, owner: string): Promise<boolean> {
+    return this.locked(async () => {
+      if(this.valid(key)?.value!==owner)return false;
+      this.values.delete(key);
+      await this.changed();
+      return true;
     });
   }
   reserve(key: string, spacingMs: number, nowMs: number, maxWaitMs: number): Promise<number | null> {
