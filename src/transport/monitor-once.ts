@@ -2,6 +2,7 @@ import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
 import { Trading212Reader } from "../infra/broker.js";
+import { BrokerPacer } from "../infra/broker-pacer.js";
 import { readConfiguration } from "../infra/config.js";
 import { LocalStore } from "../infra/node-store.js";
 import { IntelligenceService } from "../server/intelligence.js";
@@ -9,7 +10,7 @@ const root=path.resolve(process.cwd());
 dotenv.config({path:path.join(root,".env.local"),quiet:true});
 const config=readConfiguration(process.env);
 const state=await LocalStore.open(path.join(root,".data","insight-v3.json"));
-const svc=new IntelligenceService(config,state,new Trading212Reader(config));
+const svc=new IntelligenceService(config,state,new Trading212Reader(config,fetch,new BrokerPacer(state)));
 if(config.source==="sample")throw new Error("No scheduled monitoring in synthetic sample mode");
 for(const env of ["demo","live"] as const) {
   if(!config.broker[env].key)continue;
