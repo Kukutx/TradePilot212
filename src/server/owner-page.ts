@@ -138,6 +138,8 @@ const js=String.raw`
     if(q("limit").value.trim())intent.limitPrice=Number(q("limit").value);
     if(q("stop").value.trim())intent.stopPrice=Number(q("stop").value);
     if(q("reference").value.trim())intent.referencePrice=Number(q("reference").value);
+    if(q("orderType").value==="market")intent.extendedHours=q("extended").checked;
+    else intent.timeValidity=q("validity").value;
     return intent;
   }
   function renderDraft(){
@@ -213,6 +215,22 @@ const js=String.raw`
     await api("/owner/api/logout",{});csrf="";snapshot=null;draft=null;preview=null;
     show("ownerView",false);show("loginView",true);show("status",false);
   });});
+  function updateOrderFields(){
+    var type=q("orderType").value,mode=q("sizing").value;
+    show("sizeField",mode!=="all_available");
+    show("currencyField",mode==="notional");
+    show("fxField",mode==="notional"||mode==="cash_percent");
+    show("limitField",type==="limit"||type==="stop_limit");
+    show("stopField",type==="stop"||type==="stop_limit");
+    show("validityField",type!=="market");
+    show("extendedField",type==="market");
+    var sellOnly=mode==="position_percent"||mode==="all_available";
+    if(sellOnly)q("side").value="sell";
+    q("side").disabled=sellOnly;
+  }
+  q("orderType").addEventListener("change",updateOrderFields);
+  q("sizing").addEventListener("change",updateOrderFields);
+  updateOrderFields();
   q("review").addEventListener("click",function(){void run(async function(){
     var reviewed=await api("/owner/api/review",parseIntent());
     draft=reviewed.draft;renderDraft();
@@ -350,12 +368,15 @@ export async function renderOwnerPage():Promise<{html:string;csp:string}>{
           <label>数量输入方式<select id="sizing"><option value="quantity">准确股数</option>
             <option value="notional">目标金额</option><option value="cash_percent">可用现金%</option>
             <option value="position_percent">已持仓%</option><option value="all_available">卖出全部可交易</option></select></label>
-          <label>数量／金额／百分比<input id="size" type="number" min="0" step="any" placeholder="由本人填写"></label>
-          <label>输入币种（可选）<input id="currency" maxlength="3" placeholder="USD / EUR"></label>
-          <label>外部 FX 转换率（可选）<input id="fx" type="number" min="0" step="any" placeholder="不是实时行情"></label>
-          <label>限价（需要时）<input id="limit" type="number" min="0" step="any"></label>
-          <label>止损触发价（需要时）<input id="stop" type="number" min="0" step="any"></label>
-          <label>参考价（仅估算）<input id="reference" type="number" min="0" step="any"></label>
+          <label id="sizeField">数量／金额／百分比<input id="size" type="number" min="0" step="any" placeholder="由本人填写"></label>
+          <label id="currencyField">输入币种（可选）<input id="currency" maxlength="3" placeholder="USD / EUR"></label>
+          <label id="fxField">外部 FX 转换率（可选）<input id="fx" type="number" min="0" step="any" placeholder="不是实时行情"></label>
+          <label id="limitField">限价（需要时）<input id="limit" type="number" min="0" step="any"></label>
+          <label id="stopField">止损触发价（需要时）<input id="stop" type="number" min="0" step="any"></label>
+          <label id="referenceField">参考价（仅估算）<input id="reference" type="number" min="0" step="any"></label>
+          <label id="validityField">限价／止损有效期
+            <select id="validity"><option value="DAY">DAY</option><option value="GOOD_TILL_CANCEL">GTC</option></select></label>
+          <label id="extendedField" class="checkSetting"><input id="extended" type="checkbox">Market 延长交易时段（仅支持标的）</label>
         </div>
         <div class="actions"><button id="review" type="button" class="secondary">1 · 审查订单草稿（不提交）</button></div>
         <div class="panel" id="draftPane" hidden><h3>审查后的精确订单</h3><p id="draftText" class="output"></p>
