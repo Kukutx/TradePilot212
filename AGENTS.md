@@ -22,13 +22,26 @@ This repository branch is a **new architecture** for a **private, self-hosted, s
 
 ## Newly enforced safety/quality rules
 - Broker per-account rate slots MUST be reserved atomically in the shared `StateStore` before sending any API request. Respect summary 5s, positions 1s, pending orders 5s, instrument metadata 50s and non-idempotent order write quotas. A reservation error is PRE-TRANSPORT, not an unknown execution.
-- Before consuming an order/cancel confirmation, atomically acquire an environment-scoped exclusive write lease. Known completion releases it; UNKNOWN holds a 120-second cooldown. Lease expiry NEVER justifies a blind retry.
+- Before consuming an order/cancel confirmation, atomically acquire an environment-scoped exclusive write lease. Persist a broker-operation marker BEFORE the actual write; only a known result clears it. UNKNOWN or process crashes retain a durable block across lock expiry/restarts until the owner verifies broker records and explicitly reconciles in the private Owner Console.
 - Live unheld Market BUY and unbounded Buy Stop require broker-confirmed price or a bounded Limit/Stop-Limit unless separately opted into `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS` by the single owner. Preserve all original order types.
 - Limit/Stop-Limit monetary sizing must derive quantity from the enforced limit, not an AI-generated reference price. Any external FX conversion without a timestamp must warn.
 - Portfolio/currency fields must follow Trading 212's actual endpoint schemas (`instrument.currency` for compact position objects and `currencyCode` in instrument metadata). Never guess FX or present stale/missing quote evidence as verified.
 - AI research completeness is NOT investment confidence. Score only traceable documentation and freshness, declare truth unverified, and keep it separate from AI model scores.
 
-## V3 Personal owner UX and evidence invariants\n- The authenticated Owner Console `/owner` is a first-class V3 execution interface, NOT a V2 compatibility fallback. It must preserve strong session cookies, strict same-origin CSRF and action-bound browser HMAC confirmation.\n- Scheduler and optional email are owner-opt-in. Cloudflare hourly Cron must not cause hourly brokerage requests when the user has not enabled daily briefs. Resend uses fixed HTTPS, provider idempotency, and never receives full portfolio data or credentials.\n- Persist only validated personal preferences including IANA timezone. Do not imply that a stored alert is an external push notification.\n- Research integrations must use fixed ECB/SEC/Twelve Data URLs, bounded responses, source timestamps, verified currency/ticker/venue, and always remain separate from broker execution-price checks.\n- OpenAI-specific sidebar and thread entrypoints must be optional namespaced MCP extensions. Preserve standard MCP Apps behavior for Claude and hosts that ignore extension metadata. No invented host APIs or plan-level compatibility shims.\n- Keep mock tests for CSRF, cookies, Owner Console HMAC, ID-only order replay, schedule deduplication, official data source failure and host-independent headless output.\n\n## Engineering gates
+## V3 Personal owner UX and evidence invariants
+- The authenticated Owner Console `/owner` is a first-class V3 execution interface, NOT a V2 compatibility fallback. It must preserve strong session cookies, strict same-origin CSRF and action-bound browser HMAC confirmation.
+- Scheduler and optional email are owner-opt-in. Cloudflare hourly Cron must not cause hourly brokerage requests when the user has not enabled daily briefs. Resend uses fixed HTTPS, provider idempotency, and never receives full portfolio data or credentials.
+- Persist only validated personal preferences including IANA timezone. Do not imply that a stored alert is an external push notification.
+- Research integrations must use fixed ECB/SEC/Twelve Data URLs, bounded responses, source timestamps, verified currency/ticker/venue, and always remain separate from broker execution-price checks.
+- OpenAI-specific sidebar and thread entrypoints must be optional namespaced MCP extensions. Preserve standard MCP Apps behavior for Claude and hosts that ignore extension metadata. No invented host APIs or plan-level compatibility shims.
+- Keep mock tests for CSRF, cookies, Owner Console HMAC, ID-only order replay, schedule deduplication, official data source failure and host-independent headless output.
+
+## Test-candidate freeze gate
+- Run both native Node HTTP and Docker production-image synthetic startup smoke in GitHub Actions; verify protected /owner and no actual broker writes. The 2026 test candidate has a staged independent checklist at `docs/TEST_READY.md`.
+- Treat unsafe integer order IDs and HTTP 2xx acknowledgements with no valid order ID as unknown/fail-closed; do not silently auto-select an exchange for an ambiguous symbol.
+- When preparing for manual testing, freeze new feature work instead of adding compatibility shims or untested APIs.
+
+## Engineering gates
 - Use feature-separated modules: domain/order-policy; infrastructure/broker-reads and broker-writes; services/trading, intelligence and state; MCP/auth; UI.
 - Use modern MCP 2026-07-28 only. No DCR/legacy protocol shim; host support must be tested, especially Claude and ChatGPT.
 - Every broker write test must assert send-once semantics and verify scope/secret/token gates.
