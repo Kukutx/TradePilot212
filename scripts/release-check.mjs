@@ -23,6 +23,7 @@ if (fs.existsSync(envPath)) dotenv.config({ path: envPath, quiet: true });
 const sensitiveNames = [
   "APP_LOGIN_PASSWORD",
   "AUTH_SIGNING_SECRET",
+  "EXECUTION_APPROVAL_SECRET",
   "T212_DEMO_API_KEY",
   "T212_DEMO_API_SECRET",
   "T212_LIVE_API_KEY",

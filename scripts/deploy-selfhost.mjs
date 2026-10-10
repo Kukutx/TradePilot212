@@ -61,6 +61,11 @@ if (!fs.existsSync(path.join(root, ".env.local"))) {
 
 const loginPassword = requireValue("APP_LOGIN_PASSWORD", 16);
 const signingSecret = requireValue("AUTH_SIGNING_SECRET", 32);
+const approvalSecret = requireValue("EXECUTION_APPROVAL_SECRET", 16);
+if (approvalSecret === loginPassword || approvalSecret === signingSecret || approvalSecret.startsWith("replace-with-") || approvalSecret.startsWith("change-this-")) {
+  console.error("EXECUTION_APPROVAL_SECRET must be unique and non-placeholder.");
+  process.exit(1);
+}
 if (loginPassword === "change-this-password") {
   console.error("APP_LOGIN_PASSWORD is still the example placeholder. Run: pnpm setup");
   process.exit(1);
@@ -116,6 +121,7 @@ if (!authenticated) {
 const secrets = {
   APP_LOGIN_PASSWORD: process.env.APP_LOGIN_PASSWORD,
   AUTH_SIGNING_SECRET: process.env.AUTH_SIGNING_SECRET,
+  EXECUTION_APPROVAL_SECRET: process.env.EXECUTION_APPROVAL_SECRET,
   DEFAULT_TRADING_ENV: process.env.DEFAULT_TRADING_ENV || "demo",
   MAX_ORDER_NOTIONAL: process.env.MAX_ORDER_NOTIONAL || "5000",
   MAX_ORDER_QUANTITY: process.env.MAX_ORDER_QUANTITY || "100000",
