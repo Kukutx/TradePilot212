@@ -149,7 +149,7 @@ Sell all currently tradable Apple shares.
 Prepare a 220 USD limit buy for 0.5 NVDA. Do not submit it.
 ```
 
-TradePilot resolves and normalizes the request into an editable quantity-based order. Every broker write requires the final UI confirmation **and** the independent execution-approval secret (never provide it as an AI prompt).
+TradePilot resolves and normalizes the request into an editable quantity-based order. Every broker write requires final UI confirmation and a locally computed, one-time HMAC proof from the independent execution-approval secret (never provide it as an AI prompt). **With notional caps enabled, buying an unheld stock requires a price-bounded Limit order rather than an unpriced Market order.**
 
 ## Order flow
 
