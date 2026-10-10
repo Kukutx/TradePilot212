@@ -29,6 +29,14 @@ Opt in to **Demo execution** explicitly with `PERSONAL_TRADING_ENABLED=true` and
 
 Write-enabled Trading 212 keys must have the necessary order permissions. Demo and Live keys are never interchanged. The HMAC proof sent through MCP is specific to a single action/token. Never put credentials or the approval secret in an AI chat message.
 
+## Safety, research provenance and broker quotas
+
+- V3 atomically paces broker API calls **per account and endpoint** across Node / Cloudflare (summary ~5s, positions ~1s, pending ~5s, instruments ~50s).
+- Only one broker write can be active per environment. An UNKNOWN write retains a two-minute cooldown; expiry is **not evidence** that the broker did not execute.
+- New unheld Live Market buys and Live Buy Stops require a bounded-price Limit/Stop-Limit alternative by default. All order types remain available via the separately explicit `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=true` owner opt-in.
+- `PERSONAL_MAX_NOTIONAL` is an **estimate in instrument quote currency**, not a guaranteed maximum execution price.
+- Research cards distinguish the model-provided score from independent **evidence-documentation completeness**, source URLs and time freshness. Source truth is never assumed or verified merely from a complete card.
+
 ## Deploy
 
 Use `pnpm dev` for local Node; `pnpm dev:tunnel` for a temporary Cloudflare HTTPS tunnel; `pnpm deploy -- --dry-run` to validate a personal Cloudflare Worker; `pnpm deploy` only when you explicitly intend deployment; or use the included `Dockerfile` behind a private HTTPS reverse proxy.
@@ -37,4 +45,4 @@ The MCP server implements **MCP 2026-07-28 and OAuth CIMD/PKCE only**, with no c
 
 **This is not a public Plugin Directory trading app.** Public directory policy prohibits executing investment trades, so personal trade features belong in private self-hosted integration. No public listing, host eligibility or broker live execution has been verified.
 
-See [product strategy](docs/PRODUCT.md), [feature parity](docs/FEATURE_PARITY.md), [architecture](docs/ARCHITECTURE.md), [security](SECURITY.md), [privacy](PRIVACY.md). This project is in Draft/Alpha; do not consider it production-ready solely because CI passes.
+See [personal operations handbook](docs/OPERATIONS.md), [product strategy](docs/PRODUCT.md), [feature parity](docs/FEATURE_PARITY.md), [architecture](docs/ARCHITECTURE.md), [security](SECURITY.md), [privacy](PRIVACY.md). This project is in Draft/Alpha; do not consider it production-ready solely because CI passes.

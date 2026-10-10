@@ -30,6 +30,14 @@ UI: bilingual React host-adaptive workspace
 
 **Never** add model-visible broker write tools or a background broker execution path. The user initiating a research plan is not consent to trade.
 
+## Rate and execution coordination
+
+`src/infra/broker-pacer.ts` uses `StateStore.reserve` (atomic on Node file store and Cloudflare Durable Object) to space account-specific Trading 212 GET and POST/DELETE calls. Broker operations are assigned fixed quota buckets. Failed budget reservations never send a request; non-idempotent writes remain send-once.
+
+`StateStore.claim` and conditional `StateStore.release` create a per-environment exclusive execution lease. The lease is acquired **after** validating the independent human proof but **before** consuming the one-use confirmation. A second valid confirmation cannot concurrently send a separate broker write. A known success or rejection releases the lease; UNKNOWN outcomes retain it for 120 seconds. Manual broker verification is required regardless of lease expiry.
+
+`src/domain/research.ts` scores evidence **documentation completeness**, distinct from any model-provided investment score. It checks basic source URL traceability, research freshness, source dates, risks and counter-case; it performs NO independent web fact checking and never authorizes a trade.
+
 ## Broker path restrictions
 `src/infra/broker.ts` is GET-only with fixed allowed endpoints and bounded JSON responses. `src/infra/trade-gateway.ts` exclusively maps known approved GET/POST/DELETE endpoints with correct signed sell quantities. Network errors, 408, 5xx and broken response bodies after any broker write produce **UNKNOWN**; no retry and no automatic order replacement.
 

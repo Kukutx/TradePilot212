@@ -53,11 +53,20 @@ PERSONAL_LIVE_TRADING_ENABLED=false
 PERSONAL_MAX_NOTIONAL=5000
 PERSONAL_MAX_QUANTITY=100000
 PERSONAL_CONFIRMATION_TTL=90
+PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=false
 ```
 
 `PERSONAL_APPROVAL_SECRET` 由 `pnpm setup` 生成，必须和登录密码／JWT 密钥不同。每笔订单或撤单都要由本人在界面输入，该密钥只用于**本地 HMAC 计算**；MCP 传输的是与当前一次性令牌绑定的证明。不要把授权密钥发到 ChatGPT 或 Claude 对话里。
 
 **Live 真实资金交易需要再单独设置 `PERSONAL_LIVE_TRADING_ENABLED=true`**，不会因为开启 Demo 自动开放 Live。市场单可能滑点；应用金额限制属于估算，不是成交价格保证。必须在 Trading 212 实际验证交易结果。
+
+## 风险控制与研究质量
+
+- Trading 212 限流按账户共享：账户摘要约每 5 秒一次、持仓每秒一次、待处理订单约每 5 秒一次、标的元数据约每 50 秒一次。V3 使用 Node／Cloudflare 原子预约请求时隙，必要时延迟读取，避免并发撞击限流。
+- 同一环境只允许一个真实交易请求处于提交状态。若券商响应未知，新的写操作暂停约 2 分钟；**暂停结束也不意味着前一笔订单失败**，必须先到 Trading 212 核对。
+- Live 买入未持有的新标的时，Market 缺少券商可核实的现价，Buy Stop 也缺少成交价格上界。默认要求改用 Limit／Stop-Limit；如自行承担风险，可单独设置 `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=true`。四类订单仍全部保留。
+- `PERSONAL_MAX_NOTIONAL` 约束按标的报价币种估算，不能保证市价单最终成交金额，汇率和参考价必须自行核实。
+- AI 研究卡片会区分 **AI 原评分** 和 **研究材料完整度**，检查来源链接、研究时间、价格时间、风险和反方论点。完整度 100 分也不表示文章或观点经事实核验。
 
 ## 部署与连接
 
@@ -76,6 +85,6 @@ PERSONAL_CONFIRMATION_TTL=90
 
 公开 ChatGPT Plugin Directory 禁止执行投资交易，**V3 Personal 不申报为公开交易插件**。它是你的私人开发／自托管连接。若未来要做公开分析插件，应另建不含交易路径的发行物，而不是悄悄禁用本人的正确功能。
 
-[产品定位](docs/PRODUCT.md) · [核心工程规则](AGENTS.md) · [功能对照](docs/FEATURE_PARITY.md) · [安全约束](SECURITY.md) · [隐私](PRIVACY.md)
+[个人部署及故障手册](docs/OPERATIONS.md) · [产品定位](docs/PRODUCT.md) · [核心工程规则](AGENTS.md) · [功能对照](docs/FEATURE_PARITY.md) · [安全约束](SECURITY.md) · [隐私](PRIVACY.md)
 
 MIT。软件仅提供分析与个人操作工具，不构成投资收益承诺或替代券商审核。
