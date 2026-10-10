@@ -5,6 +5,7 @@ import { MemoryStore } from "../infra/state.js";
 import { personalApprovalProof } from "../domain/approval-proof.js";
 import type { BrokerReader } from "../infra/broker.js";
 import type { BrokerTradePort } from "../infra/trade-gateway.js";
+import {BrokerOperationUnknown} from "../infra/trade-gateway.js";
 
 const origin="https://owner.tradepilot.example.test";
 const password="private-human-password-0123456789";
@@ -16,9 +17,12 @@ const config=readConfiguration({
   PERSONAL_TRADING_ENABLED:"true",PERSONAL_APPROVAL_SECRET:approvalSecret,
   PERSONAL_LIVE_TRADING_ENABLED:"false",
 });
-function setup(){
+function setup(options:{unknownOrder?:boolean}={}){
   const store=new MemoryStore();
-  const written=vi.fn(async()=>({orderId:"1234"}));
+  const written=vi.fn(async()=>{
+    if(options.unknownOrder)throw new BrokerOperationUnknown("broker response lost");
+    return {orderId:"1234"};
+  });
   const cancelled=vi.fn(async()=>({orderId:"1234"}));
   const broker:BrokerReader={
     async getPortfolio(environment){return {
@@ -208,6 +212,54 @@ describe("separate authenticated Owner Console",()=>{
       {headers:{Cookie:credentials.cookie}});
     expect(noVendor.status).toBe(400);
     expect(written).not.toHaveBeenCalled();
+  });
+  it("keeps an unknown broker action blocked until Owner Console separately verifies and acknowledges",async()=>{
+    const {app,written}=setup({unknownOrder:true});
+    const auth=await signIn(app);
+    const prepared=await ownerPost(app,"/owner/api/prepare",auth,{
+      environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"limit",
+      quantity:1,limitPrice:100,
+    });
+    expect(prepared.status).toBe(200);
+    const {token}=await prepared.json() as {token:string};
+    const proof=await personalApprovalProof(approvalSecret,"order",token);
+    const attempted=await ownerPost(app,"/owner/api/execute",auth,{environment:"demo",token,proof});
+    expect(attempted.status).toBe(200);
+    const outcome=await attempted.json() as {status:string;verificationId:string};
+    expect(outcome.status).toBe("unknown");
+    expect(written).toHaveBeenCalledTimes(1);
+    const info=await app.request("/owner/api/unresolved?environment=demo",
+      {headers:{Cookie:auth.cookie}});
+    expect(info.status).toBe(200);
+    expect((await info.json() as {incident:{verificationId:string}}).incident.verificationId)
+      .toBe(outcome.verificationId);
+    const premature=await ownerPost(app,"/owner/api/reconcile",auth,{
+      environment:"demo",verificationId:outcome.verificationId,
+      proof:await personalApprovalProof(approvalSecret,"reconcile",outcome.verificationId),
+      confirmation:"I CHECKED TRADING 212",
+    });
+    expect(premature.status).toBe(400);
+    const verified=await app.request("/owner/api/verify?environment=demo&id="+outcome.verificationId,
+      {headers:{Cookie:auth.cookie}});
+    expect(verified.status).toBe(200);
+    const badPhrase=await ownerPost(app,"/owner/api/reconcile",auth,{
+      environment:"demo",verificationId:outcome.verificationId,
+      proof:await personalApprovalProof(approvalSecret,"reconcile",outcome.verificationId),
+      confirmation:"I DID NOT CHECK",
+    });
+    expect(badPhrase.status).toBe(400);
+    const final=await ownerPost(app,"/owner/api/reconcile",auth,{
+      environment:"demo",verificationId:outcome.verificationId,
+      proof:await personalApprovalProof(approvalSecret,"reconcile",outcome.verificationId),
+      confirmation:"I CHECKED TRADING 212",
+    });
+    expect(final.status).toBe(200);
+    expect((await final.json() as {brokerWrites:number;resolved:boolean}))
+      .toMatchObject({brokerWrites:0,resolved:true});
+    expect(written).toHaveBeenCalledTimes(1);
+    const cleared=await app.request("/owner/api/unresolved?environment=demo",
+      {headers:{Cookie:auth.cookie}});
+    expect((await cleared.json() as {incident:unknown}).incident).toBeNull();
   });
   it("does not enable LIVE execution or bypass owner confirmation",async()=>{
     const {app,written}=setup();
