@@ -2,7 +2,7 @@
 
 全新架构的**个人自托管 AI 投资研究、组合管理和人工授权交易工作台**。
 
-[独立 Owner Console](docs/OWNER_CONSOLE.md) · [自动简报](docs/AUTOMATION_DELIVERY.md) · [研究数据](docs/EXTERNAL_DATA.md) · [体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
+[未完成的真实验收](docs/HOST_QA.md) · [独立 Owner Console](docs/OWNER_CONSOLE.md) · [自动简报](docs/AUTOMATION_DELIVERY.md) · [研究数据](docs/EXTERNAL_DATA.md) · [体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
 
 > V3 不支持 V2 的接口、工具名、配置键、OAuth 令牌或状态文件。**功能完整重建，不提供旧协议兼容层**。旧项目仍在独立的 `main`，不会被自动覆盖。
 
