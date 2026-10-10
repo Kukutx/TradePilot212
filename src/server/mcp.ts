@@ -55,62 +55,62 @@ export function buildMcpServer(
     const value=await service.dailyBrief(environment);
     return ok(value as Record<string,unknown>,`Read-only portfolio review prepared from ${value.source} data.`);
   }catch(e){return fail(e);}});
-  registerAppTool(server,"get_broker_order_history",{
+  server.registerTool("get_broker_order_history",{
     title:"Read completed order history",
     description:"Read one bounded page of Trading 212 historical orders, without submitting, cancelling or modifying orders. A numeric cursor may be supplied from a prior response.",
-    inputSchema:z.object({environment,cursor:z.string().regex(/^\d{1,20}$/).optional()}),
+    inputSchema:{environment,cursor:z.string().regex(/^\d{1,20}$/).optional()},
     annotations:read,
   },async({environment,cursor})=>{try{
     const value=await service.recentOrders(environment,cursor);
     return ok(value as unknown as Record<string,unknown>,`Returned ${value.orders.length} historical broker events.`);
   }catch(e){return fail(e);}});
-  registerAppTool(server,"list_portfolio_watch_rules",{
+  server.registerTool("list_portfolio_watch_rules",{
     title:"List saved portfolio watch rules",
     description:"List self-hosted threshold watches for this environment. Rules are local notifications only, never Trading 212 automated trades.",
-    inputSchema:z.object({environment}),annotations:read,
+    inputSchema:{environment},annotations:read,
   },async({environment})=>{try{
     const rules=await service.listRules(environment);
     return ok({kind:"rules",environment,rules},`${rules.length} portfolio watch rules.`);
   }catch(e){return fail(e);}});
-  registerAppTool(server,"check_portfolio_watch_rules",{
+  server.registerTool("check_portfolio_watch_rules",{
     title:"Check portfolio watch thresholds",
     description:"Evaluate saved watch thresholds against current or recently cached portfolio state. This check is read-only and does not enqueue alerts or execute trades.",
-    inputSchema:z.object({environment}),annotations:read,
+    inputSchema:{environment},annotations:read,
   },async({environment})=>{try{
     const evaluations=await service.inspectRules(environment);
     return ok({kind:"rule_evaluations",environment,evaluations},`${evaluations.length} rules checked without broker writes.`);
   }catch(e){return fail(e);}});
-  registerAppTool(server,"get_portfolio_alerts",{
+  server.registerTool("get_portfolio_alerts",{
     title:"Get recorded risk threshold alerts",
     description:"Read locally generated concentration, cash or loss threshold alerts; alerts are not broker orders and may require a manual/scheduled scan.",
-    inputSchema:z.object({environment}),annotations:read,
+    inputSchema:{environment},annotations:read,
   },async({environment})=>{try{
     const value=await service.events(environment);
     return ok(value as unknown as Record<string,unknown>,`${value.events.length} recent threshold alerts.`);
   }catch(e){return fail(e);}});
   if(scopes.has("monitor:write")){
-    registerAppTool(server,"create_portfolio_watch_rule",{
+    server.registerTool("create_portfolio_watch_rule",{
       title:"Save portfolio monitoring threshold",
       description:"Persist a local cash, concentration or P/L threshold to be checked by read-only scheduled portfolio scans. Updates TradePilot state only; does not place or schedule trades.",
-      inputSchema:z.object({environment,kind:ruleKind,thresholdPercent:z.number().min(-100).max(100)}),
+      inputSchema:{environment,kind:ruleKind,thresholdPercent:z.number().min(-100).max(100)},
       annotations:localWrite,
     },async({environment,kind,thresholdPercent})=>{try{
       const rule=await service.createRule(environment,kind,thresholdPercent);
       return ok({kind:"rule_created",rule},`Saved local portfolio watch rule ${rule.id}.`);
     }catch(e){return fail(e);}});
-    registerAppTool(server,"remove_portfolio_watch_rule",{
+    server.registerTool("remove_portfolio_watch_rule",{
       title:"Remove portfolio monitoring threshold",
       description:"Delete a local monitoring rule by ID. Does not contact any Trading 212 order endpoint.",
-      inputSchema:z.object({id:z.string().uuid()}),
+      inputSchema:{id:z.string().uuid()},
       annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false},
     },async({id})=>{try{
       const removed=await service.deleteRule(id);
       return ok({kind:"rule_removed",removed},removed?"Monitoring rule removed.":"Rule not found.");
     }catch(e){return fail(e);}});
-    registerAppTool(server,"run_portfolio_monitor_scan",{
+    server.registerTool("run_portfolio_monitor_scan",{
       title:"Run monitoring scan",
       description:"Read current portfolio and save threshold-crossing events locally. May create TradePilot alert state, but NEVER modifies broker accounts, holdings or orders.",
-      inputSchema:z.object({environment}),annotations:localWrite,
+      inputSchema:{environment},annotations:localWrite,
     },async({environment})=>{try{
       const value=await service.scan(environment);
       return ok(value as unknown as Record<string,unknown>,`Read-only broker scan completed, ${value.created} local alerts created.`);
