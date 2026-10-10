@@ -20,6 +20,14 @@ This repository branch is a **new architecture** for a **private, self-hosted, s
 9. Single-owner-per-deployment; no shared multi-tenant credential pool. Never send live orders during CI, documentation checks or mocked tests.
 10. Maintain both English and Simplified Chinese prompts and accessible confirmation UI. Never silently remove a feature; use a parity acceptance matrix.
 
+## Newly enforced safety/quality rules
+- Broker per-account rate slots MUST be reserved atomically in the shared `StateStore` before sending any API request. Respect summary 5s, positions 1s, pending orders 5s, instrument metadata 50s and non-idempotent order write quotas. A reservation error is PRE-TRANSPORT, not an unknown execution.
+- Before consuming an order/cancel confirmation, atomically acquire an environment-scoped exclusive write lease. Known completion releases it; UNKNOWN holds a 120-second cooldown. Lease expiry NEVER justifies a blind retry.
+- Live unheld Market BUY and unbounded Buy Stop require broker-confirmed price or a bounded Limit/Stop-Limit unless separately opted into `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS` by the single owner. Preserve all original order types.
+- Limit/Stop-Limit monetary sizing must derive quantity from the enforced limit, not an AI-generated reference price. Any external FX conversion without a timestamp must warn.
+- Portfolio/currency fields must follow Trading 212's actual endpoint schemas (`instrument.currency` for compact position objects and `currencyCode` in instrument metadata). Never guess FX or present stale/missing quote evidence as verified.
+- AI research completeness is NOT investment confidence. Score only traceable documentation and freshness, declare truth unverified, and keep it separate from AI model scores.
+
 ## Engineering gates
 - Use feature-separated modules: domain/order-policy; infrastructure/broker-reads and broker-writes; services/trading, intelligence and state; MCP/auth; UI.
 - Use modern MCP 2026-07-28 only. No DCR/legacy protocol shim; host support must be tested, especially Claude and ChatGPT.

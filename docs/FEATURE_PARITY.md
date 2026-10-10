@@ -27,6 +27,8 @@ This is an acceptance checklist for **behaviors**, not old code, old tool names 
 | Local HTTPS tunnel | `pnpm dev:tunnel`, Cloudflare Quick Tunnel | Manual QA pending |
 | Automated market research without trading | host research + local read-only Cron watches | Current deterministic monitor engine |
 
+**Additional V3 hardening:** per-account official API quota reservations; atomic one-active-write lock with cooldown after UNKNOWN; Live unquoted buy opt-in without removing original Market/Stop types; correct broker position currency parsing; bounded-price-based monetary sizing; independent AI research documentation completeness/freshness tests. All have mocked regression tests; live account/host QA remains pending.
+
 **V3 additions:** verified-currency concentration, historical risk trend, stress scenarios, local watch rules/alerts, independent human HMAC proof and explicit Demo/Live opt-in.
 
 **No compatibility:** V2 keys (`T212_*_API_KEY`), OAuth refresh tokens, old order tools, stored state and old protocol versions are intentionally rejected. Existing `main` retains the old program untouched.

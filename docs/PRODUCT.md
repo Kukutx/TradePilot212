@@ -11,6 +11,14 @@ A generic broker API proxy offers little value. V3 combines:
 4. **Lifecycle reliability:** one-write-only semantics, unknown-state reconciliation, metadata audit and short-lived, nonreusable confirmation.
 5. **Read-only automation:** host-based research, scheduled portfolio threshold checks and durable local alerts. Autonomous broker writes are prohibited.
 
+## How V3 becomes more intelligent without becoming an unsupervised trader
+
+The AI host handles interpretation and market/news research. TradePilot retains deterministic, auditable account truth and order calculation. `ResearchAudit` now reports **evidence completeness** (timestamps, source links, thesis, risks, counter-case) independently of the AI model's proposed 0–100 score. A complete card is still **not fact-checked**: untrusted research never becomes an authorization to trade.
+
+Per-endpoint broker pacing, strict currency provenance, Live market-order risk rules, and an atomic one-write-per-environment lease make the personal execution cockpit significantly safer under concurrent research and confirmation workflows. UNKNOWN responses remain unresolved until separately checked with Trading 212.
+
+Future priorities: trusted quote + FX feeds with named provenance; order reconciliation via broker account history; signed time-stamped personal research artifacts; real ChatGPT/Claude host interop; accessible standalone owner dashboard when hosts do not support private high-risk write tools.
+
 ## Why not delete private execution?
 OpenAI's **public Plugin Directory** has separate restrictions against investment trading; personal custom MCP apps have different capabilities and restrictions. A private owner's valid brokerage integration should not be reduced to read-only solely to satisfy a public listing. However host permission and policy can still block write operations. A separate public read-only product would need its own release approval, not destructive edits to this repository.
 
