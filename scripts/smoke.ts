@@ -45,6 +45,15 @@ const exchange=async(b:Record<string,string>)=>{
   });
   return {status:response.status,body:await response.json() as Record<string,string>};
 };
+// Ensure a chunked OAuth form with no Content-Length stops at 16KiB.
+const oversizedRequest=new Request(`${publicOrigin}/oauth/token`,{
+  method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+  body:new ReadableStream<Uint8Array>({
+    start(controller){controller.enqueue(new Uint8Array(17_000));controller.close();}
+  }),duplex:"half",
+} as RequestInit);
+const oversizedOAuth=await app.fetch(oversizedRequest);
+assert.equal(oversizedOAuth.status,400);
 const first=await exchange({grant_type:"authorization_code",code,redirect_uri:redirectUri,code_verifier:verifier,resource:`${publicOrigin}/mcp`});
 assert.equal(first.status,200);
 const rotated=await exchange({grant_type:"refresh_token",refresh_token:first.body.refresh_token!});
