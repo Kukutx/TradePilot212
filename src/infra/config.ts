@@ -1,6 +1,11 @@
 import type { Environment, Source } from "../domain/types.js";
 
-export type RuntimeEnv = Record<string, string | undefined>;
+export type RuntimeEnv = Partial<Record<
+  | "PUBLIC_ORIGIN" | "PORT" | "OWNER_PASSWORD" | "JWT_SIGNING_SECRET"
+  | "OAUTH_CLIENT_ORIGINS" | "DATA_SOURCE" | "DEFAULT_ENVIRONMENT"
+  | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET",
+  string
+>>;
 export interface Configuration {
   publicOrigin: string;
   ownerPassword: string;
