@@ -62,7 +62,7 @@ export function registerPersonalTradingTools(
   registerAppTool(server,"get_personal_trading_capabilities",{
     title:"Check private trading capabilities",
     description:"Show whether this single-owner connection can review or execute Demo/Live trades. Never places or cancels orders.",
-    inputSchema:z.object({environment}),annotations:safeRead,
+    inputSchema:z.object({environment}),annotations:safeRead,_meta:{},
   },async({environment})=>ok({
     kind:"personal_capabilities",environment,
     source:service.config.source,
@@ -74,7 +74,7 @@ export function registerPersonalTradingTools(
     title:"Search owned Trading 212 account instruments",
     description:"Find exact broker ticker or company name for the selected Demo/Live environment; never submits a trade.",
     inputSchema:z.object({environment,query:z.string().min(1),limit:z.number().int().min(1).max(50).default(20)}),
-    annotations:safeRead,
+    annotations:safeRead,_meta:{},
   },async({environment,query,limit})=>{try{
     const r=await service.searchInstruments(environment,query,limit);
     return ok(r,`Found ${r.matches.length} brokerage instruments.`);
@@ -90,7 +90,7 @@ export function registerPersonalTradingTools(
   registerAppTool(server,"get_personal_trading_activity",{
     title:"Read TradePilot review/execution activity",
     description:"Read metadata-only personal TradePilot order and cancellation activity without broker writes.",
-    inputSchema:z.object({environment}),annotations:safeRead,
+    inputSchema:z.object({environment}),annotations:safeRead,_meta:{},
   },async({environment})=>{try{
     const r=await service.activity(environment);
     return ok(r,`${r.events.length} recent personal trading activity records.`);
