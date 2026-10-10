@@ -2,30 +2,31 @@ import { useApp,useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { App as HostApp } from "@modelcontextprotocol/ext-apps";
 import { useEffect,useMemo,useState } from "react";
 import type { PortfolioAnalysis,PortfolioSnapshot,Scenario,Environment,Exposure,RiskTrend } from "../domain/types";
+import PersonalTradeWorkspace,{type PersonalPayload} from "./PersonalTradeWorkspace";
 
 type Brief={kind:"daily_brief";environment:Environment;source:string;asOf:string;summary:string;observations:string[];priorityChecks:string[];disclaimer:string;currency:string};
 type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|RiskTrend|Brief|{kind:"error";message:string};
 type Locale="zh"|"en";
 const wording={
   en:{
-    brand:"TRADEPILOT / INTELLIGENCE",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",
+    brand:"TRADEPILOT / PERSONAL",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",trade:"Private trades",
     account:"Portfolio value",cash:"Available cash",positions:"Holdings",updated:"Observed",
     warning:"Data quality",holdings:"Current holdings",exposure:"Value / allocation",unpriced:"Unverified value",
     scenario:"Hypothetical uniform shock",scenarioHelp:"This is a calculation, not a forecast or trade recommendation.",
     run:"Run simulation",running:"Loading",ready:"Ready for your portfolio",readyHelp:"Ask your AI assistant for a portfolio overview, risk analysis or brief.",
-    demo:"SYNTHETIC SAMPLE DATA",live:"Broker read-only data",noTrades:"No trade execution or cancellation is available",
+    demo:"SYNTHETIC SAMPLE DATA",live:"Broker read-only data",noTrades:"Broker writes require explicit private setup, in-app confirmation and human approval",
     refresh:"Refresh",riskAlerts:"Risk observations",limitations:"Data limitations",watch:"Priority research checks",
     coverage:"Verified value coverage",concentration:"Largest holding",cashRatio:"Cash ratio",noData:"Not computable",
     totalChange:"Hypothetical portfolio change",outcome:"Hypothetical total value",assumptions:"Assumptions",
     connection:"MCP host connection",unknown:"An unexpected response was received",error:"Data unavailable",
   },
   zh:{
-    brand:"TRADEPILOT / 智能投资分析",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",
+    brand:"TRADEPILOT / 个人交易智能平台",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",trade:"私人交易",
     account:"投资组合总值",cash:"可用现金",positions:"持仓数量",updated:"数据时间",
     warning:"数据质量",holdings:"当前持仓",exposure:"估值 / 占比",unpriced:"无法核实估值",
     scenario:"假设持仓价格同步变化",scenarioHelp:"仅做算术情景推演，不是价格预测或交易建议。",
     run:"计算情景",running:"加载中",ready:"等待组合数据",readyHelp:"请在 AI 对话中请求持仓概览、风险分析或投资组合简报。",
-    demo:"合成示例数据，不是真实账户",live:"券商真实只读数据",noTrades:"本插件不提供下单或撤单功能",
+    demo:"合成示例数据，不是真实账户",live:"券商真实只读数据",noTrades:"交易仅在个人自托管授权后开放，必须人工核准，不允许 AI 自动执行",
     refresh:"刷新",riskAlerts:"风险观察",limitations:"数据限制",watch:"需要研究的问题",
     coverage:"已核实估值覆盖率",concentration:"最大持仓占比",cashRatio:"现金占比",noData:"无法可靠计算",
     totalChange:"假设组合变化金额",outcome:"假设组合总值",assumptions:"计算假设",
@@ -53,8 +54,9 @@ function ExposureRow({item,currency,locale}:{item:Exposure;currency:string;local
 }
 export default function App(){
   const [payload,setPayload]=useState<Payload|null>(null);
+  const [personalPayload,setPersonalPayload]=useState<PersonalPayload|null>(null);
   const [env,setEnv]=useState<Environment>("demo");
-  const [mode,setMode]=useState<"overview"|"risk"|"stress"|"trend"|"brief">("overview");
+  const [mode,setMode]=useState<"overview"|"risk"|"stress"|"trend"|"brief"|"trade">("overview");
   const [locale,setLocale]=useState<Locale>("zh");
   const [shock,setShock]=useState(-10);
   const [loading,setLoading]=useState(false);
@@ -65,8 +67,15 @@ export default function App(){
     capabilities:{},
     onAppCreated:(created:HostApp)=>{
       created.ontoolresult=result=>{
-        const next=result.structuredContent as unknown as Payload|undefined;
-        if(!next||typeof next.kind!=="string")return;
+        const candidate=result.structuredContent as unknown as (Payload|PersonalPayload|undefined);
+        if(!candidate||typeof candidate.kind!=="string")return;
+        if(["trade_draft","trade_preview","cancel_preview","trade_execution","trade_verification","trade_plan","pending_orders"].includes(candidate.kind)){
+          setPersonalPayload(candidate as PersonalPayload);
+          if("environment" in candidate)setEnv(candidate.environment);
+          setMode("trade");
+          return;
+        }
+        const next=candidate as Payload;
         setPayload(next);
         if("environment" in next)setEnv(next.environment);
         if(next.kind==="portfolio")setMode("overview");
@@ -110,19 +119,19 @@ export default function App(){
     <header className="top">
       <div className="identity"><span className="mark">T<span>P</span></span><div><span className="eyebrow">{t.brand}</span><h1>Portfolio Intelligence</h1></div></div>
       <div className="topActions">
-        <select aria-label="Account environment" value={env} onChange={e=>{setEnv(e.target.value as Environment);setPayload(null);}}><option value="demo">DEMO</option><option value="live">LIVE</option></select>
+        <select aria-label="Account environment" value={env} onChange={e=>{setEnv(e.target.value as Environment);setPayload(null);setPersonalPayload(null);}}><option value="demo">DEMO</option><option value="live">LIVE</option></select>
         <button type="button" onClick={()=>setLocale(locale==="zh"?"en":"zh")}>{locale==="zh"?"EN":"中文"}</button>
       </div>
     </header>
     <div className="trustBar"><SourceTag source={source} locale={locale}/><span>{t.noTrades}</span></div>
     <nav className="tabs" aria-label="Portfolio views">
-      {(["overview","risk","stress","trend","brief"] as const).map(key=><button
+      {(["overview","risk","stress","trend","brief","trade"] as const).map(key=><button
         key={key} className={mode===key?"active":""} disabled={!app||loading}
-        onClick={()=>void load(key)}>{t[key]}</button>)}
-      <button className="refresh" disabled={!app||loading} onClick={()=>void load(mode)}>{loading?t.running:t.refresh}</button>
+        onClick={()=>key==="trade"?setMode("trade"):void load(key)}>{t[key]}</button>)}
+      {mode!=="trade"&&<button className="refresh" disabled={!app||loading} onClick={()=>void load(mode)}>{loading?t.running:t.refresh}</button>}
     </nav>
     {error&&<div className="callout error" role="alert">{error}</div>}
-    {!payload||payload.kind==="error"?<section className="empty">
+    {mode==="trade"?<PersonalTradeWorkspace key={env} app={app} environment={env} locale={locale} initial={personalPayload}/>:!payload||payload.kind==="error"?<section className="empty">
       <div className="emptyOrb">◎</div><h2>{t.ready}</h2><p>{t.readyHelp}</p>
       {payload?.kind==="error"&&<p role="alert">{payload.message}</p>}
     </section>:<>
@@ -176,9 +185,9 @@ export default function App(){
         <p className="muted">{payload.disclaimer}</p>
       </section>}
     </>}
-    <section className="scenarioControls">
+    {mode!=="trade"&&<section className="scenarioControls">
       <div><strong>{t.scenario}</strong><p>{t.scenarioHelp}</p></div>
       <div className="controls"><input aria-label="Shock percent" type="range" min="-40" max="40" step="5" value={shock} onChange={e=>setShock(Number(e.target.value))}/><span>{number(shock)}</span><button disabled={!app||loading} onClick={()=>void load("stress")}>{t.run}</button></div>
-    </section>
+    </section>}
   </main>;
 }
