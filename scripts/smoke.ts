@@ -70,10 +70,15 @@ assert.match(discover.text,/2026-07-28/);
 const tools=await call("tools/list",{},2);
 assert.equal(tools.status,200,tools.text);
 assert.match(tools.text,/analyze_portfolio_risk/);
+assert.match(tools.text,/get_personal_attention_center/);
+assert.doesNotMatch(tools.text,/enable_basic_portfolio_monitoring/);
 assert.doesNotMatch(tools.text,/create_portfolio_watch_rule|place_order|execute_order|cancel_order/);
 const analysis=await call("tools/call",{name:"analyze_portfolio_risk",arguments:{environment:"demo"}},3);
 assert.equal(analysis.status,200,analysis.text);
 assert.match(analysis.text,/analysis|100/);
+const today=await call("tools/call",{name:"get_personal_attention_center",arguments:{environment:"demo"}},6);
+assert.equal(today.status,200,today.text);
+assert.match(today.text,/attention_center|Synthetic/);
 const old=await call("initialize",{},4,true);
 assert.notEqual(old.status,200,"Old MCP initialize must be rejected");
 const missing=await app.request("/mcp",{method:"POST",body:JSON.stringify({jsonrpc:"2.0",id:5,method:"tools/list"})});
@@ -225,5 +230,18 @@ const cancelled=await personalCall(executionToken,"tools/call",{
 assert.equal(cancelled.status,200,cancelled.text);
 assert.equal(structured(cancelled.text).status,"submitted");
 assert.equal(mockBrokerWrites,2,"one mocked order and one mocked cancellation, zero real broker writes");
+const monitorToken=await personalToken("portfolio:read monitor:write");
+const monitorTools=await personalCall(monitorToken,"tools/list",{},30);
+assert.equal(monitorTools.status,200,monitorTools.text);
+assert.match(monitorTools.text,/enable_basic_portfolio_monitoring/);
+assert.doesNotMatch(monitorTools.text,/app_execute_personal_order/);
+const starter=await personalCall(monitorToken,"tools/call",{
+  name:"enable_basic_portfolio_monitoring",arguments:{environment:"demo"},
+},31);
+assert.equal(starter.status,200,starter.text);
+assert.equal(structured(starter.text).kind,"monitoring_setup");
+assert.equal(structured(starter.text).brokerWrites,0);
+assert.equal(mockBrokerWrites,2,"Setting up automation must never trigger an additional brokerage operation");
+console.log("SMOKE_OK Attention Center, opt-in monitoring presets, correct OAuth scope separation");
 console.log("SMOKE_OK Personal scope isolation, HMAC approval, single-use order and cancellation (mock broker)");
 
