@@ -1,6 +1,6 @@
 {
   "name": "tradepilot212-personal",
-  "version": "3.0.0-alpha.2",
+  "version": "3.0.0-alpha.3",
   "private": true,
   "type": "module",
   "description": "Self-hosted personal AI investment intelligence and human-authorized Trading 212 trading (modern MCP).",
