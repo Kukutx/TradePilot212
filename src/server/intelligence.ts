@@ -1,4 +1,5 @@
 import { analyzePortfolio, evaluateRule, stressPortfolio } from "../domain/analytics.js";
+import {buildAttentionCenter} from "../domain/attention.js";
 import { samplePortfolio } from "../domain/sample.js";
 import type { Environment, MonitorEvent, PortfolioSnapshot, RiskPulse, RiskTrend, RuleEvaluation, RuleKind, WatchRule } from "../domain/types.js";
 import type { BrokerReader } from "../infra/broker.js";
@@ -24,6 +25,11 @@ export class IntelligenceService {
   }
   async analysis(environment: Environment) {
     return analyzePortfolio(await this.portfolio(environment));
+  }
+  async attention(environment:Environment){
+    const snapshot=await this.portfolio(environment);
+    const events=(await this.state.list<MonitorEvent>("v3:event:")).map(entry=>entry.value);
+    return buildAttentionCenter(snapshot,analyzePortfolio(snapshot),events);
   }
   async stress(environment: Environment, shockPercent: number) {
     return stressPortfolio(await this.portfolio(environment), shockPercent);
@@ -118,7 +124,8 @@ export class IntelligenceService {
         await this.state.put(statusKey,result.status);
         if(result.status==="triggered"){
           const event:MonitorEvent={
-            id:crypto.randomUUID(),ruleId:result.rule.id,environment,observedAt:new Date().toISOString(),
+            id:crypto.randomUUID(),ruleId:result.rule.id,environment,source:snapshot.source,
+            observedAt:new Date().toISOString(),
             status:result.status,observedPercent:result.observedPercent,
             thresholdPercent:result.rule.thresholdPercent,detail:result.explanation,
           };
@@ -149,7 +156,7 @@ export class IntelligenceService {
   async events(environment:Environment){
     const list=await this.state.list<MonitorEvent>("v3:event:");
     return {kind:"events",environment,source:this.config.source,
-      events:list.map(x=>x.value).filter(x=>x.environment===environment)
+      events:list.map(x=>x.value).filter(x=>x.environment===environment&&x.source===this.config.source)
         .sort((a,b)=>b.observedAt.localeCompare(a.observedAt)).slice(0,50)};
   }
 }
