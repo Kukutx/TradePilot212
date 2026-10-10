@@ -1,6 +1,7 @@
 import {z} from "zod";
 import type {Configuration} from "./config.js";
 import type {StateStore} from "./state.js";
+import {readBoundedUtf8} from "./bounded-body.js";
 
 const quoteSchema=z.object({
   symbol:z.string().min(1),exchange:z.string().min(1).optional(),
@@ -57,8 +58,7 @@ export class TwelveDataQuoteService {
     });
     if(!response.ok)throw new Error(`Quote service unavailable (HTTP ${response.status})`);
     if(Number(response.headers.get("content-length")||0)>65_536)throw new Error("Quote response too large");
-    const raw=await response.text();
-    if(new TextEncoder().encode(raw).length>65_536)throw new Error("Quote response too large");
+    const raw=await readBoundedUtf8(response.body,65_536,"Quote response too large");
     const parsed=quoteSchema.parse(JSON.parse(raw) as unknown);
     if(parsed.status==="error"||parsed.symbol.toUpperCase()!==symbol)
       throw new Error("Market quote symbol mismatch or provider error");
