@@ -81,6 +81,22 @@ describe("separate authenticated Owner Console",()=>{
     expect(html).toContain("Personal Owner Console");
     expect(html).not.toContain(approvalSecret);
   });
+  it("rejects oversized chunked login data before JSON buffering",async()=>{
+    const {app}=setup();
+    const stream=new ReadableStream<Uint8Array>({
+      start(controller){
+        controller.enqueue(new Uint8Array(34_000));
+        controller.close();
+      },
+    });
+    const request=new Request(origin+"/owner/api/login",{
+      method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+      body:stream,duplex:"half",
+    } as RequestInit);
+    const response=await app.fetch(request);
+    expect(response.status).toBe(400);
+    expect((await response.json() as {error:string}).error).toBe("Body too large");
+  });
   it("sets secure, strict cookie and requires matching CSRF for all owner actions",async()=>{
     const {app}=setup();
     const credentials=await signIn(app);
