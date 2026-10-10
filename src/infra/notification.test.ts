@@ -33,10 +33,10 @@ describe("opt-in verified-provider notifications",()=>{
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url,init]=fetcher.mock.calls[0]!;
     expect(url).toBe("https://api.resend.com/emails");
-    expect(init.method).toBe("POST");
-    expect(init.redirect).toBe("error");
-    expect((init.headers as Record<string,string>).Authorization).toMatch(/^Bearer resend_/);
-    const message=JSON.parse(String(init.body)) as {subject:string;text:string};
+    expect(init?.method).toBe("POST");
+    expect(init?.redirect).toBe("error");
+    expect((init?.headers as Record<string,string>).Authorization).toMatch(/^Bearer resend_/);
+    const message=JSON.parse(String(init?.body)) as {subject:string;text:string};
     expect(message.subject).toContain("DEMO");
     expect(message.text).toContain("No order was executed");
     expect(message.text).not.toContain("resend_test_api_key");
