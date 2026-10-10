@@ -5,6 +5,7 @@ import {
   type TradeIntent,type TradePreview,type TradeVerification,
 } from "../domain/trading.js";
 import { constantTimeEqual,personalApprovalProof } from "../domain/approval-proof.js";
+import {auditResearchIdea} from "../domain/research.js";
 import type { BrokerReader } from "../infra/broker.js";
 import { executionPermitted,type Configuration } from "../infra/config.js";
 import type { StateStore } from "../infra/state.js";
@@ -97,7 +98,7 @@ export class PersonalTradingService {
     if(candidates.length<1||candidates.length>30)throw new Error("1-30 research candidates required");
     if(this.config.source==="sample")return {
       kind:"trade_plan" as const,environment,source:"sample" as const,
-      candidates:candidates.map(x=>({...x,warning:"SYNTHETIC sample mode: no actual broker instrument resolution."})),
+      candidates:candidates.map(x=>({...x,evidence:auditResearchIdea(x),warning:"SYNTHETIC sample mode: no actual broker instrument resolution."})),
       personalExecutionEnabled:false,asOf:new Date().toISOString(),
     };
     const [portfolio,instruments]=await Promise.all([this.snapshot(environment),this.instruments(environment)]);
@@ -105,10 +106,10 @@ export class PersonalTradingService {
       try {
         const i=resolveInstrument(instruments,candidate.ticker||candidate.symbol||candidate.name||"");
         const holding=portfolio.holdings.find(h=>h.ticker===i.ticker);
-        return {...candidate,resolvedTicker:i.ticker,heldQuantity:holding?.quantity||0,
+        return {...candidate,evidence:auditResearchIdea(candidate),resolvedTicker:i.ticker,heldQuantity:holding?.quantity||0,
           availableToSell:holding?.tradableQuantity||0,
           warning:"AI-supplied thesis and scores are not verified broker research."};
-      }catch(error){return {...candidate,warning:error instanceof Error?error.message:"Cannot resolve broker instrument"};}
+      }catch(error){return {...candidate,evidence:auditResearchIdea(candidate),warning:error instanceof Error?error.message:"Cannot resolve broker instrument"};}
     });
     return {kind:"trade_plan" as const,environment,source:"trading212" as const,candidates:enriched,
       personalExecutionEnabled:executionPermitted(this.config,environment),asOf:new Date().toISOString()};
