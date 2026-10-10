@@ -50,7 +50,7 @@ export function createHttpApp(deps:HttpDeps) {
   });
   installOAuth(app,deps.config,deps.state,fetcher);
   installOwnerConsole(app,deps.config,deps.state,service,personal,research);
-  app.get("/health",c=>c.json({ok:true,service:"TradePilot 212 Personal",version:"3.0.0-alpha.2"}));
+  app.get("/health",c=>c.json({ok:true,service:"TradePilot 212 Personal",version:"3.0.0-alpha.3"}));
   app.post("/mcp",async c=>{
     const scopes=await authenticateBearer(c.req.header("authorization"),deps.config);
     if(!scopes||!scopes.has("portfolio:read")){
