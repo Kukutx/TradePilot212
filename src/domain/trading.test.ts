@@ -72,7 +72,7 @@ describe("personal trade intent and risk policy",()=>{
     expect(()=>checkDraft({
       environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"limit",
       quantity:1e307,limitPrice:1e307,
-    },instruments[0]!,snapshot,{maxQuantity:0,maxNotional:0})).toThrow(/overflows/);
+    },{...instruments[0]!,maxOpenQuantity:undefined},snapshot,{maxQuantity:0,maxNotional:0})).toThrow(/overflows/);
   });
   it("rejects malformed direct service inputs even when MCP schemas are bypassed",()=>{
     const valid={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"market",quantity:1};
