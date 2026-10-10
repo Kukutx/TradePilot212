@@ -141,6 +141,58 @@ describe("separate authenticated Owner Console",()=>{
     expect(cancel.status).toBe(200);
     expect(cancelled).toHaveBeenCalledTimes(1);
   });
+  it("protects personal preferences and read-only monitor setup behind cookie and CSRF",async()=>{
+    const {app,written,cancelled}=setup();
+    const credentials=await signIn(app);
+    expect((await app.request("/owner/api/preferences")).status).toBe(401);
+    const current=await app.request("/owner/api/preferences",{headers:{Cookie:credentials.cookie}});
+    expect(current.status).toBe(200);
+    const state=await current.json() as {preferences:{dailyBrief:{enabled:boolean}}};
+    expect(state.preferences.dailyBrief.enabled).toBe(false);
+    const changes={
+      locale:"zh",defaultEnvironment:"demo",timezone:"Europe/Rome",
+      dailyBrief:{enabled:true,hour:8,onlyOnChange:true,includeLive:false,email:false},
+    };
+    const saved=await ownerPost(app,"/owner/api/preferences",credentials,changes);
+    expect(saved.status).toBe(200);
+    const returned=await saved.json() as {preferences:typeof changes};
+    expect(returned.preferences).toEqual(changes);
+    const invalid=await ownerPost(app,"/owner/api/preferences",credentials,
+      {...changes,approvalSecret:"should not be in preferences"});
+    expect(invalid.status).toBe(400);
+    const noCsrf=await app.request("/owner/api/monitoring/setup",{
+      method:"POST",headers:{"Content-Type":"application/json",Origin:origin,Cookie:credentials.cookie},
+      body:JSON.stringify({environment:"demo"}),
+    });
+    expect(noCsrf.status).toBe(403);
+    const setupRules=await ownerPost(app,"/owner/api/monitoring/setup",credentials,{environment:"demo"});
+    expect(setupRules.status).toBe(200);
+    const rules=await setupRules.json() as {kind:string;activeRules:unknown[];brokerWrites:number};
+    expect(rules.kind).toBe("monitoring_setup");
+    expect(rules.activeRules).toHaveLength(3);
+    expect(rules.brokerWrites).toBe(0);
+    expect(written).not.toHaveBeenCalled();
+    expect(cancelled).not.toHaveBeenCalled();
+  });
+  it("restricts optional market/filings and identity FX tools to an authenticated owner",async()=>{
+    const {app,written}=setup();
+    const fxPath="/owner/api/research/fx?from=EUR&to=EUR";
+    expect((await app.request(fxPath)).status).toBe(401);
+    const credentials=await signIn(app);
+    const identity=await app.request(fxPath,{headers:{Cookie:credentials.cookie}});
+    expect(identity.status).toBe(200);
+    expect((await identity.json() as {kind:string;status:string;rate:number})).toMatchObject({
+      kind:"reference_fx",status:"identity",rate:1,
+    });
+    const noSec=await app.request("/owner/api/research/filings?symbol=AAPL",
+      {headers:{Cookie:credentials.cookie}});
+    expect(noSec.status).toBe(400);
+    expect((await noSec.json() as {error:string}).error).toContain("SEC_CONTACT_EMAIL");
+    const noVendor=await app.request("/owner/api/research/quote?symbol=AAPL",
+      {headers:{Cookie:credentials.cookie}});
+    expect(noVendor.status).toBe(400);
+    expect(written).not.toHaveBeenCalled();
+  });
   it("does not enable LIVE execution or bypass owner confirmation",async()=>{
     const {app,written}=setup();
     const credentials=await signIn(app);
