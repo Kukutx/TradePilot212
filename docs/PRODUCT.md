@@ -5,7 +5,13 @@
 
 ## October 2026 Intelligent UI direction
 
-A better personal user experience starts with **Today / Attention Center**, not a large broker tool list. ChatGPT Intelligent UI and Claude model-generated visualizations can compose answers from typed MCP outputs; the portable MCP Apps UI remains our deterministic interactive layer. The long-term human execution boundary should be an owner-authenticated web console independent of host write entitlements. See [EXPERIENCE_2026.md](EXPERIENCE_2026.md).
+A better personal user experience starts with **Today / Attention Center**, not a large broker tool list. ChatGPT Intelligent UI and Claude model-generated visualizations can compose answers from typed MCP outputs; the portable MCP Apps UI remains our deterministic interactive layer. The human execution boundary now also includes an Alpha independent owner-authenticated /owner web console, which is not tied to host write entitlements; WebAuthn, real-browser security review and Demo/Live acceptance remain pending. See [EXPERIENCE_2026.md](EXPERIENCE_2026.md).
+
+## Current V3 personal delivery status
+
+The architecture now combines an attention-first bilingual MCP App and headless typed research with a separate authenticated private Owner Console. It also includes locally stored preferences and time-zone-aware read-only daily briefs, optional Resend email, official ECB reference FX, official SEC filing links, and optional Twelve Data research quotes. None of these additions changes the one-write-only human-confirmation requirement, and each provider is separately opt-in when a credential is needed.
+
+**Remaining before production:** actual real-browser Owner Console QA, ChatGPT/Claude 2026 protocol and UI negotiation, official Trading 212 Demo account read/write tests, vendor accounts and data license checks, and a formal private-deployment threat review. Open-source mock tests alone cannot establish that any third-party host accepted or executed an operation.
 
 ## Differentiation
 A generic broker API proxy offers little value. V3 combines:
