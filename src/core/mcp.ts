@@ -182,11 +182,11 @@ export function createMcpServer(
         cashLowWeight: z.number().min(0).max(1).optional(),
       }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = await insights.allocation(environment, limits);
+        const data = { ...(await insights.allocation(environment, limits)), credentials: credentialStatus(config), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s).`);
       } catch (error) {
         return toolError(error);
@@ -203,11 +203,11 @@ export function createMcpServer(
         "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
         return result(data, `Realized P/L ${data.realizedProfitLoss} ${data.accountCurrency}, income ${data.income.dividends + data.income.interest}, costs ${data.costs.total}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
@@ -223,11 +223,11 @@ export function createMcpServer(
       description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
         return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
       } catch (error) {
         return toolError(error);

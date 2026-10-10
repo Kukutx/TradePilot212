@@ -24,6 +24,8 @@ import { Icon } from "./components/common";
 import { formatProblem, verificationText } from "./lib/messages";
 import { ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
 import { PortfolioView } from "./views/PortfolioView";
+import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
+import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
 
 type BasePayload =
@@ -37,7 +39,27 @@ type BasePayload =
       resolvedInstrument?: Instrument;
       resolution?: OrderResolution;
     }
+  | InsightPayload
   | ErrorPayload;
+
+type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
+type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSummary> | WithAccess<IncomeSummary>;
+type InsightKind = InsightPayload["kind"];
+type PortfolioTab = "holdings" | InsightKind;
+type InsightCache = { allocation?: WithAccess<AllocationAnalysis>; performance?: WithAccess<PerformanceSummary>; income?: WithAccess<IncomeSummary> };
+
+const INSIGHT_TOOLS: Record<InsightKind, string> = {
+  allocation: "analyze_portfolio_allocation",
+  performance: "get_portfolio_performance",
+  income: "get_income_summary",
+};
+function periodOf(range: { from?: string; to: string }): InsightPeriod {
+  if (!range.from) return "all";
+  const from = new Date(range.from);
+  return from.getUTCMonth() === 0 && from.getUTCDate() === 1 && from.getUTCHours() === 0 ? "ytd" : "1y";
+}
+const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
+  payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income";
 
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
@@ -115,6 +137,9 @@ function defaultDraft(
 
 export default function App() {
   const [base, setBase] = useState<BasePayload | null>(null);
+  const [tab, setTab] = useState<PortfolioTab>("holdings");
+  const [insights, setInsights] = useState<InsightCache>({});
+  const [period, setPeriod] = useState<InsightPeriod>("ytd");
   const [environment, setEnvironment] = useState<TradingEnvironment>("demo");
   const [draft, setDraft] = useState<OrderDraft | null>(null);
   const [preview, setPreview] = useState<OrderPreview | null>(null);
@@ -150,6 +175,14 @@ export default function App() {
         setBase(payload);
         const env = initialEnvironment(payload);
         setEnvironment(env);
+        if (isInsight(payload)) {
+          setInsights({ [payload.kind]: payload });
+          setTab(payload.kind);
+          if (payload.kind !== "allocation") setPeriod(periodOf(payload.period));
+        } else if (payload.kind === "portfolio") {
+          setInsights({});
+          setTab("holdings");
+        }
         if (payload.kind === "order_draft") setDraft(payload.draft);
       };
     },
@@ -215,7 +248,36 @@ export default function App() {
     return value instanceof ToolCallError ? formatProblem(value.problem, t, locale) : value instanceof Error ? value.message : String(value);
   }
 
-  async function refresh(env = environment): Promise<void> {
+  async function loadInsight(kind: InsightKind, env = environment, range = period): Promise<void> {
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const args = kind === "allocation" ? { environment: env } : { environment: env, period: range };
+      const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
+      setInsights((current) => ({ ...current, [kind]: payload }));
+    } catch (requestError) {
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  async function selectTab(next: PortfolioTab): Promise<void> {
+    setTab(next);
+    if (next === "holdings") {
+      if (base?.kind !== "portfolio" || base.environment !== environment) await refresh(environment, "holdings");
+      return;
+    }
+    if (!insights[next]) await loadInsight(next);
+  }
+
+  async function changePeriod(next: InsightPeriod): Promise<void> {
+    setPeriod(next);
+    if (tab === "performance" || tab === "income") await loadInsight(tab, environment, next);
+  }
+
+  async function refresh(env = environment, target: PortfolioTab = tab): Promise<void> {
+    if (target !== "holdings" && base?.kind !== "trade_plan") return loadInsight(target, env);
     setStatus("loading");
     setErrorMessage(null);
     try {
@@ -241,6 +303,7 @@ export default function App() {
     setVerification(null);
     setPreview(null);
     setCancelPreview(null);
+    setInsights({});
     if (draft) setDraft({ ...draft, environment: next });
     if (base?.kind === "order_draft") {
       setBase({ ...base, draft: { ...base.draft, environment: next } });
@@ -444,8 +507,27 @@ export default function App() {
       {!transactionActive && (
         <>
         {base?.kind === "error" && <div className="emptyState">{formatProblem(base.error, t, locale)}</div>}
-        {base?.kind === "portfolio" && (
+        {(base?.kind === "portfolio" || isInsight(base)) && (
+          <nav className="viewTabs" aria-label={t("viewsLabel")}>
+            {(["holdings", "allocation", "performance", "income"] as const).map((key) => (
+              <button key={key} type="button" aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : ""} disabled={status === "loading"} onClick={() => void selectTab(key)}>
+                {t(key === "holdings" ? "tabHoldings" : key === "allocation" ? "tabAllocation" : key === "performance" ? "tabPerformance" : "tabIncome")}
+              </button>
+            ))}
+          </nav>
+        )}
+        {base?.kind === "portfolio" && tab === "holdings" && (
           <PortfolioView payload={base} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
+        )}
+        {tab !== "holdings" && (base?.kind === "portfolio" || isInsight(base)) && !insights[tab] && (
+          <div className="emptyState">{status === "loading" ? t("loadingInsights") : t("noData")}</div>
+        )}
+        {tab === "allocation" && insights.allocation && <AllocationView data={insights.allocation} locale={locale} t={t} />}
+        {tab === "performance" && insights.performance && (
+          <PerformanceView data={insights.performance} locale={locale} t={t} period={period} busy={status === "loading"} onPeriod={(next) => void changePeriod(next)} />
+        )}
+        {tab === "income" && insights.income && (
+          <IncomeView data={insights.income} locale={locale} t={t} period={period} busy={status === "loading"} onPeriod={(next) => void changePeriod(next)} />
         )}
         {base?.kind === "trade_plan" && (
           <TradePlanView

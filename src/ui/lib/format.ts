@@ -53,5 +53,5 @@ export function walletNumber(position: Position, key: string): number | undefine
 
 export function pct(value: number | undefined, locale: SupportedLocale, digits = 1): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat(localeTag(locale), { style: "percent", maximumFractionDigits: digits }).format(value);
+  return new Intl.NumberFormat(localeTag(locale), { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
 }
