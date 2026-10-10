@@ -33,8 +33,8 @@ Live is an entirely distinct approval: configure an independently scoped Live AP
 3. The owner enters the independent approval secret **inside the widget**, not the chat. An action- and token-bound HMAC proof is computed locally. An OAuth `trading:execute` scope and per-environment server flags are also required.
 4. The server acquires an atomic exclusive environment write lease. A second concurrent confirmation cannot send another broker request.
 5. It consumes the token once, rechecks broker account data and order constraints, then issues **one** POST or DELETE.
-6. An acknowledged write releases the lease. A definite rejection releases it. A network timeout/unreadable write response/408/5xx is **UNKNOWN**, and the lease stays for approximately 120 seconds to prevent overlapping writes.
-7. For UNKNOWN: use the **read-only verification** tool and independently check actual Trading 212 pending orders, fills and account history. Expired lock or missing evidence is never proof of non-execution. Do not automatically retry.
+6. The server persists an unresolved-operation marker and a readback record **before** transmitting a broker write. An acknowledged result clears that marker, while a missing/ambiguous response, malformed success acknowledgement, abnormal process shutdown or unexpected post-send transport error remains **UNKNOWN**. The short lease has a 120-second cooldown, but the durable marker blocks all future account writes indefinitely until owner reconciliation.
+7. For UNKNOWN: first run read-only broker verification, then independently review Trading 212 pending orders, fills and history. To resume, authenticate in `/owner`, type `I CHECKED TRADING 212`, and approve the action-bound reconciliation HMAC with the separate owner secret. No model-visible tool can remove the incident marker. Expired locks or missing evidence are never proof of non-execution. **Never automatically retry.**
 
 Rate limits are per **broker account**, not API key. The server reserves distinct atomic rate slots across Node and Cloudflare. Official rates include summary ~1/5s, positions ~1/1s, instruments ~1/50s, pending orders ~1/5s and historical orders ~6/min. Tool requests may pause before performing a GET. Too many queued calls fail before contacting the broker.
 
@@ -50,7 +50,7 @@ No V2 OAuth sessions, tools, state, API names or env-key aliases exist. Migratin
 
 - Fresh `pnpm install --frozen-lockfile`, `pnpm check`, `pnpm smoke`, `pnpm audit --prod`, `pnpm release:check`.
 - `pnpm deploy -- --dry-run` and `pnpm exec wrangler deploy --dry-run` pass with no real financial credentials in logs.
-- Separate Node/Docker/Cloudflare boot and secret isolation checks.
+- CI must start real Node HTTP and Docker production image in synthetic mode, verify `/health`, `/owner`, and an unauthorized private API. Cloudflare Wrangler dry-run must pass. Cloudflare real deployment, external TLS, and owner browser remain independent staging checks.
 - Trading 212 **Demo** end-to-end: portfolio schema, currency coverage, one Market/Limit/Stop/Stop-Limit behavior according to broker account permissions, cancellation, partial fill and uncertain-write recovery.
 - Real ChatGPT and Claude host checks, including private write entitlement, interactive UI and mobile/desktop access.
 - Never claim real-money readiness solely from GitHub CI; no production API writes are part of this repository's automated tests.
