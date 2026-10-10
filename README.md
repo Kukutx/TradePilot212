@@ -266,6 +266,8 @@ The core does not depend on the Node filesystem or Cloudflare APIs. Runtime-spec
 
 More detail: [existing architecture](./docs/ARCHITECTURE.md), [2026 refactor roadmap](./docs/ARCHITECTURE_2026.md), and [engineering rules](./AGENTS.md).
 
+Breaking upgrade notes: [2026 migration guide](./docs/MIGRATION_2026.md). Privacy: [Privacy Policy](./PRIVACY.md).
+
 ## Self-hosting model
 
 ```text
