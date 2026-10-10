@@ -98,6 +98,13 @@ export class Trading212TradeGateway implements BrokerTradePort {
         if(i===tries)throw new Error("Trading 212 read failed after retries");
         await new Promise(r=>setTimeout(r,250*i));continue;
       }
+      // For write requests HTTP 4xx is a known rejection even if its error
+      // body is plain text or malformed JSON. HTTP 408/5xx remain ambiguous.
+      if(method!=="GET" && !response.ok){
+        if(response.status===408||response.status>=500)
+          throw new BrokerOperationUnknown(`Broker write returned ${response.status}. Execution status is unknown.`);
+        throw new BrokerKnownRejection(response.status);
+      }
       let parsed:unknown;
       try{parsed=await responseJson(response,method==="GET"?8*1024*1024:256*1024);}
       catch{
