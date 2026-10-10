@@ -3,13 +3,15 @@ import type { App as HostApp } from "@modelcontextprotocol/ext-apps";
 import { useEffect,useMemo,useState } from "react";
 import type { PortfolioAnalysis,PortfolioSnapshot,Scenario,Environment,Exposure,RiskTrend } from "../domain/types";
 import PersonalTradeWorkspace,{type PersonalPayload} from "./PersonalTradeWorkspace";
+import type {AttentionCenter} from "../domain/attention";
 
 type Brief={kind:"daily_brief";environment:Environment;source:string;asOf:string;summary:string;observations:string[];priorityChecks:string[];disclaimer:string;currency:string};
-type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|RiskTrend|Brief|{kind:"error";message:string};
+type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|RiskTrend|AttentionCenter|Brief|{kind:"error";message:string};
 type Locale="zh"|"en";
 const wording={
   en:{
-    brand:"TRADEPILOT / PERSONAL",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",trade:"Private trades",
+    brand:"TRADEPILOT / PERSONAL",today:"Today",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",trade:"Private trades",
+    more:"More analysis",openToday:"Check my portfolio",reviewCount:"Items to review",noAlerts:"No predefined numeric threshold crossed. This does not rule out investment risk.",historical:"Past record",computed:"Calculated from account",next:"Explore",
     account:"Portfolio value",cash:"Available cash",positions:"Holdings",updated:"Observed",
     price:"Last price",avg:"Average paid",tradable:"Tradable",unrealized:"Unrealized P/L",realized:"Realized P/L",
     warning:"Data quality",holdings:"Current holdings",exposure:"Value / allocation",unpriced:"Unverified value",
@@ -22,7 +24,8 @@ const wording={
     connection:"MCP host connection",unknown:"An unexpected response was received",error:"Data unavailable",
   },
   zh:{
-    brand:"TRADEPILOT / 个人交易智能平台",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",trade:"私人交易",
+    brand:"TRADEPILOT / 个人交易智能平台",today:"今日重点",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",trade:"私人交易",
+    more:"更多分析",openToday:"查看我的投资组合",reviewCount:"待查看事项",noAlerts:"当前未触发预设数值阈值，但不代表投资没有风险。",historical:"历史记录",computed:"由账户数据计算",next:"深入查看",
     account:"投资组合总值",cash:"可用现金",positions:"持仓数量",updated:"数据时间",
     price:"当前价格",avg:"持仓均价",tradable:"可交易",unrealized:"未实现盈亏",realized:"已实现盈亏",
     warning:"数据质量",holdings:"当前持仓",exposure:"估值 / 占比",unpriced:"无法核实估值",
@@ -58,7 +61,7 @@ export default function App(){
   const [payload,setPayload]=useState<Payload|null>(null);
   const [personalPayload,setPersonalPayload]=useState<PersonalPayload|null>(null);
   const [env,setEnv]=useState<Environment>("demo");
-  const [mode,setMode]=useState<"overview"|"risk"|"stress"|"trend"|"brief"|"trade">("overview");
+  const [mode,setMode]=useState<"today"|"overview"|"risk"|"stress"|"trend"|"brief"|"trade">("today");
   const [locale,setLocale]=useState<Locale>("zh");
   const [shock,setShock]=useState(-10);
   const [loading,setLoading]=useState(false);
@@ -82,6 +85,7 @@ export default function App(){
         const next=candidate as Payload;
         setPayload(next);
         if("environment" in next)setEnv(next.environment);
+        if(next.kind==="attention_center")setMode("today");
         if(next.kind==="portfolio")setMode("overview");
         if(next.kind==="analysis")setMode("risk");
         if(next.kind==="scenario")setMode("stress");
@@ -103,12 +107,13 @@ export default function App(){
     payload?.kind==="analysis"?payload.accountCurrency:
     payload?.kind==="daily_brief"?payload.currency:
     payload?.kind==="scenario"?payload.currency:
-    payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):"USD";
+    payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):
+    payload?.kind==="attention_center"?payload.currency:"USD";
   const source=personalPayload&&"source" in personalPayload?personalPayload.source:(payload&&"source" in payload?payload.source:undefined);
-  async function load(kind:"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
+  async function load(kind:"today"|"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
     if(!app)return;
     const names={
-      overview:"get_portfolio_intelligence",risk:"analyze_portfolio_risk",
+      today:"get_personal_attention_center",overview:"get_portfolio_intelligence",risk:"analyze_portfolio_risk",
       stress:"simulate_portfolio_scenario",trend:"get_portfolio_risk_trend",brief:"get_portfolio_review_brief",
     };
     setLoading(true);setError(null);
@@ -116,7 +121,7 @@ export default function App(){
       const result=await app.callServerTool({name:names[kind],arguments:{environment,...(kind==="stress"?{shockPercent:shock}:{})}});
       if(result.isError)throw new Error(result.content?.find(x=>x.type==="text")?.text||t.error);
       const next=result.structuredContent as unknown as Payload|undefined;
-      if(!next||!["portfolio","analysis","scenario","risk_trend","daily_brief"].includes(next.kind))throw new Error(t.unknown);
+      if(!next||!["attention_center","portfolio","analysis","scenario","risk_trend","daily_brief"].includes(next.kind))throw new Error(t.unknown);
       setPayload(next);setMode(kind);setEnv(environment);
     }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setLoading(false);}
   }
