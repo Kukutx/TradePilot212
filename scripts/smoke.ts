@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { createHttpApp } from "../src/server/http.js";
 import { readConfiguration } from "../src/infra/config.js";
 import { MemoryStore } from "../src/infra/state.js";
+import { personalApprovalProof } from "../src/domain/approval-proof.js";
 
 const publicOrigin = "https://insight.example.test";
 const config=readConfiguration({
@@ -177,4 +178,52 @@ const forged=await personalCall(executionToken,"tools/call",{
 assert.equal(forged.status,200,forged.text);
 assert.match(forged.text,/incorrect|error/i);
 assert.equal(mockBrokerWrites,0,"Host tool calls without human proof must never reach brokerage writes");
-console.log("SMOKE_OK Personal review scope, write-scope isolation, proof enforcement and zero broker writes");
+function structured(text:string):Record<string,unknown>{
+  const result=JSON.parse(text) as {result?:{structuredContent?:Record<string,unknown>}};
+  assert.ok(result.result?.structuredContent,"MCP did not return structuredContent");
+  return result.result.structuredContent;
+}
+const prepared=await personalCall(executionToken,"tools/call",{
+  name:"app_prepare_personal_order",
+  arguments:{environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"limit",
+    quantity:1,limitPrice:99,referencePrice:100},
+},25);
+assert.equal(prepared.status,200,prepared.text);
+const preview=structured(prepared.text) as {kind?:string;token?:string};
+assert.equal(preview.kind,"trade_preview");
+assert.ok(preview.token);
+const orderProof=await personalApprovalProof(
+  privateConfig.personalTrading.approvalSecret,"order",preview.token,
+);
+const submitted=await personalCall(executionToken,"tools/call",{
+  name:"app_execute_personal_order",
+  arguments:{environment:"demo",token:preview.token,proof:orderProof},
+},26);
+assert.equal(submitted.status,200,submitted.text);
+assert.equal(structured(submitted.text).status,"submitted");
+assert.equal(mockBrokerWrites,1,"exactly one mocked broker order should be sent");
+const repeated=await personalCall(executionToken,"tools/call",{
+  name:"app_execute_personal_order",
+  arguments:{environment:"demo",token:preview.token,proof:orderProof},
+},27);
+assert.equal(repeated.status,200,repeated.text);
+assert.match(repeated.text,/expired|error/);
+assert.equal(mockBrokerWrites,1,"reuse of a one-time proof cannot send another broker write");
+const cancelPrepared=await personalCall(executionToken,"tools/call",{
+  name:"app_prepare_personal_cancel",arguments:{environment:"demo",orderId:"11"},
+},28);
+assert.equal(cancelPrepared.status,200,cancelPrepared.text);
+const cancelPreview=structured(cancelPrepared.text) as {token?:string};
+assert.ok(cancelPreview.token);
+const cancelProof=await personalApprovalProof(
+  privateConfig.personalTrading.approvalSecret,"cancel",cancelPreview.token!,
+);
+const cancelled=await personalCall(executionToken,"tools/call",{
+  name:"app_execute_personal_cancel",
+  arguments:{environment:"demo",token:cancelPreview.token,proof:cancelProof},
+},29);
+assert.equal(cancelled.status,200,cancelled.text);
+assert.equal(structured(cancelled.text).status,"submitted");
+assert.equal(mockBrokerWrites,2,"one mocked order and one mocked cancellation, zero real broker writes");
+console.log("SMOKE_OK Personal scope isolation, HMAC approval, single-use order and cancellation (mock broker)");
+
