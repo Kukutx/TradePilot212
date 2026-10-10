@@ -92,6 +92,35 @@ export class IntelligenceService {
     await this.state.put(`v3:rule:${rule.id}`,rule);
     return rule;
   }
+  /** Explicit, idempotent local monitoring starter pack; never touches broker orders. */
+  async enableBasicMonitoring(environment: Environment) {
+    const owner=crypto.randomUUID(),lockKey=`v3:monitor-preset-lock:${environment}`;
+    if(!(await this.state.claim(lockKey,owner,Date.now()+30_000)))
+      throw new Error("Monitoring setup is already in progress");
+    try{
+      // These are configurable observation thresholds, not investment advice.
+      const presets: Array<{kind:RuleKind;thresholdPercent:number}>=[
+        {kind:"cash_below",thresholdPercent:5},
+        {kind:"largest_position_above",thresholdPercent:35},
+        {kind:"unrealized_loss_below",thresholdPercent:-10},
+      ];
+      const existing=await this.listRules(environment);
+      const created:WatchRule[]=[];
+      for(const candidate of presets){
+        // Respect an existing custom threshold for the same metric.
+        if(existing.some(rule=>rule.kind===candidate.kind))continue;
+        created.push(await this.createRule(environment,candidate.kind,candidate.thresholdPercent));
+      }
+      return {
+        kind:"monitoring_setup" as const, environment, source:this.config.source,
+        created,activeRules:await this.listRules(environment),brokerWrites:0 as const,
+        scheduledEvaluation:this.config.source==="trading212"
+          ? "Cloudflare Cron evaluates these local rules at 07:00 UTC on weekdays when deployed. Alerts stay in owner state; no unsolicited push notification."
+          : "Sample mode only. No real broker scans run until a real source and deployment are configured.",
+        note:"Thresholds are descriptive examples and may not suit your goals. No broker order is ever scheduled.",
+      };
+    }finally{await this.state.release(lockKey,owner).catch(()=>undefined);}
+  }
   async deleteRule(id: string): Promise<boolean> {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Invalid rule ID");
     const rule=await this.state.take<WatchRule>(`v3:rule:${id}`);
