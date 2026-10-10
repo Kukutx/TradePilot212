@@ -2,6 +2,7 @@ import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@model
 import { McpServer } from "@modelcontextprotocol/server";
 import { registerPersonalTradingTools } from "./personal-mcp.js";
 import type { PersonalTradingService } from "./trading.js";
+import {registerResearchTools,type ResearchServices} from "./research-mcp.js";
 import { z } from "zod";
 import {preferencesSchema} from "../domain/preferences.js";
 import type { IntelligenceService } from "./intelligence.js";
@@ -18,7 +19,7 @@ function fail(e:unknown){
   return {isError:true,content:[{type:"text" as const,text:message}],structuredContent:{kind:"error",message}};
 }
 export function buildMcpServer(
-  service:IntelligenceService, scopes:ReadonlySet<string>,widgetHtml:()=>Promise<string>,personal:PersonalTradingService,
+  service:IntelligenceService, scopes:ReadonlySet<string>,widgetHtml:()=>Promise<string>,personal:PersonalTradingService,research:ResearchServices,
 ):McpServer{
   const server=new McpServer({name:"tradepilot212-personal",version:"3.0.0-alpha.2"});
   registerAppResource(server,"TradePilot intelligence workspace",URI,{},async()=>({
@@ -167,6 +168,7 @@ export function buildMcpServer(
       return ok(value as unknown as Record<string,unknown>,`Read-only broker scan completed, ${value.created} local alerts created.`);
     }catch(e){return fail(e);}});
   }
+  registerResearchTools(server,research);
   registerPersonalTradingTools(server,personal,scopes,URI);
   return server;
 }
