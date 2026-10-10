@@ -292,7 +292,7 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         <div className="tradeActions">
           {draft&&<button type="button" onClick={()=>{setDraft(null);setResolution(null);}}>{t.edit}</button>}
           <button type="button" disabled={!app||!cap?.canReview||busy||
-            (!draft && (!name.trim() || (mode!=="all_available"&&!size.trim()))}
+            (!draft && (!name.trim() || (mode!=="all_available"&&!size.trim())))}
             onClick={()=>void (draft?prepare():checkIntent())}>{busy?t.loading:draft?t.prepare:t.review}</button>
         </div>
       </section>
