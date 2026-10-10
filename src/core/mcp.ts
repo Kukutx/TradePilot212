@@ -347,14 +347,14 @@ export function createMcpServer(
       {
         title: "Execute confirmed order",
         description:
-          "App-only destructive external write. Requires one-time token and separate user-held approval secret; never retry automatically.",
-        inputSchema: z.object({ token: z.string().min(20), approvalSecret: z.string().min(1) }),
+          "App-only destructive write. Requires one-use token and a scoped HMAC proof computed locally from a user-held secret; never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20), approvalProof: z.string().length(43) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, approvalSecret }) => {
+      async ({ token, approvalProof }) => {
         try {
-          const data = await trading.executeOrder(token, approvalSecret);
+          const data = await trading.executeOrder(token, approvalProof);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -407,14 +407,14 @@ export function createMcpServer(
       "app_execute_cancel",
       {
         title: "Execute confirmed cancellation",
-        description: "App-only destructive write. Requires one-time cancellation token and separate user-held approval secret.",
-        inputSchema: z.object({ token: z.string().min(20), approvalSecret: z.string().min(1) }),
+        description: "App-only destructive write. Requires one-use cancellation token and scoped HMAC proof; never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20), approvalProof: z.string().length(43) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, approvalSecret }) => {
+      async ({ token, approvalProof }) => {
         try {
-          const data = await trading.executeCancel(token, approvalSecret);
+          const data = await trading.executeCancel(token, approvalProof);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
