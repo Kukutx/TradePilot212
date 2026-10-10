@@ -19,9 +19,31 @@ function unwrapArray<T>(value: unknown): T[] {
     if (Array.isArray((value as Record<string, unknown>)[key])) return (value as Record<string, T[]>)[key]!;
   return [];
 }
-async function readBody(response: Response): Promise<unknown> {
+async function readBody(response: Response, maxBytes: number): Promise<unknown> {
   if (response.status === 204) return null;
-  const text = await response.text(); if (!text) return null;
+  const advertisedSize = Number(response.headers.get("content-length") || 0);
+  if (advertisedSize > maxBytes) throw new Error("Trading 212 response exceeded size limit");
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      received += next.value.byteLength;
+      if (received > maxBytes) throw new Error("Trading 212 response exceeded size limit");
+      chunks.push(next.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const text = new TextDecoder().decode(bytes);
+  if (!text) return null;
   try { return JSON.parse(text) as unknown; } catch { return text; }
 }
 export function retryDelayMs(response: Response, attempt: number, now = Date.now()): number {
@@ -56,7 +78,24 @@ export class Trading212Client {
         if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error);
         if (attempt === attempts) throw error; await sleep(Math.min(300 * 2 ** (attempt - 1), 5000)); continue;
       }
-      const parsed = await readBody(response); if (response.ok) return parsed as T;
+      let parsed: unknown;
+      try {
+        // Metadata lists can be large; write responses should remain tiny.
+        parsed = await readBody(response, method === "GET" ? 32 * 1024 * 1024 : 256 * 1024);
+      } catch (error) {
+        // A completed fetch is not proof a broker write failed. Losing its
+        // response body must NEVER be interpreted as a safe-to-retry rejection.
+        if (method !== "GET") {
+          throw new ExecutionStatusUnknownError(
+            "Trading 212 write response could not be read. Execution status is unknown; verify with the broker before any retry.",
+            error,
+          );
+        }
+        if (attempt === attempts) throw error;
+        await sleep(retryDelayMs(response, attempt));
+        continue;
+      }
+      if (response.ok) return parsed as T;
       if (method !== "GET" && (response.status === 408 || response.status >= 500))
         throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
       if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500) && attempt < attempts) {
