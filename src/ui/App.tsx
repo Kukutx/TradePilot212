@@ -338,7 +338,7 @@ export default function App() {
   }
 
   async function callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    if (!app) throw new Error("ChatGPT app connection is not ready");
+    if (!app) throw new Error("MCP App host connection is not ready");
     const result = await app.callServerTool({ name, arguments: args });
     if (result.isError) {
       const payload = result.structuredContent as unknown as ErrorPayload | undefined;
