@@ -6,6 +6,7 @@ import type { IntelligenceService } from "./intelligence.js";
 import type { PersonalTradingService } from "./trading.js";
 import { OwnerAuthentication } from "./owner-auth.js";
 import { renderOwnerPage } from "./owner-page.js";
+import type {ResearchServices} from "./research-mcp.js";
 
 const environment=z.enum(["demo","live"]);
 const positive=z.number().finite().positive();
@@ -50,7 +51,7 @@ function exceptionMessage(error:unknown){
 }
 export function installOwnerConsole(
   app:Hono,config:Configuration,store:StateStore,
-  service:IntelligenceService,trading:PersonalTradingService,
+  service:IntelligenceService,trading:PersonalTradingService,research:ResearchServices,
 ):void {
   const auth=new OwnerAuthentication(store,config);
   const root=config.publicOrigin;
@@ -98,6 +99,32 @@ export function installOwnerConsole(
   app.post("/owner/api/logout",async c=>{
     c.header("Set-Cookie",await auth.logout(c.req.header("cookie")));
     return c.json({authenticated:false});
+  });
+  app.get("/owner/api/research/fx",async c=>{
+    try{
+      const args=z.object({from:z.string().regex(/^[A-Z]{3}$/),
+        to:z.string().regex(/^[A-Z]{3}$/)}).parse({
+        from:c.req.query("from"),to:c.req.query("to"),
+      });
+      return c.json(await research.fx.rate(args.from,args.to));
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
+  });
+  app.get("/owner/api/research/filings",async c=>{
+    try{
+      const symbol=z.string().regex(/^[A-Z0-9.\\-]{1,15}$/).parse(c.req.query("symbol"));
+      return c.json(await research.sec.filings(symbol));
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
+  });
+  app.get("/owner/api/research/quote",async c=>{
+    try{
+      const args=z.object({
+        symbol:z.string().regex(/^[A-Z0-9.\\-]{1,20}$/),
+        currency:z.string().regex(/^[A-Z]{3}$/).optional(),
+        exchange:z.string().regex(/^[A-Za-z0-9.\\-]{1,32}$/).optional(),
+      }).parse({symbol:c.req.query("symbol"),currency:c.req.query("currency"),
+        exchange:c.req.query("exchange")});
+      return c.json(await research.quote.quote(args.symbol,args.currency,args.exchange));
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
   });
   app.get("/owner/api/preferences",async c=>{
     try{return c.json({kind:"owner_preferences",preferences:await service.preferences(),
