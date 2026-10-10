@@ -146,17 +146,50 @@ export default function App(){
     </header>
     <div className="trustBar">{source&&<SourceTag source={source} locale={locale}/>}<span>{t.noTrades}</span></div>
     <nav className="tabs" aria-label="Portfolio views">
-      {(["overview","risk","stress","trend","brief","trade"] as const).map(key=><button
+      {(["today","overview","risk","trade"] as const).map(key=><button
         key={key} className={mode===key?"active":""} disabled={!app||loading}
         onClick={()=>key==="trade"?setMode("trade"):void load(key)}>{t[key]}</button>)}
+      <details className="extraViews" key={mode}
+        open={mode==="stress"||mode==="trend"||mode==="brief"}>
+        <summary>{t.more}</summary>
+        <div className="extraViewOptions">{(["stress","trend","brief"] as const).map(key=>
+          <button type="button" key={key} className={mode===key?"active":""}
+            disabled={!app||loading} onClick={()=>void load(key)}>{t[key]}</button>)}</div>
+      </details>
       {mode!=="trade"&&<button className="refresh" disabled={!app||loading} onClick={()=>void load(mode)}>{loading?t.running:t.refresh}</button>}
     </nav>
     {error&&<div className="callout error" role="alert">{error}</div>}
     {mode==="trade"?<PersonalTradeWorkspace key={env} app={app} environment={env} locale={locale} initial={personalPayload}/>:!payload||payload.kind==="error"?<section className="empty">
       <div className="emptyOrb">◎</div><h2>{t.ready}</h2><p>{t.readyHelp}</p>
+      {mode==="today"&&<button type="button" disabled={!app||loading}
+        onClick={()=>void load("today")}>{loading?t.running:t.openToday}</button>}
       {payload?.kind==="error"&&<p role="alert">{payload.message}</p>}
     </section>:<>
       <div className="sectionMeta"><span>{mode.toUpperCase()}</span><span>{t.updated}: {date("asOf" in payload?payload.asOf:undefined)}</span></div>
+      {payload.kind==="attention_center"&&<section className="panel attentionPanel">
+        <div className="attentionHeader">
+          <div><h2>{t.today}</h2>
+            <p className="muted">{date(payload.asOf)} · {t.computed} · {payload.source.toUpperCase()}</p></div>
+          <strong className="attentionValue">{fmt(payload.portfolioValue,payload.currency,locale)}</strong>
+        </div>
+        <div className="attentionStats">
+          <span>{t.reviewCount}: <strong>{payload.reviewCount}</strong></span>
+          <span>{t.cashRatio}: <strong>{number(payload.cashPercent)}</strong></span>
+          <span>{t.coverage}: <strong>{number(payload.valuationCoveragePercent)}</strong></span>
+        </div>
+        {payload.reviewCount===0&&<p className="muted">{t.noAlerts}</p>}
+        <div className="attentionList">{payload.items.map(item=>
+          <article key={item.id} className={`attentionItem ${item.priority}`}>
+            <strong>{item.title[locale]}</strong>
+            <p>{item.detail[locale]}</p>
+            {item.provenance==="saved_monitor_event"&&<small>{t.historical} · {date(item.asOf)}</small>}
+          </article>)}</div>
+        <p className="muted">{payload.limitations[0]?.[locale]}</p>
+        <div className="attentionActions">
+          <button type="button" disabled={!app||loading} onClick={()=>void load("risk")}>{t.risk}</button>
+          <button type="button" disabled={!app||loading} onClick={()=>void load("overview")}>{t.overview}</button>
+        </div>
+      </section>}
       {payload.kind==="portfolio"&&<>
         <section className="metrics">
           <Metric label={t.account} value={fmt(payload.account.totalValue,payload.account.currency,locale)}/>
