@@ -2,7 +2,7 @@ export const en = {
   appName: "TradePilot 212",
   brokerName: "Trading 212 Invest",
   connecting: "Connecting to TradePilot 212…",
-  waiting: "Waiting for ChatGPT to load your portfolio or daily trade plan.",
+  waiting: "Waiting for the AI host to load your portfolio or trade plan.",
   refresh: "Refresh",
   refreshing: "Refreshing…",
   processing: "Processing…",
