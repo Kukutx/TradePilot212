@@ -1,7 +1,7 @@
-:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-synthesis:none;color-scheme:light dark}
+:root{font-family:var(--font-sans,Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);font-synthesis:none;color-scheme:light dark}
 *{box-sizing:border-box}
-body{margin:0;background:transparent;color:var(--tp-ink,#172234)}
-.shell{max-width:1100px;margin:0 auto;padding:22px;display:grid;gap:18px;font-size:14px;color:var(--tp-ink,#172234);--border:color-mix(in srgb,currentColor 13%,transparent);--soft:color-mix(in srgb,currentColor 4%,transparent)}
+body{margin:0;background:transparent;color:var(--color-text-primary,var(--tp-ink,#172234))}
+.shell{max-width:1100px;margin:0 auto;padding:22px;display:grid;gap:18px;font-size:14px;color:var(--color-text-primary,var(--tp-ink,#172234));--border:var(--color-border-primary,color-mix(in srgb,currentColor 13%,transparent));--soft:var(--color-background-secondary,color-mix(in srgb,currentColor 4%,transparent))}
 .top{display:flex;justify-content:space-between;align-items:center;gap:16px}
 .identity{display:flex;align-items:center;gap:12px;min-width:0}
 .mark{width:42px;height:42px;border-radius:12px;background:#102f2b;color:#a7f3d0;font-weight:850;font-size:20px;display:grid;place-items:center;letter-spacing:-3px}
@@ -36,7 +36,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 .empty h2{margin:9px 0}.empty p{color:#778497}.emptyOrb{font-size:48px;color:#2b957f}.callout{padding:12px;border-radius:11px;background:#fff4df;color:#8d5810}
 .callout.error{background:#ffe4e6;color:#9f1239}
 @media(max-width:650px){.shell{padding:12px;gap:14px}.top{align-items:flex-start;flex-direction:column}.topActions{width:100%;justify-content:flex-end}.metrics{grid-template-columns:1fr}.metrics.two{grid-template-columns:1fr}.scenarioControls{flex-direction:column;align-items:stretch}.controls{flex-wrap:wrap}.tabs .refresh{margin-left:0}.metric strong{font-size:22px}}
-@media(prefers-color-scheme:dark){.shell{--tp-ink:#eef4f7}.tabs button.active{background:#164d42;color:#c7fbed}.metric span,.holding small,.exposureTitle span,.exposureValue span,.muted,.scenarioControls p{color:#9caabd}}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .shell{--tp-ink:var(--color-text-primary,#eef4f7)}.tabs button.active{background:#164d42;color:#c7fbed}.metric span,.holding small,.exposureTitle span,.exposureValue span,.muted,.scenarioControls p{color:#9caabd}}
 
 .trendTable{display:grid;gap:0;margin:14px 0 18px;max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:12px}
 .trendRow{display:grid;grid-template-columns:minmax(125px,1.25fr) minmax(90px,1fr) minmax(90px,1fr) minmax(90px,1fr);align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px;font-variant-numeric:tabular-nums}
@@ -137,3 +137,9 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   .attentionStats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .extraViewOptions{position:relative;max-width:100%}
 }
+
+/* Shared MCP Apps host tokens win over standalone fallbacks (ChatGPT and Claude). */
+.shell .metric span,.shell .muted,.shell .tradeIntro p,.shell .attentionItem small{color:var(--color-text-secondary,#768292)}
+.shell .panel,.shell .metric{background:var(--color-background-secondary,var(--soft))}
+.shell .panel,.shell .metric,.shell .attentionItem{border-color:var(--color-border-primary,var(--border))}
+:root[data-theme="dark"] .shell{--tp-ink:var(--color-text-primary,#eef4f7)}
