@@ -3,6 +3,10 @@
 ## Customer and deployment
 **Primary customer: the owner/operator.** A private personal AI investment cockpit around one Trading 212 Invest/Stocks ISA account, not a public trading plugin, multi-tenant brokerage SaaS or automated investment adviser.
 
+## October 2026 Intelligent UI direction
+
+A better personal user experience starts with **Today / Attention Center**, not a large broker tool list. ChatGPT Intelligent UI and Claude model-generated visualizations can compose answers from typed MCP outputs; the portable MCP Apps UI remains our deterministic interactive layer. The long-term human execution boundary should be an owner-authenticated web console independent of host write entitlements. See [EXPERIENCE_2026.md](EXPERIENCE_2026.md).
+
 ## Differentiation
 A generic broker API proxy offers little value. V3 combines:
 1. **Account intelligence:** verified portfolio exposure, holdings, currencies, cash, pending orders, P/L, risk trends and data-quality coverage.
