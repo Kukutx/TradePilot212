@@ -11,6 +11,7 @@ Do not commit or share:
 - `.dev.vars`
 - `APP_LOGIN_PASSWORD`
 - `AUTH_SIGNING_SECRET`
+- `EXECUTION_APPROVAL_SECRET` (independent human-held broker write approval)
 - any Trading 212 API key or API secret
 - runtime state under `.data/`
 
@@ -27,11 +28,12 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 ## Trading safeguards
 
 - Demo and Live credentials are stored separately.
-- Live orders require explicit user confirmation in the UI.
+- Demo and Live broker writes require explicit in-UI confirmation and a separately provisioned `EXECUTION_APPROVAL_SECRET` at the final write boundary. Never supply this value in an AI conversation.
 - Confirmation tokens are short-lived and one-time.
 - Trading 212 write requests are never automatically retried after an ambiguous network/write failure.
 - Unknown write outcomes can be checked through a read-only verification flow; verification never resubmits the original write.
 - The server revalidates order constraints before submission.
+- Model-provided market/FX reference prices are not authoritative broker quotes. Configured notional limits are approximate for market orders, which can slip.
 - Recent activity stores order/cancellation metadata only and does not contain API credentials or confirmation secrets.
 - Server-side quantity and notional caps are configurable per self-hosted instance; positive values are enforced before submission. Setting a cap to `0` deliberately disables only that app-level cap.
 
