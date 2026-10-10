@@ -63,7 +63,7 @@ server validation
   ↓
 short-lived one-time confirmation
   ↓
-explicit user confirmation
+explicit confirmation + HMAC proof derived from private approval secret
   ↓
 Trading 212 write
 ```
@@ -79,7 +79,9 @@ Amount-based sizing should provide a current reference price and, when applicabl
 
 The final confirmation shows when the account snapshot was checked and warns when the reference price is missing a timestamp or is older than the configured freshness threshold used by the app.
 
-A timestamp is context, not a price guarantee. Market orders can still execute away from the reference price.
+A timestamp is context, not a price guarantee. Market orders can still execute away from the reference price. **Model-generated prices are never treated as authoritative broker prices.**
+
+With `MAX_ORDER_NOTIONAL > 0`, an unheld instrument cannot be bought using a Market order solely on the strength of an LLM-provided reference price. Use a **Limit** buy to bound execution price. Buy Stop orders without an execution-price ceiling must use **Stop-Limit** instead. This is a deliberate behavior change in the 2026 security redesign.
 
 ## Unknown write results
 
@@ -105,4 +107,4 @@ MAX_ORDER_QUANTITY=100000
 
 `DEFAULT_TRADING_ENV` applies only when the request does not explicitly select Demo or Live.
 
-Set either application-level cap to `0` to disable that specific TradePilot limit. Trading 212 instrument/account constraints and explicit confirmation still apply.
+Set either application-level cap to `0` to disable that specific TradePilot limit. Trading 212 instrument/account constraints and explicit confirmation still apply. **Estimated market notional is not a guaranteed maximum** due to slippage and possible data staleness. For a hard execution-price ceiling, use a broker-enforced Limit order.
