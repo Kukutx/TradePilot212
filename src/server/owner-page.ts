@@ -89,6 +89,20 @@ const js=String.raw`
   async function loadOverview(){
     var data=await api("/owner/api/overview?environment="+encodeURIComponent(environment));
     snapshot=data;var p=data.portfolio;
+    var incident=data.unresolved;
+    show("unresolvedPanel",Boolean(incident));
+    if(incident){
+      text("unresolvedDetail",
+        incident.operation.toUpperCase()+" · "+(incident.ticker||incident.orderId||"unknown")+
+        " · "+incident.status+" · "+incident.startedAt+
+        ". 请先在 Trading 212 官方应用核实实际成交与订单历史。");
+      q("unresolvedPanel").dataset.verificationId=incident.verificationId;
+      show("verifyBtn",true);
+      q("verifyBtn").dataset.verificationId=incident.verificationId;
+    }else{
+      q("unresolvedPanel").dataset.verificationId="";
+      show("verifyBtn",false);
+    }
     text("balance",money(p.account.totalValue,p.account.currency));
     text("cash",money(p.account.availableCash,p.account.currency));
     text("positions",p.holdings.length);
@@ -241,6 +255,30 @@ const js=String.raw`
   });});
   q("send").addEventListener("click",function(){void run(confirm);});
   q("back").addEventListener("click",function(){show("confirmPane",false);show("draftPane",true);q("approval").value="";});
+  q("checkUnresolved").addEventListener("click",function(){void run(async function(){
+    var id=q("unresolvedPanel").dataset.verificationId;
+    if(!id)throw new Error("当前没有待处理的券商结果不明事件。");
+    var checked=await api("/owner/api/verify?environment="+environment+"&id="+encodeURIComponent(id));
+    text("status",checked.status.toUpperCase()+" — "+checked.message+
+      " 仅供核对，请继续检查 Trading 212 官方历史记录。");
+  });});
+  q("reconcileAction").addEventListener("click",function(){void run(async function(){
+    var id=q("unresolvedPanel").dataset.verificationId;
+    var phrase=q("reconcilePhrase").value.trim();
+    var secret=q("reconcileSecret").value;
+    q("reconcileSecret").value="";
+    if(!id)throw new Error("没有待处理的执行阻止。");
+    if(phrase!=="I CHECKED TRADING 212")
+      throw new Error("请先查看 Trading 212 官方成交记录，再输入完整确认语句。");
+    if(secret.length<24)throw new Error("缺少独立批准密钥。");
+    var proof=await sign(secret,"reconcile",id);secret="";
+    var acknowledged=await api("/owner/api/reconcile",{
+      environment:environment,verificationId:id,proof:proof,confirmation:phrase,
+    });
+    text("status",acknowledged.message);
+    q("reconcilePhrase").value="";
+    await loadOverview();
+  });});
   q("verifyBtn").addEventListener("click",function(){void run(async function(){
     var id=q("verifyBtn").dataset.verificationId;
     var result=await api("/owner/api/verify?environment="+environment+"&id="+encodeURIComponent(id));
@@ -425,6 +463,17 @@ export async function renderOwnerPage():Promise<{html:string;csp:string}>{
           <button id="getQuote" class="secondary" type="button">查看供应商报价</button>
         </div>
         <pre id="researchOutput" class="output researchOutput" aria-live="polite">选择一个研究来源。</pre>
+      </section>
+      <section id="unresolvedPanel" class="stack notice error" hidden>
+        <h2>交易结果未确定 — 此账户的进一步写操作已锁定</h2>
+        <p id="unresolvedDetail"></p>
+        <p>必须先在 Trading 212 官方应用检查待处理订单、成交与历史记录。自动核对只提供参考，绝不自行认定未成交。</p>
+        <div class="actions"><button id="checkUnresolved" type="button" class="secondary">1 · 只读核对实际券商状态</button></div>
+        <label>2 · 核对完成后，准确输入 I CHECKED TRADING 212
+          <input id="reconcilePhrase" type="text" autocomplete="off" spellcheck="false"></label>
+        <label>3 · 输入本人独立交易批准密钥
+          <input id="reconcileSecret" type="password" autocomplete="off" spellcheck="false"></label>
+        <button id="reconcileAction" type="button" class="danger">确认已在券商独立核实，解除本地执行阻止</button>
       </section>
       <div id="status" class="notice" role="status" aria-live="polite" hidden></div>
       <div class="actions"><button id="verifyBtn" type="button" class="secondary" hidden>只读核对上次不明确的券商结果</button></div>
