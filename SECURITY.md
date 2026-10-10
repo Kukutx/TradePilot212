@@ -49,6 +49,10 @@ Read this before connecting a Live account. It describes where each safeguard is
 - **Login throttling is instance-wide.** After 8 failed password attempts in 10 minutes, all logins are paused for the rest of that window, including yours. This protects the password but means an attacker who knows your URL can briefly delay a reconnect.
 - **Dynamic client registration is open.** Any caller may register an OAuth client, which is what ChatGPT needs. Registrations are rate-limited and capped at 200; when the cap is reached, clients that never completed a login are removed first, so the client you actually use is kept.
 
+## Local stdio and the Claude plugin
+
+The stdio server has no OAuth layer: anyone who can start the process already holds the Trading 212 keys in its environment. The order-review and execution tools are not registered unless `TRADEPILOT_ALLOW_WRITES=true`. This is because a terminal host may not hide app-only tools from the model. If you enable writes, keep the host's per-call permission prompt for the execution tools. The plugin stores API keys in the system credential store, not in settings files.
+
 ## Deployment guidance
 
 Recommended public deployment: Cloudflare Workers with Worker Secrets. Do not put credentials in `wrangler.jsonc` or source files.

@@ -14,6 +14,7 @@
     "src/core/**/*.ts",
     "src/app/**/*.ts",
     "src/adapters/node/**/*.ts",
+    "src/adapters/stdio/**/*.ts",
     "src/shared/**/*.ts"
   ],
   "exclude": [

@@ -1,0 +1,72 @@
+{
+  "name": "tradepilot212",
+  "displayName": "TradePilot 212",
+  "version": "2.5.0",
+  "description": "Trading 212 portfolio analytics, performance and income reports, market hours, and human-confirmed order review over a local MCP server.",
+  "author": {
+    "name": "Kukutx",
+    "url": "https://github.com/Kukutx"
+  },
+  "homepage": "https://github.com/Kukutx/TradePilot212#readme",
+  "repository": "https://github.com/Kukutx/TradePilot212",
+  "license": "MIT",
+  "keywords": [
+    "trading212",
+    "portfolio",
+    "investing",
+    "mcp"
+  ],
+  "userConfig": {
+    "t212_demo_api_key": {
+      "type": "string",
+      "title": "Trading 212 Demo API key",
+      "description": "Practice-account key. Leave empty if unused.",
+      "sensitive": true,
+      "default": ""
+    },
+    "t212_demo_api_secret": {
+      "type": "string",
+      "title": "Trading 212 Demo API secret",
+      "sensitive": true,
+      "default": "",
+      "description": "Shown once when you create the Demo key."
+    },
+    "t212_live_api_key": {
+      "type": "string",
+      "title": "Trading 212 Live API key",
+      "description": "Real-money key. A key without order permissions keeps the plugin read-only at the broker.",
+      "sensitive": true,
+      "default": ""
+    },
+    "t212_live_api_secret": {
+      "type": "string",
+      "title": "Trading 212 Live API secret",
+      "sensitive": true,
+      "default": "",
+      "description": "Shown once when you create the Live key."
+    },
+    "default_environment": {
+      "type": "string",
+      "title": "Default environment",
+      "description": "Used when a request does not say demo or live.",
+      "options": [
+        "demo",
+        "live"
+      ],
+      "default": "demo"
+    },
+    "allow_writes": {
+      "type": "boolean",
+      "title": "Enable order tools",
+      "description": "Off by default. When on, the model can draft orders and the order execution tools become callable; only enable it in a host that asks you before each tool call.",
+      "default": false
+    },
+    "max_order_notional": {
+      "type": "number",
+      "title": "Max order value",
+      "description": "Per-order value cap in the instrument currency. 0 disables it.",
+      "default": 5000,
+      "min": 0
+    }
+  }
+}

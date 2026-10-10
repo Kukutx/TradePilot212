@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "tradepilot212": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/plugin/server.mjs"],
+      "env": {
+        "TRADEPILOT_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
+        "T212_DEMO_API_KEY": "${user_config.t212_demo_api_key}",
+        "T212_DEMO_API_SECRET": "${user_config.t212_demo_api_secret}",
+        "T212_LIVE_API_KEY": "${user_config.t212_live_api_key}",
+        "T212_LIVE_API_SECRET": "${user_config.t212_live_api_secret}",
+        "DEFAULT_TRADING_ENV": "${user_config.default_environment}",
+        "TRADEPILOT_ALLOW_WRITES": "${user_config.allow_writes}",
+        "MAX_ORDER_NOTIONAL": "${user_config.max_order_notional}"
+      }
+    }
+  }
+}

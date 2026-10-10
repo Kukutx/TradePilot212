@@ -1,0 +1,15 @@
+{
+  "name": "tradepilot212",
+  "description": "TradePilot 212: a self-hosted Trading 212 analytics and trading plugin.",
+  "owner": {
+    "name": "Kukutx",
+    "url": "https://github.com/Kukutx"
+  },
+  "plugins": [
+    {
+      "name": "tradepilot212",
+      "source": "./",
+      "description": "Trading 212 portfolio analytics and human-confirmed order review."
+    }
+  ]
+}

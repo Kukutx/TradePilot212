@@ -2,7 +2,7 @@
 
 简体中文 · [English](./README.md)
 
-TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT，提供简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
+TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT 或 Claude，提供确定性的收益、分红、费用和仓位配置分析，以及简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
 
 每个部署实例只属于一个用户。Trading 212 凭据保存在用户自己的环境里，仓库维护者不提供共享券商后端，也不接触其他用户的 API 密钥。
 
@@ -18,6 +18,9 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 ## 功能
 
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
+- 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录以及仓位集中度（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 交易时段感知：休市时下市价单会提示订单将排队到下次开盘
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
 - 可展开查看核心逻辑、催化剂、风险、反方观点、来源和数据时间
@@ -130,16 +133,28 @@ pnpm deploy -- --dry-run
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 5. 接入 ChatGPT
+### 5. 接入 ChatGPT 或 Claude
 
-在 ChatGPT 的 Apps 设置中创建自定义 MCP 连接，填入部署脚本输出的 `/mcp` 地址。
+在 ChatGPT 的 Apps 设置中创建自定义 MCP 连接，或在 Claude 中添加自定义连接器，填入部署脚本输出的 `/mcp` 地址。
 
 OAuth 页面要求输入你自己 `.env.local` 里的 `APP_LOGIN_PASSWORD`。不要把 Trading 212 API Key 或 Secret 粘贴到 ChatGPT 对话里。
+
+如果只在自己电脑上的 Claude Code 里使用，可以跳过部署，直接安装插件：
+
+```text
+/plugin install tradepilot212 --marketplace Kukutx/TradePilot212
+```
+
+安装时会提示填写 Trading 212 API Key（保存在系统凭据库中）。下单工具默认关闭，原因和用法见 [docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)。
 
 连接后可以直接用自然语言：
 
 ```text
 打开我的 Trading 212 Live 持仓。
+今年扣掉费用后我赚了多少？汇兑费交了多少？
+过去 12 个月分红收入多少？
+我的仓位是不是太集中了？超过 15% 的都标出来。
+美股现在开盘了吗？
 结合我现在的仓位分析英伟达。
 比较 AMD、Nvidia 和 Broadcom 的一个月机会。
 DEMO 准备买 0.2 股 NVDA。

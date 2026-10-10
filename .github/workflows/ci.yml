@@ -22,6 +22,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Plugin bundle is up to date
+        run: |
+          node scripts/build-plugin.mjs
+          git diff --exit-code -- plugin/ || (echo "Run pnpm build:plugin and commit plugin/" && exit 1)
+      - run: node scripts/smoke-stdio.mjs
       - run: pnpm audit --prod
       - run: pnpm release:check
       - run: pnpm exec wrangler deploy --dry-run

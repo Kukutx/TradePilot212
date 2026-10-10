@@ -1,6 +1,6 @@
 {
   "name": "tradepilot212",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted Trading 212 MCP app for ChatGPT with portfolio dashboards, flexible order sizing, OAuth/PKCE, Demo/Live separation, and human-confirmed execution.",
@@ -11,6 +11,7 @@
     "dev": "pnpm build:widget && tsx watch src/adapters/node/index.ts",
     "dev:chatgpt": "node scripts/dev-chatgpt.mjs",
     "start": "node dist/node/adapters/node/index.js",
+    "stdio": "tsx src/adapters/stdio/index.ts",
     "dev:cloudflare": "pnpm build:widget && wrangler dev",
     "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
     "build:widget": "vite build",
@@ -22,6 +23,7 @@
     "smoke": "node scripts/smoke.mjs",
     "cf:types": "wrangler types",
     "build:node": "tsc -p tsconfig.node.json",
+    "build:plugin": "pnpm build:widget && node scripts/build-plugin.mjs",
     "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
@@ -41,6 +43,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
