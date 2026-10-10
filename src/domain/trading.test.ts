@@ -23,6 +23,29 @@ describe("personal trade intent and risk policy",()=>{
     expect(resolveTradeIntent(intent({mode:"position_percent",percent:50},"sell"),instruments,snapshot,limits).draft.quantity).toBe(2.5);
     expect(resolveTradeIntent(intent({mode:"all_available"},"sell"),instruments,snapshot,limits).draft.quantity).toBe(4);
   });
+  it("sizes Limit/Stop-Limit by executable limit, not a misleading AI reference",()=>{
+    for(const type of ["limit","stop_limit"] as const){
+      const proposal:TradeIntent={
+        ...intent({mode:"notional",amount:200,currency:"USD"}),
+        type,limitPrice:100,referencePrice:1,
+        ...(type==="stop_limit"?{stopPrice:105}:{}),
+      };
+      const resolved=resolveTradeIntent(proposal,instruments,snapshot,limits);
+      expect(resolved.draft.quantity).toBe(2);
+      expect(resolved.estimatedNotional).toBe(200);
+    }
+  });
+  it("prefers a broker-observed held price to AI references for Market money sizing",()=>{
+    const proposal={...intent({mode:"notional",amount:200,currency:"USD"}),referencePrice:1};
+    const resolved=resolveTradeIntent(proposal,instruments,snapshot,limits);
+    expect(resolved.draft.quantity).toBe(2);
+    expect(resolved.estimatedNotional).toBe(200);
+  });
+  it("warns when a manually supplied FX conversion lacks a timestamp",()=>{
+    const proposal={...intent({mode:"notional",amount:100,currency:"EUR",fxToQuote:1.1}),referencePrice:100};
+    const result=resolveTradeIntent(proposal,instruments,snapshot,limits);
+    expect(result.warnings.join(" ")).toMatch(/FX rate.*without a verification timestamp/);
+  });
   it("rejects held percent exceeding tradable rather than silently resizing",()=>{
     expect(()=>resolveTradeIntent(intent({mode:"position_percent",percent:90},"sell"),instruments,snapshot,limits)).toThrow(/Insufficient tradable/);
   });
