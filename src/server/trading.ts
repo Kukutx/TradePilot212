@@ -242,43 +242,54 @@ export class PersonalTradingService {
     const lockKey=`v3:broker-write-lock:${environment}`;
     if(!(await this.store.claim(lockKey,token,Date.now()+120_000)))
       throw new Error("Another broker operation is in progress or was recently uncertain. No new write was sent.");
-    let pending:Pending|undefined;
+    let marker:UnresolvedBrokerWrite|undefined;
+    let brokerAttempted=false,indeterminate=false;
     try{
-      pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
+      if(await this.unresolvedWrite(environment))
+        throw new Error("Previous broker write remains unresolved. Reconcile it in the Owner Console before another order.");
+      const pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
       if(!pending||pending.kind!=="order"||pending.draft.environment!==environment)
         throw new Error("Order confirmation expired or does not match environment");
-    }catch(error){
-      await this.store.release(lockKey,token).catch(()=>undefined);
-      throw error;
-    }
-    const draft=pending.draft;
-    let baselineQuantity=0;
-    let indeterminate=false;
-    try{
-      const portfolio=await this.snapshot(environment);
-      const meta=resolveInstrument(await this.instruments(environment),draft.ticker);
-      checkDraft(draft,meta,portfolio,this.limits());
-      baselineQuantity=portfolio.holdings.find(h=>h.ticker===draft.ticker)?.quantity??0;
-      const ack=await this.broker.placeOrder(draft);
-      await this.activityEvent(environment,"order_submitted",{ticker:draft.ticker,orderId:ack.orderId});
-      return {kind:"trade_execution",environment,operation:"order",status:"submitted",
-        message:"Order submitted to Trading 212 once; verify final broker status.",...(ack.orderId?{orderId:ack.orderId}:{})};
-    }catch(error){
-      if(error instanceof BrokerOperationUnknown){
-        indeterminate=true;
-        const verificationId=await this.verificationRecord({kind:"order",draft,baselineQuantity,at:new Date().toISOString()});
-        await this.activityEvent(environment,"order_unknown",{ticker:draft.ticker});
-        return {kind:"trade_execution",environment,operation:"order",status:"unknown",
-          message:"Broker write outcome is UNKNOWN. Do not automatically retry.",
-          ...(verificationId?{verificationId}:{})};
+      const draft=pending.draft;
+      try{
+        const portfolio=await this.snapshot(environment);
+        const meta=resolveInstrument(await this.instruments(environment),draft.ticker);
+        checkDraft(draft,meta,portfolio,this.limits());
+        const baselineQuantity=portfolio.holdings.find(h=>h.ticker===draft.ticker)?.quantity??0;
+        marker=await this.beginBrokerWrite(environment,"order",{
+          kind:"order",draft,baselineQuantity,at:new Date().toISOString(),
+        },{ticker:draft.ticker});
+        // The durable uncertainty marker is written BEFORE the first packet.
+        // An abnormal process exit cannot cause the next session to guess
+        // the status or blindly repeat the order.
+        brokerAttempted=true;
+        const ack=await this.broker.placeOrder(draft);
+        await this.finishBrokerWrite(environment);
+        await this.activityEvent(environment,"order_submitted",{ticker:draft.ticker,orderId:ack.orderId});
+        return {kind:"trade_execution",environment,operation:"order",status:"submitted",
+          message:"Order submitted to Trading 212 once; verify final broker status.",
+          ...(ack.orderId?{orderId:ack.orderId}:{})};
+      }catch(error){
+        if(marker && brokerAttempted && !(error instanceof BrokerKnownRejection)){
+          indeterminate=true;
+          await this.markUnknown(marker).catch(()=>undefined);
+          await this.activityEvent(environment,"order_unknown",{ticker:marker.ticker});
+          return {kind:"trade_execution",environment,operation:"order",status:"unknown",
+            message:"Broker write outcome UNKNOWN. Further broker writes are BLOCKED until you inspect Trading 212 and manually reconcile in the Owner Console.",
+            verificationId:marker.verificationId};
+        }
+        if(marker && error instanceof BrokerKnownRejection){
+          try{await this.finishBrokerWrite(environment);}
+          catch{indeterminate=true;}
+        }
+        await this.activityEvent(environment,"order_rejected",{
+          ticker:pending.draft.ticker,
+        });
+        return {kind:"trade_execution",environment,operation:"order",status:"rejected",
+          message:error instanceof BrokerKnownRejection?error.message:
+            "Order validation or local preparation failed. No automatic retry was attempted."};
       }
-      await this.activityEvent(environment,"order_rejected",{ticker:draft.ticker});
-      return {kind:"trade_execution",environment,operation:"order",status:"rejected",
-        message:error instanceof BrokerKnownRejection?error.message:
-          "Order could not be validated or submitted. No automatic retry was attempted."};
     }finally{
-      // An ambiguous write keeps the account blocked for a bounded cooldown.
-      // Neither a failed audit write nor a lock-release error may resend a broker request.
       if(!indeterminate)await this.store.release(lockKey,token).catch(()=>undefined);
     }
   }
