@@ -21,8 +21,19 @@ export function buildMcpServer(
 ):McpServer{
   const server=new McpServer({name:"tradepilot212-personal",version:"3.0.0-alpha.2"});
   registerAppResource(server,"TradePilot intelligence workspace",URI,{},async()=>({
-    contents:[{uri:URI,mimeType:RESOURCE_MIME_TYPE,text:await widgetHtml()}],
+    contents:[{uri:URI,mimeType:RESOURCE_MIME_TYPE,text:await widgetHtml(),
+      _meta:{"openai/ui":{availableDisplayModes:["inline","fullscreen"]}}}],
   }));
+  registerAppTool(server,"get_personal_attention_center",{
+    title:"Today's portfolio priorities",
+    description:"Best first tool for 'what matters today?'. Read portfolio once, combine deterministic data-quality/cash/concentration observations and recent LOCAL threshold events into a concise bilingual action list. Each event is historical, not real-time evidence. Includes source and timestamps, excludes live news, forecasts and trades.",
+    inputSchema:z.object({environment}),
+    annotations:read,_meta:{ui:{resourceUri:URI}},
+  },async({environment})=>{try{
+    const value=await service.attention(environment);
+    return ok(value as unknown as Record<string,unknown>,
+      `${value.reviewCount} metrics need review; ${value.items.length} attention entries, source: ${value.source}. No brokerage write.`);
+  }catch(e){return fail(e);}});
   registerAppTool(server,"get_portfolio_intelligence",{
     title:"Portfolio overview",
     description:"Read the connected owner's Trading 212 account, current holdings and portfolio valuation. Never places or cancels orders. Labels synthetic data clearly.",
