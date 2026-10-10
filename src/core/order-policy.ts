@@ -73,6 +73,18 @@ export function validateOrderAgainstSnapshot(
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
     throw new Error(`Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`);
 
+  // The broker's portfolio endpoint exposes quotes only for held instruments.
+  // A model/user-supplied referencePrice must NOT authorize an uncapped market
+  // buy of a new instrument when the configured notional estimate cap is on.
+  if (draft.side === "buy" && config.maxOrderNotional > 0) {
+    if (draft.type === "stop") {
+      throw new Error("Buy Stop orders cannot enforce MAX_ORDER_NOTIONAL because fill price is unbounded. Use Stop-Limit instead.");
+    }
+    if (draft.type === "market" && !(Number.isFinite(position?.currentPrice) && (position?.currentPrice ?? 0) > 0)) {
+      throw new Error("A broker-observed reference price is required for a capped Market buy of an unheld instrument. Use a Limit order to bound the execution price.");
+    }
+  }
+
   const price = draft.type === "limit" || draft.type === "stop_limit"
     ? draft.limitPrice
     : draft.type === "stop"
