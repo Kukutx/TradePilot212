@@ -22,6 +22,27 @@ describe("read-only official broker adapter", () => {
     expect(p.notes).toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+  it("uses walletImpact.currentValue only with matching account currency", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
+      String(input).includes("/account/summary")
+        ? { currency: "EUR", totalValue: 1000, cash: { availableToTrade: 300 }, investments: { currentValue: 700 } }
+        : [{ instrument: { ticker: "TEST_US_EQ", currencyCode: "USD" },
+          quantity: 2, quantityAvailableForTrading: 2, currentPrice: 100,
+          walletImpact: { currency: "USD", currentValue: 700 } }]
+    )));
+    const rejected = await new Trading212Reader(config, fetcher as typeof fetch).getPortfolio("demo");
+    expect(rejected.holdings[0]?.valueInAccountCurrency).toBeNull();
+    fetcher.mockImplementation(async (input: RequestInfo | URL) => new Response(JSON.stringify(
+      String(input).includes("/account/summary")
+        ? { currency: "EUR", totalValue: 1000, cash: { availableToTrade: 300 }, investments: { currentValue: 700 } }
+        : [{ instrument: { ticker: "TEST_US_EQ", currencyCode: "USD" },
+          quantity: 2, quantityAvailableForTrading: 2, currentPrice: 100,
+          walletImpact: { currency: "EUR", currentValue: 700 } }]
+    )));
+    const accepted = await new Trading212Reader(config, fetcher as typeof fetch).getPortfolio("demo");
+    expect(accepted.holdings[0]?.valueInAccountCurrency).toBe(700);
+    expect(accepted.holdings[0]?.valueProvenance).toBe("broker_account_value");
+  });
   it("fails closed for invalid broker payload, with no sample fallback", async () => {
     const fake = vi.fn(async () => new Response(JSON.stringify({ result: "unexpected" }), { status: 200 }));
     await expect(new Trading212Reader(config, fake as typeof fetch).getPortfolio("demo")).rejects.toThrow();
