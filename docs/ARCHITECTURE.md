@@ -15,12 +15,21 @@ src/server/http.ts — authenticated per-request transport
     │                  └─ Trading212TradeGateway → POST/DELETE ONCE
     └─ Monitoring tools → local rules/events in StateStore
 
-Cloudflare weekday Cron / host scheduled research
+Cloudflare hourly Cron (local-time daily digest or weekday 07:00 UTC watch fallback)
   └─ Portfolio GET → risk calculations → local events; no broker writes
 
 StateStore: atomic Node JSON / Cloudflare Durable Object
 UI: bilingual React host-adaptive workspace
 ```
+
+## Additional self-hosted owner and research planes (V3 alpha.3)
+
+- **Independent authenticated browser:** `src/server/owner-console.ts` and `owner-page.ts` expose `/owner`, separate from MCP host OAuth. Has opaque hashed owner sessions, HttpOnly SameSite Strict cookie, origin checks, CSRF, no third-party scripts, exact hash CSP, explicit Live consent and in-page HMAC confirmation. It shares `PersonalTradingService` and broker write-once invariants; it is **not** an old-host adapter.
+- **Time-zone-aware read-only automation:** `OwnerPreferencesStore`, `DailyAutomation`, `createNotifier`; Cloudflare hourly Cron checks *whether* the IANA-local hour matches before calling the broker. An entirely disabled daily digest retains weekday 07:00 UTC risk-rule scans. A configured Resend provider sends only opt-in bounded observation categories, keyed per day/environment. No automatic broker order.
+- **Independent primary data:** `ReferenceFxService` fixed official ECB dated currency references; `SecResearchService` fixed SEC filings API with operator contact; `TwelveDataQuoteService` optional vendor quote with source/timestamp/currency/venue validation. They cannot authorize trades and are not presented as a guaranteed broker quote.
+- **Host adaptivity:** `src/server/mcp.ts` advertises optional ChatGPT entrypoint metadata and standard MCP App resources. Tool `structuredContent` is suitable for host-generated Intelligent UI or Claude visuals; the host owns generated presentation. These extensions remain untested in real ChatGPT and Claude sessions.
+
+The HTML Owner Console is an alpha single-owner app: before real-money use, validate browser security, passkeys/step-up requirements, device compromise boundaries, actual Demo trades, and broker order reconciliation.
 
 ## Product execution planes
 
