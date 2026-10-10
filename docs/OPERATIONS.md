@@ -1,5 +1,13 @@
 # V3 Personal: operator runbook (no legacy compatibility)
 
+## Alpha.3 entrypoints and configuration
+
+- Independent `/owner`: your own browser-based session after local owner login, not tied to ChatGPT/Claude high-risk write entitlement. Order review, order/cancel confirmation and UNKNOWN read-back share the V3 one-write-only broker core; Demo/Live limits remain independent. See [OWNER_CONSOLE.md](OWNER_CONSOLE.md).
+- `/mcp`: existing modern MCP 2026-07-28 + ChatGPT/Claude-compatible MCP Apps with optional namespaced ChatGPT sidebar/thread entries. See [EXPERIENCE_2026.md](EXPERIENCE_2026.md) and [HOST_QA.md](HOST_QA.md).
+- Owner Console preferences include language, IANA time zone, local daily-report hour, only-on-change delivery, optional Live inclusion and opt-in email. See [AUTOMATION_DELIVERY.md](AUTOMATION_DELIVERY.md).
+- Optional provider secrets: `SEC_CONTACT_EMAIL` for SEC fairness, `TWELVE_DATA_API_KEY` for vendor quotes, and `NOTIFY_PROVIDER=resend`, `RESEND_API_KEY`, `NOTIFY_FROM`, `NOTIFY_TO` for independently verified email. Secrets stay inside the owner-controlled runtime. See [EXTERNAL_DATA.md](EXTERNAL_DATA.md).
+- Broker writes are not automatic. An email send is never a broker trade. Account source failures do not substitute synthetic balances.
+
 ## Setup and permission separation
 
 Use a private self-hosted server. Store `OWNER_PASSWORD`, `JWT_SIGNING_SECRET` and `PERSONAL_APPROVAL_SECRET` only in the owner-controlled environment or Cloudflare Secrets. Run `pnpm setup`, `pnpm doctor`, `pnpm check`, `pnpm smoke`, `pnpm audit --prod`, `pnpm release:check`.
