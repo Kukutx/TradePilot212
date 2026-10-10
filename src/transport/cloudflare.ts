@@ -6,6 +6,9 @@ import { Trading212Reader } from "../infra/broker.js";
 import { BrokerPacer } from "../infra/broker-pacer.js";
 import { IntelligenceService } from "../server/intelligence.js";
 import { createHttpApp } from "../server/http.js";
+import {OwnerPreferencesStore} from "../domain/preferences.js";
+import {DailyAutomation} from "../server/daily-automation.js";
+import {createNotifier} from "../infra/notification.js";
 
 interface WorkerEnv extends RuntimeEnv {
   ASSETS: Fetcher;
@@ -112,12 +115,27 @@ export default {
     });
     return app.fetch(request,env);
   },
-  async scheduled(_event:ScheduledController,env:WorkerEnv):Promise<void>{
+  async scheduled(event:ScheduledController,env:WorkerEnv):Promise<void>{
     if(!env.PUBLIC_ORIGIN)throw new Error("Configure PUBLIC_ORIGIN before enabling scheduled monitoring");
     const config=readConfiguration(env);
     if(config.source==="sample")return;
     const store=state(env);
     const svc=new IntelligenceService(config,store,new Trading212Reader(config,fetch,new BrokerPacer(store)));
+    const preferences=await new OwnerPreferencesStore(store,config.defaultEnvironment).get();
+    if(preferences.dailyBrief.enabled){
+      const automation=new DailyAutomation(config,store,svc,createNotifier(config));
+      for(const environment of ["demo","live"] as const){
+        try{await automation.run(environment);}
+        catch(error){
+          console.error("Read-only digest generation failed:",error instanceof Error?error.name:"unknown");
+        }
+      }
+      return;
+    }
+    // Preserve original weekday 07:00 UTC risk scans when daily digests
+    // are not explicitly enabled. Hourly Cron must not increase broker reads.
+    const when=new Date(event.scheduledTime);
+    if(when.getUTCHours()!==7||when.getUTCDay()===0||when.getUTCDay()===6)return;
     for(const environment of ["demo","live"] as const){
       if(!config.broker[environment].key)continue;
       try{
