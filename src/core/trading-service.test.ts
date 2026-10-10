@@ -70,6 +70,7 @@ function config(): RuntimeConfig {
     publicBaseUrl: "https://example.test",
     loginPassword: "0123456789abcdef",
     signingSecret: "0123456789abcdef0123456789abcdef",
+    executionApprovalSecret: "independent-human-secret-value",
     accessTokenTtlSeconds: 3600,
     refreshTokenTtlSeconds: 86400,
     confirmationTtlSeconds: 90,

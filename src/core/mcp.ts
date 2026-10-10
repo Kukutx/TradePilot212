@@ -5,7 +5,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, isExecutionApprovalConfigured, type RuntimeConfig } from "./config.js";
 import type { TradingService } from "./trading-service.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
@@ -84,7 +84,7 @@ export function createMcpServer(
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
 ): McpServer {
-  const canWrite = scopes.has("trade:write");
+  const canWrite = scopes.has("trade:write") && isExecutionApprovalConfigured(config);
   const environmentWithDefault = environmentEnum.default(config.defaultTradingEnvironment);
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version });
 
@@ -347,14 +347,14 @@ export function createMcpServer(
       {
         title: "Execute confirmed order",
         description:
-          "App-only destructive external write. Consumes a one-time token created by app_prepare_order. Never retry automatically.",
-        inputSchema: z.object({ token: z.string().min(20) }),
+          "App-only destructive external write. Requires one-time token and separate user-held approval secret; never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20), approvalSecret: z.string().min(1) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token }) => {
+      async ({ token, approvalSecret }) => {
         try {
-          const data = await trading.executeOrder(token);
+          const data = await trading.executeOrder(token, approvalSecret);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -407,14 +407,14 @@ export function createMcpServer(
       "app_execute_cancel",
       {
         title: "Execute confirmed cancellation",
-        description: "App-only destructive write. Consumes a one-time cancellation token.",
-        inputSchema: z.object({ token: z.string().min(20) }),
+        description: "App-only destructive write. Requires one-time cancellation token and separate user-held approval secret.",
+        inputSchema: z.object({ token: z.string().min(20), approvalSecret: z.string().min(1) }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token }) => {
+      async ({ token, approvalSecret }) => {
         try {
-          const data = await trading.executeCancel(token);
+          const data = await trading.executeCancel(token, approvalSecret);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

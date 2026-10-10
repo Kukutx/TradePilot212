@@ -24,6 +24,7 @@ import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
+import { requireExecutionApproval } from "./execution-approval.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string };
@@ -480,7 +481,9 @@ export class TradingService {
     };
   }
 
-  async executeOrder(confirmationId: string): Promise<OrderExecutionResult> {
+  async executeOrder(confirmationId: string, approvalSecret: string): Promise<OrderExecutionResult> {
+    // Never consume the one-time token or send a broker write without a separate human-held secret.
+    await requireExecutionApproval(approvalSecret, this.deps.config, this.deps.store);
     const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const draft = pending.draft;
@@ -511,7 +514,8 @@ export class TradingService {
     return preview;
   }
 
-  async executeCancel(confirmationId: string): Promise<OrderExecutionResult> {
+  async executeCancel(confirmationId: string, approvalSecret: string): Promise<OrderExecutionResult> {
+    await requireExecutionApproval(approvalSecret, this.deps.config, this.deps.store);
     const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "cancel") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     try {
