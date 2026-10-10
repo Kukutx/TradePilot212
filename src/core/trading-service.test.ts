@@ -52,6 +52,16 @@ describe("trade safety", () => {
     )).toThrow(/available quantity/i);
   });
 
+  it("uses broker-held current price rather than a model-supplied price for the market-order cap", () => {
+    const holding = { instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 };
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, referencePrice: 1 },
+      instrument, holding,
+      { currency: "USD", cash: { availableToTrade: 1000 } },
+      { maxOrderNotional: 150, maxOrderQuantity: 10 },
+    )).toThrow(/MAX_ORDER_NOTIONAL/);
+  });
+
   it("allows self-hosters to disable app-level caps with zero", () => {
     const result = validateOrderAgainstSnapshot(
       { environment: "demo", ticker: instrument.ticker, side: "buy", type: "market", quantity: 2 },
