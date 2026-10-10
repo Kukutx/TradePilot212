@@ -39,6 +39,7 @@ const secretNames=[
   "PERSONAL_TRADING_ENABLED","PERSONAL_LIVE_TRADING_ENABLED","PERSONAL_APPROVAL_SECRET",
   "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS",
   "PERSONAL_MAX_NOTIONAL","PERSONAL_MAX_QUANTITY","PERSONAL_CONFIRMATION_TTL",
+  "NOTIFY_PROVIDER","RESEND_API_KEY","NOTIFY_FROM","NOTIFY_TO",
 ];
 const secrets=Object.fromEntries(secretNames.map(name=>[name,process.env[name]??""]));
 if(!secrets.OWNER_PASSWORD||!secrets.JWT_SIGNING_SECRET)throw new Error("Missing owner authentication");
