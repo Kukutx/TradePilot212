@@ -4,7 +4,7 @@ import type { Configuration } from "../infra/config.js";
 import type { StateStore } from "../infra/state.js";
 import { lookupClient } from "./client-metadata.js";
 
-const scopes = new Set(["portfolio:read", "monitor:write", "offline_access"]);
+const scopes = new Set(["portfolio:read", "monitor:write", "trading:review", "trading:execute", "offline_access"]);
 const encoder = new TextEncoder();
 const codeKey = (value: string) => `v3:code:${value}`;
 const refreshKey = (value: string) => `v3:refresh:${value}`;
@@ -83,12 +83,16 @@ async function validateAuthorization(
       (query.get("resource") || "") !== resource(config))
     throw new Error("OAuth redirect, PKCE or resource mismatch");
   const scope=parseScopes(query.get("scope") || "portfolio:read");
+  if(scope.split(" ").includes("trading:execute") && !config.personalTrading.enabled)
+    throw new Error("Trading execution scope is disabled by the private owner");
+  if(scope.split(" ").includes("trading:review") && config.source!=="trading212")
+    throw new Error("Trading review scope requires a real broker source");
   return { clientId,redirectUri,challenge,scope,clientName:client.client_name || "AI client",state:query.get("state")||"" };
 }
 export function installOAuth(
   app: Hono, config: Configuration, store: StateStore, fetcher: typeof fetch = fetch,
 ): void {
-  const metadata={resource:resource(config),authorization_servers:[config.publicOrigin],bearer_methods_supported:["header"],scopes_supported:["portfolio:read","monitor:write"]};
+  const metadata={resource:resource(config),authorization_servers:[config.publicOrigin],bearer_methods_supported:["header"],scopes_supported:["portfolio:read","monitor:write","trading:review",...(config.personalTrading.enabled?["trading:execute"]:[])]};
   app.get("/.well-known/oauth-protected-resource",c=>c.json(metadata));
   app.get("/.well-known/oauth-protected-resource/mcp",c=>c.json(metadata));
   app.get("/.well-known/oauth-authorization-server",c=>c.json({
@@ -104,7 +108,7 @@ export function installOAuth(
     try{
       const query=new URL(c.req.url).searchParams;
       const info=await validateAuthorization(query,config,store,fetcher);
-      const html=`<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>TradePilot Insight access</title><style>body{font:16px system-ui;max-width:450px;margin:10vh auto;padding:20px;background:#101827;color:#f8fafc}input,button{display:block;width:100%;box-sizing:border-box;padding:14px;margin-top:12px;border-radius:10px}button{background:#57c7af;border:0;font-weight:700}small{color:#94a3b8}</style></head><body><h1>Authorize TradePilot Insight</h1><p>${safe(info.clientName)} requests <strong>${safe(info.scope)}</strong>.</p><p>Trading 212 access is read-only. The plugin cannot place or cancel trades.</p><form method="post" action="/oauth/authorize">${[...query.entries()].map(([key,value])=>`<input type="hidden" name="${safe(key)}" value="${safe(value)}">`).join("")}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form><small>Credentials are checked only by your self-hosted server. Never enter brokerage API keys here.</small></body></html>`;
+      const html=`<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>TradePilot Insight access</title><style>body{font:16px system-ui;max-width:450px;margin:10vh auto;padding:20px;background:#101827;color:#f8fafc}input,button{display:block;width:100%;box-sizing:border-box;padding:14px;margin-top:12px;border-radius:10px}button{background:#57c7af;border:0;font-weight:700}small{color:#94a3b8}</style></head><body><h1>Authorize TradePilot Insight</h1><p>${safe(info.clientName)} requests <strong>${safe(info.scope)}</strong>.</p><p>Portfolio analysis is read-only. If separately enabled by the owner, this private app can prepare orders; broker execution and cancellation require an explicit human confirmation and an independent approval secret. The host may block high-risk write operations.</p><form method="post" action="/oauth/authorize">${[...query.entries()].map(([key,value])=>`<input type="hidden" name="${safe(key)}" value="${safe(value)}">`).join("")}<label>Owner password <input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form><small>Credentials are checked only by your self-hosted server. Never enter brokerage API keys here.</small></body></html>`;
       c.header("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
       c.header("Cache-Control","no-store");
       return c.html(html);
