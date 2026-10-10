@@ -104,7 +104,7 @@ export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Conf
   const provider=env.NOTIFY_PROVIDER || "none";
   if(provider!=="none" && provider!=="resend")throw new Error("NOTIFY_PROVIDER must be none or resend");
   const key=env.RESEND_API_KEY||"",from=env.NOTIFY_FROM||"",to=env.NOTIFY_TO||"";
-  const emailPattern=/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if(provider==="resend" && (!key || key.length<10 || !emailPattern.test(from)||!emailPattern.test(to)))
     throw new Error("Resend notification delivery requires API key and verified sender/recipient addresses");
   const notifications:NotificationConfig={provider,key,from,to};
