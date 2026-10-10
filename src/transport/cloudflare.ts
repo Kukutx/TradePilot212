@@ -62,6 +62,10 @@ function state(env:WorkerEnv):StateStore{
 }
 export default {
   async fetch(request:Request,env:WorkerEnv):Promise<Response>{
+    if(!env.PUBLIC_ORIGIN)throw new Error("Configure PUBLIC_ORIGIN as an explicit deployment URL");
+    const requestOrigin=new URL(request.url);
+    if(!["localhost","127.0.0.1","::1"].includes(requestOrigin.hostname) && !env.PUBLIC_ORIGIN.startsWith("https://"))
+      throw new Error("Production PUBLIC_ORIGIN must use HTTPS");
     const config=readConfiguration(env);
     const url=new URL(request.url);
     const app=createHttpApp({
@@ -75,6 +79,7 @@ export default {
     return app.fetch(request,env);
   },
   async scheduled(_event:ScheduledController,env:WorkerEnv):Promise<void>{
+    if(!env.PUBLIC_ORIGIN)throw new Error("Configure PUBLIC_ORIGIN before enabling scheduled monitoring");
     const config=readConfiguration(env);
     if(config.source==="sample")return;
     const svc=new IntelligenceService(config,state(env),new Trading212Reader(config));
