@@ -18,10 +18,25 @@ describe("OAuth Client ID Metadata Documents", () => {
   });
   it("rejects untrusted client identity and non-HTTPS redirects", () => {
     expect(parseClientDocument(id, doc).client_id).toBe(id);
+    expect(parseClientDocument(id, {
+      ...doc,
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    }).client_id).toBe(id);
+    expect(() => parseClientDocument(id, {
+      ...doc,
+      token_endpoint_auth_methods_supported: ["private_key_jwt"],
+    })).toThrow();
     expect(() => parseClientDocument(id, { ...doc, client_id: "https://evil.test" })).toThrow();
     expect(() => parseClientDocument(id, { ...doc, redirect_uris: ["javascript:alert(1)"] })).toThrow();
     expect(() => parseClientDocument(id, { ...doc, token_endpoint_auth_method: "client_secret_basic" })).toThrow();
   });
+  it("rejects oversized responses even when content-length is absent", async () => {
+    const store = new MemoryStateStore();
+    const fetcher = vi.fn(async () => new Response("x".repeat(20_000), { status: 200 }));
+    await expect(resolveClientDocument(id, store, fetcher as typeof fetch)).rejects.toThrow(/too large/);
+  });
+
   it("caches validated client metadata and does not fetch arbitrary URLs", async () => {
     const store = new MemoryStateStore();
     const fetcher = vi.fn(async () => new Response(JSON.stringify(doc), { status: 200 }));
