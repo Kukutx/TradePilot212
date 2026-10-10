@@ -55,6 +55,15 @@ export function buildMcpServer(
     const value=await service.dailyBrief(environment);
     return ok(value as Record<string,unknown>,`Read-only portfolio review prepared from ${value.source} data.`);
   }catch(e){return fail(e);}});
+  registerAppTool(server,"get_portfolio_risk_trend",{
+    title:"Portfolio risk trend",
+    description:"Read locally recorded daily risk pulse history for the selected environment. Portfolio-value changes are NOT investment returns, and incomplete currency coverage stays unknown. No trades.",
+    inputSchema:z.object({environment}),
+    annotations:read,_meta:{ui:{resourceUri:URI}},
+  },async({environment})=>{try{
+    const value=await service.trend(environment);
+    return ok(value as unknown as Record<string,unknown>,`${value.points.length} recorded daily risk snapshots; no brokerage writes.`);
+  }catch(e){return fail(e);}});
   server.registerTool("get_broker_order_history",{
     title:"Read completed order history",
     description:"Read one bounded page of Trading 212 historical orders, without submitting, cancelling or modifying orders. A numeric cursor may be supplied from a prior response.",
