@@ -21,7 +21,7 @@ function fail(e:unknown){
 export function buildMcpServer(
   service:IntelligenceService, scopes:ReadonlySet<string>,widgetHtml:()=>Promise<string>,personal:PersonalTradingService,research:ResearchServices,
 ):McpServer{
-  const server=new McpServer({name:"tradepilot212-personal",version:"3.0.0-alpha.2"});
+  const server=new McpServer({name:"tradepilot212-personal",version:"3.0.0-alpha.3"});
   registerAppResource(server,"TradePilot intelligence workspace",URI,{},async()=>({
     contents:[{uri:URI,mimeType:RESOURCE_MIME_TYPE,text:await widgetHtml(),
       _meta:{"openai/ui":{availableDisplayModes:["inline","fullscreen"]}}}],
