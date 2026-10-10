@@ -264,6 +264,8 @@ React App UI ← MCP App Resource
 
 详见 [原架构](./docs/ARCHITECTURE.md)、[2026 重构规划](./docs/ARCHITECTURE_2026.md) 和 [工程安全规则](./AGENTS.md)。
 
+破坏性升级说明：[2026 迁移指南](./docs/MIGRATION_2026.md)。隐私说明：[PRIVACY.md](./PRIVACY.md)。
+
 ## 自托管模型
 
 ```text
