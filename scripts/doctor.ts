@@ -17,6 +17,8 @@ try{
   print(true,"Data source",config.source==="sample"?"SYNTHETIC sample — no broker writes":"Trading 212");
   print(true,"Default environment",config.defaultEnvironment);
   print(true,"Email notification provider",config.notifications.provider==="resend"?"Resend configured (outgoing email is still owner-opt-in)":"Disabled");
+  print(true,"Optional market quotes",config.marketResearch.twelveDataKey?"Twelve Data configured":"Not configured");
+  print(true,"Official SEC filings",config.marketResearch.secContact?"SEC contact configured":"Disabled until SEC_CONTACT_EMAIL is set");
   print(true,"Personal execution",config.personalTrading.enabled?"ENABLED with independent approval":"DISABLED (safe default)");
   print(true,"Unquoted/unbounded Live buy exception",config.personalTrading.allowUnquotedLiveBuys?"OWNER OPTED IN — HIGH RISK":"DENIED by default");
   for(const env of ["demo","live"] as const)
