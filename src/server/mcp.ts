@@ -111,6 +111,15 @@ export function buildMcpServer(
     return ok(value as unknown as Record<string,unknown>,`${value.events.length} recent threshold alerts.`);
   }catch(e){return fail(e);}});
   if(scopes.has("monitor:write")){
+    server.registerTool("enable_basic_portfolio_monitoring",{
+      title:"Set up basic read-only portfolio monitoring",
+      description:"Single explicit action to create only MISSING local watch rules: cash under 5%, largest position over 35%, unrealized portfolio loss under -10% of total account value. Preserves the user's existing thresholds for each metric. Rules are evaluated by owner-configured scans; there are NO broker writes, trading signals or automatic push notifications.",
+      inputSchema:{environment},annotations:localWrite,
+    },async({environment})=>{try{
+      const result=await service.enableBasicMonitoring(environment);
+      return ok(result as unknown as Record<string,unknown>,
+        `Created ${result.created.length} basic monitoring thresholds, ${result.activeRules.length} locally configured. No brokerage writes.`);
+    }catch(e){return fail(e);}});
     server.registerTool("create_portfolio_watch_rule",{
       title:"Save portfolio monitoring threshold",
       description:"Persist a local cash, concentration or P/L threshold to be checked by read-only scheduled portfolio scans. Updates TradePilot state only; does not place or schedule trades.",
