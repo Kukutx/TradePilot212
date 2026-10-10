@@ -6,7 +6,8 @@ export type RuntimeEnv = Partial<Record<
   | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET"
   | "PERSONAL_TRADING_ENABLED" | "PERSONAL_LIVE_TRADING_ENABLED" | "PERSONAL_APPROVAL_SECRET"
   | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL"
-  | "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS",
+  | "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"
+  | "NOTIFY_PROVIDER" | "RESEND_API_KEY" | "NOTIFY_FROM" | "NOTIFY_TO",
   string
 >>;
 export interface PersonalTradingConfig {
@@ -18,6 +19,9 @@ export interface PersonalTradingConfig {
   confirmationTtlSeconds: number;
   allowUnquotedLiveBuys: boolean;
 }
+export interface NotificationConfig {
+  provider:"none"|"resend";key:string;from:string;to:string;
+}
 export interface Configuration {
   publicOrigin: string;
   ownerPassword: string;
@@ -27,6 +31,7 @@ export interface Configuration {
   defaultEnvironment: Environment;
   broker: Record<Environment, { origin: string; key: string; secret: string }>;
   personalTrading: PersonalTradingConfig;
+  notifications:NotificationConfig;
 }
 function flag(env:RuntimeEnv,name:keyof RuntimeEnv):boolean {
   const value=(env[name]??"false").trim().toLowerCase();
@@ -90,8 +95,15 @@ export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Conf
     confirmationTtlSeconds:ttl,
     allowUnquotedLiveBuys:flag(env,"PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"),
   };
+  const provider=env.NOTIFY_PROVIDER || "none";
+  if(provider!=="none" && provider!=="resend")throw new Error("NOTIFY_PROVIDER must be none or resend");
+  const key=env.RESEND_API_KEY||"",from=env.NOTIFY_FROM||"",to=env.NOTIFY_TO||"";
+  const emailPattern=/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  if(provider==="resend" && (!key || key.length<10 || !emailPattern.test(from)||!emailPattern.test(to)))
+    throw new Error("Resend notification delivery requires API key and verified sender/recipient addresses");
+  const notifications:NotificationConfig={provider,key,from,to};
   return {
     publicOrigin: origin, ownerPassword, jwtSecret, trustedClientOrigins, source,
-    defaultEnvironment, broker,personalTrading,
+    defaultEnvironment, broker,personalTrading,notifications,
   };
 }
