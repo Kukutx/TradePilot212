@@ -29,7 +29,8 @@ export function auditResearchIdea(candidate: TradeIdea, now = Date.now()): Resea
     try {
       const url = new URL(source);
       return url.protocol === "https:" && !url.username && !url.password &&
-        url.hostname.includes(".");
+        url.hostname.includes(".") && !url.hostname.endsWith(".local") &&
+        !/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(url.hostname);
     } catch { return false; }
   };
   const sourceLinks = (candidate.sources ?? []).filter(hasTraceableUrl).length;
