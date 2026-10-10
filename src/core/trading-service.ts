@@ -131,11 +131,14 @@ export function validateOrderAgainstSnapshot(
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
     throw new Error(`Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`);
 
+  // A Market order's referencePrice comes from the caller, so it must not be able to talk the
+  // notional cap down: when the broker reports a current price, the higher of the two is used.
+  const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value): value is number => value !== undefined && value > 0);
   const price = draft.type === "limit" || draft.type === "stop_limit"
     ? draft.limitPrice
     : draft.type === "stop"
       ? draft.stopPrice
-      : draft.referencePrice ?? position?.currentPrice;
+      : marketPrices.length ? Math.max(...marketPrices) : undefined;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : undefined;
 
   if (config.maxOrderNotional > 0) {

@@ -52,6 +52,17 @@ describe("trade safety", () => {
     )).toThrow(/available quantity/i);
   });
 
+  it("does not let an understated Market reference price bypass the notional cap", () => {
+    const position = { instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 400 };
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, quantity: 2, referencePrice: 1 },
+      instrument,
+      position,
+      { currency: "USD", cash: { availableToTrade: 10_000 } },
+      { maxOrderNotional: 500, maxOrderQuantity: 10 },
+    )).toThrow(/MAX_ORDER_NOTIONAL/);
+  });
+
   it("allows self-hosters to disable app-level caps with zero", () => {
     const result = validateOrderAgainstSnapshot(
       { environment: "demo", ticker: instrument.ticker, side: "buy", type: "market", quantity: 2 },

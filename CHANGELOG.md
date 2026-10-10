@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Market-order notional checks now use the higher of the supplied reference price and the broker's current position price, so an understated reference price cannot bypass `MAX_ORDER_NOTIONAL`.
+- The OAuth password page now refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`).
+- When the OAuth client registry is full, registrations that never completed a login are evicted before clients in use.
+- Documented the threat model: where confirmation is enforced, token revocation, reference-price trust, and login throttling.
+
 ## 2.4.0
 
 - Replaced fixed order-review modals with an in-flow transaction workspace that can resize with the ChatGPT host.

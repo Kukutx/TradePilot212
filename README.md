@@ -286,6 +286,7 @@ See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 - write requests are never automatically retried after an ambiguous response.
 - order constraints are revalidated immediately before submission.
 - recent activity stores order metadata only; it does not store API credentials.
+- the confirmation step stops the model from trading on its own, but anyone holding your connection password can trade; read the [threat model](./SECURITY.md#threat-model-and-known-limits) before adding Live credentials.
 
 Run `pnpm release:check` before publishing changes.
 
