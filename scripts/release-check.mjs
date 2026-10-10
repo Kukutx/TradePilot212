@@ -18,13 +18,17 @@ for(const file of paths){
     throw new Error(`Private data is Git tracked: ${file}`);
 }
 const broker=fs.readFileSync(path.join(root,"src/infra/broker.ts"),"utf8");
+const personal=fs.readFileSync(path.join(root,"src/infra/trade-gateway.ts"),"utf8");
 if(/method:\s*["'](POST|PUT|PATCH|DELETE)["']/.test(broker) ||
    /\/equity\/orders\/(market|limit|stop)/.test(broker) ||
    /cancelOrder|placeOrder/.test(broker))
   throw new Error("Trading 212 read-only adapter appears to contain a write pathway");
+if(!personal.includes("BrokerOperationUnknown") || !personal.includes("method===\"GET\"?3:1") ||
+  !personal.includes("orders/market") || !personal.includes("orders/stop_limit"))
+  throw new Error("Personal order transport lost write-once classification or fixed route mapping");
 const releaseText=files(root).filter(p=>/\.(ts|tsx|mjs|md|yml|yaml|json|css)$/.test(p));
 const example=fs.existsSync(path.join(root,".env.local"))?fs.readFileSync(path.join(root,".env.local"),"utf8"):"";
-for(const secretName of ["OWNER_PASSWORD","JWT_SIGNING_SECRET","T212_DEMO_KEY","T212_DEMO_SECRET","T212_LIVE_KEY","T212_LIVE_SECRET"]){
+for(const secretName of ["OWNER_PASSWORD","JWT_SIGNING_SECRET","PERSONAL_APPROVAL_SECRET","T212_DEMO_KEY","T212_DEMO_SECRET","T212_LIVE_KEY","T212_LIVE_SECRET"]){
   const value=new RegExp(`^${secretName}=(.+)$`,"m").exec(example)?.[1];
   if(!value||value.length<16)continue;
   for(const file of releaseText){
@@ -33,4 +37,4 @@ for(const secretName of ["OWNER_PASSWORD","JWT_SIGNING_SECRET","T212_DEMO_KEY","
       throw new Error(`Release leak prevention triggered in ${path.relative(root,file)}`);
   }
 }
-console.log("RELEASE_CHECK_OK no secrets tracked and broker adapter statically limited to GET");
+console.log("RELEASE_CHECK_OK no local secrets tracked, analysis reader is GET-only, and personal writes are explicitly mapped once");
