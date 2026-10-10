@@ -54,6 +54,20 @@ describe("personal trade intent and risk policy",()=>{
     expect(()=>resolveTradeIntent(intent({mode:"quantity",quantity:101}),instruments,snapshot,limits)).toThrow(/MAX_ORDER_QUANTITY/);
     expect(resolveTradeIntent(intent({mode:"quantity",quantity:1}),instruments,snapshot,limits).warnings.join(" ")).toMatch(/slippage|different price/);
   });
+  it("protects Live unheld Market buys and Buy Stops without deleting either order type",()=>{
+    const live={...snapshot,environment:"live" as const,holdings:[]};
+    const market={environment:"live" as const,ticker:"AAPL_US_EQ",side:"buy" as const,
+      type:"market" as const,quantity:1,referencePrice:100};
+    expect(()=>checkDraft(market,instruments[0]!,live,limits)).toThrow(/Unheld Live Market Buy/);
+    expect(()=>checkDraft({...market,type:"stop",stopPrice:100},instruments[0]!,live,limits))
+      .toThrow(/Stop-Limit/);
+    expect(checkDraft({...market,type:"limit",limitPrice:100},instruments[0]!,live,limits)
+      .estimatedNotional).toBe(100);
+    const ownerOptIn={...limits,allowUnquotedLiveBuys:true};
+    expect(checkDraft(market,instruments[0]!,live,ownerOptIn).estimatedNotional).toBe(100);
+    expect(checkDraft({...market,type:"stop",stopPrice:100},instruments[0]!,live,ownerOptIn)
+      .estimatedNotional).toBe(100);
+  });
   it("rejects malformed direct service inputs even when MCP schemas are bypassed",()=>{
     const valid={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"market",quantity:1};
     for(const invalid of [
