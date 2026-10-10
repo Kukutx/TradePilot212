@@ -9,7 +9,7 @@ OAuth requires CIMD+PKCE and explicit scopes. Personal broker writes require `tr
 
 A human enters the independent secret into the sandboxed UI for each operation. Only a single-use HMAC proof bound to the specific order/cancel token and operation is sent via MCP. The proof is itself a short-lived capability; treat it as sensitive until consumed.
 
-## Write safety
+## Independent Owner Console\n\n`/owner` has a separate 12-hour owner session, secure HttpOnly Strict SameSite cookie over HTTPS, CSRF protection, same-origin POST requirements, no CDN and hash-pinned content-security policy. An authenticated session still cannot place a trade without the independent human HMAC proof, server flags and fresh order check. Browser malware, hostile extensions or a fully compromised server remain out of scope for these protections.\n\n## Read-only external sources and email\n\nECB rates use a fixed official HTTPS host and preserve observation dates. SEC research is disabled until `SEC_CONTACT_EMAIL` is configured; official SEC ticker and filing URLs are bounded and User-Agent identification is sent only to SEC. Twelve Data quotes are optional and not broker execution guarantees. Resend email requires explicit owner opt-in plus independently configured provider key/sender/recipient and uses provider idempotency keys.\n\nNo external provider receives Trading 212 API credentials or the raw personal approval secret. Email alerts contain limited observation labels, not complete holdings.\n\n## Write safety
 - Draft generation never submits a broker write.
 - Broker state and order constraints are revalidated before writing.
 - Confirmation is stored as one-use and expires within 30–300 seconds.
