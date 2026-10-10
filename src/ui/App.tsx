@@ -106,6 +106,12 @@ function noticeText(notice: OrderNotice, t: Translator, locale: SupportedLocale)
     }
     case "CROSS_CURRENCY_FUNDS_CHECK": return t("crossCurrencyNotice");
     case "NOTIONAL_ESTIMATE_UNAVAILABLE": return t("notionalUnavailableNotice");
+    case "MARKET_CLOSED":
+    case "MARKET_CLOSED_QUEUED": {
+      const base = t(notice.code === "MARKET_CLOSED" ? "marketClosedNotice" : "marketClosedQueuedNotice");
+      const nextOpen = typeof notice.details?.nextOpen === "string" ? notice.details.nextOpen : undefined;
+      return nextOpen ? `${base} ${t("nextOpenLabel")} ${dateTime(nextOpen, locale)}` : base;
+    }
     default: return notice.message;
   }
 }

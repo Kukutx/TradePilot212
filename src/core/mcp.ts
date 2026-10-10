@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { TradingService } from "./trading-service.js";
+import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow, type InsightsService } from "./insights-service.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
@@ -78,8 +79,17 @@ const orderSizingSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("all_available") }),
 ]);
 
+const windowSchema = {
+  period: z.enum(["1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  maxPages: z.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES)
+    .describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute."),
+};
+
 export function createMcpServer(
   trading: TradingService,
+  insights: InsightsService,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -149,6 +159,146 @@ export function createMcpServer(
             ? `Found ${instruments.length} Trading 212 instrument matches.`
             : `No matches or ${environment.toUpperCase()} credentials are not configured.`,
         );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
+
+  registerAppTool(
+    server,
+    "analyze_portfolio_allocation",
+    {
+      title: "Portfolio Allocation Analysis",
+      description:
+        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. Use this instead of estimating weights yourself. Read-only.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        maxSingleWeight: z.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
+        maxTop5Weight: z.number().gt(0).max(1).optional(),
+        cashHighWeight: z.number().gt(0).max(1).optional(),
+        cashLowWeight: z.number().min(0).max(1).optional(),
+      }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, ...limits }) => {
+      try {
+        const data = await insights.allocation(environment, limits);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s).`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_portfolio_performance",
+    {
+      title: "Portfolio Performance",
+      description:
+        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, period, from, to, maxPages }) => {
+      try {
+        const data = await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        return result(data, `Realized P/L ${data.realizedProfitLoss} ${data.accountCurrency}, income ${data.income.dividends + data.income.interest}, costs ${data.costs.total}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_income_summary",
+    {
+      title: "Dividend and Interest Income",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, period, from, to, maxPages }) => {
+      try {
+        const data = await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_trade_history",
+    {
+      title: "Trade History",
+      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker or symbol. Read-only.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        ticker: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+        ...windowSchema,
+      }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, ticker, limit, period, from, to }) => {
+      try {
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit);
+        return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_market_hours",
+    {
+      title: "Market Hours",
+      description: "Report whether an instrument's market is in its regular, pre-market, after-hours or overnight session or closed, with the next open and close times from Trading 212's exchange schedules. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, instrument: z.string().min(1) }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const data = await insights.marketHours(environment, instrument);
+        return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "manage_history_export",
+    {
+      title: "Trading 212 CSV Export",
+      description:
+        "List Trading 212 CSV history reports with their download links, or request a new report for a period (orders, dividends, interest and transactions). Requesting a report does not trade; the broker builds it asynchronously, so list again later for the link.",
+      inputSchema: z.object({ environment: environmentWithDefault, action: z.enum(["list", "request"]).default("list"), ...windowSchema }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      _meta: {},
+    },
+    async ({ environment, action, period, from, to }) => {
+      try {
+        if (action === "request") {
+          const created = await insights.requestExport(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }));
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
+        }
+        const reports = await insights.listExports(environment);
+        return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
       } catch (error) {
         return toolError(error);
       }

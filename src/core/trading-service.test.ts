@@ -200,6 +200,16 @@ describe("flexible order intent", () => {
     expect(activity[0]?.quantity).toBe(1);
   });
 
+  it("warns that a Market order placed while the market is closed will be queued", async () => {
+    const service = new TradingService({
+      config: config(), store: new MemoryStateStore(), fetcher: fakeFetch(),
+      marketStatus: async () => ({ ticker: "AAPL_US_EQ", session: "closed", isOpen: false, nextOpen: "2026-10-12T13:30:00.000Z", checkedAt: new Date().toISOString() }),
+    });
+    const preview = await service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "sell", type: "market", quantity: 1, referencePrice: 100 });
+    const notice = preview.notices.find((item) => item.code === "MARKET_CLOSED_QUEUED");
+    expect(notice?.details?.nextOpen).toBe("2026-10-12T13:30:00.000Z");
+  });
+
   it("flags a stale FX timestamp when cross-currency sizing metadata is present", async () => {
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fakeFetch() });
     const preview = await service.prepareOrder({
