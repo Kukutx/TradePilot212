@@ -209,6 +209,8 @@ export function checkDraft(draft: TradeDraft, instrument: Instrument, account: P
   const price = draft.type==="limit"||draft.type==="stop_limit" ? draft.limitPrice
     : draft.type==="stop" ? draft.stopPrice : (held?.price&&held.price>0 ? held.price : draft.referencePrice);
   const amount=price&&price>0?price*draft.quantity:null;
+  if(amount!==null && (!Number.isFinite(amount)||amount<=0))
+    throw new Error("Order notional estimate overflows finite numeric limits");
   if(limits.maxNotional>0){
     if(amount===null)throw new Error("Reference price is required to estimate capped order notional");
     if(amount>limits.maxNotional)throw new Error("MAX_ORDER_NOTIONAL exceeded");
