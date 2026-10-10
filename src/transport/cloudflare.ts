@@ -52,11 +52,11 @@ export class InsightStore extends DurableObject<WorkerEnv> {
 function state(env:WorkerEnv):StateStore{
   const stub=env.INSIGHT_STORE.getByName("owner");
   return {
-    get:<T>(k:string)=>stub.get<T>(k),
+    get:<T>(k:string)=>stub.get(k) as Promise<T|undefined>,
     put:<T>(k:string,v:T,e?:number)=>stub.put(k,v,e),
-    take:<T>(k:string)=>stub.take<T>(k),
+    take:<T>(k:string)=>stub.take(k) as Promise<T|undefined>,
     remove:(k:string)=>stub.remove(k),
-    list:<T>(p:string)=>stub.list<T>(p),
+    list:<T>(p:string)=>stub.list(p) as Promise<Array<{key:string;value:T}>>,
     increment:(k:string,d:number)=>stub.increment(k,d),
   };
 }
