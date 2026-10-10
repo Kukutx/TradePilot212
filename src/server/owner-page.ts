@@ -151,7 +151,7 @@ const js=String.raw`
       "\nExpires "+preview.expiresAt+
       "\n"+(preview.warnings||[]).join("\n"));
     show("liveWord",environment==="live");
-    q("liveWord").value="";
+    q("liveConfirm").value="";
     q("approval").value="";
   }
   async function sign(secret,action,token){
@@ -159,12 +159,12 @@ const js=String.raw`
     var key=await crypto.subtle.importKey("raw",enc.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
     var data=new Uint8Array(await crypto.subtle.sign("HMAC",key,enc.encode("tradepilot-v3-personal:"+action+":"+token)));
     var raw="";data.forEach(function(byte){raw+=String.fromCharCode(byte);});
-    return btoa(raw).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");
+    return btoa(raw).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   }
   async function confirm(){
     if(!preview)return;
     if(!snapshot||!snapshot.executionEnabled)throw new Error("服务器当前未允许此账户执行交易。");
-    if(environment==="live"&&q("liveWord").value.trim()!=="LIVE")
+    if(environment==="live"&&q("liveConfirm").value.trim()!=="LIVE")
       throw new Error("Live 真实资金交易必须输入 LIVE 才可继续。");
     var secret=q("approval").value;
     q("approval").value="";
@@ -291,7 +291,7 @@ export async function renderOwnerPage():Promise<{html:string;csp:string}>{
         <div class="panel" id="confirmPane" hidden><h3>最终人工确认</h3><p id="previewText" class="output"></p>
           <p class="notice">确认时，批准密钥只在本页通过 WebCrypto 生成一次性 HMAC；服务端不接收密钥原文。</p>
           <label>独立批准密钥<input id="approval" type="password" autocomplete="off" spellcheck="false"></label>
-          <label id="liveWord" hidden>Live 真实资金：输入 LIVE<input type="text" autocomplete="off" aria-label="输入 LIVE 以确认真实资金风险"></label>
+          <label id="liveWord" hidden>Live 真实资金：输入 LIVE<input id="liveConfirm" type="text" autocomplete="off" aria-label="输入 LIVE 以确认真实资金风险"></label>
           <div class="actions"><button id="back" type="button" class="secondary">返回审查</button>
             <button id="send" type="button" class="danger">3 · 本人明确确认并提交一次</button></div></div>
       </section>
