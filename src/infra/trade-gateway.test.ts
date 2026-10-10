@@ -46,6 +46,12 @@ describe("Trading 212 personal command gateway",()=>{
       .rejects.toThrow(/ID/);
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it("classifies GET order 404 as a known missing pending order even with plain-text body", async()=>{
+    const fetcher=vi.fn(async()=>new Response("Not Found",{status:404}));
+    await expect(new Trading212TradeGateway(config,fetcher as typeof fetch).getOrder("demo","11"))
+      .rejects.toMatchObject({name:"BrokerKnownRejection",status:404});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("treats explicit broker 400 as a known rejection",async()=>{
     const fetcher=vi.fn(async()=>new Response("bad",{status:400}));
     await expect(new Trading212TradeGateway(config,fetcher as typeof fetch).placeOrder(base))
