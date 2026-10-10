@@ -133,8 +133,9 @@ async function personalToken(scope:string):Promise<string>{
     body:new URLSearchParams({client_id:clientId,grant_type:"authorization_code",
       code,redirect_uri:redirectUri,code_verifier:verifier,resource:`${personalOrigin}/mcp`}).toString(),
   });
-  assert.equal(exchange.status,200,await exchange.text());
-  const token=await exchange.json() as {access_token:string};
+  const tokenText=await exchange.text();
+  assert.equal(exchange.status,200,tokenText);
+  const token=JSON.parse(tokenText) as {access_token:string};
   return token.access_token;
 }
 async function personalCall(token:string,method:string,params:Record<string,unknown>,id:number){
