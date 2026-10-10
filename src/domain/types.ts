@@ -85,3 +85,25 @@ export interface MonitorEvent {
   thresholdPercent: number;
   detail: string;
 }
+
+export interface RiskPulse {
+  kind: "risk_pulse";
+  environment: Environment;
+  source: Source;
+  asOf: string;
+  accountCurrency: string;
+  totalValue: number;
+  cashPercent: number | null;
+  largestPositionPercent: number | null;
+  exposureCoveragePercent: number | null;
+}
+export interface RiskTrend {
+  kind: "risk_trend";
+  environment: Environment;
+  source: Source;
+  points: RiskPulse[];
+  // Descriptive difference across snapshots, not a time-weighted investment return.
+  absoluteValueChange: number | null;
+  notes: string[];
+}
+
