@@ -1,14 +1,14 @@
 import { useApp,useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { App as HostApp } from "@modelcontextprotocol/ext-apps";
 import { useEffect,useMemo,useState } from "react";
-import type { PortfolioAnalysis,PortfolioSnapshot,Scenario,Environment,Exposure } from "../domain/types";
+import type { PortfolioAnalysis,PortfolioSnapshot,Scenario,Environment,Exposure,RiskTrend } from "../domain/types";
 
 type Brief={kind:"daily_brief";environment:Environment;source:string;asOf:string;summary:string;observations:string[];priorityChecks:string[];disclaimer:string;currency:string};
-type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|Brief|{kind:"error";message:string};
+type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|RiskTrend|Brief|{kind:"error";message:string};
 type Locale="zh"|"en";
 const wording={
   en:{
-    brand:"TRADEPILOT / INTELLIGENCE",overview:"Overview",risk:"Risk map",stress:"Stress test",brief:"Daily brief",
+    brand:"TRADEPILOT / INTELLIGENCE",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",
     account:"Portfolio value",cash:"Available cash",positions:"Holdings",updated:"Observed",
     warning:"Data quality",holdings:"Current holdings",exposure:"Value / allocation",unpriced:"Unverified value",
     scenario:"Hypothetical uniform shock",scenarioHelp:"This is a calculation, not a forecast or trade recommendation.",
@@ -20,7 +20,7 @@ const wording={
     connection:"MCP host connection",unknown:"An unexpected response was received",error:"Data unavailable",
   },
   zh:{
-    brand:"TRADEPILOT / 智能投资分析",overview:"持仓概览",risk:"风险分析",stress:"压力测试",brief:"组合简报",
+    brand:"TRADEPILOT / 智能投资分析",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",
     account:"投资组合总值",cash:"可用现金",positions:"持仓数量",updated:"数据时间",
     warning:"数据质量",holdings:"当前持仓",exposure:"估值 / 占比",unpriced:"无法核实估值",
     scenario:"假设持仓价格同步变化",scenarioHelp:"仅做算术情景推演，不是价格预测或交易建议。",
@@ -54,7 +54,7 @@ function ExposureRow({item,currency,locale}:{item:Exposure;currency:string;local
 export default function App(){
   const [payload,setPayload]=useState<Payload|null>(null);
   const [env,setEnv]=useState<Environment>("demo");
-  const [mode,setMode]=useState<"overview"|"risk"|"stress"|"brief">("overview");
+  const [mode,setMode]=useState<"overview"|"risk"|"stress"|"trend"|"brief">("overview");
   const [locale,setLocale]=useState<Locale>("zh");
   const [shock,setShock]=useState(-10);
   const [loading,setLoading]=useState(false);
@@ -72,6 +72,7 @@ export default function App(){
         if(next.kind==="portfolio")setMode("overview");
         if(next.kind==="analysis")setMode("risk");
         if(next.kind==="scenario")setMode("stress");
+        if(next.kind==="risk_trend")setMode("trend");
         if(next.kind==="daily_brief")setMode("brief");
       };
       const context=created.getHostContext();
@@ -86,20 +87,21 @@ export default function App(){
   const currency=payload?.kind==="portfolio"?payload.account.currency:
     payload?.kind==="analysis"?payload.accountCurrency:
     payload?.kind==="daily_brief"?payload.currency:
-    payload?.kind==="scenario"?payload.currency:"USD";
+    payload?.kind==="scenario"?payload.currency:
+    payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):"USD";
   const source=payload&&"source" in payload?payload.source:"sample";
-  async function load(kind:"overview"|"risk"|"stress"|"brief",environment=env){
+  async function load(kind:"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
     if(!app)return;
     const names={
       overview:"get_portfolio_intelligence",risk:"analyze_portfolio_risk",
-      stress:"simulate_portfolio_scenario",brief:"get_portfolio_review_brief",
+      stress:"simulate_portfolio_scenario",trend:"get_portfolio_risk_trend",brief:"get_portfolio_review_brief",
     };
     setLoading(true);setError(null);
     try{
       const result=await app.callServerTool({name:names[kind],arguments:{environment,...(kind==="stress"?{shockPercent:shock}:{})}});
       if(result.isError)throw new Error(result.content?.find(x=>x.type==="text")?.text||t.error);
       const next=result.structuredContent as unknown as Payload|undefined;
-      if(!next||!["portfolio","analysis","scenario","daily_brief"].includes(next.kind))throw new Error(t.unknown);
+      if(!next||!["portfolio","analysis","scenario","risk_trend","daily_brief"].includes(next.kind))throw new Error(t.unknown);
       setPayload(next);setMode(kind);setEnv(environment);
     }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setLoading(false);}
   }
@@ -114,7 +116,7 @@ export default function App(){
     </header>
     <div className="trustBar"><SourceTag source={source} locale={locale}/><span>{t.noTrades}</span></div>
     <nav className="tabs" aria-label="Portfolio views">
-      {(["overview","risk","stress","brief"] as const).map(key=><button
+      {(["overview","risk","stress","trend","brief"] as const).map(key=><button
         key={key} className={mode===key?"active":""} disabled={!app||loading}
         onClick={()=>void load(key)}>{t[key]}</button>)}
       <button className="refresh" disabled={!app||loading} onClick={()=>void load(mode)}>{loading?t.running:t.refresh}</button>
@@ -153,6 +155,20 @@ export default function App(){
         <div className="metrics two"><Metric label={t.totalChange} value={fmt(payload.hypotheticalPortfolioChange,currency,locale)}/><Metric label={t.outcome} value={fmt(payload.hypotheticalPortfolioValue,currency,locale)}/></div>
         <p className="muted">{t.scenarioHelp}</p>
         <h3>{t.assumptions}</h3>{payload.assumptions.map((a,i)=><p key={i}>{a}</p>)}
+      </section>}
+      {payload.kind==="risk_trend"&&<section className="panel">
+        <h2>{t.trend}</h2>
+        <div className="metric"><span>{locale==="zh"?"观察到的总值变化（不等于投资收益）":"Observed total-value change (not investment return)"}</span>
+          <strong>{fmt(payload.absoluteValueChange,currency,locale)}</strong></div>
+        {payload.points.length? <div className="trendTable">
+          {payload.points.slice(-30).map((point,i)=><div className="trendRow" key={point.asOf+"-"+i}>
+            <span>{date(point.asOf)}</span>
+            <strong>{fmt(point.totalValue,point.accountCurrency,locale)}</strong>
+            <span>{t.concentration}: {number(point.largestPositionPercent)}</span>
+            <span>{t.coverage}: {number(point.exposureCoveragePercent)}</span>
+          </div>)}
+        </div> : <p>{locale==="zh"?"尚无每日监测记录。请先创建监测规则并运行扫描。":"No daily monitoring observations yet. Create a watch rule and run a scan."}</p>}
+        {payload.notes.map((note,i)=><p className="muted" key={i}>{note}</p>)}
       </section>}
       {payload.kind==="daily_brief"&&<section className="panel"><h2>{t.brief}</h2><p>{payload.summary}</p>
         <h3>{t.riskAlerts}</h3>{payload.observations.map((a,i)=><p key={i}>{a}</p>)}
