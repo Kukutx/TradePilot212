@@ -2,7 +2,7 @@
 
 全新架构的**个人自托管 AI 投资研究、组合管理和人工授权交易工作台**。
 
-[体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
+[独立 Owner Console](docs/OWNER_CONSOLE.md) · [自动简报](docs/AUTOMATION_DELIVERY.md) · [研究数据](docs/EXTERNAL_DATA.md) · [体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
 
 > V3 不支持 V2 的接口、工具名、配置键、OAuth 令牌或状态文件。**功能完整重建，不提供旧协议兼容层**。旧项目仍在独立的 `main`，不会被自动覆盖。
 
@@ -14,7 +14,7 @@
 - **人工交易**：应用内可编辑草稿 → 券商数据重新校验 → 短期一次性确认 → 本人输入独立授权密钥 → 执行一次；撤单也一样。
 - **异常核对**：网络超时、响应损坏及券商 5xx 产生状态“未知”；只读核对订单和持仓，**永不自动重试**。
 - **智能分析**：现金／持仓集中度、估值可信覆盖率、历史风险趋势、情景压力测试、监测规则和本地警报。
-- **平台运行**：统一 MCP 2026-07-28，OAuth CIMD/PKCE，自托管 Node、Docker、Cloudflare Workers，中英文 React MCP App。
+- **独立个人控制台**：自托管 `/owner` 网页与 ChatGPT／Claude 不绑定；密码登录、CSRF、独立交易密钥与 Live 二次确认。\n- **个性化自动化**：自选时区／当地小时、组合简报、变化时才通知；Resend 邮件可选且默认关闭。\n- **真实来源研究**：ECB 参考 FX、SEC EDGAR 正式申报、独立配置的 Twelve Data 报价，均保留来源与数据限制。\n- **平台运行**：统一 MCP 2026-07-28，OAuth CIMD/PKCE，自托管 Node、Docker、Cloudflare Workers，中英文 React MCP App。
 
 **AI 可以自动研究、整理与建议，但不能自主下单或撤单。** 定时任务只允许读取券商数据并更新本地风险提示。
 
@@ -68,7 +68,7 @@ PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=false
 - `PERSONAL_MAX_NOTIONAL` 约束按标的报价币种估算，不能保证市价单最终成交金额，汇率和参考价必须自行核实。
 - AI 研究卡片会区分 **AI 原评分** 和 **研究材料完整度**，检查来源链接、研究时间、价格时间、风险和反方论点。完整度 100 分也不表示文章或观点经事实核验。
 
-## 部署与连接
+## 独立 Owner Console 和个性化简报\n\n启动 V3 后，浏览器访问同一域名下的 `/owner`，不需要 ChatGPT 或 Claude 的写操作资格就可使用独立的本人确认交易页面。Owner Console 登录密码是你自己配置的 `OWNER_PASSWORD`；绝对不要在聊天中输入它或其他密钥。Live 仍需独立启用，并以本人输入的 LIVE 二次确认。\n\n可在该网页保存个人 IANA 时区、每日简报当地小时、只在变化时通知、语言偏好、监控规则与是否包含 Live。Cloudflare 每小时检查一次**是否已到当地设定时间**；未到时不读取券商。关闭简报仍保留工作日 UTC 07:00 的只读监控；Node/Docker 需要自己配置操作系统定时执行 `pnpm monitor:once`。可选邮件需要先在自己账户验证 Resend 域名，填写 `NOTIFY_PROVIDER=resend`、`RESEND_API_KEY`、`NOTIFY_FROM`、`NOTIFY_TO`，然后再在 Owner Console 开启邮件。\n\n研究工具不需要把券商密码交给其他数据商：ECB 不需要 Key；SEC 需设置本人联系邮箱 `SEC_CONTACT_EMAIL`；可选行情供应商需 `TWELVE_DATA_API_KEY`。它们都不是保证成交的实时券商报价，也不自动修改交易订单。\n\n## 部署与连接
 
 - 本地：`pnpm dev`，默认 `http://localhost:8080/mcp`。
 - 临时 HTTPS 测试：安装 `cloudflared` 后运行 `pnpm dev:tunnel`。
