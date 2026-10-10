@@ -43,6 +43,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 [hidden]{display:none!important}
 footer{font-size:11px;color:#a5b5c4;text-align:center;margin-top:24px}
 @media(max-width:710px){main{padding:12px}.grid,.fields,.cards{grid-template-columns:1fr}.brand{margin:0 0 14px}.panel,section{padding:15px}}
+
+.settingsGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.checkSetting{display:flex;align-items:center;gap:9px}
+.checkSetting input{width:18px;height:18px}
+.researchOutput{font-size:12px;line-height:1.6;max-height:360px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+@media(max-width:710px){.settingsGrid{grid-template-columns:1fr}}
 `;
 const js=String.raw`
 (function(){
@@ -294,6 +300,44 @@ export async function renderOwnerPage():Promise<{html:string;csp:string}>{
           <label id="liveWord" hidden>Live 真实资金：输入 LIVE<input id="liveConfirm" type="text" autocomplete="off" aria-label="输入 LIVE 以确认真实资金风险"></label>
           <div class="actions"><button id="back" type="button" class="secondary">返回审查</button>
             <button id="send" type="button" class="danger">3 · 本人明确确认并提交一次</button></div></div>
+      </section>
+      <section class="stack" aria-labelledby="preferencesHeading">
+        <header><div><h2 id="preferencesHeading">个性化与自动简报</h2>
+          <p class="muted">设置仅保存在私人实例；定时扫描只读取券商。邮件必须另外配置经过验证的发件账户。</p></div></header>
+        <div class="settingsGrid">
+          <label>偏好语言<select id="prefLocale"><option value="zh">中文</option><option value="en">English</option></select></label>
+          <label>默认环境<select id="prefEnvironment"><option value="demo">DEMO</option><option value="live">LIVE</option></select></label>
+          <label>IANA 时区<input id="prefTimezone" value="UTC" autocomplete="off" placeholder="Europe/Rome"></label>
+          <label>每日简报时刻（当地小时 0–23）<input id="prefHour" type="number" min="0" max="23" value="8"></label>
+          <label class="checkSetting"><input id="prefDaily" type="checkbox">启用只读每日简报</label>
+          <label class="checkSetting"><input id="prefOnChange" type="checkbox" checked>只在重要变化时通知</label>
+          <label class="checkSetting"><input id="prefLive" type="checkbox">同时关注 Live 账户</label>
+          <label class="checkSetting"><input id="prefEmail" type="checkbox">可选邮件推送（必须已配置发件服务）</label>
+        </div>
+        <p class="muted" id="providerStatus">邮件提供商状态：读取中</p>
+        <div class="actions"><button id="setupWatch" type="button" class="secondary">一键配置基础只读监测</button>
+          <button id="savePrefs" type="button">保存个人偏好</button></div>
+        <div class="panel"><div class="row"><h3>近期自动简报</h3>
+          <button id="loadReports" class="secondary" type="button">查看记录</button></div>
+          <div id="reports" class="feed"></div></div>
+      </section>
+      <section class="stack" aria-labelledby="researchHeading">
+        <h2 id="researchHeading">可信研究来源（只读，不替代券商成交报价）</h2>
+        <p class="muted">ECB 汇率是历史参考值；SEC 是正式申报原始文件；行情报价需要独立配置 Twelve Data Key。默认不会自动带入真实订单。</p>
+        <div class="settingsGrid">
+          <label>ECB 原始币种<input id="fxFrom" value="EUR" maxlength="3"></label>
+          <label>ECB 目标币种<input id="fxTo" value="USD" maxlength="3"></label>
+          <label>SEC 美国公司代码<input id="secSymbol" placeholder="AAPL" autocomplete="off"></label>
+          <label>行情代码<input id="quoteSymbol" placeholder="AAPL" autocomplete="off"></label>
+          <label>预期币种<input id="quoteCurrency" placeholder="USD" maxlength="3"></label>
+          <label>交易所（可选）<input id="quoteExchange" placeholder="NASDAQ"></label>
+        </div>
+        <div class="actions">
+          <button id="getFx" class="secondary" type="button">查看 ECB 汇率</button>
+          <button id="getSec" class="secondary" type="button">查看 SEC 申报</button>
+          <button id="getQuote" class="secondary" type="button">查看供应商报价</button>
+        </div>
+        <pre id="researchOutput" class="output researchOutput" aria-live="polite">选择一个研究来源。</pre>
       </section>
       <div id="status" class="notice" role="status" aria-live="polite" hidden></div>
       <div class="actions"><button id="verifyBtn" type="button" class="secondary" hidden>只读核对上次不明确的券商结果</button></div>
