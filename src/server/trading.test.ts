@@ -22,8 +22,10 @@ const snapshot:PortfolioSnapshot={
   holdings:[{ticker:"AAPL_US_EQ",name:"Apple",currency:"USD",quantity:5,tradableQuantity:4,price:100,valueInAccountCurrency:500,valueProvenance:"same_currency_quote"}],
   notes:[],
 };
-function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot;pending?:PendingOrder[]}={}){
+function fixture(opts:{unknown?:boolean;source?:PortfolioSnapshot;pending?:PendingOrder[];pauseOrder?:Promise<void>;onWriteEntered?:()=>void}={}){
   const placeOrder=vi.fn(async(_draft:TradeDraft)=>{
+    opts.onWriteEntered?.();
+    if(opts.pauseOrder)await opts.pauseOrder;
     if(opts.unknown)throw new BrokerOperationUnknown("response lost");
     return {orderId:"11"};
   });
@@ -93,6 +95,40 @@ describe("personal trading workflow",()=>{
     const verified=await svc.verifyOutcome(submission.verificationId!,"demo");
     expect(verified.status).toBe("matching_pending");
     expect(verified.message).toMatch(/not definitive proof/);
+    expect(placeOrder).toHaveBeenCalledTimes(1);
+  });
+  it("does not allow concurrent reviewed orders to spend the same account balance",async()=>{
+    let releaseBroker!:()=>void;
+    let observedEntry!:()=>void;
+    const blocked=new Promise<void>(resolve=>{releaseBroker=resolve;});
+    const reachedBroker=new Promise<void>(resolve=>{observedEntry=resolve;});
+    const {svc,placeOrder}=fixture({pauseOrder:blocked,onWriteEntered:observedEntry});
+    const draft:TradeDraft={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",
+      type:"limit",quantity:2,limitPrice:100};
+    const p1=await svc.prepareOrder(draft),p2=await svc.prepareOrder({...draft,quantity:1});
+    const proof1=await personalApprovalProof(secret,"order",p1.token);
+    const proof2=await personalApprovalProof(secret,"order",p2.token);
+    const first=svc.executeOrder(p1.token,proof1,"demo");
+    await reachedBroker;
+    await expect(svc.executeOrder(p2.token,proof2,"demo"))
+      .rejects.toThrow(/Another broker operation/);
+    expect(placeOrder).toHaveBeenCalledTimes(1);
+    releaseBroker();
+    expect((await first).status).toBe("submitted");
+    // The lock is released after a known broker acknowledgement.
+    expect((await svc.executeOrder(p2.token,proof2,"demo")).status).toBe("submitted");
+    expect(placeOrder).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a safety cooldown after an uncertain broker write",async()=>{
+    const {svc,placeOrder}=fixture({unknown:true});
+    const draft:TradeDraft={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",
+      type:"limit",quantity:1,limitPrice:100};
+    const p1=await svc.prepareOrder(draft),p2=await svc.prepareOrder(draft);
+    const proof1=await personalApprovalProof(secret,"order",p1.token);
+    const proof2=await personalApprovalProof(secret,"order",p2.token);
+    expect((await svc.executeOrder(p1.token,proof1,"demo")).status).toBe("unknown");
+    await expect(svc.executeOrder(p2.token,proof2,"demo"))
+      .rejects.toThrow(/Another broker operation/);
     expect(placeOrder).toHaveBeenCalledTimes(1);
   });
   it("does not silently enable Live trading",async()=>{
