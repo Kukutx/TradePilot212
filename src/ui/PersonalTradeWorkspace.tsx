@@ -75,11 +75,11 @@ interface Props{app:McpApp|null;environment:Environment;locale:Locale;initial:Pe
 export default function PersonalTradeWorkspace({app,environment,locale,initial}:Props){
   const t=strings[locale];
   const [cap,setCap]=useState<Capability|null>(null);
-  const [name,setName]=useState("AAPL");
+  const [name,setName]=useState("");
   const [side,setSide]=useState<TradeSide>("buy");
   const [type,setType]=useState<TradeOrderType>("market");
   const [mode,setSizingMode]=useState<Sizing["mode"]>("quantity");
-  const [size,setSize]=useState("1");
+  const [size,setSize]=useState("");
   const [currency,setCurrency]=useState("");
   const [fx,setFx]=useState("");
   const [ref,setRef]=useState("");
@@ -274,7 +274,7 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
           <label>{t.ref}<input type="number" step="any" value={draft.referencePrice??""}
             onChange={e=>setDraft({...draft,referencePrice:Number(e.target.value)})}/></label>
         </div>:<div className="tradeFields">
-          <label>{t.ticker}<input value={name} onChange={e=>setName(e.target.value)} /></label>
+          <label>{t.ticker}<input value={name} placeholder="AAPL / Apple" onChange={e=>setName(e.target.value)} /></label>
           <label>{t.side}<select value={side} onChange={e=>setSide(e.target.value as TradeSide)}><option value="buy">{t.buy}</option><option value="sell">{t.sell}</option></select></label>
           <label>{t.type}<select value={type} onChange={e=>setType(e.target.value as TradeOrderType)}>
             {(["market","limit","stop","stop_limit"] as const).map(x=><option key={x}>{x}</option>)}</select></label>
@@ -291,7 +291,8 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         </div>}
         <div className="tradeActions">
           {draft&&<button type="button" onClick={()=>{setDraft(null);setResolution(null);}}>{t.edit}</button>}
-          <button type="button" disabled={!app||!cap?.canReview||busy}
+          <button type="button" disabled={!app||!cap?.canReview||busy||
+            (!draft && (!name.trim() || (mode!=="all_available"&&!size.trim()))}
             onClick={()=>void (draft?prepare():checkIntent())}>{busy?t.loading:draft?t.prepare:t.review}</button>
         </div>
       </section>
@@ -341,8 +342,19 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
         {(p.analysisAsOf||p.referencePriceAt)&&<small>{p.analysisAsOf?`Research: ${new Date(p.analysisAsOf).toLocaleString()} `:""}{p.referencePriceAt?`· Price: ${new Date(p.referencePriceAt).toLocaleString()}`:""}</small>}
         {p.warning&&<p className="tradeWarning">{p.warning}</p>}
         {p.action!=="watch"&&<button disabled={!cap?.canReview||busy} type="button"
-          onClick={()=>void checkIntent({instrument:p.resolvedTicker||p.ticker||p.symbol||p.name||"",side:p.action==="sell"?"sell":"buy",
-            quantity:p.suggestedQuantity||1,referencePrice:p.referencePrice})}>{t.planReview}</button>}
+          onClick={()=>{
+            const instrument=p.resolvedTicker||p.ticker||p.symbol||p.name||"";
+            const selectedSide=p.action==="sell"?"sell":"buy";
+            if(p.suggestedQuantity){
+              void checkIntent({instrument,side:selectedSide,quantity:p.suggestedQuantity,referencePrice:p.referencePrice});
+            }else{
+              // Never invent a one-share order from a research idea with no sizing.
+              // Ask the user for an explicit quantity before opening the broker draft.
+              setName(instrument);setSide(selectedSide);setSizingMode("quantity");setSize("");
+              setRef(p.referencePrice?String(p.referencePrice):"");
+              setDraft(null);setResolution(null);setPreview(null);setError(null);
+            }
+          }}>{t.planReview}</button>}
       </article>)}</div>
     </section>}
   </section>;
