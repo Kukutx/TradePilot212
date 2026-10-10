@@ -386,9 +386,9 @@ export class TradingService {
     };
   }
 
-  async executeOrder(confirmationId: string, approvalSecret: string): Promise<OrderExecutionResult> {
-    // Never consume the one-time token or send a broker write without a separate human-held secret.
-    await requireExecutionApproval(approvalSecret, this.deps.config, this.deps.store);
+  async executeOrder(confirmationId: string, approvalProof: string): Promise<OrderExecutionResult> {
+    // Never consume the one-time token or send a broker write without a valid human-generated proof.
+    await requireExecutionApproval(approvalProof, "order", confirmationId, this.deps.config, this.deps.store);
     const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const draft = pending.draft;
@@ -419,8 +419,8 @@ export class TradingService {
     return preview;
   }
 
-  async executeCancel(confirmationId: string, approvalSecret: string): Promise<OrderExecutionResult> {
-    await requireExecutionApproval(approvalSecret, this.deps.config, this.deps.store);
+  async executeCancel(confirmationId: string, approvalProof: string): Promise<OrderExecutionResult> {
+    await requireExecutionApproval(approvalProof, "cancel", confirmationId, this.deps.config, this.deps.store);
     const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "cancel") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     try {
