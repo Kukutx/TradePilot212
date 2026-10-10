@@ -131,6 +131,19 @@ describe("personal trading workflow",()=>{
       .rejects.toThrow(/Another broker operation/);
     expect(placeOrder).toHaveBeenCalledTimes(1);
   });
+  it("audits provenance on AI research plans without treating scores as verified",async()=>{
+    const {svc}=fixture();
+    const result=await svc.tradePlan("demo",[{
+      ticker:"AAPL_US_EQ",horizon:"short",action:"buy",score:99,risk:"high",
+      rationale:"Unverified thesis",sources:["https://example.com/research"],
+      analysisAsOf:new Date().toISOString(),referencePrice:100,
+    }]);
+    const idea=result.candidates[0]!;
+    expect(idea.evidence.claimVerification).toBe("not_performed");
+    expect(idea.evidence.completenessPercent).toBeLessThan(100);
+    expect(idea.evidence.warningMessages.join(" ")).toMatch(/reference price timestamp/);
+    expect(idea.warning).toMatch(/not verified/);
+  });
   it("does not silently enable Live trading",async()=>{
     const {svc,placeOrder}=fixture();
     const draft:TradeDraft={environment:"live",ticker:"AAPL_US_EQ",side:"buy",type:"limit",quantity:1,limitPrice:99};
