@@ -33,7 +33,7 @@ export class IntelligenceService {
     return {
       kind: "daily_brief", environment, source: snapshot.source, asOf: snapshot.asOf,
       currency: snapshot.account.currency,
-      summary: `Portfolio total ${snapshot.account.totalValue} ${snapshot.account.currency}; ${snapshot.holdings.length} positions. No broker writes are possible.`,
+      summary: `Portfolio total ${snapshot.account.totalValue} ${snapshot.account.currency}; ${snapshot.holdings.length} positions. This research brief never performs broker writes.`,
       observations: [
         ...(analysis.alerts.length ? analysis.alerts : [
           analysis.largestPositionPercent === null
