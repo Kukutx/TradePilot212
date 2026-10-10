@@ -1,6 +1,6 @@
 import { analyzePortfolio, evaluateRule, stressPortfolio } from "../domain/analytics.js";
 import { samplePortfolio } from "../domain/sample.js";
-import type { Environment, MonitorEvent, PortfolioSnapshot, RuleEvaluation, RuleKind, WatchRule } from "../domain/types.js";
+import type { Environment, MonitorEvent, PortfolioSnapshot, RiskPulse, RiskTrend, RuleEvaluation, RuleKind, WatchRule } from "../domain/types.js";
 import type { BrokerReader } from "../infra/broker.js";
 import type { Configuration } from "../infra/config.js";
 import type { StateStore } from "../infra/state.js";
@@ -99,7 +99,17 @@ export class IntelligenceService {
   }
   /** Called by opt-in scheduled/manual monitoring. May write local events only. */
   async scan(environment: Environment) {
-    const evaluated=await this.inspectRules(environment);
+    const [rules,snapshot]=await Promise.all([this.listRules(environment),this.portfolio(environment)]);
+    const analysis=analyzePortfolio(snapshot);
+    const evaluated=rules.map(rule=>evaluateRule(rule,snapshot,analysis));
+    const pulse:RiskPulse={
+      kind:"risk_pulse",environment,source:snapshot.source,asOf:snapshot.asOf,
+      accountCurrency:snapshot.account.currency,totalValue:snapshot.account.totalValue,
+      cashPercent:analysis.cashPercent,largestPositionPercent:analysis.largestPositionPercent,
+      exposureCoveragePercent:analysis.exposureCoveragePercent,
+    };
+    await this.state.put(`v3:pulse:${environment}:${new Date().toISOString().slice(0,10)}`,
+      pulse,Date.now()+90*86400_000);
     let created=0;
     for(const result of evaluated){
       const statusKey=`v3:rule-status:${result.rule.id}`;
@@ -118,6 +128,23 @@ export class IntelligenceService {
       }
     }
     return {kind:"scan",environment,source:this.config.source,evaluated,created,brokerWrites:0};
+  }
+  async trend(environment:Environment):Promise<RiskTrend>{
+    const entries=await this.state.list<RiskPulse>(`v3:pulse:${environment}:`);
+    const points=entries.map(entry=>entry.value).filter(x=>x.source===this.config.source)
+      .sort((a,b)=>a.asOf.localeCompare(b.asOf)).slice(-90);
+    const first=points[0],last=points[points.length-1];
+    const comparable=first&&last&&first!==last&&first.accountCurrency===last.accountCurrency;
+    return {
+      kind:"risk_trend",environment,source:this.config.source,points,
+      absoluteValueChange:comparable?Math.round((last.totalValue-first.totalValue)*100)/100:null,
+      notes:[
+        "Portfolio value changes include deposits, withdrawals, currency moves and holdings changes; they are NOT investment returns.",
+        "Concentration and coverage can be unavailable when trusted account-currency values are missing.",
+        ...(this.config.source==="sample"?["SYNTHETIC DATA — these are not real observed portfolio trends."]:[]),
+        ...(points.length<2?["At least two separate daily monitoring scans are needed for a change comparison."]:[]),
+      ],
+    };
   }
   async events(environment:Environment){
     const list=await this.state.list<MonitorEvent>("v3:event:");
