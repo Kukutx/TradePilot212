@@ -83,6 +83,9 @@ assert.match(analysis.text,/analysis|100/);
 const today=await call("tools/call",{name:"get_personal_attention_center",arguments:{environment:"demo"}},6);
 assert.equal(today.status,200,today.text);
 assert.match(today.text,/attention_center|Synthetic/);
+const implicitToday=await call("tools/call",{name:"get_personal_attention_center",arguments:{}},8);
+assert.equal(implicitToday.status,200,implicitToday.text);
+assert.match(implicitToday.text,/attention_center/);
 const identityFx=await call("tools/call",{name:"get_ecb_reference_fx",
   arguments:{from:"EUR",to:"EUR"}},7);
 assert.equal(identityFx.status,200,identityFx.text);
