@@ -28,9 +28,10 @@ export function auditResearchIdea(candidate: TradeIdea, now = Date.now()): Resea
   const hasTraceableUrl = (source: string) => {
     try {
       const url = new URL(source);
+      const parts=url.hostname.split(".");
+      const numericIp=parts.length===4 && parts.every(part=>/^[0-9]{1,3}$/.test(part));
       return url.protocol === "https:" && !url.username && !url.password &&
-        url.hostname.includes(".") && !url.hostname.endsWith(".local") &&
-        !/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(url.hostname);
+        url.hostname.includes(".") && !url.hostname.endsWith(".local") && !numericIp;
     } catch { return false; }
   };
   const sourceLinks = (candidate.sources ?? []).filter(hasTraceableUrl).length;
