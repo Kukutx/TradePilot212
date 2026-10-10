@@ -3,6 +3,7 @@ import type { Context, Hono } from "hono";
 import type { Configuration } from "../infra/config.js";
 import type { StateStore } from "../infra/state.js";
 import { lookupClient } from "./client-metadata.js";
+import {readBoundedUtf8} from "../infra/bounded-body.js";
 
 const scopes = new Set(["portfolio:read", "monitor:write", "trading:review", "trading:execute", "offline_access"]);
 const encoder = new TextEncoder();
@@ -67,7 +68,7 @@ async function fields(c: Context): Promise<URLSearchParams> {
   const contentType=c.req.header("content-type")??"";
   if (!contentType.includes("application/x-www-form-urlencoded")) throw new Error("Form body required");
   if (Number(c.req.header("content-length") || 0)>16_384) throw new Error("Form too large");
-  const value=await c.req.text();
+  const value=await readBoundedUtf8(c.req.raw.body,16_384,"Form too large");
   if (value.length>16_384) throw new Error("Form too large");
   return new URLSearchParams(value);
 }
