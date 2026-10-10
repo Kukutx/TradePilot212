@@ -17,7 +17,7 @@ This is a release gate, NOT proof any of the following production checks were co
 | SEC EDGAR filings | Owner contact User-Agent and zero-padded 10-digit STRING CIK | Mock-tested only |
 | Twelve Data prices | Owner vendor account and explicit quote subscription | Mock-tested only |
 | Resend notifications | Verified sender domain plus owner opt-in in Owner Console | Mock-tested; NO REAL EMAIL SENT |
-| Cloudflare / Node / Docker | Owner staging secrets, hostname/TLS and persistent state | Wrangler dry-run only |
+| Cloudflare / Node / Docker | Owner staging secrets, hostname/TLS and persistent state | **Node HTTP and Docker synthetic startup checked in GitHub CI; Cloudflare Wrangler dry-run passes; real Cloudflare deployment/TLS NOT TESTED** |
 
 ## Owner steps before accepting this release
 
