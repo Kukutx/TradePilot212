@@ -40,6 +40,24 @@ export class InsightStore extends DurableObject<WorkerEnv> {
     }
     return result;
   }
+  async claim(key:string,owner:string,expiresAt:number):Promise<boolean>{
+    if(!owner||expiresAt<=Date.now())throw new Error("Invalid broker execution lease");
+    return this.ctx.storage.transaction(async transaction=>{
+      const prior=await transaction.get<Stored<string>>(key);
+      if(prior && (!prior.expiresAt||prior.expiresAt>Date.now()))return false;
+      await transaction.put(key,{value:owner,expiresAt});
+      return true;
+    });
+  }
+  async release(key:string,owner:string):Promise<boolean>{
+    return this.ctx.storage.transaction(async transaction=>{
+      const prior=await transaction.get<Stored<string>>(key);
+      if(!prior||prior.value!==owner||
+        (prior.expiresAt!==undefined&&prior.expiresAt<=Date.now()))return false;
+      await transaction.delete(key);
+      return true;
+    });
+  }
   async reserve(key:string,spacingMs:number,nowMs:number,maxWaitMs:number):Promise<number|null>{
     return this.ctx.storage.transaction(async transaction=>{
       if(!Number.isFinite(nowMs)||!Number.isFinite(spacingMs)||spacingMs<=0||maxWaitMs<0)
@@ -72,6 +90,8 @@ function state(env:WorkerEnv):StateStore{
     list:<T>(p:string)=>stub.list(p) as Promise<Array<{key:string;value:T}>>,
     increment:(k:string,d:number)=>stub.increment(k,d),
     reserve:(k:string,d:number,n:number,m:number)=>stub.reserve(k,d,n,m),
+    claim:(k:string,owner:string,expiresAt:number)=>stub.claim(k,owner,expiresAt),
+    release:(k:string,owner:string)=>stub.release(k,owner),
   };
 }
 export default {
