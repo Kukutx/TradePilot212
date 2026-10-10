@@ -13,6 +13,7 @@ const instrument: Instrument = {
   extendedHours: true,
 };
 const draft: OrderDraft = { environment: "demo", ticker: instrument.ticker, side: "buy", type: "market", quantity: 2, referencePrice: 100 };
+const holding = { instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 };
 
 describe("instrument resolution", () => {
   it("prefers the underlying stock when a company name also matches derivative ETFs", () => {
@@ -38,8 +39,28 @@ describe("instrument resolution", () => {
 
 describe("trade safety", () => {
   it("enforces cash and notional limits", () => {
-    expect(() => validateOrderAgainstSnapshot(draft, instrument, undefined, { currency: "USD", cash: { availableToTrade: 150 } }, { maxOrderNotional: 500, maxOrderQuantity: 10 })).toThrow(/available cash/i);
-    expect(() => validateOrderAgainstSnapshot(draft, instrument, undefined, { currency: "USD", cash: { availableToTrade: 1000 } }, { maxOrderNotional: 150, maxOrderQuantity: 10 })).toThrow(/MAX_ORDER_NOTIONAL/);
+    expect(() => validateOrderAgainstSnapshot(draft, instrument, holding, { currency: "USD", cash: { availableToTrade: 150 } }, { maxOrderNotional: 500, maxOrderQuantity: 10 })).toThrow(/available cash/i);
+    expect(() => validateOrderAgainstSnapshot(draft, instrument, holding, { currency: "USD", cash: { availableToTrade: 1000 } }, { maxOrderNotional: 150, maxOrderQuantity: 10 })).toThrow(/MAX_ORDER_NOTIONAL/);
+  });
+
+  it("blocks market buys of unheld instruments based only on AI reference prices when a cap is enabled", () => {
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, quantity: 0.5, referencePrice: 0.01 },
+      instrument,
+      undefined,
+      { currency: "USD", cash: { availableToTrade: 10_000 } },
+      { maxOrderNotional: 500, maxOrderQuantity: 10 },
+    )).toThrow(/broker-observed reference price/i);
+  });
+
+  it("requires Stop-Limit instead of uncapped Buy Stop orders", () => {
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, type: "stop", stopPrice: 100 },
+      instrument,
+      holding,
+      { currency: "USD", cash: { availableToTrade: 10_000 } },
+      { maxOrderNotional: 500, maxOrderQuantity: 10 },
+    )).toThrow(/Stop-Limit/);
   });
 
   it("prevents selling more than the current tradable position", () => {
@@ -50,6 +71,16 @@ describe("trade safety", () => {
       { currency: "USD" },
       { maxOrderNotional: 500, maxOrderQuantity: 10 },
     )).toThrow(/available quantity/i);
+  });
+
+  it("uses broker-held current price rather than a model-supplied price for the market-order cap", () => {
+    const holding = { instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 };
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, referencePrice: 1 },
+      instrument, holding,
+      { currency: "USD", cash: { availableToTrade: 1000 } },
+      { maxOrderNotional: 150, maxOrderQuantity: 10 },
+    )).toThrow(/MAX_ORDER_NOTIONAL/);
   });
 
   it("allows self-hosters to disable app-level caps with zero", () => {
@@ -70,6 +101,7 @@ function config(): RuntimeConfig {
     publicBaseUrl: "https://example.test",
     loginPassword: "0123456789abcdef",
     signingSecret: "0123456789abcdef0123456789abcdef",
+    executionApprovalSecret: "independent-human-secret-value",
     accessTokenTtlSeconds: 3600,
     refreshTokenTtlSeconds: 86400,
     confirmationTtlSeconds: 90,

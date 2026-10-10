@@ -4,6 +4,7 @@ export interface RuntimeConfig {
   publicBaseUrl: string;
   loginPassword: string;
   signingSecret: string;
+  executionApprovalSecret: string;
   accessTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
   confirmationTtlSeconds: number;
@@ -14,7 +15,7 @@ export interface RuntimeConfig {
 }
 
 export type RuntimeEnv = Partial<Record<
-  | "PUBLIC_BASE_URL" | "APP_LOGIN_PASSWORD" | "AUTH_SIGNING_SECRET"
+  | "PUBLIC_BASE_URL" | "APP_LOGIN_PASSWORD" | "AUTH_SIGNING_SECRET" | "EXECUTION_APPROVAL_SECRET"
   | "ACCESS_TOKEN_TTL_SECONDS" | "REFRESH_TOKEN_TTL_SECONDS" | "CONFIRMATION_TTL_SECONDS"
   | "MAX_ORDER_NOTIONAL" | "MAX_ORDER_QUANTITY" | "DEFAULT_TRADING_ENV"
   | "T212_DEMO_API_KEY" | "T212_DEMO_API_SECRET" | "T212_LIVE_API_KEY" | "T212_LIVE_API_SECRET",
@@ -49,6 +50,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
     signingSecret: env.AUTH_SIGNING_SECRET ?? "",
+    executionApprovalSecret: env.EXECUTION_APPROVAL_SECRET ?? "",
     accessTokenTtlSeconds: Math.floor(positive(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
     refreshTokenTtlSeconds: Math.floor(positive(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
     confirmationTtlSeconds: Math.floor(positive(env, "CONFIRMATION_TTL_SECONDS", 90)),
@@ -67,6 +69,15 @@ export function credentialStatus(config: RuntimeConfig): CredentialStatus {
     demo: Boolean(config.trading212.demo.apiKey && config.trading212.demo.apiSecret),
     live: Boolean(config.trading212.live.apiKey && config.trading212.live.apiSecret),
   };
+}
+
+export function isExecutionApprovalConfigured(config: RuntimeConfig): boolean {
+  const secret = config.executionApprovalSecret;
+  return secret.length >= 16
+    && !secret.startsWith("change-this-")
+    && !secret.startsWith("replace-with-")
+    && secret !== config.loginPassword
+    && secret !== config.signingSecret;
 }
 
 export function assertAuthConfigured(config: RuntimeConfig): void {

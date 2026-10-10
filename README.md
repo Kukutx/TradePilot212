@@ -2,13 +2,13 @@
 
 [简体中文](./README.zh-CN.md) · English
 
-TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
+TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT, Claude and other MCP-capable assistants, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
 
 Each deployment belongs to one user. Your Trading 212 credentials stay in your own environment; the repository owner does not run a shared brokerage backend.
 
 ## Design goals
 
-- **ChatGPT-first workflow** — use symbols, company names, amounts, percentages, or exact quantities in normal conversation.
+- **Cross-host MCP workflow** — use symbols, company names, amounts, percentages, or exact quantities in normal conversation.
 - **Explicit execution boundary** — analysis and order preparation are read-only; a broker write happens only after confirmation in the app UI.
 - **Self-hosted by default** — Cloudflare Workers is the recommended hosted path; Node.js and Docker/VPS are also supported.
 - **Small runtime surface** — the Worker handles account access, instrument resolution, validation, state, and execution. Research and scheduling stay outside the broker bridge.
@@ -32,7 +32,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - transparent intent-to-quantity conversion with manual-edit indication
 - reference-price freshness notices
 - structured errors rendered in the selected UI language
-- one-time confirmation state and no automatic write retries
+- one-time confirmation, a separate human execution-approval secret, and no automatic write retries
 - read-back verification after an uncertain order/cancellation response
 - OAuth + PKCE for the MCP connection
 - Cloudflare Durable Objects or local file-backed state through the same `StateStore` contract
@@ -43,7 +43,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - pnpm 11+
 - a Trading 212 Invest account with Public API access
 - a Cloudflare account for the recommended hosted deployment
-- a ChatGPT plan/client that supports custom Apps / MCP connections
+- a ChatGPT, Claude or other client with support for custom remote MCP Apps (entitlements vary)
 
 Install pnpm if needed:
 
@@ -67,7 +67,7 @@ pnpm install
 pnpm setup
 ```
 
-`pnpm setup` creates `.env.local` if it does not already exist and generates strong local values for the OAuth login password and signing secret.
+`pnpm setup` creates `.env.local` if it does not already exist and generates three distinct values: OAuth login password, OAuth signing secret, and **EXECUTION_APPROVAL_SECRET**. Keep the approval secret out of AI conversations; it is entered directly in the transaction UI for every order or cancellation.
 
 Open `.env.local` and add the Trading 212 environments you intend to use:
 
@@ -130,9 +130,9 @@ Use a different Worker name:
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 5. Connect ChatGPT
+### 5. Connect ChatGPT or Claude
 
-In ChatGPT, open the Apps settings and create a custom MCP connection. Use the `/mcp` URL printed by the deployment command.
+In a supported ChatGPT or Claude client, create a custom remote MCP connection with the `/mcp` URL printed by the deployment command. ChatGPT supports CIMD and DCR OAuth bootstrapping; other hosts may use DCR. [Host-specific instructions](./docs/AI_HOSTS.md).
 
 The OAuth page asks for the `APP_LOGIN_PASSWORD` stored in your own `.env.local`. Do not paste Trading 212 API credentials into ChatGPT.
 
@@ -149,7 +149,7 @@ Sell all currently tradable Apple shares.
 Prepare a 220 USD limit buy for 0.5 NVDA. Do not submit it.
 ```
 
-TradePilot resolves and normalizes the request into an editable quantity-based order. The broker write still requires the final confirmation in the UI.
+TradePilot resolves and normalizes the request into an editable quantity-based order. Every broker write requires final UI confirmation and a locally computed, one-time HMAC proof from the independent execution-approval secret (never provide it as an AI prompt). **With notional caps enabled, buying an unheld stock requires a price-bounded Limit order rather than an unpriced Market order.**
 
 ## Order flow
 
@@ -164,7 +164,7 @@ Server validation + data freshness notices
   ↓
 Short-lived one-time confirmation
   ↓
-Explicit user confirmation
+Explicit user confirmation + separate approval secret
   ↓
 Trading 212 write
 ```
@@ -177,7 +177,7 @@ See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 
 TradePilot intentionally does not contain a stock-research scheduler, news crawler, or autonomous trading loop.
 
-A scheduled ChatGPT task can perform market research, read the portfolio through TradePilot, and render a trade plan. Execution remains a separate interactive action.
+An AI-host scheduled task can perform market research, read the portfolio through TradePilot, and render a trade plan. Execution remains a separate interactive action.
 
 See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
 
@@ -244,7 +244,7 @@ The repository CI runs type checking, tests, production builds, dependency audit
 ## Architecture
 
 ```text
-ChatGPT / MCP host
+ChatGPT / Claude / MCP host
         │
         ▼
   Hono + OAuth/PKCE
@@ -264,7 +264,9 @@ React App UI ← MCP App resource
 
 The core does not depend on the Node filesystem or Cloudflare APIs. Runtime-specific concerns live under `src/adapters/`.
 
-More detail: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+More detail: [existing architecture](./docs/ARCHITECTURE.md), [2026 refactor roadmap](./docs/ARCHITECTURE_2026.md), and [engineering rules](./AGENTS.md).
+
+Breaking upgrade notes: [2026 migration guide](./docs/MIGRATION_2026.md). Privacy: [Privacy Policy](./PRIVACY.md).
 
 ## Self-hosting model
 
@@ -282,7 +284,7 @@ See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 - `.env.local`, `.dev.vars`, `.data`, build output, and Wrangler state are excluded from Git.
 - Trading 212 API credentials are deployed as Worker Secrets, not source configuration.
 - Demo and Live credentials are separate.
-- order and cancellation confirmations are short-lived and one-time.
+- order and cancellation confirmations are short-lived, one-time, and require a separate human-held execution secret.
 - write requests are never automatically retried after an ambiguous response.
 - order constraints are revalidated immediately before submission.
 - recent activity stores order metadata only; it does not store API credentials.

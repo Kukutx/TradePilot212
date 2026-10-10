@@ -17,8 +17,10 @@ result(".env.local", fs.existsSync(path.join(root, ".env.local")), fs.existsSync
 
 const password = process.env.APP_LOGIN_PASSWORD ?? "";
 const signing = process.env.AUTH_SIGNING_SECRET ?? "";
+const approval = process.env.EXECUTION_APPROVAL_SECRET ?? "";
 result("OAuth login password", password.length >= 16 && password !== "change-this-password", password ? "configured" : "missing");
 result("OAuth signing secret", signing.length >= 32 && !signing.startsWith("change-this-"), signing ? "configured" : "missing");
+result("Execution approval secret", approval.length >= 16 && approval !== password && approval !== signing && !approval.startsWith("change-this-") && !approval.startsWith("replace-with-"), approval ? "configured (separate from OAuth)" : "missing — broker writes disabled");
 
 const defaultEnvironment = (process.env.DEFAULT_TRADING_ENV ?? "demo").trim().toLowerCase();
 result("Default trading environment", ["demo", "live"].includes(defaultEnvironment), defaultEnvironment);

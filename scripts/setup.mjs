@@ -25,6 +25,7 @@ if (!fs.existsSync(target)) {
   let text = fs.readFileSync(example, "utf8");
   text = setValue(text, "APP_LOGIN_PASSWORD", `tp-${randomSecret(18)}`);
   text = setValue(text, "AUTH_SIGNING_SECRET", randomSecret(48));
+  text = setValue(text, "EXECUTION_APPROVAL_SECRET", `tp-approval-${randomSecret(24)}`);
   fs.writeFileSync(target, text, { encoding: "utf8", flag: "wx" });
   console.log("Created .env.local with secure OAuth secrets.");
 } else {
@@ -32,12 +33,17 @@ if (!fs.existsSync(target)) {
   let changed = false;
   const password = /^APP_LOGIN_PASSWORD=(.*)$/m.exec(text)?.[1]?.trim() ?? "";
   const signing = /^AUTH_SIGNING_SECRET=(.*)$/m.exec(text)?.[1]?.trim() ?? "";
+  const approval = /^EXECUTION_APPROVAL_SECRET=(.*)$/m.exec(text)?.[1]?.trim() ?? "";
   if (!password || password === "change-this-password" || password.length < 16) {
     text = setValue(text, "APP_LOGIN_PASSWORD", `tp-${randomSecret(18)}`);
     changed = true;
   }
   if (!signing || signing.startsWith("change-this-") || signing.length < 32) {
     text = setValue(text, "AUTH_SIGNING_SECRET", randomSecret(48));
+    changed = true;
+  }
+  if (!approval || approval.startsWith("change-this") || approval.startsWith("replace-with") || approval.length < 16 || approval === password || approval === signing) {
+    text = setValue(text, "EXECUTION_APPROVAL_SECRET", `tp-approval-${randomSecret(24)}`);
     changed = true;
   }
   if (changed) {
@@ -51,9 +57,10 @@ if (!fs.existsSync(target)) {
 console.log("");
 console.log("Next:");
 console.log("1. Open .env.local");
-console.log("2. Paste your Trading 212 Demo and/or Live API key + secret");
-console.log("3. Run: pnpm doctor");
-console.log("4. Cloudflare: pnpm deploy");
+console.log("2. Keep EXECUTION_APPROVAL_SECRET private; it is needed to confirm every broker write");
+console.log("3. Paste your Trading 212 Demo and/or Live API key + secret");
+console.log("4. Run: pnpm doctor");
+console.log("5. Cloudflare: pnpm deploy");
 console.log("   Local Node: pnpm dev");
 console.log("");
 console.log("Never commit .env.local or share its contents.");

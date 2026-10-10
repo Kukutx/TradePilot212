@@ -2,13 +2,13 @@
 
 简体中文 · [English](./README.md)
 
-TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT，提供简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
+TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT、Claude 等 MCP 平台，提供简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
 
 每个部署实例只属于一个用户。Trading 212 凭据保存在用户自己的环境里，仓库维护者不提供共享券商后端，也不接触其他用户的 API 密钥。
 
 ## 设计目标
 
-- **以 ChatGPT 为主要入口**：平时可以直接说股票代码、公司名、金额、比例或准确股数。
+- **以跨平台 MCP 为入口**：平时可以直接说股票代码、公司名、金额、比例或准确股数。
 - **执行边界清楚**：分析和订单准备只读；真正写入 Trading 212 之前必须在应用界面里确认。
 - **默认自托管**：推荐 Cloudflare Workers，同时支持 Node.js 和 Docker/VPS。
 - **职责保持简单**：Worker 只负责账户访问、标的解析、校验、状态和执行；市场研究与定时任务不塞进券商桥接层。
@@ -32,7 +32,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 清楚展示自然语言指令如何换算成最终股数，并标记手动修改
 - 参考价格新鲜度提示
 - 结构化错误，界面按当前语言显示
-- 短期一次性确认状态，写操作绝不自动重试
+- 短期一次性确认、独立交易授权密钥，写操作绝不自动重试
 - 订单/撤单结果不确定时提供只读状态核对
 - MCP 连接使用 OAuth + PKCE
 - Cloudflare Durable Objects 与本地文件状态共用同一套 `StateStore` 接口
@@ -43,7 +43,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - pnpm 11+
 - 已开放 Public API 的 Trading 212 Invest 账户
 - 推荐使用 Cloudflare 账户部署公网 Worker
-- 支持自定义 Apps / MCP 连接的 ChatGPT 客户端或套餐
+- 支持自定义远程 MCP Apps 的 ChatGPT、Claude 等客户端（实际权限随客户端而异）
 
 没有 pnpm 时：
 
@@ -67,7 +67,7 @@ pnpm install
 pnpm setup
 ```
 
-如果 `.env.local` 不存在，`pnpm setup` 会创建它，并生成本地 OAuth 登录密码和签名密钥。
+如果 `.env.local` 不存在，`pnpm setup` 会创建它，并分别生成 OAuth 登录密码、签名密钥，以及独立的 `EXECUTION_APPROVAL_SECRET`。每次真正下单或撤单都必须在交互界面输入该授权密钥，严禁粘贴到 AI 对话中。
 
 打开 `.env.local`，填写你需要的 Trading 212 环境：
 
@@ -130,9 +130,9 @@ pnpm deploy -- --dry-run
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 5. 接入 ChatGPT
+### 5. 接入 ChatGPT / Claude
 
-在 ChatGPT 的 Apps 设置中创建自定义 MCP 连接，填入部署脚本输出的 `/mcp` 地址。
+在支持远程 MCP Apps 的 ChatGPT 或 Claude 中创建连接，填写部署脚本输出的 `/mcp` 地址。ChatGPT 支持 CIMD / DCR OAuth，其他宿主可按各自界面选择。详见 [多平台接入说明](./docs/AI_HOSTS.md)。
 
 OAuth 页面要求输入你自己 `.env.local` 里的 `APP_LOGIN_PASSWORD`。不要把 Trading 212 API Key 或 Secret 粘贴到 ChatGPT 对话里。
 
@@ -149,7 +149,7 @@ LIVE 大约用 100 欧元买 Nvidia。
 准备一个 NVDA 220 美元、0.5 股的限价买单，不要提交。
 ```
 
-TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数量订单，并先展示成可编辑草稿。真正写入券商仍需要最后确认。
+TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数量订单，并先展示成可编辑草稿。真正写入券商还必须进行最后确认，并输入独立的 `EXECUTION_APPROVAL_SECRET`，界面本地生成与订单绑定的一次性 HMAC 授权证明，原密钥不会作为 MCP 工具参数发送。**开启金额上限后，买入尚未持有的股票应使用有限价约束的 Limit 订单，不能仅凭 AI 报价直接发市价单。**
 
 ## 订单流程
 
@@ -164,7 +164,7 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
   ↓
 短期一次性确认
   ↓
-用户明确确认
+用户明确确认 + 独立授权密钥
   ↓
 写入 Trading 212
 ```
@@ -177,7 +177,7 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
 
 TradePilot 本身不实现选股定时器、新闻爬虫或自动交易循环。
 
-定时 ChatGPT 任务可以负责市场研究、读取 TradePilot 持仓并生成交易计划；真实执行继续保持为独立的交互操作。
+定时 AI 任务可以负责市场研究、读取 TradePilot 持仓并生成交易计划；真实执行继续保持为独立的交互操作。
 
 详见 [docs/AUTOMATION.md](./docs/AUTOMATION.md)。
 
@@ -242,7 +242,7 @@ GitHub CI 会执行类型检查、测试、生产构建、生产依赖审计、�
 ## 架构
 
 ```text
-ChatGPT / MCP Host
+ChatGPT / Claude / MCP Host
         │
         ▼
   Hono + OAuth/PKCE
@@ -262,7 +262,9 @@ React App UI ← MCP App Resource
 
 核心业务代码不依赖 Node 文件系统或 Cloudflare API，运行时差异集中在 `src/adapters/`。
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+详见 [原架构](./docs/ARCHITECTURE.md)、[2026 重构规划](./docs/ARCHITECTURE_2026.md) 和 [工程安全规则](./AGENTS.md)。
+
+破坏性升级说明：[2026 迁移指南](./docs/MIGRATION_2026.md)。隐私说明：[PRIVACY.md](./PRIVACY.md)。
 
 ## 自托管模型
 
@@ -280,7 +282,7 @@ React App UI ← MCP App Resource
 - `.env.local`、`.dev.vars`、`.data`、构建目录和 Wrangler 本地状态均不会提交到 Git。
 - Trading 212 API 凭据通过 Worker Secrets 部署，不进入源码配置。
 - Demo / Live 凭据完全独立。
-- 下单和撤单确认短期有效且只能使用一次。
+- 下单和撤单确认短期有效、只能使用一次，且执行阶段需要独立授权密钥。
 - 写请求出现不确定结果时不会自动重试。
 - 真正提交前会再次检查订单约束。
 - 最近操作记录只保存订单元数据，不保存 API 凭据。

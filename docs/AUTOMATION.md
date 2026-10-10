@@ -5,7 +5,7 @@ TradePilot 212 does not run its own market-research scheduler and does not suppo
 The intended split is:
 
 ```text
-Scheduled ChatGPT task
+Scheduled host task (e.g. ChatGPT)
   → current market/news/research
   → read TradePilot portfolio and pending orders
   → reassess existing positions and new candidates
@@ -42,7 +42,7 @@ TradePilot then resolves the instrument, sizes an editable order, validates it a
 
 ## Recommended cadence
 
-For a primarily US-equity portfolio in Europe, a weekday pre-market brief is a sensible default. The exact schedule belongs to the ChatGPT automation, not the Worker, and can be changed without redeploying TradePilot.
+For a primarily US-equity portfolio in Europe, a weekday pre-market brief is a sensible default. The exact schedule belongs to the AI-host automation, not the Worker, and can be changed without redeploying TradePilot.
 
 ## Boundaries
 

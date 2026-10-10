@@ -24,6 +24,7 @@ import type {
   TradingEnvironment,
 } from "../shared/contracts";
 import { APP_META } from "../shared/meta";
+import { createExecutionApprovalProof } from "../shared/execution-proof";
 import {
   createTranslator,
   localeTag,
@@ -338,7 +339,7 @@ export default function App() {
   }
 
   async function callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    if (!app) throw new Error("ChatGPT app connection is not ready");
+    if (!app) throw new Error("MCP App host connection is not ready");
     const result = await app.callServerTool({ name, arguments: args });
     if (result.isError) {
       const payload = result.structuredContent as unknown as ErrorPayload | undefined;
@@ -417,13 +418,15 @@ export default function App() {
     }
   }
 
-  async function confirmOrder(): Promise<void> {
+  async function confirmOrder(approvalSecret: string): Promise<void> {
     if (!preview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = preview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode });
+      // The host only receives a one-use HMAC proof, never the user's actual secret.
+      const approvalProof = await createExecutionApprovalProof(approvalSecret, "order", confirmationCode);
+      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, approvalProof });
       setExecution(result);
       setVerification(null);
       setPreview(null);
@@ -448,13 +451,14 @@ export default function App() {
     }
   }
 
-  async function confirmCancel(): Promise<void> {
+  async function confirmCancel(approvalSecret: string): Promise<void> {
     if (!cancelPreview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = cancelPreview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode });
+      const approvalProof = await createExecutionApprovalProof(approvalSecret, "cancel", confirmationCode);
+      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode, approvalProof });
       setExecution(result);
       setVerification(null);
       setCancelPreview(null);
@@ -628,7 +632,7 @@ export default function App() {
           t={t}
           busy={status === "loading"}
           onBack={() => setPreview(null)}
-          onConfirm={() => void confirmOrder()}
+          onConfirm={(approvalSecret) => void confirmOrder(approvalSecret)}
         />
       )}
 
@@ -641,7 +645,7 @@ export default function App() {
           busy={status === "loading"}
           t={t}
           onCancel={() => setCancelPreview(null)}
-          onConfirm={() => void confirmCancel()}
+          onConfirm={(approvalSecret) => void confirmCancel(approvalSecret)}
         />
       )}
     </div>
@@ -1023,6 +1027,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="field"><span>{label}</span>{children}</label>;
 }
 
+function ExecutionApprovalField({ secret, onChange, t }: {
+  secret: string;
+  onChange: (secret: string) => void;
+  t: Translator;
+}) {
+  return (
+    <div className="approvalField">
+      <Field label={t("executionApprovalLabel")}>
+        <input type="password" autoComplete="off" spellCheck={false}
+          value={secret} onChange={(event) => onChange(event.target.value)}
+          placeholder={t("executionApprovalPlaceholder")} />
+      </Field>
+      <p>{t("executionApprovalHint")}</p>
+    </div>
+  );
+}
+
 function OrderConfirmation({
   preview,
   locale,
@@ -1036,8 +1057,9 @@ function OrderConfirmation({
   t: Translator;
   busy: boolean;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (approvalSecret: string) => void;
 }) {
+  const [approvalSecret, setApprovalSecret] = useState("");
   const draft = preview.draft;
   const amountCurrency = preview.estimatedNotionalCurrency || preview.instrument.currencyCode;
   return (
@@ -1062,7 +1084,8 @@ function OrderConfirmation({
         </div>
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        <ExecutionApprovalField secret={approvalSecret} onChange={setApprovalSecret} t={t} />
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy || !approvalSecret} onClick={() => { const value = approvalSecret; setApprovalSecret(""); onConfirm(value); }}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
   );
@@ -1089,13 +1112,15 @@ function ConfirmModal({
   busy: boolean;
   t: Translator;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (approvalSecret: string) => void;
 }) {
+  const [approvalSecret, setApprovalSecret] = useState("");
   return (
     <main className="transactionStage">
       <section className={`transactionPanel smallDialog ${danger ? "liveTransaction" : ""}`} aria-label={title}>
         <h2>{title}</h2><p>{body}</p>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
+        <ExecutionApprovalField secret={approvalSecret} onChange={setApprovalSecret} t={t} />
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy || !approvalSecret} onClick={() => { const value = approvalSecret; setApprovalSecret(""); onConfirm(value); }}>{busy ? t("processing") : confirmLabel}</button></div>
       </section>
     </main>
   );

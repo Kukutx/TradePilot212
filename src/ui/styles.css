@@ -384,6 +384,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .confirmationRows span { color: var(--tp-muted); }
 .confirmationRows strong { text-align: right; overflow-wrap: anywhere; }
 .expiryLine { margin-top: 12px; color: var(--tp-muted); font-size: 9px; }
+.approvalField { display: grid; gap: 6px; margin-top: 15px; }
+.approvalField p { margin: 0; color: var(--tp-muted); font-size: 10px; }
 .smallDialog { width: min(560px, 100%); min-height: 0; }
 .smallDialog h2 { margin: 0 0 8px; font-size: 19px; letter-spacing: -.025em; }
 .smallDialog p { margin: 0; color: var(--tp-muted); font-size: 11px; }
