@@ -2,7 +2,7 @@
 
 **Self-hosted AI investment intelligence, portfolio management and human-authorized personal trading.**
 
-[Manual acceptance matrix](docs/HOST_QA.md) · [Owner Console](docs/OWNER_CONSOLE.md) · [Read-only automation](docs/AUTOMATION_DELIVERY.md) · [External evidence](docs/EXTERNAL_DATA.md) · [Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
+[Test candidate checklist](docs/TEST_READY.md) · [Manual acceptance matrix](docs/HOST_QA.md) · [Owner Console](docs/OWNER_CONSOLE.md) · [Read-only automation](docs/AUTOMATION_DELIVERY.md) · [External evidence](docs/EXTERNAL_DATA.md) · [Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
 
 V3 is a **clean-slate, breaking redesign**. No legacy V2 protocol, tool, OAuth, environment variable or persisted-state compatibility is implemented. The functioning V2 `main` branch remains intact.
 
@@ -10,7 +10,7 @@ V3 is a **clean-slate, breaking redesign**. No legacy V2 protocol, tool, OAuth, 
 
 Portfolio dashboards for Trading 212 Demo/Live, positions, cash, pending orders, recent activity; bilingual model-proposed short/medium/long investment research cards; ticker/name resolution; order sizing by quantity, target money, percent of available cash, percent of held shares and all tradable shares; Market, Limit, Stop, Stop-Limit; interactive review, single-use human-approved execution and cancellation; unknown-write read-back verification; risk analysis, concentration, stress scenarios and scheduled read-only alerts.
 
-**No unattended trading.** Broker writes only after an explicit private owner UI action, fresh risk validation, one-use confirmation and client-side HMAC approval. Uncertain POST/DELETE outcomes must never be retried automatically. Demo and Live require separate authorizations, and both are disabled by default.
+**No unattended trading.** A lost/ambiguous broker write is persisted before transmission and blocks future writes across lock expiration and process restarts until independent owner-approved reconciliation. **Code-level test candidate**: new feature work is frozen pending manual Demo and host acceptance.  Broker writes only after an explicit private owner UI action, fresh risk validation, one-use confirmation and client-side HMAC approval. Uncertain POST/DELETE outcomes must never be retried automatically. Demo and Live require separate authorizations, and both are disabled by default.
 
 ## Install
 
