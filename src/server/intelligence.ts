@@ -35,7 +35,11 @@ export class IntelligenceService {
       currency: snapshot.account.currency,
       summary: `Portfolio total ${snapshot.account.totalValue} ${snapshot.account.currency}; ${snapshot.holdings.length} positions. No broker writes are possible.`,
       observations: [
-        ...(analysis.alerts.length ? analysis.alerts : ["No predefined concentration or cash threshold triggered."]),
+        ...(analysis.alerts.length ? analysis.alerts : [
+          analysis.largestPositionPercent === null
+            ? "Concentration could not be evaluated reliably; do not infer absence of concentration risk."
+            : "No predefined concentration or cash threshold triggered.",
+        ]),
         ...analysis.limitations,
       ],
       priorityChecks: [
