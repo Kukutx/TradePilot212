@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+const orderViews = readFileSync(new URL("./views/OrderViews.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
 describe("transaction layout", () => {
   it("keeps order review in normal document flow", () => {
-    expect(app).toContain("transactionStage");
+    expect(orderViews).toContain("transactionStage");
     expect(css).toContain(".transactionStage");
     expect(css).toContain(".transactionPanel");
     expect(css).not.toContain(".modalBackdrop");
