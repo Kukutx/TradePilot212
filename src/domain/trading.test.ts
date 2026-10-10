@@ -68,6 +68,12 @@ describe("personal trade intent and risk policy",()=>{
     expect(checkDraft({...market,type:"stop",stopPrice:100},instruments[0]!,live,ownerOptIn)
       .estimatedNotional).toBe(100);
   });
+  it("rejects non-finite notional overflow even when owner disables app-level caps",()=>{
+    expect(()=>checkDraft({
+      environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"limit",
+      quantity:1e307,limitPrice:1e307,
+    },instruments[0]!,snapshot,{maxQuantity:0,maxNotional:0})).toThrow(/overflows/);
+  });
   it("rejects malformed direct service inputs even when MCP schemas are bypassed",()=>{
     const valid={environment:"demo",ticker:"AAPL_US_EQ",side:"buy",type:"market",quantity:1};
     for(const invalid of [
