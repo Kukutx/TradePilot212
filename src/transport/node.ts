@@ -16,6 +16,8 @@ const app=createHttpApp({
   config,state,
   widgetHtml:()=>fs.readFile(path.join(root,"dist","widget","index.html"),"utf8"),
 });
-serve({fetch:app.fetch,port,hostname:"127.0.0.1"},()=>{
-  console.log(`TradePilot Insight V3 listening on http://127.0.0.1:${port}`);
+const bindHost=process.env.BIND_HOST||"127.0.0.1";
+if(!["127.0.0.1","0.0.0.0","::1"].includes(bindHost))throw new Error("Unsupported BIND_HOST");
+serve({fetch:app.fetch,port,hostname:bindHost},()=>{
+  console.log(`TradePilot 212 Personal V3 listening on http://127.0.0.1:${port}`);
 });

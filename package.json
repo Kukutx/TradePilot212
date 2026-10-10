@@ -1,9 +1,9 @@
 {
-  "name": "tradepilot-insight",
-  "version": "3.0.0-alpha.1",
+  "name": "tradepilot212-personal",
+  "version": "3.0.0-alpha.2",
   "private": true,
   "type": "module",
-  "description": "AI-native Trading 212 portfolio intelligence: strictly read-only brokerage and modern MCP.",
+  "description": "Self-hosted personal AI investment intelligence and human-authorized Trading 212 trading (modern MCP).",
   "scripts": {
     "dev": "pnpm build:widget && tsx watch src/transport/node.ts",
     "start": "node dist/node/transport/node.js",
@@ -20,7 +20,9 @@
     "monitor:once": "tsx src/transport/monitor-once.ts",
     "setup": "node scripts/setup.mjs",
     "doctor": "tsx scripts/doctor.ts",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "deploy": "node scripts/deploy-personal.mjs",
+    "dev:tunnel": "node scripts/dev-tunnel.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",
