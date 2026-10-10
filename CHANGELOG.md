@@ -1,5 +1,15 @@
 # V3 Personal
 
+## 3.0.0-alpha.3 — Test Candidate freeze (code-ready, manual acceptance pending)
+
+- Fail-closed brokerage order resolution when a symbol/name matches several exchanges. An exact Trading 212 ticker is required instead of silently choosing a US listing.
+- Require a valid, safe broker order ID after a successful POST. HTTP 2xx without a trustworthy ID becomes **UNKNOWN**, never a falsely acknowledged trade. Reject unsafe JavaScript-int64 pending-order IDs and never display rounded historical IDs.
+- Persist a pre-write incident record BEFORE every actual broker POST/DELETE; after UNKNOWN, crash, or uncertain response, new writes remain blocked beyond the short lease timeout and process restart.
+- Support private Owner Console reconciliation after read-only verification plus a typed acknowledgement and action-bound independent HMAC. Reconciliation never resubmits/cancels the broker order.
+- Bound OAuth form and vendor quote response streams byte-by-byte, including chunked bodies without Content-Length.
+- CI now builds and launches real Node HTTP and production Docker runtimes with **synthetic-only** credentials, proving health, Owner Console delivery and anonymous-access rejection. It also runs modern OAuth/MCP smoke, mock brokerage tests, dependency audit, release safety and Wrangler dry-run.
+- Freeze new feature additions until the staged private Demo / ChatGPT / Claude / provider acceptance checklist in `docs/TEST_READY.md` is complete. Real Live trading remains disabled by default and was never used by this PR.
+
 ## 3.0.0-alpha.3 (Draft, breaking — private personal release)\n\n- New independent authenticated /owner execution console (hashed owner sessions, Secure/Strict HttpOnly cookie, CSRF, signed CSP, browser HMAC step-up) without removing the MCP trading widget.\n- Local owner preferences (IANA timezone, locale, account, scheduled digest options) and hourly Cron with local-hour gating; preserves the prior weekday scan fallback.\n- Optional fixed-endpoint Resend email digests with per-day idempotency, significant-change detection and minimal alert contents; off by default.\n- Official ECB dated reference FX and SEC EDGAR primary filings, plus optional timestamped Twelve Data vendor market quotes, all read-only and clearly non-executable.\n- OpenAI optional sidebar/thread MCP extension metadata and a portable plugin manifest with private safety-first onboarding; shared MCP Apps UI still works without extensions.\n- Expanded owner/browser CSP and independent source tests. No real brokerage account, paid data provider or email service was invoked by CI.\n\n## Unreleased — V3 Personal hardening
 
 - Preserve the owner's full personal trading functionality. No old API or OAuth compatibility.
