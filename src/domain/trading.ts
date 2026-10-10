@@ -217,11 +217,17 @@ export function resolveTradeIntent(
   const instrument=resolveInstrument(instruments,intent.instrument);
   const held=account.holdings.find(h=>h.ticker===instrument.ticker);
   const heldQuantity=held?.quantity??0,tradableQuantity=held?.tradableQuantity??0;
-  const price=intent.referencePrice??(intent.type==="limit"||intent.type==="stop_limit"?intent.limitPrice:undefined)
-    ??(intent.type==="stop"?intent.stopPrice:undefined)??held?.price??undefined;
+  // Money sizing must use the broker-enforceable limit for Limit/Stop-Limit,
+  // not an AI-provided reference which might differ by orders of magnitude.
+  // Market sizing uses the observed held price if available.
+  const price=(intent.type==="limit"||intent.type==="stop_limit")
+    ? intent.limitPrice
+    : intent.type==="stop" ? intent.stopPrice
+      : (held?.price!==null && held?.price!==undefined && held.price>0 ? held.price : intent.referencePrice);
   const sizing=intent.sizing;
   let quantity:number;
   let note:string;
+  let usedManualFx=false;
   if(sizing.mode==="quantity"){requirePositive("quantity",sizing.quantity);quantity=sizing.quantity;note=`Exact ${quantity} shares.`;}
   else if(sizing.mode==="position_percent"){
     if(intent.side!=="sell")throw new Error("position_percent requires sell side");
@@ -238,8 +244,8 @@ export function resolveTradeIntent(
     if(sizing.mode==="cash_percent"&&sizing.percent>100)throw new Error("Cash percent must be <= 100");
     requirePositive("amount",amount);requirePositive("referencePrice",price);
     const requestedCurrency=sizing.mode==="notional"?(sizing.currency||instrument.currencyCode):account.account.currency;
-    const quote=label(requestedCurrency)===label(instrument.currencyCode)?amount:
-      amount*(sizing.fxToQuote??NaN);
+    usedManualFx=label(requestedCurrency)!==label(instrument.currencyCode);
+    const quote=usedManualFx?amount*(sizing.fxToQuote??NaN):amount;
     requirePositive("fxToQuote",quote);
     quantity=roundDown(quote/price);
     note=sizing.mode==="notional"?`Approximate ${amount} ${requestedCurrency} target.`:
@@ -258,5 +264,8 @@ export function resolveTradeIntent(
   const valid=checkDraft(draft,instrument,account,limits);
   return {kind:"trade_draft",draft,instrument,source:"trading212",sizing,note,
     estimatedNotional:valid.estimatedNotional,quoteCurrency:instrument.currencyCode,
-    accountCurrency:valid.accountCurrency,heldQuantity:valid.heldQuantity,tradableQuantity:valid.tradableQuantity,warnings:valid.warnings};
+    accountCurrency:valid.accountCurrency,heldQuantity:valid.heldQuantity,tradableQuantity:valid.tradableQuantity,
+    warnings:[...valid.warnings,...(usedManualFx&&!intent.fxRateAt
+      ? ["An external FX rate was provided without a verification timestamp; inspect currency conversion before approval."]:[])],
+  };
 }
