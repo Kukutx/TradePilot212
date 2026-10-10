@@ -9,7 +9,7 @@ const config=readConfiguration({
 });
 const listings={"0":{cik_str:320193,ticker:"AAPL",title:"Apple Inc."}};
 const filing={
-  cik:320193,name:"Apple Inc.",
+  cik:"0000320193",name:"Apple Inc.",
   filings:{recent:{
     accessionNumber:["0000320193-26-000099","0000320193-26-000100"],
     form:["10-Q","S-1"],filingDate:["2026-10-09","2026-10-09"],
@@ -32,6 +32,15 @@ describe("primary sourced SEC research",()=>{
     expect(first.limitation).toBe("filing_metadata_only_not_analyzed");
     expect(again.filings).toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("rejects malformed or numeric SEC submission CIK rather than misidentifying a filing",async()=>{
+    for(const cik of [320193,"320193","0000320194"]){
+      const fetcher=vi.fn(async(input:string)=>
+        new Response(JSON.stringify(input.includes("company_tickers.json")
+          ? listings:{...filing,cik})));
+      await expect(new SecResearchService(config,new MemoryStore(),fetcher as typeof fetch).filings("AAPL"))
+        .rejects.toThrow();
+    }
   });
   it("rejects user-supplied URLs and does not contact untrusted endpoints",async()=>{
     const fetcher=vi.fn();
