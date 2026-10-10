@@ -17,7 +17,10 @@
     "dev:cloudflare": "pnpm build:widget && wrangler dev",
     "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
     "smoke": "tsx scripts/smoke.ts",
-    "monitor:once": "tsx src/transport/monitor-once.ts"
+    "monitor:once": "tsx src/transport/monitor-once.ts",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "tsx scripts/doctor.ts",
+    "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",
