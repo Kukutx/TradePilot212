@@ -37,6 +37,7 @@ export class ResendEmailNotifier implements Notifier {
         headers:{
           Authorization:`Bearer ${this.config.notifications.key}`,
           "Content-Type":"application/json",Accept:"application/json",
+          "Idempotency-Key":`tradepilot212-personal:${payload.environment}:${payload.day}`,
         },
         body:JSON.stringify({
           from:this.config.notifications.from,to:[this.config.notifications.to],
