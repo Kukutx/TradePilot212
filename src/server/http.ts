@@ -6,6 +6,9 @@ import { Trading212TradeGateway, type BrokerTradePort } from "../infra/trade-gat
 import { BrokerPacer } from "../infra/broker-pacer.js";
 import { PersonalTradingService } from "./trading.js";
 import { installOwnerConsole } from "./owner-console.js";
+import {ReferenceFxService} from "../infra/reference-fx.js";
+import {SecResearchService} from "../infra/primary-research.js";
+import {TwelveDataQuoteService} from "../infra/market-quotes.js";
 import type { StateStore } from "../infra/state.js";
 import { IntelligenceService } from "./intelligence.js";
 import { authenticateBearer, installOAuth } from "./oauth.js";
@@ -27,6 +30,9 @@ export function createHttpApp(deps:HttpDeps) {
   const personal=new PersonalTradingService(
     deps.config,deps.state,reader,deps.tradeGateway??new Trading212TradeGateway(deps.config,fetcher,pacer),
   );
+  const research={fx:new ReferenceFxService(deps.state,fetcher),
+    sec:new SecResearchService(deps.config,deps.state,fetcher),
+    quote:new TwelveDataQuoteService(deps.config,deps.state,fetcher)};
   const allowedOrigins=new Set([deps.config.publicOrigin,...deps.config.trustedClientOrigins]);
   app.use("*",async(c,next)=>{
     c.header("Cache-Control","no-store");
@@ -43,7 +49,7 @@ export function createHttpApp(deps:HttpDeps) {
     return c.body(null,204);
   });
   installOAuth(app,deps.config,deps.state,fetcher);
-  installOwnerConsole(app,deps.config,deps.state,service,personal);
+  installOwnerConsole(app,deps.config,deps.state,service,personal,research);
   app.get("/health",c=>c.json({ok:true,service:"TradePilot 212 Personal",version:"3.0.0-alpha.2"}));
   app.post("/mcp",async c=>{
     const scopes=await authenticateBearer(c.req.header("authorization"),deps.config);
@@ -76,7 +82,7 @@ export function createHttpApp(deps:HttpDeps) {
     }catch{return c.json({error:"invalid_request"},400);}
     // Reject all pre-2026 protocol requests. No `initialize` adapter.
     const handler=createMcpHandler(
-      ()=>buildMcpServer(service,scopes,deps.widgetHtml,personal),
+      ()=>buildMcpServer(service,scopes,deps.widgetHtml,personal,research),
       {legacy:"reject",responseMode:"json"},
     );
     return handler.fetch(request);
