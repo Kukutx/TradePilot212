@@ -17,12 +17,22 @@ type Pending =
 type VerificationRecord=
   | {kind:"order";draft:TradeDraft;baselineQuantity:number;at:string}
   | {kind:"cancel";environment:Environment;orderId:string;at:string};
+export interface UnresolvedBrokerWrite {
+  kind:"unresolved_broker_write";
+  environment:Environment;
+  operation:"order"|"cancel";
+  verificationId:string;
+  startedAt:string;
+  status:"sending"|"unknown";
+  ticker?:string;
+  orderId?:string;
+}
 export interface TradeActivity {
   id:string;
   asOf:string;
   environment:Environment;
   action:"order_prepared"|"order_submitted"|"order_rejected"|"order_unknown"|
-    "cancel_prepared"|"cancel_submitted"|"cancel_rejected"|"cancel_unknown"|"verification";
+    "cancel_prepared"|"cancel_submitted"|"cancel_rejected"|"cancel_unknown"|"verification"|"manually_reconciled";
   ticker?:string;orderId?:string;detail?:string;
 }
 function confirmationId():string {
@@ -153,10 +163,79 @@ export class PersonalTradingService {
     if(!(await constantTimeEqual(proof,expected)))throw new Error("Human execution approval is incorrect");
     await this.store.remove("v3:approval-attempts");
   }
-  private async verificationRecord(data:VerificationRecord):Promise<string|undefined>{
-    const id=confirmationId();
-    try{await this.store.put(`v3:verify:${id}`,data,Date.now()+86400_000);return id;}
-    catch{return undefined;}
+  private unresolvedKey(environment:Environment){
+    return `v3:unresolved-write:${environment}`;
+  }
+  async unresolvedWrite(environment:Environment):Promise<UnresolvedBrokerWrite|null>{
+    return await this.store.get<UnresolvedBrokerWrite>(this.unresolvedKey(environment))??null;
+  }
+  /** Created before any broker write; missing local durability stops execution. */
+  private async beginBrokerWrite(
+    environment:Environment,operation:"order"|"cancel",
+    verification:VerificationRecord,attributes:{ticker?:string;orderId?:string},
+  ):Promise<UnresolvedBrokerWrite>{
+    const verificationId=confirmationId();
+    const startedAt=new Date().toISOString();
+    await this.store.put(`v3:verify:${verificationId}`,verification,Date.now()+90*86400_000);
+    const marker:UnresolvedBrokerWrite={
+      kind:"unresolved_broker_write",environment,operation,verificationId,startedAt,
+      status:"sending",...attributes,
+    };
+    await this.store.put(this.unresolvedKey(environment),marker);
+    return marker;
+  }
+  private async finishBrokerWrite(environment:Environment){
+    await this.store.remove(this.unresolvedKey(environment));
+  }
+  private async markUnknown(marker:UnresolvedBrokerWrite){
+    await this.store.put(this.unresolvedKey(marker.environment),{...marker,status:"unknown"});
+  }
+  /**
+   * Human-only final reconciliation. Requires a prior read-only broker check
+   * and a different action-bound independent approval proof. The owner also
+   * attests to checking their Trading 212 records outside this app.
+   */
+  async acknowledgeUnresolved(
+    environment:Environment,verificationId:string,proof:string,confirmation:string,
+  ){
+    if(confirmation!=="I CHECKED TRADING 212")
+      throw new Error("Manually inspect Trading 212 and type I CHECKED TRADING 212 to acknowledge.");
+    if(!/^[a-f0-9]{64}$/.test(verificationId)||!/^[A-Za-z0-9_-]{43}$/.test(proof))
+      throw new Error("Invalid manual reconciliation confirmation");
+    const marker=await this.unresolvedWrite(environment);
+    if(!marker||marker.verificationId!==verificationId)
+      throw new Error("No matching unresolved broker operation");
+    const attempts=await this.store.increment("v3:reconciliation-attempts",600_000);
+    if(attempts>8)throw new Error("Too many reconciliation attempts");
+    const expected=await personalApprovalProof(
+      this.config.personalTrading.approvalSecret,"reconcile",verificationId,
+    );
+    if(!(await constantTimeEqual(expected,proof)))
+      throw new Error("Independent owner reconciliation approval is incorrect");
+    const checked=await this.store.get<{checkedAt:string}>(
+      `v3:verification-checked:${verificationId}`,
+    );
+    if(!checked)throw new Error("Run read-only broker verification before manual resolution.");
+    if(marker.status==="sending"&&Date.now()-Date.parse(marker.startedAt)<120_000)
+      throw new Error("Broker operation could still be in flight. Try again after cooldown.");
+    // Only one user action may modify the reconciliation marker at a time.
+    const owner=confirmationId(),lock=`v3:reconcile-lock:${environment}`;
+    if(!(await this.store.claim(lock,owner,Date.now()+30_000)))
+      throw new Error("Another reconciliation is in progress");
+    try{
+      const latest=await this.unresolvedWrite(environment);
+      if(!latest||latest.verificationId!==verificationId)
+        throw new Error("Unresolved operation changed");
+      await this.finishBrokerWrite(environment);
+      await this.store.remove(`v3:verification-checked:${verificationId}`);
+      await this.activityEvent(environment,"manually_reconciled",{
+        orderId:latest.orderId,ticker:latest.ticker,
+        detail:"Owner attested to independent Trading 212 record inspection.",
+      });
+      return {kind:"manual_reconciliation" as const,environment,
+        resolved:true,brokerWrites:0 as const,
+        message:"Local safety block cleared after owner-confirmed broker review; no new order was sent."};
+    }finally{await this.store.release(lock,owner).catch(()=>undefined);}
   }
   async executeOrder(token:string,proof:string,environment:Environment):Promise<TradeExecution>{
     await this.approve(environment,"order",token,proof);
