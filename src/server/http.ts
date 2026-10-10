@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Configuration } from "../infra/config.js";
 import { Trading212Reader, type BrokerReader } from "../infra/broker.js";
 import { Trading212TradeGateway, type BrokerTradePort } from "../infra/trade-gateway.js";
+import { BrokerPacer } from "../infra/broker-pacer.js";
 import { PersonalTradingService } from "./trading.js";
 import type { StateStore } from "../infra/state.js";
 import { IntelligenceService } from "./intelligence.js";
@@ -19,9 +20,12 @@ export interface HttpDeps {
 export function createHttpApp(deps:HttpDeps) {
   const app=new Hono();
   const fetcher=deps.fetcher??fetch;
-  const reader=deps.broker??new Trading212Reader(deps.config,fetcher);
+  const pacer=new BrokerPacer(deps.state);
+  const reader=deps.broker??new Trading212Reader(deps.config,fetcher,pacer);
   const service=new IntelligenceService(deps.config,deps.state,reader);
-  const personal=new PersonalTradingService(deps.config,deps.state,reader,deps.tradeGateway??new Trading212TradeGateway(deps.config,fetcher));
+  const personal=new PersonalTradingService(
+    deps.config,deps.state,reader,deps.tradeGateway??new Trading212TradeGateway(deps.config,fetcher,pacer),
+  );
   const allowedOrigins=new Set([deps.config.publicOrigin,...deps.config.trustedClientOrigins]);
   app.use("*",async(c,next)=>{
     c.header("Cache-Control","no-store");
