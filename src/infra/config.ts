@@ -5,7 +5,8 @@ export type RuntimeEnv = Partial<Record<
   | "OAUTH_CLIENT_ORIGINS" | "DATA_SOURCE" | "DEFAULT_ENVIRONMENT"
   | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET"
   | "PERSONAL_TRADING_ENABLED" | "PERSONAL_LIVE_TRADING_ENABLED" | "PERSONAL_APPROVAL_SECRET"
-  | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL",
+  | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL"
+  | "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS",
   string
 >>;
 export interface PersonalTradingConfig {
@@ -15,6 +16,7 @@ export interface PersonalTradingConfig {
   maxNotional: number;
   maxQuantity: number;
   confirmationTtlSeconds: number;
+  allowUnquotedLiveBuys: boolean;
 }
 export interface Configuration {
   publicOrigin: string;
@@ -86,6 +88,7 @@ export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Conf
     maxNotional:nonNegative(env,"PERSONAL_MAX_NOTIONAL",5000),
     maxQuantity:nonNegative(env,"PERSONAL_MAX_QUANTITY",100000),
     confirmationTtlSeconds:ttl,
+    allowUnquotedLiveBuys:flag(env,"PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"),
   };
   return {
     publicOrigin: origin, ownerPassword, jwtSecret, trustedClientOrigins, source,
