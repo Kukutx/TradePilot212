@@ -44,3 +44,37 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 .trendRow strong{font-size:12px;text-align:right}
 .trendRow span:nth-child(n+3){color:#79869a;text-align:right}
 @media(max-width:650px){.trendRow{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px}.trendRow strong,.trendRow span:nth-child(n+3){text-align:right}}
+
+
+/* V3 Personal — trade review in the normal MCP iframe document flow, no modal overlays. */
+.tradeStack{display:grid;gap:15px;min-width:0}
+.tradeIntro{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.tradeIntro h2{margin:0 0 5px;font-size:19px}
+.tradeIntro p{margin:0;font-size:12px;color:#79909c;line-height:1.6}
+.tradeFlag{border:1px solid var(--border);padding:8px 10px;border-radius:10px;font-size:10px;font-weight:800;white-space:nowrap}
+.tradeLayout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:14px;align-items:start}
+.tradeFields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.tradeFields label,.tradeApproval label{display:grid;gap:7px;color:#728293;font-size:11px;font-weight:650}
+.tradeFields input,.tradeFields select,.tradeApproval input{width:100%;max-width:100%;min-height:42px;border:1px solid var(--border);border-radius:9px;background:var(--soft);color:inherit;padding:9px 10px;min-width:0;font:inherit}
+.tradeFields .checkRow{display:flex;align-items:center;gap:8px;grid-column:1/-1}
+.tradeFields .checkRow input{min-height:0;width:18px;height:18px}
+.tradeActions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:18px}
+.tradeActions button:last-child{background:#116b5a;color:white}
+.tradeActions button.tradeDanger{background:#b42f36;color:white}
+.tradeActions button:disabled{opacity:.4}
+.tradeNotice{color:#3e8174;font-size:12px}
+.tradeWarning{font-size:12px;line-height:1.5;background:color-mix(in srgb,#e69b36 10%,transparent);padding:9px 12px;border-radius:8px}
+.tradeConfirm{max-width:860px;width:100%;margin:0 auto}
+.tradeConfirm h2{font-size:21px}
+.tradeSummary{display:grid;gap:9px;padding:17px;background:var(--soft);border:1px solid var(--border);border-radius:12px;margin-bottom:15px;font-variant-numeric:tabular-nums}
+.tradeSummary strong{font-size:20px}.tradeSummary small{color:#768697}
+.tradeApproval{margin-top:18px;display:grid;gap:6px}.tradeApproval p{font-size:11px;color:#8293a0;margin:0}
+.tradeTitle{display:flex;justify-content:space-between;align-items:center;gap:9px}
+.tradeTitle h2{margin:0}.tradeTitle small{font-size:10px;color:#7a8b96}
+.pendingRow{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid var(--border);padding:13px 0}
+.pendingRow div{display:grid;gap:6px}.pendingRow small{font-size:10px;color:#7b8c99}.pendingRow button{font-size:11px}
+.planCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:12px}
+.planCard{padding:14px;border:1px solid var(--border);border-radius:12px;display:grid;gap:10px}
+.planCard p{margin:0;font-size:12px;line-height:1.6}.planCard button{justify-self:start}
+.planCard summary{cursor:pointer;font-size:11px;font-weight:750}.planCard details p{margin-top:6px}
+@media(max-width:720px){.tradeLayout{grid-template-columns:1fr}.tradeIntro{flex-direction:column}.tradeFields{grid-template-columns:1fr}}
