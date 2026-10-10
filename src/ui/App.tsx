@@ -11,6 +11,7 @@ const wording={
   en:{
     brand:"TRADEPILOT / PERSONAL",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",trade:"Private trades",
     account:"Portfolio value",cash:"Available cash",positions:"Holdings",updated:"Observed",
+    price:"Last price",avg:"Average paid",tradable:"Tradable",unrealized:"Unrealized P/L",realized:"Realized P/L",
     warning:"Data quality",holdings:"Current holdings",exposure:"Value / allocation",unpriced:"Unverified value",
     scenario:"Hypothetical uniform shock",scenarioHelp:"This is a calculation, not a forecast or trade recommendation.",
     run:"Run simulation",running:"Loading",ready:"Ready for your portfolio",readyHelp:"Ask your AI assistant for a portfolio overview, risk analysis or brief.",
@@ -23,6 +24,7 @@ const wording={
   zh:{
     brand:"TRADEPILOT / 个人交易智能平台",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",trade:"私人交易",
     account:"投资组合总值",cash:"可用现金",positions:"持仓数量",updated:"数据时间",
+    price:"当前价格",avg:"持仓均价",tradable:"可交易",unrealized:"未实现盈亏",realized:"已实现盈亏",
     warning:"数据质量",holdings:"当前持仓",exposure:"估值 / 占比",unpriced:"无法核实估值",
     scenario:"假设持仓价格同步变化",scenarioHelp:"仅做算术情景推演，不是价格预测或交易建议。",
     run:"计算情景",running:"加载中",ready:"等待组合数据",readyHelp:"请在 AI 对话中请求持仓概览、风险分析或投资组合简报。",
@@ -61,6 +63,8 @@ export default function App(){
   const [shock,setShock]=useState(-10);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState<string|null>(null);
+  const [displayMode,setDisplayMode]=useState<"inline"|"fullscreen">("inline");
+  const [canFullscreen,setCanFullscreen]=useState(false);
   const t=useMemo(()=>wording[locale],[locale]);
   const {app, error:appError}=useApp({
     appInfo:{name:"TradePilot 212 Personal",version:"3.0.0-alpha.2"},
@@ -84,11 +88,13 @@ export default function App(){
         if(next.kind==="risk_trend")setMode("trend");
         if(next.kind==="daily_brief")setMode("brief");
       };
-      const context=created.getHostContext();
-      if(context?.locale)setLocale(context.locale.toLowerCase().startsWith("zh")?"zh":"en");
-      created.onhostcontextchanged=context=>{
+      const syncHost=(context:ReturnType<HostApp["getHostContext"]>)=>{
         if(context?.locale)setLocale(context.locale.toLowerCase().startsWith("zh")?"zh":"en");
+        setCanFullscreen(Boolean(context?.availableDisplayModes?.includes("fullscreen")));
+        setDisplayMode(context?.displayMode==="fullscreen"?"fullscreen":"inline");
       };
+      syncHost(created.getHostContext());
+      created.onhostcontextchanged=syncHost;
     },
   });
   useHostStyles(app,app?.getHostContext());
@@ -98,7 +104,7 @@ export default function App(){
     payload?.kind==="daily_brief"?payload.currency:
     payload?.kind==="scenario"?payload.currency:
     payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):"USD";
-  const source=personalPayload&&"source" in personalPayload?personalPayload.source:(payload&&"source" in payload?payload.source:"sample");
+  const source=personalPayload&&"source" in personalPayload?personalPayload.source:(payload&&"source" in payload?payload.source:undefined);
   async function load(kind:"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
     if(!app)return;
     const names={
@@ -115,15 +121,25 @@ export default function App(){
     }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setLoading(false);}
   }
   function date(value?:string){return value?new Date(value).toLocaleString(locale==="zh"?"zh-CN":"en-US"):"—";}
+  async function toggleFullscreen(){
+    if(!app||!canFullscreen)return;
+    try{
+      const result=await app.requestDisplayMode({mode:displayMode==="fullscreen"?"inline":"fullscreen"});
+      setDisplayMode(result.mode==="fullscreen"?"fullscreen":"inline");
+    }catch(e){setError(e instanceof Error?e.message:String(e));}
+  }
   return <main className="shell">
     <header className="top">
       <div className="identity"><span className="mark">T<span>P</span></span><div><span className="eyebrow">{t.brand}</span><h1>TradePilot 212 Personal</h1></div></div>
       <div className="topActions">
         <select aria-label="Account environment" value={env} onChange={e=>{setEnv(e.target.value as Environment);setPayload(null);setPersonalPayload(null);}}><option value="demo">DEMO</option><option value="live">LIVE</option></select>
         <button type="button" onClick={()=>setLocale(locale==="zh"?"en":"zh")}>{locale==="zh"?"EN":"中文"}</button>
+        {canFullscreen&&<button type="button" onClick={()=>void toggleFullscreen()}>
+          {displayMode==="fullscreen"?(locale==="zh"?"返回内嵌":"Inline"):(locale==="zh"?"全屏":"Fullscreen")}
+        </button>}
       </div>
     </header>
-    <div className="trustBar"><SourceTag source={source} locale={locale}/><span>{t.noTrades}</span></div>
+    <div className="trustBar">{source&&<SourceTag source={source} locale={locale}/>}<span>{t.noTrades}</span></div>
     <nav className="tabs" aria-label="Portfolio views">
       {(["overview","risk","stress","trend","brief","trade"] as const).map(key=><button
         key={key} className={mode===key?"active":""} disabled={!app||loading}
@@ -141,11 +157,22 @@ export default function App(){
           <Metric label={t.account} value={fmt(payload.account.totalValue,payload.account.currency,locale)}/>
           <Metric label={t.cash} value={fmt(payload.account.availableCash,payload.account.currency,locale)}/>
           <Metric label={t.positions} value={String(payload.holdings.length)}/>
+          <Metric label={t.unrealized} value={fmt(payload.account.unrealizedProfitLoss,payload.account.currency,locale)}/>
+          {payload.account.realizedProfitLoss!==undefined&&<Metric label={t.realized}
+            value={fmt(payload.account.realizedProfitLoss,payload.account.currency,locale)}/>}
         </section>
         <section className="panel"><h2>{t.holdings}</h2><div className="holdingList">
-          {payload.holdings.map(h=><div className="holding" key={h.ticker}>
-            <span><strong>{h.ticker}</strong><small>{h.name}</small></span>
-            <span className="alignRight"><strong>{h.quantity}</strong><small>{fmt(h.valueInAccountCurrency,payload.account.currency,locale)}</small></span>
+          {payload.holdings.map(h=><div className="holding holdingCard" key={h.ticker}>
+            <div className="holdingHead">
+              <span><strong>{h.ticker}</strong><small>{h.name}</small></span>
+              <span className="alignRight"><strong>{h.quantity}</strong><small>{fmt(h.valueInAccountCurrency,payload.account.currency,locale)}</small></span>
+            </div>
+            <div className="holdingFacts">
+              <span>{t.price}: <strong>{fmt(h.price,h.currency,locale)}</strong></span>
+              <span>{t.avg}: <strong>{fmt(h.averagePricePaid,h.currency,locale)}</strong></span>
+              <span>{t.tradable}: <strong>{h.tradableQuantity.toLocaleString()}</strong></span>
+              <span>{t.unrealized}: <strong>{fmt(h.unrealizedProfitLossInAccountCurrency,payload.account.currency,locale)}</strong></span>
+            </div>
           </div>)}</div></section>
         {!!payload.notes.length&&<section className="panel warning"><h2>{t.warning}</h2>{payload.notes.map((note,i)=><p key={i}>{note}</p>)}</section>}
       </>}
