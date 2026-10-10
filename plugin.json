@@ -1,0 +1,40 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tradepilot212-personal",
+  "version": "3.0.0-alpha.3",
+  "description": "Single-owner self-hosted Trading 212 portfolio intelligence, owner-managed read-only automation and separately authorized personal trade review.",
+  "author": {
+    "name": "Kukutx"
+  },
+  "homepage": "https://github.com/Kukutx/TradePilot212",
+  "repository": "https://github.com/Kukutx/TradePilot212",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "mcp-apps",
+    "trading212",
+    "personal-investment-intelligence"
+  ],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "TradePilot 212 Personal",
+        "shortDescription": "Private portfolio intelligence and human-approved personal workflows",
+        "longDescription": "Self-hosted portfolio analysis with an independent Owner Console. Brokerage execution requires explicit owner confirmation and is not enabled by default.",
+        "developerName": "Kukutx",
+        "category": "Finance",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://github.com/Kukutx/TradePilot212",
+        "privacyPolicyURL": "https://github.com/Kukutx/TradePilot212/blob/main/PRIVACY.md",
+        "defaultPrompt": [
+          "Use my private TradePilot 212 connection to show today's portfolio observations and evidence limitations.",
+          "Summarize risks from my portfolio without placing any orders."
+        ]
+      }
+    }
+  }
+}
