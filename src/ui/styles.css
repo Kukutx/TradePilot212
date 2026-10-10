@@ -95,3 +95,11 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   .holdingFacts{grid-template-columns:repeat(2,minmax(0,1fr))}
   .holdingHead{gap:8px}
 }
+
+
+.researchAudit{border:1px solid var(--border);background:var(--soft);border-radius:10px;padding:10px 12px;display:grid;gap:5px}
+.researchAudit strong{font-size:11px;font-variant-numeric:tabular-nums}
+.researchAudit small{font-size:10px;color:#8a95a5}
+.researchAudit details{font-size:11px;line-height:1.6}
+.researchAudit details summary{cursor:pointer;font-weight:650}
+.researchAudit details p{margin:7px 0 0}
