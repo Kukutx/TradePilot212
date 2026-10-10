@@ -28,16 +28,17 @@ export function buildMcpServer(
   }));
   registerAppTool(server,"get_personal_attention_center",{
     title:"Today's portfolio priorities",
-    description:"Best first tool for 'what matters today?'. Read portfolio once, combine deterministic data-quality/cash/concentration observations and recent LOCAL threshold events into a concise bilingual action list. Each event is historical, not real-time evidence. Includes source and timestamps, excludes live news, forecasts and trades.",
-    inputSchema:z.object({environment}),
+    description:"Best first tool for 'what matters today?'. The account parameter is optional: read-only attention defaults to the owner's saved environment. Reads one portfolio snapshot; combines deterministic data-quality/cash/concentration observations and recent LOCAL threshold events in concise bilingual form. Events are historical, not live evidence. No live news, forecasts or trades.",
+    inputSchema:z.object({environment:environment.optional()}),
     annotations:read,_meta:{
       ui:{resourceUri:URI},
       "openai/ui":{entrypoints:[{type:"global"},{type:"thread"}]},
     },
-  },async({environment})=>{try{
+  },async({environment:requestedEnvironment})=>{try{
+    const environment=requestedEnvironment??(await service.preferences()).defaultEnvironment;
     const value=await service.attention(environment);
     return ok(value as unknown as Record<string,unknown>,
-      `${value.reviewCount} metrics need review; ${value.items.length} attention entries, source: ${value.source}. No brokerage write.`);
+      `${value.reviewCount} metrics need review; ${value.items.length} attention entries for ${environment}, source: ${value.source}. No brokerage write.`);
   }catch(e){return fail(e);}});
   registerAppTool(server,"get_portfolio_intelligence",{
     title:"Portfolio overview",
