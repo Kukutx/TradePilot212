@@ -4,7 +4,7 @@ export const zhCN: Record<MessageKey, string> = {
   appName: "TradePilot 212",
   brokerName: "Trading 212 Invest",
   connecting: "正在连接 TradePilot 212…",
-  waiting: "等待 ChatGPT 加载投资组合或每日交易计划。",
+  waiting: "等待 AI 平台加载你的持仓或交易计划。",
   refresh: "刷新",
   refreshing: "刷新中…",
   processing: "处理中…",
