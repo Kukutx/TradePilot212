@@ -57,7 +57,11 @@ export class PersonalTradingService {
       throw new Error("Broker data environment/provenance mismatch");
     return fresh;
   }
-  private limits(){return {maxQuantity:this.config.personalTrading.maxQuantity,maxNotional:this.config.personalTrading.maxNotional};}
+  private limits(){return {
+    maxQuantity:this.config.personalTrading.maxQuantity,
+    maxNotional:this.config.personalTrading.maxNotional,
+    allowUnquotedLiveBuys:this.config.personalTrading.allowUnquotedLiveBuys,
+  };}
   async searchInstruments(environment:Environment,query:string,limit=20){
     this.assertReal();
     const q=query.trim().toUpperCase();
