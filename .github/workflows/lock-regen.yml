@@ -1,0 +1,29 @@
+name: Temporary lock regeneration
+on:
+  pull_request:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/lock-regen.yml
+permissions:
+  contents: read
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - name: Emit regenerated public lockfile for reproducible build
+        run: |
+          echo "TRADEPILOT_LOCK_START"
+          base64 -w 0 pnpm-lock.yaml
+          echo ""
+          echo "TRADEPILOT_LOCK_END"
+      - run: pnpm audit --prod
