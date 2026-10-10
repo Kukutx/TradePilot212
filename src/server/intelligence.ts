@@ -1,5 +1,6 @@
 import { analyzePortfolio, evaluateRule, stressPortfolio } from "../domain/analytics.js";
 import {buildAttentionCenter} from "../domain/attention.js";
+import {OwnerPreferencesStore} from "../domain/preferences.js";
 import { samplePortfolio } from "../domain/sample.js";
 import type { Environment, MonitorEvent, PortfolioSnapshot, RiskPulse, RiskTrend, RuleEvaluation, RuleKind, WatchRule } from "../domain/types.js";
 import type { BrokerReader } from "../infra/broker.js";
@@ -26,6 +27,8 @@ export class IntelligenceService {
   async analysis(environment: Environment) {
     return analyzePortfolio(await this.portfolio(environment));
   }
+  async preferences(){return new OwnerPreferencesStore(this.state,this.config.defaultEnvironment).get();}
+  async updatePreferences(value:unknown){return new OwnerPreferencesStore(this.state,this.config.defaultEnvironment).save(value);}
   async attention(environment:Environment){
     const snapshot=await this.portfolio(environment);
     const events=(await this.state.list<MonitorEvent>("v3:event:")).map(entry=>entry.value);
