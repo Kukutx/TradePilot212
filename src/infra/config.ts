@@ -7,7 +7,8 @@ export type RuntimeEnv = Partial<Record<
   | "PERSONAL_TRADING_ENABLED" | "PERSONAL_LIVE_TRADING_ENABLED" | "PERSONAL_APPROVAL_SECRET"
   | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL"
   | "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"
-  | "NOTIFY_PROVIDER" | "RESEND_API_KEY" | "NOTIFY_FROM" | "NOTIFY_TO",
+  | "NOTIFY_PROVIDER" | "RESEND_API_KEY" | "NOTIFY_FROM" | "NOTIFY_TO"
+  | "TWELVE_DATA_API_KEY" | "SEC_CONTACT_EMAIL",
   string
 >>;
 export interface PersonalTradingConfig {
@@ -22,6 +23,10 @@ export interface PersonalTradingConfig {
 export interface NotificationConfig {
   provider:"none"|"resend";key:string;from:string;to:string;
 }
+export interface MarketResearchConfig {
+  twelveDataKey:string;
+  secContact:string;
+}
 export interface Configuration {
   publicOrigin: string;
   ownerPassword: string;
@@ -32,6 +37,7 @@ export interface Configuration {
   broker: Record<Environment, { origin: string; key: string; secret: string }>;
   personalTrading: PersonalTradingConfig;
   notifications:NotificationConfig;
+  marketResearch:MarketResearchConfig;
 }
 function flag(env:RuntimeEnv,name:keyof RuntimeEnv):boolean {
   const value=(env[name]??"false").trim().toLowerCase();
@@ -102,8 +108,14 @@ export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Conf
   if(provider==="resend" && (!key || key.length<10 || !emailPattern.test(from)||!emailPattern.test(to)))
     throw new Error("Resend notification delivery requires API key and verified sender/recipient addresses");
   const notifications:NotificationConfig={provider,key,from,to};
+  const secContact=env.SEC_CONTACT_EMAIL||"";
+  if(secContact && !emailPattern.test(secContact))
+    throw new Error("SEC_CONTACT_EMAIL must be a valid owner contact email");
+  const marketResearch:MarketResearchConfig={
+    twelveDataKey:env.TWELVE_DATA_API_KEY||"",secContact,
+  };
   return {
     publicOrigin: origin, ownerPassword, jwtSecret, trustedClientOrigins, source,
-    defaultEnvironment, broker,personalTrading,notifications,
+    defaultEnvironment, broker,personalTrading,notifications,marketResearch,
   };
 }
