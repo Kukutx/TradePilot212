@@ -159,11 +159,21 @@ export class PersonalTradingService {
   }
   async executeOrder(token:string,proof:string,environment:Environment):Promise<TradeExecution>{
     await this.approve(environment,"order",token,proof);
-    const pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
-    if(!pending||pending.kind!=="order"||pending.draft.environment!==environment)
-      throw new Error("Order confirmation expired or does not match environment");
+    const lockKey=`v3:broker-write-lock:${environment}`;
+    if(!(await this.store.claim(lockKey,token,Date.now()+120_000)))
+      throw new Error("Another broker operation is in progress or was recently uncertain. No new write was sent.");
+    let pending:Pending|undefined;
+    try{
+      pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
+      if(!pending||pending.kind!=="order"||pending.draft.environment!==environment)
+        throw new Error("Order confirmation expired or does not match environment");
+    }catch(error){
+      await this.store.release(lockKey,token).catch(()=>undefined);
+      throw error;
+    }
     const draft=pending.draft;
     let baselineQuantity=0;
+    let indeterminate=false;
     try{
       const portfolio=await this.snapshot(environment);
       const meta=resolveInstrument(await this.instruments(environment),draft.ticker);
@@ -175,6 +185,7 @@ export class PersonalTradingService {
         message:"Order submitted to Trading 212 once; verify final broker status.",...(ack.orderId?{orderId:ack.orderId}:{})};
     }catch(error){
       if(error instanceof BrokerOperationUnknown){
+        indeterminate=true;
         const verificationId=await this.verificationRecord({kind:"order",draft,baselineQuantity,at:new Date().toISOString()});
         await this.activityEvent(environment,"order_unknown",{ticker:draft.ticker});
         return {kind:"trade_execution",environment,operation:"order",status:"unknown",
@@ -185,13 +196,27 @@ export class PersonalTradingService {
       return {kind:"trade_execution",environment,operation:"order",status:"rejected",
         message:error instanceof BrokerKnownRejection?error.message:
           "Order could not be validated or submitted. No automatic retry was attempted."};
+    }finally{
+      // An ambiguous write keeps the account blocked for a bounded cooldown.
+      // Neither a failed audit write nor a lock-release error may resend a broker request.
+      if(!indeterminate)await this.store.release(lockKey,token).catch(()=>undefined);
     }
   }
   async executeCancel(token:string,proof:string,environment:Environment):Promise<TradeExecution>{
     await this.approve(environment,"cancel",token,proof);
-    const pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
-    if(!pending||pending.kind!=="cancel"||pending.environment!==environment)
-      throw new Error("Cancellation confirmation expired or does not match environment");
+    const lockKey=`v3:broker-write-lock:${environment}`;
+    if(!(await this.store.claim(lockKey,token,Date.now()+120_000)))
+      throw new Error("Another broker operation is in progress or was recently uncertain. No new write was sent.");
+    let pending:Pending|undefined;
+    try{
+      pending=await this.store.take<Pending>(`v3:trade-confirm:${token}`);
+      if(!pending||pending.kind!=="cancel"||pending.environment!==environment)
+        throw new Error("Cancellation confirmation expired or does not match environment");
+    }catch(error){
+      await this.store.release(lockKey,token).catch(()=>undefined);
+      throw error;
+    }
+    let indeterminate=false;
     try{
       await this.broker.getOrder(environment,pending.orderId);
       const result=await this.broker.cancelOrder(environment,pending.orderId);
@@ -200,6 +225,7 @@ export class PersonalTradingService {
         message:"Cancellation request sent once. Confirm broker status.",orderId:result.orderId};
     }catch(error){
       if(error instanceof BrokerOperationUnknown){
+        indeterminate=true;
         const verificationId=await this.verificationRecord({kind:"cancel",environment,orderId:pending.orderId,at:new Date().toISOString()});
         await this.activityEvent(environment,"cancel_unknown",{orderId:pending.orderId});
         return {kind:"trade_execution",environment,operation:"cancel",status:"unknown",
@@ -209,6 +235,8 @@ export class PersonalTradingService {
       await this.activityEvent(environment,"cancel_rejected",{orderId:pending.orderId});
       return {kind:"trade_execution",environment,operation:"cancel",status:"rejected",
         message:"Cancellation could not be validated or accepted by the broker.",orderId:pending.orderId};
+    }finally{
+      if(!indeterminate)await this.store.release(lockKey,token).catch(()=>undefined);
     }
   }
   async verifyOutcome(id:string,environment:Environment):Promise<TradeVerification>{
