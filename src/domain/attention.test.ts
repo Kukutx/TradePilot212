@@ -20,7 +20,7 @@ describe("personal read-only attention center",()=>{
     s.holdings[0]!.valueInAccountCurrency=null;
     s.holdings[0]!.valueProvenance="unknown";
     const a=analyzePortfolio(s);
-    const event:MonitorEvent={id:"event-1",ruleId:"r1",environment:"demo",status:"triggered",
+    const event:MonitorEvent={id:"event-1",ruleId:"r1",environment:"demo",source:"sample",status:"triggered",
       observedAt:new Date(now.getTime()-3600_000).toISOString(),
       thresholdPercent:35,observedPercent:40,detail:"Historical threshold"};
     const center=buildAttentionCenter(s,a,[event],now);
@@ -32,7 +32,7 @@ describe("personal read-only attention center",()=>{
   it("does not present old events as current risks or cross account environments",()=>{
     const s=samplePortfolio("live",now),a=analyzePortfolio(s);
     const historical=(environment:"demo"|"live",time:string):MonitorEvent=>({
-      id:time+environment,environment,ruleId:"r",status:"triggered",
+      id:time+environment,environment,source:"sample",ruleId:"r",status:"triggered",
       observedAt:time,thresholdPercent:20,observedPercent:10,detail:"Past trigger",
     });
     const center=buildAttentionCenter(s,a,[
