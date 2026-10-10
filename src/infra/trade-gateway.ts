@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Environment } from "../domain/types.js";
 import type { Instrument, PendingOrder, TradeDraft } from "../domain/trading.js";
 import type { Configuration } from "./config.js";
+import { BrokerPacer, type BrokerBucket } from "./broker-pacer.js";
 
 export class BrokerOperationUnknown extends Error {
   constructor(message:string) { super(message); this.name="BrokerOperationUnknown"; }
@@ -74,7 +75,7 @@ function assertOrderId(id:string):void {
   if(!/^\d{1,20}$/.test(id))throw new Error("Invalid broker order ID");
 }
 export class Trading212TradeGateway implements BrokerTradePort {
-  constructor(readonly config:Configuration,private readonly fetcher:typeof fetch=fetch){}
+  constructor(readonly config:Configuration,private readonly fetcher:typeof fetch=fetch,private readonly pacer?:BrokerPacer){}
   private async request(
     environment:Environment,method:"GET"|"POST"|"DELETE",path:string,body?:unknown,
   ):Promise<unknown>{
@@ -90,7 +91,15 @@ export class Trading212TradeGateway implements BrokerTradePort {
       signal:AbortSignal.timeout(15_000),
     };
     const tries=method==="GET"?3:1;
+    const bucket:BrokerBucket=method==="POST"
+      ? (path==="orders/market"?"market-write":"conditional-write")
+      : method==="DELETE"?"cancel-write"
+        : path==="metadata/instruments"?"instruments"
+          : path==="orders"?"pending":"order-detail";
     for(let i=1;i<=tries;i++){
+      // Pacing happens before network transmission. A quota error cannot
+      // be mistaken for a possibly completed broker write.
+      await this.pacer?.pace(environment,bucket);
       let response:Response;
       try{response=await this.fetcher(url,options);}
       catch {
