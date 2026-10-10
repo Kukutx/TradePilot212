@@ -123,6 +123,7 @@ export class Trading212TradeGateway implements BrokerTradePort {
         await new Promise(r=>setTimeout(r,Number.isFinite(delay)&&delay>0?Math.min(delay*1000,5000):300*i));
         continue;
       }
+      if(method==="GET" && response.status===404)throw new BrokerKnownRejection(404);
       throw new Error(`Trading 212 GET failed (HTTP ${response.status}).`);
     }
     throw new Error("Unexpected broker request state");
