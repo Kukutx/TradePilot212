@@ -2,7 +2,7 @@
 
 **Self-hosted AI investment intelligence, portfolio management and human-authorized personal trading.**
 
-[Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
+[Owner Console](docs/OWNER_CONSOLE.md) · [Read-only automation](docs/AUTOMATION_DELIVERY.md) · [External evidence](docs/EXTERNAL_DATA.md) · [Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
 
 V3 is a **clean-slate, breaking redesign**. No legacy V2 protocol, tool, OAuth, environment variable or persisted-state compatibility is implemented. The functioning V2 `main` branch remains intact.
 
@@ -37,7 +37,7 @@ Write-enabled Trading 212 keys must have the necessary order permissions. Demo a
 - `PERSONAL_MAX_NOTIONAL` is an **estimate in instrument quote currency**, not a guaranteed maximum execution price.
 - Research cards distinguish the model-provided score from independent **evidence-documentation completeness**, source URLs and time freshness. Source truth is never assumed or verified merely from a complete card.
 
-## Deploy
+## Independent owner console and optional automation\n\nThe same private server now serves `/owner` in addition to `/mcp`. The owner console has its own protected browser session, same-origin CSRF, CSP-pinned scripts and client-computed HMAC order/cancel approvals; it is not gated by AI-host write entitlements. Demo/Live authorization and one-write-only semantics are preserved.\n\nUse the console to opt into a timezone-aware daily read-only digest; email is disabled until both an owner setting and a verified Resend sender/API key are configured. Cloudflare evaluates schedules hourly but reads the broker only at the chosen local hour (or original weekday 07:00 UTC monitoring fallback). Node users must schedule `pnpm monitor:once` themselves.\n\nECB reference FX and US SEC primary filings are official fixed-origin reads, while Twelve Data prices require a separately configured vendor API key. Source timestamps and non-executability are explicit. No external source is silently used as a Trading 212 fill guarantee. See [source semantics](docs/EXTERNAL_DATA.md).\n\n## Deploy
 
 Use `pnpm dev` for local Node; `pnpm dev:tunnel` for a temporary Cloudflare HTTPS tunnel; `pnpm deploy -- --dry-run` to validate a personal Cloudflare Worker; `pnpm deploy` only when you explicitly intend deployment; or use the included `Dockerfile` behind a private HTTPS reverse proxy.
 
