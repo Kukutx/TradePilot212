@@ -59,6 +59,16 @@ export function registerPersonalTradingTools(
 ):void{
   const canReview=scopes.has("trading:review")&&service.config.source==="trading212";
   const canExecute=scopes.has("trading:execute")&&service.config.personalTrading.enabled&&canReview;
+  registerAppTool(server,"get_personal_trading_capabilities",{
+    title:"Check private trading capabilities",
+    description:"Show whether this single-owner connection can review or execute Demo/Live trades. Never places or cancels orders.",
+    inputSchema:z.object({environment}),annotations:safeRead,
+  },async({environment})=>ok({
+    kind:"personal_capabilities",environment,
+    source:service.config.source,
+    canReview,canExecute:canExecute&&executionPermitted(service.config,environment),
+    confirmationRequired:true,aiAutonomousExecution:false,
+  },"Returned scoped private trading capabilities. No broker write."));
   if(!canReview)return;
   registerAppTool(server,"search_personal_instruments",{
     title:"Search owned Trading 212 account instruments",
@@ -98,8 +108,18 @@ export function registerPersonalTradingTools(
     description:"Render an exact quantity-based Market, Limit, Stop or Stop-Limit order draft for human review. This is read-only; does not place orders.",
     inputSchema:z.object(orderFields),annotations:safeRead,_meta:{ui:{resourceUri:widgetUri}},
   },async(draft)=>{try{
-    const r=await service.prepareOrder(draft);
-    return ok(r,`Order reviewed; ${r.personalExecutionEnabled?"awaiting explicit human approval":"execution disabled"}.`);
+    const r=await service.reviewIntent({
+      environment:draft.environment,instrument:draft.ticker,
+      side:draft.side,type:draft.type,sizing:{mode:"quantity",quantity:draft.quantity},
+      ...(draft.referencePrice===undefined?{}:{referencePrice:draft.referencePrice}),
+      ...(draft.referencePriceAt?{referencePriceAt:draft.referencePriceAt}:{}),
+      ...(draft.fxRateAt?{fxRateAt:draft.fxRateAt}:{}),
+      ...(draft.limitPrice===undefined?{}:{limitPrice:draft.limitPrice}),
+      ...(draft.stopPrice===undefined?{}:{stopPrice:draft.stopPrice}),
+      ...(draft.extendedHours===undefined?{}:{extendedHours:draft.extendedHours}),
+      ...(draft.timeValidity?{timeValidity:draft.timeValidity}:{}),
+    });
+    return ok(r,"Exact order draft opened, no broker write or confirmation token created.");
   }catch(e){return bad(e);}});
   registerAppTool(server,"show_personal_trade_plan",{
     title:"Personal multi-horizon investment research plan",
