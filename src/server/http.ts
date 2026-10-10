@@ -2,6 +2,8 @@ import { createMcpHandler } from "@modelcontextprotocol/server";
 import { Hono } from "hono";
 import type { Configuration } from "../infra/config.js";
 import { Trading212Reader, type BrokerReader } from "../infra/broker.js";
+import { Trading212TradeGateway, type BrokerTradePort } from "../infra/trade-gateway.js";
+import { PersonalTradingService } from "./trading.js";
 import type { StateStore } from "../infra/state.js";
 import { IntelligenceService } from "./intelligence.js";
 import { authenticateBearer, installOAuth } from "./oauth.js";
@@ -12,11 +14,14 @@ export interface HttpDeps {
   widgetHtml:()=>Promise<string>;
   fetcher?:typeof fetch;
   broker?:BrokerReader;
+  tradeGateway?:BrokerTradePort;
 }
 export function createHttpApp(deps:HttpDeps) {
   const app=new Hono();
   const fetcher=deps.fetcher??fetch;
-  const service=new IntelligenceService(deps.config,deps.state,deps.broker??new Trading212Reader(deps.config,fetcher));
+  const reader=deps.broker??new Trading212Reader(deps.config,fetcher);
+  const service=new IntelligenceService(deps.config,deps.state,reader);
+  const personal=new PersonalTradingService(deps.config,deps.state,reader,deps.tradeGateway??new Trading212TradeGateway(deps.config,fetcher));
   const allowedOrigins=new Set([deps.config.publicOrigin,...deps.config.trustedClientOrigins]);
   app.use("*",async(c,next)=>{
     c.header("Cache-Control","no-store");
@@ -65,7 +70,7 @@ export function createHttpApp(deps:HttpDeps) {
     }catch{return c.json({error:"invalid_request"},400);}
     // Reject all pre-2026 protocol requests. No `initialize` adapter.
     const handler=createMcpHandler(
-      ()=>buildMcpServer(service,scopes,deps.widgetHtml),
+      ()=>buildMcpServer(service,scopes,deps.widgetHtml,personal),
       {legacy:"reject",responseMode:"json"},
     );
     return handler.fetch(request);
