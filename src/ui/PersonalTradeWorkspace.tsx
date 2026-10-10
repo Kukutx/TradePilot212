@@ -6,11 +6,12 @@ import type {
   TradeExecution,TradeVerification,CancelPreview,PendingOrder,TradeIdea,
 } from "../domain/trading";
 import {personalApprovalProof} from "../domain/approval-proof";
+import type {ResearchAudit} from "../domain/research";
 
 type Locale="zh"|"en";
 interface Capability{kind:"personal_capabilities";environment:Environment;source:string;canReview:boolean;canExecute:boolean;}
 interface PendingPayload{kind:"pending_orders";environment:Environment;source:string;orders:PendingOrder[];personalExecutionEnabled:boolean;}
-interface PlanPayload{kind:"trade_plan";environment:Environment;source:string;asOf:string;candidates:Array<TradeIdea & {resolvedTicker?:string;warning?:string;heldQuantity?:number;availableToSell?:number}>;}
+interface PlanPayload{kind:"trade_plan";environment:Environment;source:string;asOf:string;candidates:Array<TradeIdea & {resolvedTicker?:string;warning?:string;heldQuantity?:number;availableToSell?:number;evidence?:ResearchAudit}>;}
 interface ActivityEntry{id:string;asOf:string;action:string;ticker?:string;orderId?:string;detail?:string;}
 interface ActivityPayload{kind:"trading_activity";environment:Environment;events:ActivityEntry[];}
 export type PersonalPayload=TradeResolution|TradePreview|TradeExecution|TradeVerification|CancelPreview|PendingPayload|PlanPayload;
@@ -26,6 +27,7 @@ const strings={
     approval:"Independent execution secret (entered in widget only)",approvalHint:"Never enter this secret in the AI chat. A token-specific HMAC proof is sent instead.",
     pending:"Pending broker orders",refresh:"Refresh orders",reviewCancel:"Review cancellation",
     plans:"AI-generated research plans",planReview:"Review proposed order",
+    evidence:"Research documentation",sourceUnverified:"Completeness is not factual verification",evidenceChecks:"Evidence checks",
     result:"Broker result",verify:"Read-only verification",unknown:"Unknown broker outcome: never retry automatically.",
     warnings:"Review every warning",notConfigured:"Review not enabled for this connection; reconnect with trading:review scope.",
     loading:"Checking…",sample:"SYNTHETIC sample mode cannot place real orders.",
@@ -45,6 +47,7 @@ const strings={
     approval:"独立交易授权密钥（仅在界面输入）",approvalHint:"切勿在 AI 对话中发送密钥。界面只发送绑定当前确认令牌的 HMAC 证明。",
     pending:"当前待处理订单",refresh:"刷新订单",reviewCancel:"检查撤单",
     plans:"AI 生成的研究候选",planReview:"检查此候选订单",
+    evidence:"研究材料完整度",sourceUnverified:"材料完整不代表事实已核实",evidenceChecks:"研究证据检查",
     result:"券商执行结果",verify:"只读核对状态",unknown:"券商执行状态不明，严禁自动重试。",
     warnings:"请逐条核对风险提示",notConfigured:"当前连接未开启交易审查权限，请重新授权 trading:review。",
     loading:"校验中…",sample:"合成示例数据不能执行真实交易。",
@@ -314,8 +317,17 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
     {!!plan?.candidates.length&&!preview&&!cancelPreview&&<section className="panel">
       <h2>{t.plans}</h2><div className="planCards">{plan.candidates.map((p,i)=><article className="planCard" key={i}>
         <div className="tradeTitle"><strong>{p.resolvedTicker||p.ticker||p.symbol||p.name||"—"}</strong>
-          <small>{p.horizon.toUpperCase()} · {p.action.toUpperCase()} · SCORE {p.score}</small></div>
-        <p>{p.rationale}</p>{p.thesis&&<details><summary>Thesis / Details</summary><p>{p.thesis}</p>
+          <small>{p.horizon.toUpperCase()} · {p.action.toUpperCase()} · AI SCORE {p.score}</small></div>
+        <p>{p.rationale}</p>
+        {p.evidence&&<div className="researchAudit">
+          <strong>{t.evidence}: {p.evidence.completenessPercent}/100</strong>
+          <small>{t.sourceUnverified}</small>
+          {!!p.evidence.warningMessages.length&&<details>
+            <summary>{t.evidenceChecks} ({p.evidence.warningMessages.length})</summary>
+            {p.evidence.warningMessages.map((warning,j)=><p key={j}>{warning}</p>)}
+          </details>}
+        </div>}
+        {p.thesis&&<details><summary>Thesis / Details</summary><p>{p.thesis}</p>
           {p.catalysts?.map((x,j)=><p key={j}>+ {x}</p>)}{p.risks?.map((x,j)=><p key={j}>! {x}</p>)}
           {p.counterCase&&<p>{p.counterCase}</p>}{p.sources?.map((x,j)=><p key={j}>{x}</p>)}</details>}
         {(p.analysisAsOf||p.referencePriceAt)&&<small>{p.analysisAsOf?`Research: ${new Date(p.analysisAsOf).toLocaleString()} `:""}{p.referencePriceAt?`· Price: ${new Date(p.referencePriceAt).toLocaleString()}`:""}</small>}
