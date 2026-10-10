@@ -87,6 +87,32 @@ describe("V3 portfolio intelligence and local monitoring", () => {
     expect((await service.listRules("live"))).toHaveLength(3);
   });
 
+  it("preserves exact historical int64 IDs and hides unsafe rounded numeric identifiers",async()=>{
+    const broker:BrokerReader={
+      async getPortfolio(environment){
+        return {...samplePortfolio(environment),source:"trading212" as const};
+      },
+      async getRecentOrders(){
+        return {items:[
+          {id:Number.MAX_SAFE_INTEGER+8,ticker:"AAPL_US_EQ",type:"LIMIT",
+            quantity:1,createdAt:"2026-10-10T12:00:00Z"},
+          {id:"9223372036854775807",ticker:"MSFT_US_EQ",status:"FILLED",
+            quantity:2,apiSecret:"should never leave broker adapter"},
+        ],nextCursor:null};
+      },
+    };
+    const realConfig=readConfiguration({
+      OWNER_PASSWORD:"owner-password-at-least-24-characters",
+      JWT_SIGNING_SECRET:"0123456789abcdef".repeat(3),
+      DATA_SOURCE:"trading212",T212_DEMO_KEY:"mock",T212_DEMO_SECRET:"mock-secret",
+    });
+    const intelligence=new IntelligenceService(realConfig,new MemoryStore(),broker);
+    const history=await intelligence.recentOrders("demo");
+    expect(history.orders[0]?.id).toBeNull();
+    expect(history.orders[1]?.id).toBe("9223372036854775807");
+    expect(JSON.stringify(history)).not.toContain("apiSecret");
+  });
+
   it("rejects invalid threshold combinations", async () => {
     const { service } = fixture();
     await expect(service.createRule("demo", "unrealized_loss_below", 20)).rejects.toThrow();
