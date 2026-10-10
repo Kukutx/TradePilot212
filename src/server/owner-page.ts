@@ -57,7 +57,9 @@ const js=String.raw`
   var q=function(id){return document.getElementById(id);};
   var text=function(id,value){q(id).textContent=String(value===null||value===undefined?"—":value);};
   var show=function(id,on){q(id).hidden=!on;};
-  function fail(err){text("status",err instanceof Error?err.message:String(err));show("status",true);}
+  function fail(err){var message=err instanceof Error?err.message:String(err);
+    if(q("loginView").hidden){text("status",message);show("status",true);}
+    else{text("loginError",message);show("loginError",true);}}
   function money(v,c){
     if(typeof v!=="number"||!Number.isFinite(v))return "—";
     try{return new Intl.NumberFormat(undefined,{style:"currency",currency:c,maximumFractionDigits:2}).format(v);}
@@ -195,14 +197,14 @@ const js=String.raw`
   }
   async function startup(){
     try{var session=await api("/owner/api/me");authenticated(session);
-      await loadOverview();}
+      await loadPreferences();await loadOverview();}
     catch{show("loginView",true);show("ownerView",false);}
   }
   q("loginForm").addEventListener("submit",function(e){e.preventDefault();
     void run(async function(){
       var password=q("ownerPassword").value;q("ownerPassword").value="";
       var session=await api("/owner/api/login",{password:password});password="";
-      authenticated(session);await loadOverview();
+      authenticated(session);await loadPreferences();await loadOverview();
     });
   });
   q("environment").addEventListener("change",function(){setEnvironment(this.value);void run(loadOverview);});
@@ -225,6 +227,70 @@ const js=String.raw`
     var id=q("verifyBtn").dataset.verificationId;
     var result=await api("/owner/api/verify?environment="+environment+"&id="+encodeURIComponent(id));
     text("status",result.status.toUpperCase()+" — "+result.message);
+  });});
+  async function loadPreferences(){
+    var data=await api("/owner/api/preferences"),p=data.preferences;
+    q("prefLocale").value=p.locale;
+    q("prefEnvironment").value=p.defaultEnvironment;
+    q("prefTimezone").value=p.timezone;
+    q("prefHour").value=String(p.dailyBrief.hour);
+    q("prefDaily").checked=p.dailyBrief.enabled;
+    q("prefOnChange").checked=p.dailyBrief.onlyOnChange;
+    q("prefLive").checked=p.dailyBrief.includeLive;
+    q("prefEmail").checked=p.dailyBrief.email;
+    text("providerStatus",data.emailProviderConfigured
+      ?"邮件发件服务已在服务器配置；仍需要启用邮件偏好。"
+      :"邮件发件服务尚未配置：不会发送任何邮件。");
+    if(p.defaultEnvironment!==environment){
+      q("environment").value=p.defaultEnvironment;
+      setEnvironment(p.defaultEnvironment);
+    }
+  }
+  q("savePrefs").addEventListener("click",function(){void run(async function(){
+    var payload={
+      locale:q("prefLocale").value,defaultEnvironment:q("prefEnvironment").value,
+      timezone:q("prefTimezone").value.trim(),dailyBrief:{
+        enabled:q("prefDaily").checked,hour:Number(q("prefHour").value),
+        onlyOnChange:q("prefOnChange").checked,
+        includeLive:q("prefLive").checked,email:q("prefEmail").checked,
+      },
+    };
+    await api("/owner/api/preferences",payload);
+    text("status","偏好已保存在私人实例。下次到达对应时区小时才会触发简报。");
+  });});
+  q("setupWatch").addEventListener("click",function(){void run(async function(){
+    var result=await api("/owner/api/monitoring/setup",{environment:environment});
+    text("status","新增 "+result.created.length+" 个本地只读规则，当前共 "
+      +result.activeRules.length+" 个；不进行交易。");
+  });});
+  q("loadReports").addEventListener("click",function(){void run(async function(){
+    var data=await api("/owner/api/reports?environment="+environment);
+    var view=q("reports");view.replaceChildren();
+    if(!data.reports.length)view.appendChild(item("暂无简报","请在设置中启用每日简报并部署定时器。",""));
+    data.reports.slice(-10).reverse().forEach(function(report){
+      view.appendChild(item(report.localDate+" · "+report.notification,
+        "待核实事项 "+report.reviewCount+" · 新阈值事件 "+report.newThresholdEvents,""));
+    });
+  });});
+  q("getFx").addEventListener("click",function(){void run(async function(){
+    var from=q("fxFrom").value.trim().toUpperCase(),to=q("fxTo").value.trim().toUpperCase();
+    var value=await api("/owner/api/research/fx?from="+encodeURIComponent(from)+"&to="+encodeURIComponent(to));
+    text("researchOutput",JSON.stringify(value,null,2));
+  });});
+  q("getSec").addEventListener("click",function(){void run(async function(){
+    var symbol=q("secSymbol").value.trim().toUpperCase();
+    var value=await api("/owner/api/research/filings?symbol="+encodeURIComponent(symbol));
+    text("researchOutput",JSON.stringify(value,null,2));
+  });});
+  q("getQuote").addEventListener("click",function(){void run(async function(){
+    var symbol=q("quoteSymbol").value.trim().toUpperCase();
+    var currency=q("quoteCurrency").value.trim().toUpperCase();
+    var exchange=q("quoteExchange").value.trim().toUpperCase();
+    var args="symbol="+encodeURIComponent(symbol);
+    if(currency)args+="&currency="+encodeURIComponent(currency);
+    if(exchange)args+="&exchange="+encodeURIComponent(exchange);
+    var value=await api("/owner/api/research/quote?"+args);
+    text("researchOutput",JSON.stringify(value,null,2));
   });});
   void startup();
 })();
@@ -255,7 +321,7 @@ export async function renderOwnerPage():Promise<{html:string;csp:string}>{
       <span class="tag">自托管 · 独立于 ChatGPT / Claude</span></div>
     <section id="loginView" hidden><h1>解锁个人投资工作台</h1>
       <p class="muted">仅使用你的自托管管理员密码。Trading 212 密钥和交易批准密钥不可粘贴到 AI 对话。</p>
-      <form id="loginForm"><label>管理员密码
+      <div id="loginError" role="alert" class="notice error" hidden></div><form id="loginForm"><label>管理员密码
         <input id="ownerPassword" type="password" minlength="24" autocomplete="current-password" required></label>
         <div class="actions"><button type="submit">安全登录</button></div></form></section>
     <div id="ownerView" class="stack" hidden>
