@@ -62,8 +62,8 @@ LLM research, scoring and schedule orchestration are **untrusted proposal source
 | Instrument resolution | Map user intent to exact tradable identity | Partially implemented; exchange ambiguity still needs stronger checks |
 | Order policy | Quantity, estimated notional, max exposure, available cash | Partially implemented; quote provenance/slippage guarantees remain limited |
 | TradingService | Coordinated preview, consume, execute, verify | Implemented; more decomposition planned |
-| OAuth + CIMD | Authenticated single-owner MCP access | Implemented; refresh rotation and host E2E tests planned |
-| Independent execution approval | Human-held secret at final write boundary | Implemented; WebAuthn and out-of-band consent are targets |
+| OAuth + CIMD | Authenticated single-owner MCP access | Implemented with server-side refresh rotation; real-host E2E tests planned |
+| Independent execution approval | Client-side HMAC from human-held secret at final write boundary | Implemented; WebAuthn and out-of-band consent are targets |
 | Research/Intelligence | Model-sourced thesis, evidence, catalysts, uncertainty | Existing candidate cards; provider-neutral evidence validation target |
 | Risk & portfolio intelligence | Concentration, drift, stale data, alerts, constraints | Target |
 | Host capability adapter | Context, UI mode and host feature fallback | Partial; additional Claude QA target |
@@ -76,7 +76,7 @@ Two distinct planes:
 1. **Intelligence plane (automatic):** read portfolio, gather news, assess evidence, rank candidates, explain catalysts/risks, generate watchlists, monitor drift, prepare editable drafts. No broker writes.
 2. **Execution plane (interactive):** server validates authoritative account data, issues one-use confirmation, user enters the separate execution secret, server validates again, consumes confirmation atomically, sends a single broker write, and records status. Reads may retry within published broker rate limits; broker writes may never retry automatically.
 
-AI-generated `referencePrice`, exchange rates and symbol/name matches are suggestions, never independent proof of risk compliance. Do not claim the application cap prevents market slippage; Trading 212 remains the final funds/execution authority. A trusted independent quote source and configurable price deviation rejection are future work.
+AI-generated `referencePrice`, exchange rates and symbol/name matches are suggestions, never independent proof of risk compliance. Capped Market buys of unheld instruments are blocked unless a trusted broker-observed price is available; Limit/Stop-Limit orders are the supported bounded-price fallback. Do not claim the application cap prevents market slippage; Trading 212 remains the final funds/execution authority. A trusted independent quote source and configurable price deviation rejection are future work.
 
 Error categories: `rejected` means a known failure; `submitted` means the broker acknowledged the write; `unknown` means broker state may have changed and must not trigger an unattended retry.
 
@@ -104,7 +104,7 @@ No host is permitted to bypass confirmation based on a description or model inst
 ## Migration and acceptance milestones
 **Phase A (in this PR):** external write boundary, OAuth CIMD, patched MCP SDK, pure order policy, broker port, transport failure tests, security automation.
 
-**Phase B (before v3 GA):** OAuth refresh rotation, order price provenance, explicit disambiguation, per-environment concurrency/risk budgets, schema validation of broker responses, comprehensive integration tests and Claude/ChatGPT host QA.
+**Phase B (before v3 GA):** real-host OAuth tests, stronger quote provenance, explicit disambiguation, per-environment concurrency/risk budgets, schema validation of broker responses, comprehensive integration tests and Claude/ChatGPT host QA.
 
 **Phase C:** opt-in research adapters, evidence/source confidence, read-only watch rules, portfolio health dashboards and durable analytics. Background workflows still cannot place or cancel broker orders.
 
