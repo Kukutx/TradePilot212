@@ -1,1103 +1,258 @@
-import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
-import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  ActivityEvent,
-  CancelPreview,
-  CredentialStatus,
-  DashboardPayload,
-  EnrichedTradeCandidate,
-  ErrorPayload,
-  ExecutionVerificationResult,
-  Horizon,
-  Instrument,
-  OrderDraft,
-  OrderExecutionResult,
-  OrderNotice,
-  OrderPreview,
-  OrderResolution,
-  OrderSizing,
-  Position,
-  StructuredError,
-  TradeCandidate,
-  TradePlanPayload,
-  TradingEnvironment,
-} from "../shared/contracts";
-import { APP_META } from "../shared/meta";
-import {
-  createTranslator,
-  localeTag,
-  resolveLocale,
-  type MessageKey,
-  type SupportedLocale,
-} from "./i18n";
+import { useApp,useHostStyles } from "@modelcontextprotocol/ext-apps/react";
+import type { App as HostApp } from "@modelcontextprotocol/ext-apps";
+import { useEffect,useMemo,useState } from "react";
+import type { PortfolioAnalysis,PortfolioSnapshot,Scenario,Environment,Exposure,RiskTrend } from "../domain/types";
+import PersonalTradeWorkspace,{type PersonalPayload} from "./PersonalTradeWorkspace";
+import type {AttentionCenter} from "../domain/attention";
 
-type BasePayload =
-  | DashboardPayload
-  | TradePlanPayload
-  | {
-      kind: "order_draft";
-      draft: OrderDraft;
-      credentials: CredentialStatus;
-      writeEnabled?: boolean;
-      resolvedInstrument?: Instrument;
-      resolution?: OrderResolution;
-    }
-  | ErrorPayload;
-
-type Status = "idle" | "loading";
-type DisplayMode = "inline" | "fullscreen" | "pip";
-type Translator = (key: MessageKey) => string;
-const LOCALE_STORAGE_KEY = "tradepilot212.locale";
-
-function readSavedLocale(): SupportedLocale | null {
-  try {
-    const value = localStorage.getItem(LOCALE_STORAGE_KEY);
-    return value === "zh-CN" || value === "en" ? value : null;
-  } catch {
-    return null;
-  }
+type Brief={kind:"daily_brief";environment:Environment;source:string;asOf:string;summary:string;observations:string[];priorityChecks:string[];disclaimer:string;currency:string};
+type Payload=PortfolioSnapshot|PortfolioAnalysis|Scenario|RiskTrend|AttentionCenter|Brief|{kind:"error";message:string};
+type Locale="zh"|"en";
+const wording={
+  en:{
+    brand:"TRADEPILOT / PERSONAL",today:"Today",overview:"Overview",risk:"Risk map",stress:"Stress test",trend:"Risk trend",brief:"Daily brief",trade:"Private trades",
+    more:"More analysis",openToday:"Check my portfolio",reviewCount:"Items to review",noAlerts:"No predefined numeric threshold crossed. This does not rule out investment risk.",historical:"Past record",computed:"Calculated from account",next:"Explore",
+    account:"Portfolio value",cash:"Available cash",positions:"Holdings",updated:"Observed",
+    price:"Last price",avg:"Average paid",tradable:"Tradable",unrealized:"Unrealized P/L",realized:"Realized P/L",
+    warning:"Data quality",holdings:"Current holdings",exposure:"Value / allocation",unpriced:"Unverified value",
+    scenario:"Hypothetical uniform shock",scenarioHelp:"This is a calculation, not a forecast or trade recommendation.",
+    run:"Run simulation",running:"Loading",ready:"Ready for your portfolio",readyHelp:"Ask your AI assistant for a portfolio overview, risk analysis or brief.",
+    demo:"SYNTHETIC SAMPLE DATA",live:"Broker read-only data",noTrades:"Broker writes require explicit private setup, in-app confirmation and human approval",
+    refresh:"Refresh",riskAlerts:"Risk observations",limitations:"Data limitations",watch:"Priority research checks",
+    coverage:"Verified value coverage",concentration:"Largest holding",cashRatio:"Cash ratio",noData:"Not computable",
+    totalChange:"Hypothetical portfolio change",outcome:"Hypothetical total value",assumptions:"Assumptions",
+    connection:"MCP host connection",unknown:"An unexpected response was received",error:"Data unavailable",
+  },
+  zh:{
+    brand:"TRADEPILOT / 个人交易智能平台",today:"今日重点",overview:"持仓概览",risk:"风险分析",stress:"压力测试",trend:"风险趋势",brief:"组合简报",trade:"私人交易",
+    more:"更多分析",openToday:"查看我的投资组合",reviewCount:"待查看事项",noAlerts:"当前未触发预设数值阈值，但不代表投资没有风险。",historical:"历史记录",computed:"由账户数据计算",next:"深入查看",
+    account:"投资组合总值",cash:"可用现金",positions:"持仓数量",updated:"数据时间",
+    price:"当前价格",avg:"持仓均价",tradable:"可交易",unrealized:"未实现盈亏",realized:"已实现盈亏",
+    warning:"数据质量",holdings:"当前持仓",exposure:"估值 / 占比",unpriced:"无法核实估值",
+    scenario:"假设持仓价格同步变化",scenarioHelp:"仅做算术情景推演，不是价格预测或交易建议。",
+    run:"计算情景",running:"加载中",ready:"等待组合数据",readyHelp:"请在 AI 对话中请求持仓概览、风险分析或投资组合简报。",
+    demo:"合成示例数据，不是真实账户",live:"券商真实只读数据",noTrades:"交易仅在个人自托管授权后开放，必须人工核准，不允许 AI 自动执行",
+    refresh:"刷新",riskAlerts:"风险观察",limitations:"数据限制",watch:"需要研究的问题",
+    coverage:"已核实估值覆盖率",concentration:"最大持仓占比",cashRatio:"现金占比",noData:"无法可靠计算",
+    totalChange:"假设组合变化金额",outcome:"假设组合总值",assumptions:"计算假设",
+    connection:"MCP 宿主连接",unknown:"收到无法识别的数据",error:"数据不可用",
+  },
+} as const;
+function fmt(value:number|null|undefined,currency:string,locale:Locale):string{
+  if(value===null||value===undefined||!Number.isFinite(value))return "—";
+  try{return new Intl.NumberFormat(locale==="zh"?"zh-CN":"en-US",{
+    style:"currency",currency,maximumFractionDigits:2,
+  }).format(value);}catch{return String(value);}
 }
-
-class ToolCallError extends Error {
-  constructor(readonly problem: StructuredError) {
-    super(problem.message);
-    this.name = "ToolCallError";
-  }
+function number(value:number|null|undefined):string{return value===null||value===undefined?"—":`${value.toFixed(2)}%`;}
+function SourceTag({source,locale}:{source:string;locale:Locale}){
+  return <span className={`sourceTag ${source==="sample"?"sample":"broker"}`}>{source==="sample"?wording[locale].demo:wording[locale].live}</span>;
 }
-
-function formatProblem(problem: StructuredError, t: Translator, locale: SupportedLocale): string {
-  const details = problem.details ?? {};
-  const number = (key: string) => typeof details[key] === "number" ? num(details[key] as number, locale) : String(details[key] ?? "—");
-  switch (problem.code) {
-    case "CREDENTIALS_NOT_CONFIGURED": return t("errorCredentials");
-    case "INSTRUMENT_NOT_FOUND": return t("errorInstrumentNotFound");
-    case "INSTRUMENT_AMBIGUOUS": return details.matches ? `${t("errorInstrumentAmbiguous")} ${details.matches}` : t("errorInstrumentAmbiguous");
-    case "NO_AVAILABLE_POSITION": return t("errorNoPosition");
-    case "NO_AVAILABLE_CASH": return t("errorNoCash");
-    case "INSUFFICIENT_SELLABLE_QUANTITY": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorSellable")} ${number("requested")} / ${number("available")}` : t("errorSellable");
-    case "INSUFFICIENT_CASH": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorCash")} ${number("requested")} / ${number("available")} ${details.currency ?? ""}`.trim() : t("errorCash");
-    case "ORDER_NOTIONAL_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorNotionalLimit")} ${number("requested")} / ${number("limit")} ${details.currency ?? ""}`.trim() : t("errorNotionalLimit");
-    case "ORDER_QUANTITY_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorQuantityLimit")} ${number("requested")} / ${number("limit")}` : t("errorQuantityLimit");
-    case "REFERENCE_PRICE_REQUIRED": return t("errorReferencePrice");
-    case "UNSUPPORTED_EXTENDED_HOURS": return t("errorExtendedHours");
-    case "CONFIRMATION_EXPIRED": return t("errorConfirmationExpired");
-    case "VERIFICATION_NOT_FOUND": return t("errorVerificationMissing");
-    case "BROKER_RATE_LIMITED": return t("errorBrokerRateLimit");
-    case "BROKER_REQUEST_FAILED": return t("errorBroker");
-    case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
-    case "INVALID_INPUT": return problem.message;
-    default: return problem.message || t("errorInternal");
-  }
+function Metric({label,value}:{label:string;value:string}){return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;}
+function ExposureRow({item,currency,locale}:{item:Exposure;currency:string;locale:Locale}){
+  const weight=item.weightPercent;
+  return <div className="exposureRow">
+    <div className="exposureTitle"><strong>{item.ticker}</strong><span>{item.name}</span></div>
+    <div className="exposureValue"><strong>{fmt(item.value,currency,locale)}</strong><span>{weight===null?wording[locale].unpriced:number(weight)}</span></div>
+    <div className="bar"><div style={{width:`${Math.min(Math.max(weight??0,0),100)}%`}}/></div>
+  </div>;
 }
-
-function noticeText(notice: OrderNotice, t: Translator, locale: SupportedLocale): string {
-  switch (notice.code) {
-    case "LIVE_FUNDS": return t("liveFundsNotice");
-    case "MARKET_SLIPPAGE": return t("marketSlippageNotice");
-    case "REFERENCE_PRICE_STALE": {
-      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
-      return seconds === undefined ? t("referenceStaleNotice") : `${t("referenceStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
-    }
-    case "REFERENCE_PRICE_TIME_UNKNOWN": return t("referenceTimeUnknownNotice");
-    case "FX_RATE_STALE": {
-      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
-      return seconds === undefined ? t("fxStaleNotice") : `${t("fxStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
-    }
-    case "CROSS_CURRENCY_FUNDS_CHECK": return t("crossCurrencyNotice");
-    case "NOTIONAL_ESTIMATE_UNAVAILABLE": return t("notionalUnavailableNotice");
-    default: return notice.message;
-  }
-}
-
-function verificationText(result: ExecutionVerificationResult, t: Translator): string {
-  switch (result.status) {
-    case "confirmed_pending": return t("verificationConfirmedPending");
-    case "likely_executed": return t("verificationLikelyExecuted");
-    case "still_pending": return t("verificationStillPending");
-    case "no_longer_pending": return t("verificationNoLongerPending");
-    case "no_evidence": return t("verificationNoEvidence");
-    default: return result.message;
-  }
-}
-
-function textFromToolResult(value: Awaited<ReturnType<McpApp["callServerTool"]>>): string {
-  return (
-    value.content
-      ?.filter((item): item is { type: "text"; text: string } => item.type === "text")
-      .map((item) => item.text)
-      .join(" ") || "Tool request failed"
-  );
-}
-
-function money(value: number | undefined, currency: string, locale: SupportedLocale): string {
-  if (value === undefined || !Number.isFinite(value)) return "—";
-  try {
-    return new Intl.NumberFormat(localeTag(locale), {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(value);
-  } catch {
-    return `${value.toFixed(2)} ${currency}`;
-  }
-}
-
-function num(value: number | undefined, locale: SupportedLocale, digits = 4): string {
-  if (value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: digits }).format(value);
-}
-
-function time(value: string | undefined, locale: SupportedLocale): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(localeTag(locale), {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function dateTime(value: string | undefined, locale: SupportedLocale): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(localeTag(locale), {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function signedClass(value: number | undefined): string {
-  if (!value) return "neutral";
-  return value > 0 ? "positive" : "negative";
-}
-
-function walletNumber(position: Position, key: string): number | undefined {
-  const value = position.walletImpact?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate {
-  return {
-    ...(candidate.ticker ? { ticker: candidate.ticker } : {}),
-    ...(candidate.symbol ? { symbol: candidate.symbol } : {}),
-    ...(candidate.name ? { name: candidate.name } : {}),
-    horizon: candidate.horizon,
-    action: candidate.action,
-    score: candidate.score,
-    rationale: candidate.rationale,
-    risk: candidate.risk,
-    ...(candidate.suggestedQuantity ? { suggestedQuantity: candidate.suggestedQuantity } : {}),
-    ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
-    ...(candidate.referencePriceAt ? { referencePriceAt: candidate.referencePriceAt } : {}),
-    ...(candidate.analysisAsOf ? { analysisAsOf: candidate.analysisAsOf } : {}),
-    ...(candidate.thesis ? { thesis: candidate.thesis } : {}),
-    ...(candidate.catalysts ? { catalysts: candidate.catalysts } : {}),
-    ...(candidate.risks ? { risks: candidate.risks } : {}),
-    ...(candidate.counterCase ? { counterCase: candidate.counterCase } : {}),
-    ...(candidate.sources ? { sources: candidate.sources } : {}),
-  };
-}
-
-function sizingText(
-  sizing: OrderSizing,
-  instrument: Instrument | undefined,
-  locale: SupportedLocale,
-  t: Translator,
-): string {
-  if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${num(sizing.quantity, locale)}`;
-  if (sizing.mode === "notional") return `${t("targetAmount")} · ${num(sizing.amount, locale)} ${sizing.currency ?? instrument?.currencyCode ?? ""}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`.trim();
-  if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
-  if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
-  return t("allAvailableShares");
-}
-
-function initialEnvironment(payload: BasePayload | null): TradingEnvironment {
-  if (!payload || payload.kind === "error") return "demo";
-  if (payload.kind === "order_draft") return payload.draft.environment;
-  return payload.environment;
-}
-
-function defaultDraft(
-  environment: TradingEnvironment,
-  candidate: EnrichedTradeCandidate,
-): OrderDraft | null {
-  const ticker = candidate.resolvedInstrument?.ticker ?? candidate.ticker;
-  if (!ticker || candidate.action === "watch") return null;
-  return {
-    environment,
-    ticker,
-    side: candidate.action,
-    type: "market",
-    quantity: candidate.suggestedQuantity ?? 1,
-    ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
-    ...(candidate.referencePriceAt ? { referencePriceAt: candidate.referencePriceAt } : {}),
-  };
-}
-
-function Icon({ name }: { name: "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" }) {
-  const paths = {
-    refresh: <><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></>,
-    expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="M3 8l6-6M21 8l-6-6M3 16l6 6M21 16l-6 6"/></>,
-    collapse: <><path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/></>,
-    globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
-    close: <path d="M6 6l12 12M18 6L6 18"/>,
-    arrow: <path d="M5 12h14M13 6l6 6-6 6"/>,
-  } as const;
-  return <svg viewBox="0 0 24 24" aria-hidden="true" className="icon" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
-}
-
-export default function App() {
-  const [base, setBase] = useState<BasePayload | null>(null);
-  const [environment, setEnvironment] = useState<TradingEnvironment>("demo");
-  const [draft, setDraft] = useState<OrderDraft | null>(null);
-  const [preview, setPreview] = useState<OrderPreview | null>(null);
-  const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
-  const [execution, setExecution] = useState<OrderExecutionResult | null>(null);
-  const [verification, setVerification] = useState<ExecutionVerificationResult | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [locale, setLocale] = useState<SupportedLocale>(() =>
-    readSavedLocale() ?? resolveLocale(typeof navigator === "undefined" ? "en" : navigator.language),
-  );
-  const [displayMode, setDisplayMode] = useState<DisplayMode>("inline");
-  const [availableDisplayModes, setAvailableDisplayModes] = useState<DisplayMode[]>(["inline"]);
-  const transactionExpansionAttempted = useRef(false);
-
-  const t = useMemo(() => createTranslator(locale), [locale]);
-
-  const { app, error } = useApp({
-    appInfo: { name: APP_META.name, version: APP_META.version },
-    capabilities: {},
-    onAppCreated: (createdApp: McpApp) => {
-      const syncHostContext = (context: ReturnType<McpApp["getHostContext"]>) => {
-        if (!context) return;
-        setDisplayMode((context.displayMode ?? "inline") as DisplayMode);
-        setAvailableDisplayModes((context.availableDisplayModes ?? ["inline"]) as DisplayMode[]);
-        if (!readSavedLocale()) setLocale(resolveLocale(context.locale));
+export default function App(){
+  const [payload,setPayload]=useState<Payload|null>(null);
+  const [personalPayload,setPersonalPayload]=useState<PersonalPayload|null>(null);
+  const [env,setEnv]=useState<Environment>("demo");
+  const [mode,setMode]=useState<"today"|"overview"|"risk"|"stress"|"trend"|"brief"|"trade">("today");
+  const [locale,setLocale]=useState<Locale>("zh");
+  const [shock,setShock]=useState(-10);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState<string|null>(null);
+  const [displayMode,setDisplayMode]=useState<"inline"|"fullscreen">("inline");
+  const [canFullscreen,setCanFullscreen]=useState(false);
+  const t=useMemo(()=>wording[locale],[locale]);
+  const {app, error:appError}=useApp({
+    appInfo:{name:"TradePilot 212 Personal",version:"3.0.0-alpha.3"},
+    capabilities:{},
+    onAppCreated:(created:HostApp)=>{
+      created.ontoolresult=result=>{
+        const candidate=result.structuredContent as unknown as (Payload|PersonalPayload|undefined);
+        if(!candidate||typeof candidate.kind!=="string")return;
+        if(["trade_draft","trade_preview","cancel_preview","trade_execution","trade_verification","trade_plan","pending_orders"].includes(candidate.kind)){
+          setPersonalPayload(candidate as PersonalPayload);
+          if("environment" in candidate)setEnv(candidate.environment);
+          setMode("trade");
+          return;
+        }
+        const next=candidate as Payload;
+        setPayload(next);
+        if("environment" in next)setEnv(next.environment);
+        if(next.kind==="attention_center")setMode("today");
+        if(next.kind==="portfolio")setMode("overview");
+        if(next.kind==="analysis")setMode("risk");
+        if(next.kind==="scenario")setMode("stress");
+        if(next.kind==="risk_trend")setMode("trend");
+        if(next.kind==="daily_brief")setMode("brief");
       };
-      syncHostContext(createdApp.getHostContext());
-      createdApp.onhostcontextchanged = syncHostContext;
-      createdApp.ontoolresult = (toolResult) => {
-        const payload = toolResult.structuredContent as unknown as BasePayload;
-        if (!payload) return;
-        setBase(payload);
-        const env = initialEnvironment(payload);
-        setEnvironment(env);
-        if (payload.kind === "order_draft") setDraft(payload.draft);
+      const syncHost=(context:ReturnType<HostApp["getHostContext"]>)=>{
+        if(context?.locale)setLocale(context.locale.toLowerCase().startsWith("zh")?"zh":"en");
+        setCanFullscreen(Boolean(context?.availableDisplayModes?.includes("fullscreen")));
+        setDisplayMode(context?.displayMode==="fullscreen"?"fullscreen":"inline");
       };
+      syncHost(created.getHostContext());
+      created.onhostcontextchanged=syncHost;
     },
   });
-
-  useHostStyles(app, app?.getHostContext());
-
-  const transactionActive = Boolean(draft || preview || cancelPreview);
-
-  useEffect(() => {
-    if (!transactionActive) {
-      transactionExpansionAttempted.current = false;
-      return;
-    }
-    if (transactionExpansionAttempted.current || !app || displayMode === "fullscreen") return;
-    if (!availableDisplayModes.includes("fullscreen")) return;
-    if (typeof window === "undefined" || window.innerHeight >= 560) return;
-
-    transactionExpansionAttempted.current = true;
-    void app.requestDisplayMode({ mode: "fullscreen" })
-      .then((result) => setDisplayMode(result.mode))
-      .catch(() => {
-        // The in-flow transaction layout is the fallback when the host declines fullscreen.
-      });
-  }, [app, availableDisplayModes, displayMode, transactionActive]);
-
-  useEffect(() => {
-    document.documentElement.lang = locale;
-  }, [locale]);
-
-  useEffect(() => {
-    if (error) setErrorMessage(error.message);
-  }, [error]);
-
-  const credentials: CredentialStatus = useMemo(() => {
-    if (!base || base.kind === "error") return { demo: false, live: false };
-    return base.credentials;
-  }, [base]);
-
-  const writeEnabled = base && base.kind !== "error" ? base.writeEnabled !== false : false;
-
-  function changeLocale(next: SupportedLocale) {
-    setLocale(next);
-    try {
-      localStorage.setItem(LOCALE_STORAGE_KEY, next);
-    } catch {
-      // Sandboxed hosts may disable localStorage; host locale remains the fallback.
-    }
-  }
-
-  async function callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    if (!app) throw new Error("ChatGPT app connection is not ready");
-    const result = await app.callServerTool({ name, arguments: args });
-    if (result.isError) {
-      const payload = result.structuredContent as unknown as ErrorPayload | undefined;
-      if (payload?.kind === "error" && payload.error) throw new ToolCallError(payload.error);
-      throw new ToolCallError({ code: "INTERNAL_ERROR", message: textFromToolResult(result) });
-    }
-    return result.structuredContent as unknown as T;
-  }
-
-  function caughtMessage(value: unknown): string {
-    return value instanceof ToolCallError ? formatProblem(value.problem, t, locale) : value instanceof Error ? value.message : String(value);
-  }
-
-  async function refresh(env = environment): Promise<void> {
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      if (base?.kind === "trade_plan") {
-        setBase(await callTool<TradePlanPayload>("app_get_trade_plan", {
-          environment: env,
-          candidates: base.candidates.map(candidateForRefresh),
-        }));
-      } else {
-        setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment: env }));
-      }
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  async function switchEnvironment(next: TradingEnvironment): Promise<void> {
-    if (next === environment) return;
-    setEnvironment(next);
-    setExecution(null);
-    setVerification(null);
-    setPreview(null);
-    setCancelPreview(null);
-    if (draft) setDraft({ ...draft, environment: next });
-    if (base?.kind === "order_draft") {
-      setBase({ ...base, draft: { ...base.draft, environment: next } });
-      return;
-    }
-    await refresh(next);
-  }
-
-  async function toggleDisplayMode(): Promise<void> {
-    if (!app) return;
-    const target: DisplayMode = displayMode === "fullscreen" ? "inline" : "fullscreen";
-    if (!availableDisplayModes.includes(target)) return;
-    try {
-      const result = await app.requestDisplayMode({ mode: target });
-      setDisplayMode(result.mode);
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    }
-  }
-
-  async function closeOrderDraft(): Promise<void> {
-    setDraft(null);
-    setPreview(null);
-    if (base?.kind === "order_draft") await refresh(environment);
-  }
-
-  async function reviewOrder(): Promise<void> {
-    if (!draft) return;
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      setPreview(await callTool<OrderPreview>("app_prepare_order", draft as unknown as Record<string, unknown>));
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  async function confirmOrder(): Promise<void> {
-    if (!preview) return;
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      const confirmationCode = preview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode });
-      setExecution(result);
-      setVerification(null);
-      setPreview(null);
-      setDraft(null);
-      await refresh(environment);
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  async function startCancel(orderId: string): Promise<void> {
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      setCancelPreview(await callTool<CancelPreview>("app_prepare_cancel", { environment, orderId }));
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  async function confirmCancel(): Promise<void> {
-    if (!cancelPreview) return;
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      const confirmationCode = cancelPreview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode });
-      setExecution(result);
-      setVerification(null);
-      setCancelPreview(null);
-      await refresh(environment);
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  async function verifyUnknownExecution(): Promise<void> {
-    if (!execution?.verificationId) return;
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      const result = await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId: execution.verificationId });
-      setVerification(result);
-      await refresh(environment);
-    } catch (requestError) {
-      setErrorMessage(caughtMessage(requestError));
-    } finally {
-      setStatus("idle");
-    }
-  }
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (cancelPreview) setCancelPreview(null);
-      else if (preview) setPreview(null);
-      else if (draft) { setDraft(null); setPreview(null); if (base?.kind === "order_draft") void refresh(environment); }
+  useHostStyles(app,app?.getHostContext());
+  useEffect(()=>{if(appError)setError(appError.message);},[appError]);
+  const currency=payload?.kind==="portfolio"?payload.account.currency:
+    payload?.kind==="analysis"?payload.accountCurrency:
+    payload?.kind==="daily_brief"?payload.currency:
+    payload?.kind==="scenario"?payload.currency:
+    payload?.kind==="risk_trend"?(payload.points.at(-1)?.accountCurrency||"USD"):
+    payload?.kind==="attention_center"?payload.currency:"USD";
+  const source=personalPayload&&"source" in personalPayload?personalPayload.source:(payload&&"source" in payload?payload.source:undefined);
+  async function load(kind:"today"|"overview"|"risk"|"stress"|"trend"|"brief",environment=env){
+    if(!app)return;
+    const names={
+      today:"get_personal_attention_center",overview:"get_portfolio_intelligence",risk:"analyze_portfolio_risk",
+      stress:"simulate_portfolio_scenario",trend:"get_portfolio_risk_trend",brief:"get_portfolio_review_brief",
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [base, cancelPreview, draft, environment, preview]);
-
-  if (!app && !error) {
-    return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
+    setLoading(true);setError(null);
+    try{
+      const result=await app.callServerTool({name:names[kind],arguments:{environment,...(kind==="stress"?{shockPercent:shock}:{})}});
+      if(result.isError)throw new Error(result.content?.find(x=>x.type==="text")?.text||t.error);
+      const next=result.structuredContent as unknown as Payload|undefined;
+      if(!next||!["attention_center","portfolio","analysis","scenario","risk_trend","daily_brief"].includes(next.kind))throw new Error(t.unknown);
+      setPayload(next);setMode(kind);setEnv(environment);
+    }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setLoading(false);}
   }
-
-  const canToggleFullscreen = availableDisplayModes.includes("fullscreen") || displayMode === "fullscreen";
-
-  return (
-    <div className={`appShell mode-${displayMode}`}>
-      <header className="appHeader">
-        <div className="brandBlock">
-          <div className="brandMark">TP</div>
-          <div className="brandCopy">
-            <span className="brokerLabel">{t("brokerName")}</span>
-            <h1>{t("appName")}</h1>
-          </div>
-        </div>
-
-        <div className="headerActions">
-          <div className="environmentSwitch" aria-label={t("environment")}>
-            <button
-              type="button"
-              className={environment === "demo" ? "active" : ""}
-              onClick={() => void switchEnvironment("demo")}
-              disabled={status === "loading"}
-            >
-              <span className={`statusDot ${credentials.demo ? "ready" : ""}`} />
-              {t("demo")}
-            </button>
-            <button
-              type="button"
-              className={environment === "live" ? "active live" : "live"}
-              onClick={() => void switchEnvironment("live")}
-              disabled={status === "loading"}
-            >
-              <span className={`statusDot ${credentials.live ? "ready" : ""}`} />
-              {t("live")}
-            </button>
-          </div>
-
-          <div className="languageControl" title={t("language")}>
-            <Icon name="globe" />
-            <button className={locale === "zh-CN" ? "active" : ""} onClick={() => changeLocale("zh-CN")}>中文</button>
-            <span>/</span>
-            <button className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
-          </div>
-
-          {canToggleFullscreen && (
-            <button className="iconAction" type="button" onClick={() => void toggleDisplayMode()} title={displayMode === "fullscreen" ? t("collapse") : t("expand")}>
-              <Icon name={displayMode === "fullscreen" ? "collapse" : "expand"} />
-              <span className="actionText">{displayMode === "fullscreen" ? t("collapse") : t("expand")}</span>
-            </button>
-          )}
-          <button className="iconAction" type="button" onClick={() => void refresh()} disabled={status === "loading"} title={t("refresh")}>
-            <Icon name="refresh" />
-            <span className="actionText">{status === "loading" ? t("refreshing") : t("refresh")}</span>
-          </button>
-        </div>
-      </header>
-
-      <div className={`environmentBar ${environment}`}>
-        <div>
-          <strong>{environment === "live" ? t("liveMoney") : t("demoAccount")}</strong>
-          <span>{environment === "live" ? t("liveDescription") : t("demoDescription")}</span>
-        </div>
-        <span className="connectionBadge"><span className="statusDot ready" />{t("connected")}</span>
+  function date(value?:string){return value?new Date(value).toLocaleString(locale==="zh"?"zh-CN":"en-US"):"—";}
+  async function toggleFullscreen(){
+    if(!app||!canFullscreen)return;
+    try{
+      const result=await app.requestDisplayMode({mode:displayMode==="fullscreen"?"inline":"fullscreen"});
+      setDisplayMode(result.mode==="fullscreen"?"fullscreen":"inline");
+    }catch(e){setError(e instanceof Error?e.message:String(e));}
+  }
+  return <main className="shell">
+    <header className="top">
+      <div className="identity"><span className="mark">T<span>P</span></span><div><span className="eyebrow">{t.brand}</span><h1>TradePilot 212 Personal</h1></div></div>
+      <div className="topActions">
+        <select aria-label="Account environment" value={env} onChange={e=>{setEnv(e.target.value as Environment);setPayload(null);setPersonalPayload(null);}}><option value="demo">DEMO</option><option value="live">LIVE</option></select>
+        <button type="button" onClick={()=>setLocale(locale==="zh"?"en":"zh")}>{locale==="zh"?"EN":"中文"}</button>
+        {canFullscreen&&<button type="button" onClick={()=>void toggleFullscreen()}>
+          {displayMode==="fullscreen"?(locale==="zh"?"返回内嵌":"Inline"):(locale==="zh"?"全屏":"Fullscreen")}
+        </button>}
       </div>
-
-      {!writeEnabled && base && base.kind !== "error" && (
-        <div className="notice warning"><strong>{t("readonlyMode")}</strong><span>{t("readonlyHint")}</span></div>
-      )}
-      {errorMessage && <div className="notice error" role="alert"><strong>{t("syncError")}</strong><span>{errorMessage}</span></div>}
-      {execution && (
-        <div className={`notice executionNotice ${execution.ok ? "success" : execution.status === "unknown" ? "warning" : "error"}`} role="status" aria-live="polite">
-          <div className="noticeCopy">
-            <strong>{execution.status === "unknown" ? t("unknownStatus") : execution.ok ? t("submitted") : t("notSubmitted")}</strong>
-            <span>{execution.error ? formatProblem(execution.error, t, locale) : execution.message}</span>
-            {verification && <span className="verificationResult">{verificationText(verification, t)}</span>}
-          </div>
-          {execution.status === "unknown" && execution.verificationId && (
-            <button className="secondaryButton" type="button" disabled={status === "loading"} onClick={() => void verifyUnknownExecution()}>
-              {status === "loading" ? t("verifying") : t("verifyExecution")}
-            </button>
-          )}
-        </div>
-      )}
-
-      {!transactionActive && (
-        <>
-        {base?.kind === "error" && <div className="emptyState">{formatProblem(base.error, t, locale)}</div>}
-        {base?.kind === "portfolio" && (
-          <PortfolioView payload={base} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
-        )}
-        {base?.kind === "trade_plan" && (
-          <TradePlanView
-            payload={base}
-            locale={locale}
-            t={t}
-            writeEnabled={writeEnabled}
-            onTrade={(candidate) => {
-              const next = defaultDraft(environment, candidate);
-              if (!next) return;
-              setDraft(next);
-              setPreview(null);
-              setExecution(null);
-            }}
-          />
-        )}
-        {base?.kind === "order_draft" && !draft && <div className="emptyState">{t("orderLoaded")}</div>}
-        {!base && <div className="emptyState">{t("waiting")}</div>}
-
-
-        </>
-      )}
-
-      {draft && !preview && !cancelPreview && (
-        <OrderEditor
-          draft={draft}
-          originalDraft={base?.kind === "order_draft" ? base.draft : undefined}
-          resolution={base?.kind === "order_draft" ? base.resolution : undefined}
-          resolvedInstrument={base?.kind === "order_draft" ? base.resolvedInstrument : undefined}
-          locale={locale}
-          t={t}
-          busy={status === "loading"}
-          onChange={setDraft}
-          onClose={() => void closeOrderDraft()}
-          onReview={() => void reviewOrder()}
-        />
-      )}
-
-      {preview && !cancelPreview && (
-        <OrderConfirmation
-          preview={preview}
-          locale={locale}
-          t={t}
-          busy={status === "loading"}
-          onBack={() => setPreview(null)}
-          onConfirm={() => void confirmOrder()}
-        />
-      )}
-
-      {cancelPreview && (
-        <ConfirmModal
-          title={cancelPreview.environment === "live" ? t("confirmCancelTitleLive") : t("confirmCancelTitleDemo")}
-          body={`${t("order")} ${cancelPreview.orderId}`}
-          danger={cancelPreview.environment === "live"}
-          confirmLabel={t("confirmCancel")}
-          busy={status === "loading"}
-          t={t}
-          onCancel={() => setCancelPreview(null)}
-          onConfirm={() => void confirmCancel()}
-        />
-      )}
-    </div>
-  );
-}
-
-function PortfolioView({
-  payload,
-  locale,
-  t,
-  writeEnabled,
-  onCancel,
-}: {
-  payload: DashboardPayload;
-  locale: SupportedLocale;
-  t: Translator;
-  writeEnabled: boolean;
-  onCancel: (orderId: string) => void;
-}) {
-  const currency = payload.account?.currency ?? "EUR";
-  const pnl = payload.account?.investments?.unrealizedProfitLoss;
-  return (
-    <main className="contentStack">
-      {payload.warning && <div className="notice warning">{payload.warning}</div>}
-
-      <section className="overviewPanel">
-        <div className="overviewLead">
-          <span className="sectionEyebrow">{t("accountOverview")}</span>
-          <strong className="heroValue">{money(payload.account?.totalValue, currency, locale)}</strong>
-          <div className={`pnlBadge ${signedClass(pnl)}`}>{t("unrealizedPnL")} · {money(pnl, currency, locale)}</div>
-        </div>
-        <div className="metricGrid">
-          <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />
-          <Metric label={t("investedValue")} value={money(payload.account?.investments?.currentValue, currency, locale)} />
-          <Metric label={t("positions")} value={String(payload.positions.length)} />
-          <Metric label={t("lastUpdated")} value={time(payload.timestamp, locale)} compact />
-        </div>
-      </section>
-
-      <section className="dataPanel">
-        <SectionHeader title={t("positions")} count={payload.positions.length} />
-        {payload.positions.length === 0 ? (
-          <div className="emptyState compact">{t("noPositions")}</div>
-        ) : (
-          <>
-            <div className="desktopTableWrap">
-              <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th>{t("averagePrice")}</th><th>{t("pnl")}</th><th>{t("availableToSell")}</th></tr></thead>
-                <tbody>
-                  {payload.positions.map((position) => {
-                    const positionPnl = walletNumber(position, "unrealizedProfitLoss");
-                    return (
-                      <tr key={position.instrument.ticker}>
-                        <td><AssetIdentity position={position} /></td>
-                        <td>{num(position.quantity, locale)}</td>
-                        <td>{money(position.currentPrice, position.instrument.currencyCode, locale)}</td>
-                        <td>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
-                        <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale)}</td>
-                        <td>{num(position.quantityAvailableForTrading, locale)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="mobilePositionList">
-              {payload.positions.map((position) => (
-                <PositionCard key={position.instrument.ticker} position={position} accountCurrency={currency} locale={locale} t={t} />
-              ))}
-            </div>
-          </>
-        )}
-      </section>
-
-      <section className="dataPanel">
-        <SectionHeader title={t("pendingOrders")} count={payload.orders.length} />
-        {payload.orders.length === 0 ? (
-          <div className="emptyState compact">{t("noOrders")}</div>
-        ) : (
-          <div className="orderList">
-            {payload.orders.map((order, index) => {
-              const id = String(order.id ?? "");
-              return (
-                <div className="orderRow" key={id || index}>
-                  <div className="orderIdentity"><strong>{order.ticker ?? "—"}</strong><span>{order.type ?? "ORDER"} · {order.status ?? "PENDING"}</span></div>
-                  <div className="orderQuantity">{num(typeof order.quantity === "number" ? order.quantity : undefined, locale)}</div>
-                  {writeEnabled && <button className="secondaryButton danger" type="button" disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <ActivityPanel activity={payload.activity ?? []} locale={locale} t={t} />
-    </main>
-  );
-}
-
-function ActivityPanel({ activity, locale, t }: { activity: ActivityEvent[]; locale: SupportedLocale; t: Translator }) {
-  return (
-    <section className="dataPanel activityPanel">
-      <details>
-        <summary><span>{t("recentActivity")}</span><b>{activity.length}</b></summary>
-        {activity.length === 0 ? <div className="emptyState compact">{t("noActivity")}</div> : (
-          <div className="activityList">
-            {activity.map((event) => (
-              <div className="activityRow" key={event.id}>
-                <span className={`activityDot ${event.type.includes("unknown") || event.type.includes("rejected") ? "warning" : ""}`} />
-                <div><strong>{activityLabel(event, t)}</strong><small>{[event.ticker, event.orderId].filter(Boolean).join(" · ") || event.environment.toUpperCase()}</small></div>
-                <time>{time(event.timestamp, locale)}</time>
-              </div>
-            ))}
-          </div>
-        )}
+    </header>
+    <div className="trustBar">{source&&<SourceTag source={source} locale={locale}/>}<span>{t.noTrades}</span></div>
+    <nav className="tabs" aria-label="Portfolio views">
+      {(["today","overview","risk","trade"] as const).map(key=><button
+        key={key} className={mode===key?"active":""} disabled={!app||loading}
+        onClick={()=>key==="trade"?setMode("trade"):void load(key)}>{t[key]}</button>)}
+      <details className="extraViews" key={mode}
+        open={mode==="stress"||mode==="trend"||mode==="brief"}>
+        <summary>{t.more}</summary>
+        <div className="extraViewOptions">{(["stress","trend","brief"] as const).map(key=>
+          <button type="button" key={key} className={mode===key?"active":""}
+            disabled={!app||loading} onClick={()=>void load(key)}>{t[key]}</button>)}</div>
       </details>
-    </section>
-  );
-}
-
-function activityLabel(event: ActivityEvent, t: Translator): string {
-  switch (event.type) {
-    case "order_prepared": return t("activityOrderPrepared");
-    case "order_submitted": return t("activityOrderSubmitted");
-    case "order_rejected": return t("activityOrderRejected");
-    case "order_status_unknown": return t("activityOrderUnknown");
-    case "order_verification": return t("activityVerified");
-    case "cancel_prepared": return t("activityCancelPrepared");
-    case "cancel_submitted": return t("activityCancelSubmitted");
-    case "cancel_rejected": return t("activityCancelRejected");
-    case "cancel_status_unknown": return t("activityCancelUnknown");
-  }
-}
-
-function AssetIdentity({ position }: { position: Position }) {
-  const name = position.instrument.shortName || position.instrument.name || position.instrument.ticker;
-  return <div className="assetIdentity"><span className="assetAvatar">{name.slice(0, 2).toUpperCase()}</span><div><strong>{name}</strong><small>{position.instrument.ticker}</small></div></div>;
-}
-
-function PositionCard({
-  position,
-  accountCurrency,
-  locale,
-  t,
-}: {
-  position: Position;
-  accountCurrency: string;
-  locale: SupportedLocale;
-  t: Translator;
-}) {
-  const positionPnl = walletNumber(position, "unrealizedProfitLoss");
-  const positionValue = walletNumber(position, "currentValue");
-  return (
-    <article className="positionCard">
-      <div className="positionCardHeader"><AssetIdentity position={position} /><span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale)}</span></div>
-      <div className="positionFacts">
-        <div><span>{t("positionValue")}</span><strong>{money(positionValue, accountCurrency, locale)}</strong></div>
-        <div><span>{t("currentPrice")}</span><strong>{money(position.currentPrice, position.instrument.currencyCode, locale)}</strong></div>
-        <div><span>{t("quantity")}</span><strong>{num(position.quantity, locale)}</strong></div>
-        <div><span>{t("averagePrice")}</span><strong>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</strong></div>
-      </div>
-    </article>
-  );
-}
-
-function TradePlanView({
-  payload,
-  locale,
-  t,
-  writeEnabled,
-  onTrade,
-}: {
-  payload: TradePlanPayload;
-  locale: SupportedLocale;
-  t: Translator;
-  writeEnabled: boolean;
-  onTrade: (candidate: EnrichedTradeCandidate) => void;
-}) {
-  const [activeHorizon, setActiveHorizon] = useState<Horizon>("short");
-  useEffect(() => {
-    if (payload.candidates.some((candidate) => candidate.horizon === activeHorizon)) return;
-    const first = (["short", "medium", "long"] as Horizon[]).find((horizon) => payload.candidates.some((candidate) => candidate.horizon === horizon));
-    if (first) setActiveHorizon(first);
-  }, [activeHorizon, payload.candidates]);
-  const groups: Array<{ key: Horizon; label: string; hint: string }> = [
-    { key: "short", label: t("short"), hint: t("shortHint") },
-    { key: "medium", label: t("medium"), hint: t("mediumHint") },
-    { key: "long", label: t("long"), hint: t("longHint") },
-  ];
-  const visible = payload.candidates.filter((candidate) => candidate.horizon === activeHorizon);
-  const currency = payload.account?.currency ?? "EUR";
-  return (
-    <main className="contentStack">
-      <section className="overviewPanel tradeOverview">
-        <div className="overviewLead">
-          <span className="sectionEyebrow">{t("tradePlan")}</span>
-          <strong className="heroValue small">{payload.candidates.length} {t("candidates")}</strong>
-          <span className="overviewSubline">{t("account")} · {payload.environment.toUpperCase()}</span>
+      {mode!=="trade"&&<button className="refresh" disabled={!app||loading} onClick={()=>void load(mode)}>{loading?t.running:t.refresh}</button>}
+    </nav>
+    {error&&<div className="callout error" role="alert">{error}</div>}
+    {mode==="trade"?<PersonalTradeWorkspace key={env} app={app} environment={env} locale={locale} initial={personalPayload}/>:!payload||payload.kind==="error"?<section className="empty">
+      <div className="emptyOrb">◎</div><h2>{t.ready}</h2><p>{t.readyHelp}</p>
+      {mode==="today"&&<button type="button" disabled={!app||loading}
+        onClick={()=>void load("today")}>{loading?t.running:t.openToday}</button>}
+      {payload?.kind==="error"&&<p role="alert">{payload.message}</p>}
+    </section>:<>
+      <div className="sectionMeta"><span>{mode.toUpperCase()}</span><span>{t.updated}: {date("asOf" in payload?payload.asOf:undefined)}</span></div>
+      {payload.kind==="attention_center"&&<section className="panel attentionPanel">
+        <div className="attentionHeader">
+          <div><h2>{t.today}</h2>
+            <p className="muted">{date(payload.asOf)} · {t.computed} · {payload.source.toUpperCase()}</p></div>
+          <strong className="attentionValue">{fmt(payload.portfolioValue,payload.currency,locale)}</strong>
         </div>
-        <div className="metricGrid">
-          <Metric label={t("totalValue")} value={money(payload.account?.totalValue, currency, locale)} />
-          <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />
-          <Metric label={t("unrealizedPnL")} value={money(payload.account?.investments?.unrealizedProfitLoss, currency, locale)} />
-          <Metric label={t("lastUpdated")} value={time(payload.timestamp, locale)} compact />
+        <div className="attentionStats">
+          <span>{t.reviewCount}: <strong>{payload.reviewCount}</strong></span>
+          <span>{t.cashRatio}: <strong>{number(payload.cashPercent)}</strong></span>
+          <span>{t.coverage}: <strong>{number(payload.valuationCoveragePercent)}</strong></span>
         </div>
-      </section>
-
-      <section className="dataPanel tradePanel">
-        <div className="horizonTabs" role="tablist">
-          {groups.map((group) => {
-            const count = payload.candidates.filter((candidate) => candidate.horizon === group.key).length;
-            return (
-              <button key={group.key} type="button" role="tab" aria-selected={activeHorizon === group.key} className={activeHorizon === group.key ? "active" : ""} onClick={() => setActiveHorizon(group.key)}>
-                <span>{group.label}</span><small>{group.hint}</small><b>{count}</b>
-              </button>
-            );
-          })}
+        {payload.reviewCount===0&&<p className="muted">{t.noAlerts}</p>}
+        <div className="attentionList">{payload.items.map(item=>
+          <article key={item.id} className={`attentionItem ${item.priority}`}>
+            <strong>{item.title[locale]}</strong>
+            <p>{item.detail[locale]}</p>
+            {item.provenance==="saved_monitor_event"&&<small>{t.historical} · {date(item.asOf)}</small>}
+          </article>)}</div>
+        <p className="muted">{payload.limitations[0]?.[locale]}</p>
+        <div className="attentionActions">
+          <button type="button" disabled={!app||loading} onClick={()=>void load("risk")}>{t.risk}</button>
+          <button type="button" disabled={!app||loading} onClick={()=>void load("overview")}>{t.overview}</button>
         </div>
-        {visible.length === 0 ? <div className="emptyState compact">{t("candidates")} · 0</div> : (
-          <div className="candidateGrid">
-            {visible.map((candidate, index) => (
-              <CandidateCard
-                key={`${candidate.resolvedInstrument?.ticker ?? candidate.ticker ?? candidate.symbol}-${index}`}
-                candidate={candidate}
-                locale={locale}
-                t={t}
-                writeEnabled={writeEnabled}
-                onTrade={onTrade}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-    </main>
-  );
+      </section>}
+      {payload.kind==="portfolio"&&<>
+        <section className="metrics">
+          <Metric label={t.account} value={fmt(payload.account.totalValue,payload.account.currency,locale)}/>
+          <Metric label={t.cash} value={fmt(payload.account.availableCash,payload.account.currency,locale)}/>
+          <Metric label={t.positions} value={String(payload.holdings.length)}/>
+          <Metric label={t.unrealized} value={fmt(payload.account.unrealizedProfitLoss,payload.account.currency,locale)}/>
+          {payload.account.realizedProfitLoss!==undefined&&<Metric label={t.realized}
+            value={fmt(payload.account.realizedProfitLoss,payload.account.currency,locale)}/>}
+        </section>
+        <section className="panel"><h2>{t.holdings}</h2><div className="holdingList">
+          {payload.holdings.map(h=><div className="holding holdingCard" key={h.ticker}>
+            <div className="holdingHead">
+              <span><strong>{h.ticker}</strong><small>{h.name}</small></span>
+              <span className="alignRight"><strong>{h.quantity}</strong><small>{fmt(h.valueInAccountCurrency,payload.account.currency,locale)}</small></span>
+            </div>
+            <div className="holdingFacts">
+              <span>{t.price}: <strong>{fmt(h.price,h.currency,locale)}</strong></span>
+              <span>{t.avg}: <strong>{fmt(h.averagePricePaid,h.currency,locale)}</strong></span>
+              <span>{t.tradable}: <strong>{h.tradableQuantity.toLocaleString()}</strong></span>
+              <span>{t.unrealized}: <strong>{fmt(h.unrealizedProfitLossInAccountCurrency,payload.account.currency,locale)}</strong></span>
+            </div>
+          </div>)}</div></section>
+        {!!payload.notes.length&&<section className="panel warning"><h2>{t.warning}</h2>{payload.notes.map((note,i)=><p key={i}>{note}</p>)}</section>}
+      </>}
+      {payload.kind==="analysis"&&<>
+        <section className="metrics">
+          <Metric label={t.coverage} value={number(payload.exposureCoveragePercent)}/>
+          <Metric label={t.concentration} value={number(payload.largestPositionPercent)}/>
+          <Metric label={t.cashRatio} value={number(payload.cashPercent)}/>
+        </section>
+        <section className="panel"><h2>{t.holdings}</h2>{payload.exposures.map(item=><ExposureRow key={item.ticker} item={item} currency={currency} locale={locale}/>)}</section>
+        {!!payload.alerts.length&&<section className="panel warning"><h2>{t.riskAlerts}</h2>{payload.alerts.map((a,i)=><p key={i}>{a}</p>)}</section>}
+        {!!payload.limitations.length&&<section className="panel"><h2>{t.limitations}</h2>{payload.limitations.map((a,i)=><p key={i}>{a}</p>)}</section>}
+      </>}
+      {payload.kind==="scenario"&&<section className="panel">
+        <h2>{t.scenario} · {number(payload.shockPercent)}</h2>
+        <div className="metrics two"><Metric label={t.totalChange} value={fmt(payload.hypotheticalPortfolioChange,currency,locale)}/><Metric label={t.outcome} value={fmt(payload.hypotheticalPortfolioValue,currency,locale)}/></div>
+        <p className="muted">{t.scenarioHelp}</p>
+        <h3>{t.assumptions}</h3>{payload.assumptions.map((a,i)=><p key={i}>{a}</p>)}
+      </section>}
+      {payload.kind==="risk_trend"&&<section className="panel">
+        <h2>{t.trend}</h2>
+        <div className="metric"><span>{locale==="zh"?"观察到的总值变化（不等于投资收益）":"Observed total-value change (not investment return)"}</span>
+          <strong>{fmt(payload.absoluteValueChange,currency,locale)}</strong></div>
+        {payload.points.length? <div className="trendTable">
+          {payload.points.slice(-30).map((point,i)=><div className="trendRow" key={point.asOf+"-"+i}>
+            <span>{date(point.asOf)}</span>
+            <strong>{fmt(point.totalValue,point.accountCurrency,locale)}</strong>
+            <span>{t.concentration}: {number(point.largestPositionPercent)}</span>
+            <span>{t.coverage}: {number(point.exposureCoveragePercent)}</span>
+          </div>)}
+        </div> : <p>{locale==="zh"?"尚无每日监测记录。请先创建监测规则并运行扫描。":"No daily monitoring observations yet. Create a watch rule and run a scan."}</p>}
+        {payload.notes.map((note,i)=><p className="muted" key={i}>{note}</p>)}
+      </section>}
+      {payload.kind==="daily_brief"&&<section className="panel"><h2>{t.brief}</h2><p>{payload.summary}</p>
+        <h3>{t.riskAlerts}</h3>{payload.observations.map((a,i)=><p key={i}>{a}</p>)}
+        <h3>{t.watch}</h3>{payload.priorityChecks.map((a,i)=><p key={i}>{a}</p>)}
+        <p className="muted">{payload.disclaimer}</p>
+      </section>}
+    </>}
+    {mode!=="trade"&&<section className="scenarioControls">
+      <div><strong>{t.scenario}</strong><p>{t.scenarioHelp}</p></div>
+      <div className="controls"><input aria-label="Shock percent" type="range" min="-40" max="40" step="5" value={shock} onChange={e=>setShock(Number(e.target.value))}/><span>{number(shock)}</span><button disabled={!app||loading} onClick={()=>void load("stress")}>{t.run}</button></div>
+    </section>}
+  </main>;
 }
-
-function CandidateCard({
-  candidate,
-  locale,
-  t,
-  writeEnabled,
-  onTrade,
-}: {
-  candidate: EnrichedTradeCandidate;
-  locale: SupportedLocale;
-  t: Translator;
-  writeEnabled: boolean;
-  onTrade: (candidate: EnrichedTradeCandidate) => void;
-}) {
-  const instrument = candidate.resolvedInstrument;
-  const actionKey: MessageKey = candidate.action === "buy" ? "buy" : candidate.action === "sell" ? "sell" : "watch";
-  const riskKey: MessageKey = candidate.risk === "low" ? "low" : candidate.risk === "high" ? "high" : "mediumRisk";
-  const actionClass = candidate.action === "buy" ? "buy" : candidate.action === "sell" ? "sell" : "watch";
-  return (
-    <article className="candidateCard">
-      <div className="candidateTopline">
-        <div className="candidateIdentity">
-          <span className="assetAvatar">{(instrument?.shortName || candidate.symbol || candidate.ticker || candidate.name || "?").slice(0, 2).toUpperCase()}</span>
-          <div><strong>{instrument?.shortName || candidate.symbol || candidate.ticker || candidate.name}</strong><small>{instrument?.ticker || candidate.ticker || "—"}</small></div>
-        </div>
-        <div className={`scoreRing ${candidate.score >= 80 ? "high" : candidate.score >= 65 ? "medium" : "low"}`}><strong>{candidate.score}</strong><span>{t("score")}</span></div>
-      </div>
-      <div className="candidateBadges">
-        <span className={`actionBadge ${actionClass}`}>{t(actionKey)}</span>
-        <span>{t("risk")} · {t(riskKey)}</span>
-        {candidate.referencePrice && <span>{t("reference")} · {money(candidate.referencePrice, instrument?.currencyCode ?? "USD", locale)}</span>}
-      </div>
-      <p className="candidateRationale">{candidate.rationale}</p>
-      {(candidate.thesis || candidate.catalysts?.length || candidate.risks?.length || candidate.counterCase || candidate.sources?.length) && (
-        <details className="candidateDetails">
-          <summary>{t("details")}</summary>
-          <div className="candidateDetailBody">
-            {candidate.thesis && <DetailSection title={t("thesis")} text={candidate.thesis} />}
-            {!!candidate.catalysts?.length && <DetailList title={t("catalysts")} items={candidate.catalysts} />}
-            {!!candidate.risks?.length && <DetailList title={t("risksTitle")} items={candidate.risks} />}
-            {candidate.counterCase && <DetailSection title={t("counterCase")} text={candidate.counterCase} />}
-            {!!candidate.sources?.length && <DetailList title={t("sources")} items={candidate.sources} />}
-            {(candidate.analysisAsOf || candidate.referencePriceAt) && (
-              <div className="candidateFreshness">
-                {candidate.analysisAsOf && <span>{t("analysisAsOf")} · {dateTime(candidate.analysisAsOf, locale)}</span>}
-                {candidate.referencePriceAt && <span>{t("referenceAsOf")} · {dateTime(candidate.referencePriceAt, locale)}</span>}
-              </div>
-            )}
-          </div>
-        </details>
-      )}
-      {candidate.resolutionError && <div className="inlineError">{candidate.resolutionError}</div>}
-      {(candidate.heldQuantity !== undefined || candidate.availableToSell !== undefined) && (
-        <div className="candidateHolding"><span>{t("holding")}</span><strong>{num(candidate.heldQuantity, locale)}</strong><span>· {t("availableToSell")}</span><strong>{num(candidate.availableToSell, locale)}</strong></div>
-      )}
-      <button
-        className={`tradeButton ${actionClass}`}
-        type="button"
-        disabled={!writeEnabled || candidate.action === "watch" || !instrument}
-        onClick={() => onTrade(candidate)}
-      >
-        <span>{candidate.action === "watch" ? t("keepWatching") : candidate.action === "sell" ? t("prepareSell") : t("prepareBuy")}</span>
-        {candidate.action !== "watch" && <Icon name="arrow" />}
-      </button>
-    </article>
-  );
-}
-
-function DetailSection({ title, text }: { title: string; text: string }) {
-  return <section><h3>{title}</h3><p>{text}</p></section>;
-}
-
-function DetailList({ title, items }: { title: string; items: string[] }) {
-  return <section><h3>{title}</h3><ul>{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>;
-}
-
-function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
-  return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function SectionHeader({ title, count }: { title: string; count: number }) {
-  return <div className="sectionHeader"><h2>{title}</h2><span>{count}</span></div>;
-}
-
-function OrderEditor({
-  draft,
-  originalDraft,
-  resolution,
-  resolvedInstrument,
-  locale,
-  t,
-  busy,
-  onChange,
-  onClose,
-  onReview,
-}: {
-  draft: OrderDraft;
-  originalDraft?: OrderDraft;
-  resolution?: OrderResolution;
-  resolvedInstrument?: Instrument;
-  locale: SupportedLocale;
-  t: Translator;
-  busy: boolean;
-  onChange: (draft: OrderDraft) => void;
-  onClose: () => void;
-  onReview: () => void;
-}) {
-  const set = <K extends keyof OrderDraft>(key: K, value: OrderDraft[K]) => onChange({ ...draft, [key]: value });
-  const quantityEdited = resolution ? Math.abs(draft.quantity - resolution.resolvedQuantity) > 1e-8 : false;
-  const orderEdited = originalDraft ? (["side", "type", "quantity", "extendedHours", "timeValidity", "limitPrice", "stopPrice", "referencePrice"] as const).some((key) => originalDraft[key] !== draft[key]) : quantityEdited;
-  return (
-    <main className="transactionStage">
-      <section className={`transactionPanel ${draft.environment === "live" ? "liveTransaction" : ""}`} aria-label={t("orderDraft")}>
-        <div className="transactionHeader">
-          <div><span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span><h2>{t("orderDraft")}</h2><p>{draft.ticker}</p></div>
-          <button className="closeButton" type="button" onClick={onClose} aria-label={t("close")}><Icon name="close" /></button>
-        </div>
-        {resolution && (
-          <div className="resolutionCard">
-            <div><span>{t("resolvedFromRequest")}</span><strong>{sizingText(resolution.sizing, resolvedInstrument, locale, t)}</strong></div>
-            <div><span>{t("calculatedQuantity")}</span><strong>{num(resolution.resolvedQuantity, locale)}</strong></div>
-            {orderEdited && <div className="resolutionEdited"><span>{t("manualEdited")}</span><strong>{quantityEdited ? num(draft.quantity, locale) : t("otherFieldsChanged")}</strong>{quantityEdited && <button type="button" onClick={() => set("quantity", resolution.resolvedQuantity)}>{t("restoreCalculated")}</button>}</div>}
-          </div>
-        )}
-        <div className="formGrid">
-          <Field label={t("side")}><select value={draft.side} onChange={(event) => set("side", event.target.value as OrderDraft["side"])}><option value="buy">{t("buy")}</option><option value="sell">{t("sell")}</option></select></Field>
-          <Field label={t("type")}><select value={draft.type} onChange={(event) => set("type", event.target.value as OrderDraft["type"])}><option value="market">{t("market")}</option><option value="limit">{t("limit")}</option><option value="stop">{t("stop")}</option><option value="stop_limit">{t("stopLimit")}</option></select></Field>
-          <Field label={t("quantity")}><input type="number" min="0" step="any" value={draft.quantity} onChange={(event) => set("quantity", Number(event.target.value))} /></Field>
-          <Field label={t("referencePrice")}><input type="number" min="0" step="any" value={draft.referencePrice ?? ""} placeholder="—" onChange={(event) => onChange({ ...draft, referencePrice: event.target.value ? Number(event.target.value) : undefined, referencePriceAt: undefined })} /></Field>
-          {(draft.type === "limit" || draft.type === "stop_limit") && <Field label={t("limitPrice")}><input type="number" min="0" step="any" value={draft.limitPrice ?? ""} onChange={(event) => set("limitPrice", event.target.value ? Number(event.target.value) : undefined)} /></Field>}
-          {(draft.type === "stop" || draft.type === "stop_limit") && <Field label={t("stopPrice")}><input type="number" min="0" step="any" value={draft.stopPrice ?? ""} onChange={(event) => set("stopPrice", event.target.value ? Number(event.target.value) : undefined)} /></Field>}
-          {draft.type !== "market" && <Field label={t("validity")}><select value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select></Field>}
-          {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
-        </div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
-        <span className="visuallyHidden">{locale}</span>
-      </section>
-    </main>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
-}
-
-function OrderConfirmation({
-  preview,
-  locale,
-  t,
-  busy,
-  onBack,
-  onConfirm,
-}: {
-  preview: OrderPreview;
-  locale: SupportedLocale;
-  t: Translator;
-  busy: boolean;
-  onBack: () => void;
-  onConfirm: () => void;
-}) {
-  const draft = preview.draft;
-  const amountCurrency = preview.estimatedNotionalCurrency || preview.instrument.currencyCode;
-  return (
-    <main className="transactionStage">
-      <section className={`transactionPanel confirmationPanel ${draft.environment === "live" ? "liveTransaction" : ""}`} aria-label={t("finalConfirmation")}>
-        <div className="confirmationHero">
-          <span className={`environmentTag ${draft.environment}`}>{draft.environment.toUpperCase()}</span>
-          <span className="sectionEyebrow">{t("finalConfirmation")}</span>
-          <h2>{draft.environment === "live" ? t("realOrder") : t("demoOrder")}</h2>
-          <strong className="confirmationAmount">{money(preview.estimatedNotional, amountCurrency, locale)}</strong>
-        </div>
-        <div className="confirmationRows">
-          <DetailRow label={t("instrument")} value={`${preview.instrument.shortName || preview.instrument.name} · ${draft.ticker}`} />
-          <DetailRow label={t("side")} value={draft.side === "buy" ? t("buy") : t("sell")} />
-          <DetailRow label={t("type")} value={draft.type === "market" ? t("market") : draft.type === "limit" ? t("limit") : draft.type === "stop" ? t("stop") : t("stopLimit")} />
-          <DetailRow label={t("quantity")} value={num(draft.quantity, locale)} />
-          {draft.limitPrice && <DetailRow label={t("limitPrice")} value={num(draft.limitPrice, locale)} />}
-          {draft.stopPrice && <DetailRow label={t("stopPrice")} value={num(draft.stopPrice, locale)} />}
-          {draft.referencePriceAt && <DetailRow label={t("referenceAsOf")} value={dateTime(draft.referencePriceAt, locale)} />}
-          {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
-          <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
-        </div>
-        {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
-        <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
-      </section>
-    </main>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function ConfirmModal({
-  title,
-  body,
-  danger,
-  confirmLabel,
-  busy,
-  t,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  body: string;
-  danger: boolean;
-  confirmLabel: string;
-  busy: boolean;
-  t: Translator;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <main className="transactionStage">
-      <section className={`transactionPanel smallDialog ${danger ? "liveTransaction" : ""}`} aria-label={title}>
-        <h2>{title}</h2><p>{body}</p>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
-      </section>
-    </main>
-  );
-}
-

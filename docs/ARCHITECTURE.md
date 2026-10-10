@@ -1,157 +1,66 @@
-# Architecture
+# V3 Personal architecture
 
-TradePilot 212 is intentionally split into a runtime-neutral core and small platform adapters. The same trading rules and MCP surface run on Node.js and Cloudflare Workers.
+```
+ChatGPT / Claude / supported private MCP host
+    │ OAuth CIMD + S256 + owner consent; modern MCP only
+    ▼
+src/server/http.ts — authenticated per-request transport
+    ├─ Portfolio Intelligence tools (read-only)
+    │    └─ IntelligenceService → BrokerReader GET-only → Trading 212
+    ├─ Research / Order review tools (model-visible, read-only)
+    │    └─ PersonalTradingService → resolveTradeIntent + checkDraft
+    ├─ Private interactive MCP App (human-held secret stays inside UI)
+    │    ├─ app_prepare_personal_order / cancel → single-use state token
+    │    └─ app_execute_personal_order / cancel → HMAC + OAuth scope + fresh broker validation
+    │                  └─ Trading212TradeGateway → POST/DELETE ONCE
+    └─ Monitoring tools → local rules/events in StateStore
 
-## Request path
+Cloudflare hourly Cron (local-time daily digest or weekday 07:00 UTC watch fallback)
+  └─ Portfolio GET → risk calculations → local events; no broker writes
 
-```text
-MCP host
-  │
-  │ OAuth 2.0 + PKCE
-  ▼
-Hono application
-  │
-  ├─ OAuth / protected-resource endpoints
-  └─ MCP endpoint
-       │
-       ▼
-   TradingService
-       │
-       ├─ instrument resolution
-       ├─ portfolio reads
-       ├─ order sizing
-       ├─ validation
-       ├─ one-time confirmation state
-       ├─ recent activity
-       └─ uncertain-write verification
-       │
-       ▼
-Trading212Client
-       │
-       ▼
-Trading 212 Public API
+StateStore: atomic Node JSON / Cloudflare Durable Object
+UI: bilingual React host-adaptive workspace
 ```
 
-The React MCP App UI is served as an MCP App resource. It calls app-only MCP tools for refresh, validation, confirmation, cancellation, and uncertain-write verification.
+## Additional self-hosted owner and research planes (V3 alpha.3)
 
-## Source layout
+- **Independent authenticated browser:** `src/server/owner-console.ts` and `owner-page.ts` expose `/owner`, separate from MCP host OAuth. Has opaque hashed owner sessions, HttpOnly SameSite Strict cookie, origin checks, CSRF, no third-party scripts, exact hash CSP, explicit Live consent and in-page HMAC confirmation. It shares `PersonalTradingService` and broker write-once invariants; it is **not** an old-host adapter.
+- **Time-zone-aware read-only automation:** `OwnerPreferencesStore`, `DailyAutomation`, `createNotifier`; Cloudflare hourly Cron checks *whether* the IANA-local hour matches before calling the broker. An entirely disabled daily digest retains weekday 07:00 UTC risk-rule scans. A configured Resend provider sends only opt-in bounded observation categories, keyed per day/environment. No automatic broker order.
+- **Independent primary data:** `ReferenceFxService` fixed official ECB dated currency references; `SecResearchService` fixed SEC filings API with operator contact; `TwelveDataQuoteService` optional vendor quote with source/timestamp/currency/venue validation. They cannot authorize trades and are not presented as a guaranteed broker quote.
+- **Host adaptivity:** `src/server/mcp.ts` advertises optional ChatGPT entrypoint metadata and standard MCP App resources. Tool `structuredContent` is suitable for host-generated Intelligent UI or Claude visuals; the host owns generated presentation. These extensions remain untested in real ChatGPT and Claude sessions.
 
-```text
-src/
-├─ adapters/
-│  ├─ node/
-│  │  ├─ index.ts
-│  │  └─ file-state-store.ts
-│  └─ cloudflare/
-│     └─ index.ts
-├─ app/
-│  └─ create-app.ts
-├─ core/
-│  ├─ config.ts
-│  ├─ errors.ts
-│  ├─ mcp.ts
-│  ├─ oauth.ts
-│  ├─ state-store.ts
-│  ├─ trading-service.ts
-│  ├─ trading212-client.ts
-│  └─ web-utils.ts
-├─ shared/
-│  ├─ contracts.ts
-│  └─ meta.ts
-└─ ui/
-   ├─ i18n/
-   ├─ App.tsx
-   └─ styles.css
-```
+The HTML Owner Console is an alpha single-owner app: before real-money use, validate browser security, passkeys/step-up requirements, device compromise boundaries, actual Demo trades, and broker order reconciliation.
 
-## Core boundaries
+## Product execution planes
 
-### `Trading212Client`
+**Intelligence plane:** portfolio dashboards, instrument resolution, research briefs/cards, risk simulation, local threshold rules, changes and read-only monitoring. Runs in AI, user-driven and scheduled contexts.
 
-Owns HTTP interaction with Trading 212.
+**Human execution plane:** private instance only, with explicit server flags, independently consented OAuth scope, app-only write endpoint, owner approval secret entered into UI, action/token-bound HMAC, one-use confirmation, fresh broker revalidation, and exactly one broker write. All inputs and platform hints are untrusted.
 
-- read requests have bounded retry/backoff for transient failures;
-- write requests are sent exactly once;
-- a write timeout or ambiguous server error becomes an unknown execution state rather than a retry.
+**Never** add model-visible broker write tools or a background broker execution path. The user initiating a research plan is not consent to trade.
 
-### `TradingService`
+## Rate and execution coordination
 
-Owns application rules.
+`src/infra/broker-pacer.ts` uses `StateStore.reserve` (atomic on Node file store and Cloudflare Durable Object) to space account-specific Trading 212 GET and POST/DELETE calls. Broker operations are assigned fixed quota buckets. Failed budget reservations never send a request; non-idempotent writes remain send-once.
 
-- resolves broker instruments;
-- reads account, positions, and pending orders;
-- converts flexible sizing into a quantity-based order;
-- enforces configured application-level limits and broker-facing constraints that can be checked locally;
-- issues short-lived one-time confirmations;
-- records a small metadata-only activity trail;
-- performs read-back verification after an ambiguous write.
+`StateStore.claim` and conditional `StateStore.release` create a per-environment exclusive execution lease. The lease is acquired **after** validating the independent human proof but **before** consuming the one-use confirmation. A second valid confirmation cannot concurrently send a separate broker write. A known success or rejection releases the lease; UNKNOWN outcomes retain it for 120 seconds. Manual broker verification is required regardless of lease expiry.
 
-`TradingService` does not perform market research and does not schedule work.
+`src/domain/research.ts` scores evidence **documentation completeness**, distinct from any model-provided investment score. It checks basic source URL traceability, research freshness, source dates, risks and counter-case; it performs NO independent web fact checking and never authorizes a trade.
 
-### `StateStore`
+## Broker path restrictions
+`src/infra/broker.ts` is GET-only with fixed allowed endpoints and bounded JSON responses. `src/infra/trade-gateway.ts` exclusively maps known approved GET/POST/DELETE endpoints with correct signed sell quantities. Network errors, 408, 5xx and broken response bodies after any broker write produce **UNKNOWN**; no retry and no automatic order replacement.
 
-Provides the small durable state API used by OAuth, confirmations, rate limits, activity, and verification records.
+## Domain data trust
+Sample != actual broker. There is no automatic fallback to sample on API failure. Currency coverage for risk allocation requires account-currency evidence. Scenario calculations disclose all assumptions. Reference prices and FX manually supplied for trade sizing are **estimates**, not executable price guarantees; limit orders are preferable when uncertain.
 
-Node uses an atomic file-backed implementation. Cloudflare uses a named Durable Object backed by SQLite. The confirmation consume operation is atomic in both implementations.
+## State and OAuth
+V3 storage uses new namespaces: `v3:code:`, `v3:refresh:`, `v3:rule:`, `v3:event:`, `v3:snapshot:`, `v3:trade-confirm:`, `v3:verify:`, `v3:trading-activity:`. V2 state files are unsupported.
 
-### MCP layer
+OAuth scopes: `portfolio:read`, `monitor:write`, `trading:review`, `trading:execute`, `offline_access`. Tool visibility is not authorization. Only allowlisted Client ID Metadata Documents are accepted; intentionally no old OAuth DCR or MCP session compatibility.
 
-The public MCP surface has two kinds of tools:
-
-- model-visible tools for portfolio reads, instrument resolution, trade-plan rendering, recent activity, and order review;
-- app-only tools invoked by explicit UI interactions for confirmation and cancellation.
-
-Broker writes remain app-only.
-
-## Execution invariants
-
-These rules are deliberate and should remain true when extending the project:
-
-1. No scheduled or unattended path may submit a broker write.
-2. Preparing an order must not submit it.
-3. Every order/cancellation write consumes a one-time confirmation.
-4. A Trading 212 write request is never retried automatically.
-5. An unknown write result stays unknown until a read-back check provides evidence.
-6. Read-back verification never resubmits the original write.
-7. Demo and Live credentials remain separate.
-8. A user-facing environment switch must not silently change an already confirmed order.
-9. Secrets never enter structured MCP output, activity records, or Git-tracked files.
-
-## Cloudflare adapter
-
-The Worker adapter provides:
-
-- static MCP App assets through the `ASSETS` binding;
-- a singleton named Durable Object for instance state;
-- request-derived public origin, avoiding a hard-coded personal URL;
-- the same Hono application used by Node.
-
-The deployment model is single-user. One Worker instance owns one Trading 212 credential set.
-
-## Node adapter
-
-The Node adapter reads local environment files, persists state under `.data/`, and appends a local JSONL audit log. It is suitable for local development or a private VPS/container deployment.
-
-## UI principles
-
-The UI is intentionally compact:
-
-- account state first;
-- Demo/Live status always visible;
-- responsive position table/cards;
-- trade plans grouped by horizon;
-- secondary research details collapsed by default;
-- order conversion shown before confirmation;
-- stale/unknown data is surfaced rather than hidden;
-- uncertain writes expose a read-only verification action;
-- keyboard focus is contained within modal dialogs and Escape closes the active dialog.
-
-## Extending the project
-
-New brokerage logic should normally enter through `TradingService` and shared contracts, not through platform adapters. New runtime support should implement `StateStore` and provide the shared Hono application with configuration, widget HTML, and optional audit hooks.
-
-Market-data providers, research workflows, and recurring tasks should remain external to the broker bridge unless they are required for broker correctness.
-
-### Transaction workspace
-
-Order editing, final confirmation, and cancellation confirmation render in normal document flow rather than a fixed-position iframe overlay. This lets the MCP host measure the real content height and avoids compressed dialogs in short embedded views. If the host exposes fullscreen and the current viewport is unusually short, the UI makes a best-effort fullscreen request; the in-flow layout remains the fallback. Only one transaction step is mounted at a time, so there is no nested modal stack or duplicate scroll container.
+## Production blockers (Draft)
+- No live Trading 212 order has been placed by testing.
+- Need real Demo order, partial fill, cancellation and unknown-response reconciliation acceptance.
+- Need ChatGPT and Claude host tests for app-only actions, rendering/confirmation and permissions.
+- Need robust broker rate-limit/freshness telemetry and user-controlled authentication/secret lifecycle before live use.
+- Need responsive visual QA and edge-case market controls.

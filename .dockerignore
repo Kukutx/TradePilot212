@@ -1,9 +1,11 @@
-node_modules
 .git
+.github
+node_modules
+dist
+.wrangler
 .data
+coverage
 .env
 .env.local
 .dev.vars
-.wrangler
-coverage
 *.log

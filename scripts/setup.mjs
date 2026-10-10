@@ -1,59 +1,26 @@
-import crypto from "node:crypto";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-
-const root = process.cwd();
-const target = path.join(root, ".env.local");
-const example = path.join(root, ".env.example");
-
-if (!fs.existsSync(example)) {
-  console.error("Missing .env.example. Run this command from the TradePilot212 project root.");
-  process.exit(1);
-}
-
-function randomSecret(bytes) {
-  return crypto.randomBytes(bytes).toString("base64url");
-}
-
-function setValue(text, key, value) {
-  const line = `${key}=${value}`;
-  const matcher = new RegExp(`^${key}=.*$`, "m");
-  return matcher.test(text) ? text.replace(matcher, line) : `${text.trimEnd()}\n${line}\n`;
-}
-
-if (!fs.existsSync(target)) {
-  let text = fs.readFileSync(example, "utf8");
-  text = setValue(text, "APP_LOGIN_PASSWORD", `tp-${randomSecret(18)}`);
-  text = setValue(text, "AUTH_SIGNING_SECRET", randomSecret(48));
-  fs.writeFileSync(target, text, { encoding: "utf8", flag: "wx" });
-  console.log("Created .env.local with secure OAuth secrets.");
-} else {
-  let text = fs.readFileSync(target, "utf8");
-  let changed = false;
-  const password = /^APP_LOGIN_PASSWORD=(.*)$/m.exec(text)?.[1]?.trim() ?? "";
-  const signing = /^AUTH_SIGNING_SECRET=(.*)$/m.exec(text)?.[1]?.trim() ?? "";
-  if (!password || password === "change-this-password" || password.length < 16) {
-    text = setValue(text, "APP_LOGIN_PASSWORD", `tp-${randomSecret(18)}`);
-    changed = true;
-  }
-  if (!signing || signing.startsWith("change-this-") || signing.length < 32) {
-    text = setValue(text, "AUTH_SIGNING_SECRET", randomSecret(48));
-    changed = true;
-  }
-  if (changed) {
-    fs.writeFileSync(target, text, "utf8");
-    console.log("Updated weak/missing OAuth secrets in .env.local.");
-  } else {
-    console.log("Existing .env.local kept unchanged.");
+const root=process.cwd(),target=path.join(root,".env.local"),example=path.join(root,".env.example");
+if(!fs.existsSync(example))throw new Error("Run setup from the project root");
+let content=fs.existsSync(target)?fs.readFileSync(target,"utf8"):fs.readFileSync(example,"utf8");
+let changed=false;
+for(const [name,length] of [["OWNER_PASSWORD",32],["JWT_SIGNING_SECRET",64],["PERSONAL_APPROVAL_SECRET",48]]){
+  const match=new RegExp(`^${name}=(.*)$`,"m");
+  const existing=match.exec(content)?.[1]?.trim()||"";
+  if(!existing||existing.startsWith("replace-with")){
+    const updated=`${name}=${randomBytes(length).toString("base64url")}`;
+    content=match.test(content)?content.replace(match,updated):content.trimEnd()+"\n"+updated+"\n";
+    changed=true;
   }
 }
-
-console.log("");
-console.log("Next:");
-console.log("1. Open .env.local");
-console.log("2. Paste your Trading 212 Demo and/or Live API key + secret");
-console.log("3. Run: pnpm doctor");
-console.log("4. Cloudflare: pnpm deploy");
-console.log("   Local Node: pnpm dev");
-console.log("");
-console.log("Never commit .env.local or share its contents.");
+if(!fs.existsSync(target)){
+  fs.writeFileSync(target,content,{mode:0o600,flag:"wx"});
+  console.log("Created private .env.local with three independent strong secrets.");
+}else if(changed){
+  fs.writeFileSync(target,content,{mode:0o600});
+  console.log("Filled missing/placeholder V3 secrets while preserving your existing configuration.");
+}else console.log("Existing valid local configuration kept unchanged.");
+console.log("Trading is disabled by default. To enable DEMO, configure read/write Demo credentials, DATA_SOURCE=trading212, then PERSONAL_TRADING_ENABLED=true.");
+console.log("Live additionally requires PERSONAL_LIVE_TRADING_ENABLED=true; manual UI confirmation remains mandatory.");
+console.log("Next: pnpm doctor && pnpm check");

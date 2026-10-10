@@ -1,54 +1,34 @@
-# Security Policy
+# Security — TradePilot 212 V3 Personal
 
-TradePilot 212 is designed as a **single-user, self-hosted instance**. One deployment should contain one user's Trading 212 credentials.
+This is **private single-owner brokerage software**, not a public ChatGPT trading plugin.
 
-## Never publish these values
+## Secrets and authorization
+Keep `OWNER_PASSWORD`, `JWT_SIGNING_SECRET`, `PERSONAL_APPROVAL_SECRET`, and `T212_{DEMO,LIVE}_{KEY,SECRET}` outside Git and AI conversations. Trading 212 keys are configured per account environment in self-hosted runtime secrets.
 
-Do not commit or share:
+OAuth requires CIMD+PKCE and explicit scopes. Personal broker writes require `trading:execute` on the connection, `PERSONAL_TRADING_ENABLED=true` on the owner server, and `PERSONAL_LIVE_TRADING_ENABLED=true` additionally for Live. Neither app-only tool metadata nor host confirmation prompts are sufficient authentication.
 
-- `.env.local`
-- `.env`
-- `.dev.vars`
-- `APP_LOGIN_PASSWORD`
-- `AUTH_SIGNING_SECRET`
-- any Trading 212 API key or API secret
-- runtime state under `.data/`
+A human enters the independent secret into the sandboxed UI for each operation. Only a single-use HMAC proof bound to the specific order/cancel token and operation is sent via MCP. The proof is itself a short-lived capability; treat it as sensitive until consumed.
 
-The repository's `.gitignore` excludes these files. Run `pnpm release:check` before publishing changes.
+## Independent Owner Console\n\n`/owner` has a separate 12-hour owner session, secure HttpOnly Strict SameSite cookie over HTTPS, CSRF protection, same-origin POST requirements, no CDN and hash-pinned content-security policy. An authenticated session still cannot place a trade without the independent human HMAC proof, server flags and fresh order check. Browser malware, hostile extensions or a fully compromised server remain out of scope for these protections.\n\n## Read-only external sources and email\n\nECB rates use a fixed official HTTPS host and preserve observation dates. SEC research is disabled until `SEC_CONTACT_EMAIL` is configured; official SEC ticker and filing URLs are bounded and User-Agent identification is sent only to SEC. Twelve Data quotes are optional and not broker execution guarantees. Resend email requires explicit owner opt-in plus independently configured provider key/sender/recipient and uses provider idempotency keys.\n\nNo external provider receives Trading 212 API credentials or the raw personal approval secret. Email alerts contain limited observation labels, not complete holdings.\n\n## Write safety
+- Draft generation never submits a broker write.
+- Broker state and order constraints are revalidated before writing.
+- Confirmation is stored as one-use and expires within 30–300 seconds.
+- Each Trading 212 POST or DELETE is sent **at most once**; loss of response never triggers retry.
+- A per-environment atomic write lease prevents two independent confirmation tokens from concurrently spending the same cash. BEFORE every real POST/DELETE, the system saves a durable incident marker and readback record. A known result clears the marker; UNKNOWN and process interruption leave a persistent write block across the 120-second cooldown, lock expiry and server restarts. The Owner Console may clear it only after a successful read-only broker check, the owner independently examines Trading 212 records, types `I CHECKED TRADING 212` and supplies a separate action-bound HMAC proof. Clearing this marker never resubmits the order.
+- Rate reservations are per account/API endpoint, including reads and command writes; refusing a reservation must occur before any broker request.
+- Without separately opting into `PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=true`, unheld Live Market buys and Buy Stops must use a bounded-price order type when app-level notional caps are enabled.
+- UNKNOWN statuses must be read back before a person takes any further action.
+- Demo/Live cannot swap after confirmation.
+- Sample mode has no executable trade route.
+- Market orders can slip; prices entered by an AI or user are merely references.
 
-## If a Trading 212 credential is exposed
+## Data and operations
+- Broker URL bases are fixed to official Demo/Live HTTPS hosts.
+- Internal monitoring/Cron may read account data and update local alerts; it cannot place/cancel orders.
+- Durable state is personal, not tenant-isolated multi-user infrastructure.
+- Never log passwords, approval secrets, JWTs, authorization codes, raw brokerage credentials or request bodies.
+- Back up the private `.data/` directory securely; do not copy secrets into images.
+- Node Docker must run behind an HTTPS reverse proxy. Cloudflare Secret Store must be limited to the operator's account.
 
-1. Revoke/delete the exposed API key in Trading 212 immediately.
-2. Generate a new key/secret pair.
-3. Update `.env.local`.
-4. Run `pnpm deploy` to replace the Cloudflare Worker secrets.
-5. Review account activity and pending orders.
-
-## Trading safeguards
-
-- Demo and Live credentials are stored separately.
-- Live orders require explicit user confirmation in the UI.
-- Confirmation tokens are short-lived and one-time.
-- Trading 212 write requests are never automatically retried after an ambiguous network/write failure.
-- Unknown write outcomes can be checked through a read-only verification flow; verification never resubmits the original write.
-- The server revalidates order constraints before submission.
-- Recent activity stores order/cancellation metadata only and does not contain API credentials or confirmation secrets.
-- Server-side quantity and notional caps are configurable per self-hosted instance; positive values are enforced before submission. Setting a cap to `0` deliberately disables only that app-level cap.
-
-These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.
-
-## Deployment guidance
-
-Recommended public deployment: Cloudflare Workers with Worker Secrets. Do not put credentials in `wrangler.jsonc` or source files.
-
-For Node/VPS/Docker, inject credentials with environment variables or a private `.env.local` file that is never copied into a public image/repository.
-
-## Reporting a vulnerability
-
-Please do not open a public issue containing secrets, account details, exploit payloads against a live account, or personally identifying financial data.
-
-Use GitHub's private security advisory/reporting feature for the repository when available, or contact the repository owner privately.
-
-## Scope
-
-This project is not a custody service and should not be deployed as a shared multi-user service without adding a separate identity, secret-isolation and per-user authorization architecture.
+## Disclosure
+Report security issues privately using GitHub Security Advisories. Do not publish personal account information, keys or live broker requests.

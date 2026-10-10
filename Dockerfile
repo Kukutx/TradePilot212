@@ -1,18 +1,18 @@
-FROM node:24-alpine AS build
+FROM node:24-alpine AS builder
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine
 WORKDIR /app
-RUN corepack enable
-ENV NODE_ENV=production
-ENV PORT=8000
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --prod --frozen-lockfile
-COPY --from=build /app/dist ./dist
-EXPOSE 8000
-CMD ["node", "dist/node/adapters/node/index.js"]
+ENV NODE_ENV=production PORT=8080 BIND_HOST=0.0.0.0
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+RUN mkdir -p .data && chown -R node:node /app
+USER node
+EXPOSE 8080
+CMD ["node", "dist/node/transport/node.js"]

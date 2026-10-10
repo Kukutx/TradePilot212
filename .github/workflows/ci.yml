@@ -1,27 +1,86 @@
-name: CI
-
+name: V3
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-
 permissions:
   contents: read
-
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 11.7.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm smoke
       - run: pnpm audit --prod
       - run: pnpm release:check
       - run: pnpm exec wrangler deploy --dry-run
+      - name: Node HTTP runtime smoke (synthetic account only)
+        env:
+          OWNER_PASSWORD: ci-owner-password-use-only-for-synthetic-tests
+          JWT_SIGNING_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          PUBLIC_ORIGIN: http://localhost:8080
+          DATA_SOURCE: sample
+          PERSONAL_TRADING_ENABLED: "false"
+          PERSONAL_LIVE_TRADING_ENABLED: "false"
+        run: |
+          pnpm start > /tmp/tradepilot-node-ci.log 2>&1 &
+          process_id=$!
+          trap 'kill "$process_id" 2>/dev/null || true' EXIT
+          available=0
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health > /tmp/tradepilot-health.json; then
+              available=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$available" -ne 1 ]; then
+            cat /tmp/tradepilot-node-ci.log
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/tradepilot-health.json
+          curl -fsS http://127.0.0.1:8080/owner | grep -q "Personal Owner Console"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/owner/api/me)" = 401
+          echo "NODE_HTTP_SMOKE_OK sample /health /owner and protected API"
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production container
+        run: docker build --tag tradepilot212-personal:test .
+      - name: Start production container with synthetic credentials
+        run: |
+          docker run -d --rm --name tradepilot-v3-ci -p 18080:8080 \
+            -e OWNER_PASSWORD=ci-owner-password-use-only-for-synthetic-tests \
+            -e JWT_SIGNING_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e PUBLIC_ORIGIN=http://localhost:8080 \
+            -e DATA_SOURCE=sample \
+            -e PERSONAL_TRADING_ENABLED=false \
+            -e PERSONAL_LIVE_TRADING_ENABLED=false \
+            tradepilot212-personal:test
+          trap 'docker rm -f tradepilot-v3-ci >/dev/null 2>&1 || true' EXIT
+          available=0
+          for attempt in $(seq 1 25); do
+            if curl -fsS http://127.0.0.1:18080/health > /tmp/container-health.json; then
+              available=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$available" -ne 1 ]; then
+            docker logs tradepilot-v3-ci
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/container-health.json
+          curl -fsS http://127.0.0.1:18080/owner | grep -q "Personal Owner Console"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/owner/api/me)" = 401
+          echo "DOCKER_SMOKE_OK synthetic /health /owner and protected API"

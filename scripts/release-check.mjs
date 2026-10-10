@@ -1,64 +1,40 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import dotenv from "dotenv";
-
-const root = process.cwd();
-const ignoredDirs = new Set([".git", "node_modules", "dist", ".data", ".wrangler", "coverage"]);
-const ignoredFiles = new Set([".env.local", ".env", ".dev.vars"]);
-const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".jsonc", ".md", ".yml", ".yaml", ".html", ".css", ".txt"]);
-
-function walk(dir, files = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && ignoredDirs.has(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, files);
-    else if (!ignoredFiles.has(entry.name) && textExtensions.has(path.extname(entry.name).toLowerCase())) files.push(full);
-  }
-  return files;
+const root=process.cwd();
+const ignored=new Set([".git","node_modules","dist",".data",".wrangler","coverage"]);
+function files(folder,output=[]){
+  for(const item of fs.readdirSync(folder,{withFileTypes:true})){
+    if(ignored.has(item.name))continue;
+    const full=path.join(folder,item.name);
+    if(item.isDirectory())files(full,output);
+    else output.push(full);
+  }return output;
 }
-
-const envPath = path.join(root, ".env.local");
-if (fs.existsSync(envPath)) dotenv.config({ path: envPath, quiet: true });
-const sensitiveNames = [
-  "APP_LOGIN_PASSWORD",
-  "AUTH_SIGNING_SECRET",
-  "T212_DEMO_API_KEY",
-  "T212_DEMO_API_SECRET",
-  "T212_LIVE_API_KEY",
-  "T212_LIVE_API_SECRET",
-];
-const sensitiveValues = sensitiveNames
-  .map((name) => [name, process.env[name] ?? ""])
-  .filter(([, value]) => value.length >= 8 && !value.startsWith("change-this") && !value.startsWith("replace-with"));
-
-let failed = false;
-for (const file of walk(root)) {
-  const content = fs.readFileSync(file, "utf8");
-  for (const [name, value] of sensitiveValues) {
-    if (content.includes(value)) {
-      console.error(`Secret leak check failed: ${name} appears in ${path.relative(root, file)}`);
-      failed = true;
-    }
+const tracked=spawnSync("git",["ls-files","-z"],{encoding:"utf8"});
+const paths=(tracked.stdout||"").split("\0").filter(Boolean);
+for(const file of paths){
+  if([".env",".env.local",".dev.vars","worker-configuration.d.ts"].includes(path.basename(file)) || file.startsWith(".data/"))
+    throw new Error(`Private data is Git tracked: ${file}`);
+}
+const broker=fs.readFileSync(path.join(root,"src/infra/broker.ts"),"utf8");
+const personal=fs.readFileSync(path.join(root,"src/infra/trade-gateway.ts"),"utf8");
+if(/method:\s*["'](POST|PUT|PATCH|DELETE)["']/.test(broker) ||
+   /\/equity\/orders\/(market|limit|stop)/.test(broker) ||
+   /cancelOrder|placeOrder/.test(broker))
+  throw new Error("Trading 212 read-only adapter appears to contain a write pathway");
+if(!personal.includes("BrokerOperationUnknown") || !personal.includes("method===\"GET\"?3:1") ||
+  !personal.includes("orders/market") || !personal.includes("orders/stop_limit"))
+  throw new Error("Personal order transport lost write-once classification or fixed route mapping");
+const releaseText=files(root).filter(p=>/\.(ts|tsx|mjs|md|yml|yaml|json|css)$/.test(p));
+const example=fs.existsSync(path.join(root,".env.local"))?fs.readFileSync(path.join(root,".env.local"),"utf8"):"";
+for(const secretName of ["OWNER_PASSWORD","JWT_SIGNING_SECRET","PERSONAL_APPROVAL_SECRET","T212_DEMO_KEY","T212_DEMO_SECRET","T212_LIVE_KEY","T212_LIVE_SECRET"]){
+  const value=new RegExp(`^${secretName}=(.+)$`,"m").exec(example)?.[1];
+  if(!value||value.length<16)continue;
+  for(const file of releaseText){
+    if(path.basename(file)===".env.local"||path.basename(file)===".dev.vars")continue;
+    if(fs.readFileSync(file,"utf8").includes(value))
+      throw new Error(`Release leak prevention triggered in ${path.relative(root,file)}`);
   }
 }
-
-if (fs.existsSync(path.join(root, ".git"))) {
-  for (const sensitiveFile of [".env.local", ".env", ".dev.vars", ".data/state.json"]) {
-    const tracked = spawnSync("git", ["ls-files", "--error-unmatch", sensitiveFile], { cwd: root, stdio: "ignore" });
-    if (tracked.status === 0) {
-      console.error(`Release check failed: ${sensitiveFile} is tracked by Git.`);
-      failed = true;
-    }
-  }
-}
-
-for (const required of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "README.md", "README.zh-CN.md", ".env.example"]) {
-  if (!fs.existsSync(path.join(root, required))) {
-    console.error(`Release check failed: missing ${required}`);
-    failed = true;
-  }
-}
-
-if (failed) process.exit(1);
-console.log("✓ Release safety check passed: no local credential values found in publishable text files.");
+console.log("RELEASE_CHECK_OK no local secrets tracked, analysis reader is GET-only, and personal writes are explicitly mapped once");

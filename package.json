@@ -1,51 +1,52 @@
 {
-  "name": "tradepilot212",
-  "version": "2.4.0",
+  "name": "tradepilot212-personal",
+  "version": "3.0.0-alpha.3",
   "private": true,
   "type": "module",
-  "description": "Self-hosted Trading 212 MCP app for ChatGPT with portfolio dashboards, flexible order sizing, OAuth/PKCE, Demo/Live separation, and human-confirmed execution.",
+  "description": "Self-hosted personal AI investment intelligence and human-authorized Trading 212 trading (modern MCP).",
   "scripts": {
-    "setup": "node scripts/setup.mjs",
-    "doctor": "node scripts/doctor.mjs",
-    "deploy": "node scripts/deploy-selfhost.mjs",
-    "dev": "pnpm build:widget && tsx watch src/adapters/node/index.ts",
-    "dev:chatgpt": "node scripts/dev-chatgpt.mjs",
-    "start": "node dist/node/adapters/node/index.js",
-    "dev:cloudflare": "pnpm build:widget && wrangler dev",
-    "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
+    "dev": "pnpm build:widget && tsx watch src/transport/node.ts",
+    "start": "node dist/node/transport/node.js",
     "build:widget": "vite build",
+    "build:node": "tsc -p tsconfig.node.json",
     "build": "pnpm build:widget && pnpm build:node",
+    "cf:types": "wrangler types",
     "typecheck": "pnpm cf:types && tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
     "check": "pnpm typecheck && pnpm test && pnpm build",
-    "smoke": "node scripts/smoke.mjs",
-    "cf:types": "wrangler types",
-    "build:node": "tsc -p tsconfig.node.json",
-    "release:check": "node scripts/release-check.mjs"
+    "dev:cloudflare": "pnpm build:widget && wrangler dev",
+    "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
+    "smoke": "tsx scripts/smoke.ts",
+    "monitor:once": "tsx src/transport/monitor-once.ts",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "tsx scripts/doctor.ts",
+    "release:check": "node scripts/release-check.mjs",
+    "deploy": "node scripts/deploy-personal.mjs",
+    "dev:tunnel": "node scripts/dev-tunnel.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
-    "@modelcontextprotocol/ext-apps": "^2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
-    "dotenv": "^17.2.3",
-    "hono": "^4.13.7",
+    "@hono/node-server": "^2.1.3",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@modelcontextprotocol/server": "2.3.1",
+    "dotenv": "^18.0.5",
+    "hono": "^4.13.13",
     "jose": "^6.2.12",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "^4.6.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
-    "tsx": "^4.20.6",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
+    "vite": "^8.3.3",
     "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^5.0.0",
-    "wrangler": "^4.131.0"
+    "vitest": "^5.0.3",
+    "wrangler": "^4.148.0"
   },
   "engines": {
     "node": ">=22"
@@ -62,13 +63,11 @@
   },
   "keywords": [
     "trading212",
+    "portfolio",
+    "risk-analytics",
     "mcp",
     "chatgpt",
-    "chatgpt-app",
-    "self-hosted",
-    "cloudflare-workers",
-    "typescript",
-    "react",
-    "hono"
+    "claude",
+    "investment-intelligence"
   ]
 }

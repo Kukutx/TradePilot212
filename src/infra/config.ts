@@ -1,0 +1,121 @@
+import type { Environment, Source } from "../domain/types.js";
+
+export type RuntimeEnv = Partial<Record<
+  | "PUBLIC_ORIGIN" | "PORT" | "OWNER_PASSWORD" | "JWT_SIGNING_SECRET"
+  | "OAUTH_CLIENT_ORIGINS" | "DATA_SOURCE" | "DEFAULT_ENVIRONMENT"
+  | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET"
+  | "PERSONAL_TRADING_ENABLED" | "PERSONAL_LIVE_TRADING_ENABLED" | "PERSONAL_APPROVAL_SECRET"
+  | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL"
+  | "PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"
+  | "NOTIFY_PROVIDER" | "RESEND_API_KEY" | "NOTIFY_FROM" | "NOTIFY_TO"
+  | "TWELVE_DATA_API_KEY" | "SEC_CONTACT_EMAIL",
+  string
+>>;
+export interface PersonalTradingConfig {
+  enabled: boolean;
+  liveEnabled: boolean;
+  approvalSecret: string;
+  maxNotional: number;
+  maxQuantity: number;
+  confirmationTtlSeconds: number;
+  allowUnquotedLiveBuys: boolean;
+}
+export interface NotificationConfig {
+  provider:"none"|"resend";key:string;from:string;to:string;
+}
+export interface MarketResearchConfig {
+  twelveDataKey:string;
+  secContact:string;
+}
+export interface Configuration {
+  publicOrigin: string;
+  ownerPassword: string;
+  jwtSecret: string;
+  trustedClientOrigins: string[];
+  source: Source;
+  defaultEnvironment: Environment;
+  broker: Record<Environment, { origin: string; key: string; secret: string }>;
+  personalTrading: PersonalTradingConfig;
+  notifications:NotificationConfig;
+  marketResearch:MarketResearchConfig;
+}
+function flag(env:RuntimeEnv,name:keyof RuntimeEnv):boolean {
+  const value=(env[name]??"false").trim().toLowerCase();
+  if(!["true","false"].includes(value))throw new Error(`${name} must be true or false`);
+  return value==="true";
+}
+function nonNegative(env:RuntimeEnv,name:keyof RuntimeEnv,fallback:number):number{
+  const value=env[name]===undefined||env[name]===""?fallback:Number(env[name]);
+  if(!Number.isFinite(value)||value<0)throw new Error(`${name} must be finite and nonnegative`);
+  return value;
+}
+export function executionPermitted(config:Configuration,environment:Environment):boolean {
+  const p=config.personalTrading, pair=config.broker[environment];
+  return config.source==="trading212" && p.enabled &&
+    (environment==="demo" || p.liveEnabled) && Boolean(pair.key && pair.secret);
+}
+export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Configuration {
+  const origin = (env.PUBLIC_ORIGIN || requestOrigin || "http://localhost:8080").replace(/\/+$/, "");
+  const url = new URL(origin);
+  if (url.origin !== origin || (url.protocol !== "https:" && !["localhost","127.0.0.1","::1"].includes(url.hostname)))
+    throw new Error("PUBLIC_ORIGIN must be an HTTPS origin (or localhost for testing)");
+  const source = env.DATA_SOURCE || "sample";
+  if (source !== "sample" && source !== "trading212") throw new Error("DATA_SOURCE must be sample or trading212");
+  const defaultEnvironment = env.DEFAULT_ENVIRONMENT || "demo";
+  if (defaultEnvironment !== "demo" && defaultEnvironment !== "live")
+    throw new Error("DEFAULT_ENVIRONMENT must be demo or live");
+  const trustedClientOrigins = (env.OAUTH_CLIENT_ORIGINS || "https://chatgpt.com")
+    .split(",").map(s=>s.trim()).filter(Boolean).map(value=>{
+      const candidate = new URL(value);
+      if (candidate.protocol !== "https:" || candidate.origin !== value) throw new Error("Only exact HTTPS OAuth client origins are allowed");
+      return value;
+    });
+  if (!trustedClientOrigins.length) throw new Error("OAUTH_CLIENT_ORIGINS must not be empty");
+  const ownerPassword = env.OWNER_PASSWORD || "";
+  const jwtSecret = env.JWT_SIGNING_SECRET || "";
+  if (ownerPassword.length < 24 || ownerPassword.startsWith("replace-with") ||
+      jwtSecret.length < 48 || jwtSecret.startsWith("replace-with") || ownerPassword === jwtSecret)
+    throw new Error("Owner credentials not configured: use independent OWNER_PASSWORD (24+) and JWT_SIGNING_SECRET (48+)");
+  const broker = {
+    demo: { origin: "https://demo.trading212.com", key: env.T212_DEMO_KEY || "", secret: env.T212_DEMO_SECRET || "" },
+    live: { origin: "https://live.trading212.com", key: env.T212_LIVE_KEY || "", secret: env.T212_LIVE_SECRET || "" },
+  };
+  if (source === "trading212" && Object.values(broker).every(v => !v.key || !v.secret))
+    throw new Error("Trading 212 mode requires complete Demo or Live credentials");
+  for (const entry of Object.values(broker))
+    if (Boolean(entry.key) !== Boolean(entry.secret))
+      throw new Error("Trading 212 key and secret must be configured as a pair");
+  const enabled=flag(env,"PERSONAL_TRADING_ENABLED");
+  const liveEnabled=flag(env,"PERSONAL_LIVE_TRADING_ENABLED");
+  const approvalSecret=env.PERSONAL_APPROVAL_SECRET||"";
+  if(liveEnabled&&!enabled)throw new Error("Live trading requires PERSONAL_TRADING_ENABLED=true");
+  if(enabled && (source!=="trading212" || approvalSecret.length<24 ||
+     approvalSecret.startsWith("replace-with") || approvalSecret===ownerPassword || approvalSecret===jwtSecret))
+    throw new Error("Personal broker execution requires a real source and an independent 24+ character approval secret");
+  const ttl=nonNegative(env,"PERSONAL_CONFIRMATION_TTL",90);
+  if(!Number.isInteger(ttl)||ttl<30||ttl>300)throw new Error("PERSONAL_CONFIRMATION_TTL must be an integer between 30 and 300 seconds");
+  const personalTrading:PersonalTradingConfig={
+    enabled,liveEnabled,approvalSecret,
+    maxNotional:nonNegative(env,"PERSONAL_MAX_NOTIONAL",5000),
+    maxQuantity:nonNegative(env,"PERSONAL_MAX_QUANTITY",100000),
+    confirmationTtlSeconds:ttl,
+    allowUnquotedLiveBuys:flag(env,"PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS"),
+  };
+  const provider=env.NOTIFY_PROVIDER || "none";
+  if(provider!=="none" && provider!=="resend")throw new Error("NOTIFY_PROVIDER must be none or resend");
+  const key=env.RESEND_API_KEY||"",from=env.NOTIFY_FROM||"",to=env.NOTIFY_TO||"";
+  const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if(provider==="resend" && (!key || key.length<10 || !emailPattern.test(from)||!emailPattern.test(to)))
+    throw new Error("Resend notification delivery requires API key and verified sender/recipient addresses");
+  const notifications:NotificationConfig={provider,key,from,to};
+  const secContact=env.SEC_CONTACT_EMAIL||"";
+  if(secContact && !emailPattern.test(secContact))
+    throw new Error("SEC_CONTACT_EMAIL must be a valid owner contact email");
+  const marketResearch:MarketResearchConfig={
+    twelveDataKey:env.TWELVE_DATA_API_KEY||"",secContact,
+  };
+  return {
+    publicOrigin: origin, ownerPassword, jwtSecret, trustedClientOrigins, source,
+    defaultEnvironment, broker,personalTrading,notifications,marketResearch,
+  };
+}

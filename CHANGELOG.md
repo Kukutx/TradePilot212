@@ -1,40 +1,34 @@
-# Changelog
+# V3 Personal
 
-## 2.4.0
+## 3.0.0-alpha.3 — Test Candidate freeze (code-ready, manual acceptance pending)
 
-- Replaced fixed order-review modals with an in-flow transaction workspace that can resize with the ChatGPT host.
-- When the host provides a very short embedded viewport, TradePilot requests fullscreen when available and falls back cleanly when it is not.
-- Only one transaction step is rendered at a time; the portfolio is no longer layered behind order review.
-- Removed nested modal scrolling and made confirmation rows stack on narrow embeds.
-- Closing a model-opened order draft returns to the portfolio instead of leaving an empty order state.
-- Added a layout regression test for fixed-overlay and nested-scroll regressions.
+- Fail-closed brokerage order resolution when a symbol/name matches several exchanges. An exact Trading 212 ticker is required instead of silently choosing a US listing.
+- Require a valid, safe broker order ID after a successful POST. HTTP 2xx without a trustworthy ID becomes **UNKNOWN**, never a falsely acknowledged trade. Reject unsafe JavaScript-int64 pending-order IDs and never display rounded historical IDs.
+- Persist a pre-write incident record BEFORE every actual broker POST/DELETE; after UNKNOWN, crash, or uncertain response, new writes remain blocked beyond the short lease timeout and process restart.
+- Support private Owner Console reconciliation after read-only verification plus a typed acknowledgement and action-bound independent HMAC. Reconciliation never resubmits/cancels the broker order.
+- Bound OAuth form and vendor quote response streams byte-by-byte, including chunked bodies without Content-Length.
+- CI now builds and launches real Node HTTP and production Docker runtimes with **synthetic-only** credentials, proving health, Owner Console delivery and anonymous-access rejection. It also runs modern OAuth/MCP smoke, mock brokerage tests, dependency audit, release safety and Wrangler dry-run.
+- Freeze new feature additions until the staged private Demo / ChatGPT / Claude / provider acceptance checklist in `docs/TEST_READY.md` is complete. Real Live trading remains disabled by default and was never used by this PR.
 
-## 2.3.0
+## 3.0.0-alpha.3 (Draft, breaking — private personal release)\n\n- New independent authenticated /owner execution console (hashed owner sessions, Secure/Strict HttpOnly cookie, CSRF, signed CSP, browser HMAC step-up) without removing the MCP trading widget.\n- Local owner preferences (IANA timezone, locale, account, scheduled digest options) and hourly Cron with local-hour gating; preserves the prior weekday scan fallback.\n- Optional fixed-endpoint Resend email digests with per-day idempotency, significant-change detection and minimal alert contents; off by default.\n- Official ECB dated reference FX and SEC EDGAR primary filings, plus optional timestamped Twelve Data vendor market quotes, all read-only and clearly non-executable.\n- OpenAI optional sidebar/thread MCP extension metadata and a portable plugin manifest with private safety-first onboarding; shared MCP Apps UI still works without extensions.\n- Expanded owner/browser CSP and independent source tests. No real brokerage account, paid data provider or email service was invoked by CI.\n\n## Unreleased — V3 Personal hardening
 
-- Added structured error codes and bilingual UI error rendering.
-- Added reference-price and account-snapshot freshness metadata to order review.
-- Added read-only verification for ambiguous order/cancellation write outcomes; original writes are never retried automatically.
-- Added a compact recent-activity trail stored in the instance state store.
-- Added expandable trade-plan detail fields for thesis, catalysts, risks, counter-case, sources, and timestamps.
-- Improved natural-language order conversion UI with calculated quantity, manual-edit indication, and restore action.
-- Added keyboard focus containment, Escape handling, live status announcements, and larger mobile touch targets.
-- Added architecture documentation and tightened public documentation language.
+- Preserve the owner's full personal trading functionality. No old API or OAuth compatibility.
+- Parse the real Trading 212 compact-position currency reliably, reject conflicting currencies and non-finite valuations.
+- Add per-account/endpoint atomic broker rate reservations across Node and Cloudflare, including reads, retries, order creation and cancellation.
+- Add an environment-scoped exclusive write lease; overlapping valid confirmations cannot execute concurrently; UNKNOWN writes leave a bounded safety cooldown.
+- Make Limit/Stop-Limit monetary sizing derive from executable limit prices instead of an LLM reference; timestamp missing FX evidence explicitly.
+- Reject unpriced/unbounded Live buy operations by default while allowing separately explicit owner opt-in; do not remove any V2 order type.
+- Protect ambiguous write reconciliation against unrelated old/opposite-side/undated orders.
+- Display pending-order partial fills, remaining quantity, broker status and creation times in the bilingual workspace.
+- Add AI research evidence-documentation completeness and timestamp checks independent of a model-generated buy score; no implied fact verification.
+- Reject arithmetic overflow in trade notional and account valuations even when owner disables optional caps.
+- Expand mocked OAuth/MCP broker-write smoke, risk policy and negative security regression coverage.
+- Add personal operations runbook and updated architecture/security/feature-parity documents.
 
-## 2.2.1
-
-- Hardened company-name resolution across multiple Trading 212 listings.
-- Corrected position-percentage sizing to use the total held position while respecting currently tradable quantity.
-- Added bilingual sizing-resolution details to the order-review UI.
-
-## 2.2.0
-
-- Added flexible natural-language order intents.
-- Added quantity, target-amount, cash-percentage, position-percentage, and all-available sizing modes.
-- Added configurable default environment and optional application-level order caps.
-- Added ordering and automation documentation.
-
-## 2.1.0
-
-- Added responsive bilingual MCP App UI and bilingual OAuth page.
-- Added self-host setup/deployment commands, CI, security checks, and open-source documentation.
-- Published the single-user self-hosting model.
+## 3.0.0-alpha.2 (Draft, breaking)
+- New domain, policy, provider and OAuth architecture; no V2 protocol/state/tool compatibility.
+- Preserved personal Demo/Live, instrument search, flexible sizing, editable order reviews, four order types, cancel, one-use human confirmation and uncertain-response verification.
+- Introduced HMAC-scoped personal approval secret; real writes opt-in and Live separately gated.
+- Extended portfolio analytics, coverage-aware risk, stress and risk trend tools.
+- Rebuilt bilingual MCP App UI and self-hosted Node/Cloudflare/Docker/deployment/tunnel scripts.
+- Added mocked broker and life-cycle tests. External host/real Demo/live testing remains pending.

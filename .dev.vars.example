@@ -1,11 +1,25 @@
-# Copy to .dev.vars for `pnpm dev:cloudflare`; never commit .dev.vars.
-APP_LOGIN_PASSWORD=replace-with-at-least-16-characters
-AUTH_SIGNING_SECRET=replace-with-at-least-32-random-characters
-T212_DEMO_API_KEY=
-T212_DEMO_API_SECRET=
-T212_LIVE_API_KEY=
-T212_LIVE_API_SECRET=
-DEFAULT_TRADING_ENV=demo
-MAX_ORDER_NOTIONAL=5000
-MAX_ORDER_QUANTITY=100000
-CONFIRMATION_TTL_SECONDS=90
+PUBLIC_ORIGIN=http://localhost:8787
+OWNER_PASSWORD=replace-with-24-plus-random-characters
+JWT_SIGNING_SECRET=replace-with-48-plus-random-characters
+OAUTH_CLIENT_ORIGINS=https://chatgpt.com
+DATA_SOURCE=sample
+DEFAULT_ENVIRONMENT=demo
+T212_DEMO_KEY=
+T212_DEMO_SECRET=
+T212_LIVE_KEY=
+T212_LIVE_SECRET=
+PERSONAL_TRADING_ENABLED=false
+PERSONAL_LIVE_TRADING_ENABLED=false
+# Optional extra risk override; keep FALSE unless you explicitly accept unbounded Live market/stop buy risk.
+PERSONAL_ALLOW_UNQUOTED_LIVE_BUYS=false
+PERSONAL_APPROVAL_SECRET=replace-with-new-independent-32-plus-random-characters
+PERSONAL_MAX_NOTIONAL=5000
+PERSONAL_MAX_QUANTITY=100000
+PERSONAL_CONFIRMATION_TTL=90
+NOTIFY_PROVIDER=none
+RESEND_API_KEY=
+NOTIFY_FROM=
+NOTIFY_TO=
+# Optional independent research: unset => tools return explicit unavailable.
+TWELVE_DATA_API_KEY=
+SEC_CONTACT_EMAIL=
