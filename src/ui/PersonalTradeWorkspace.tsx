@@ -284,7 +284,7 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
           {p.counterCase&&<p>{p.counterCase}</p>}{p.sources?.map((x,j)=><p key={j}>{x}</p>)}</details>}
         {p.warning&&<p className="tradeWarning">{p.warning}</p>}
         {p.action!=="watch"&&<button disabled={!cap?.canReview||busy} type="button"
-          onClick={()=>void checkIntent({instrument:p.resolvedTicker||p.ticker||p.symbol||p.name||"",side:p.action,
+          onClick={()=>void checkIntent({instrument:p.resolvedTicker||p.ticker||p.symbol||p.name||"",side:p.action==="sell"?"sell":"buy",
             quantity:p.suggestedQuantity||1,referencePrice:p.referencePrice})}>{t.planReview}</button>}
       </article>)}</div>
     </section>}
