@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { registerPersonalTradingTools } from "./personal-mcp.js";
 import type { PersonalTradingService } from "./trading.js";
 import { z } from "zod";
+import {preferencesSchema} from "../domain/preferences.js";
 import type { IntelligenceService } from "./intelligence.js";
 const URI="ui://tradepilot212-personal/overview.html";
 const environment=z.enum(["demo","live"]);
@@ -28,7 +29,10 @@ export function buildMcpServer(
     title:"Today's portfolio priorities",
     description:"Best first tool for 'what matters today?'. Read portfolio once, combine deterministic data-quality/cash/concentration observations and recent LOCAL threshold events into a concise bilingual action list. Each event is historical, not real-time evidence. Includes source and timestamps, excludes live news, forecasts and trades.",
     inputSchema:z.object({environment}),
-    annotations:read,_meta:{ui:{resourceUri:URI}},
+    annotations:read,_meta:{
+      ui:{resourceUri:URI},
+      "openai/ui":{entrypoints:[{type:"global"},{type:"thread"}]},
+    },
   },async({environment})=>{try{
     const value=await service.attention(environment);
     return ok(value as unknown as Record<string,unknown>,
@@ -77,6 +81,14 @@ export function buildMcpServer(
     const value=await service.trend(environment);
     return ok(value as unknown as Record<string,unknown>,`${value.points.length} recorded daily risk snapshots; no brokerage writes.`);
   }catch(e){return fail(e);}});
+  server.registerTool("get_owner_preferences",{
+    title:"Read owner experience preferences",
+    description:"Read only the self-hosted owner's locale, timezone and read-only monitoring schedule. Never returns notification provider keys, recipient addresses or brokerage credentials.",
+    inputSchema:{},annotations:read,
+  },async()=>{try{
+    const preferences=await service.preferences();
+    return ok({kind:"owner_preferences",preferences},"Loaded local owner preferences, without secrets.");
+  }catch(e){return fail(e);}});
   server.registerTool("get_broker_order_history",{
     title:"Read completed order history",
     description:"Read one bounded page of Trading 212 historical orders, without submitting, cancelling or modifying orders. A numeric cursor may be supplied from a prior response.",
@@ -111,6 +123,14 @@ export function buildMcpServer(
     return ok(value as unknown as Record<string,unknown>,`${value.events.length} recent threshold alerts.`);
   }catch(e){return fail(e);}});
   if(scopes.has("monitor:write")){
+    server.registerTool("set_owner_preferences",{
+      title:"Update owner dashboard and digest preferences",
+      description:"Update ONLY self-hosted owner-local locale, timezone and read-only digest schedule. No broker order, account settings, email destination or secret is modified. This is a local configuration change.",
+      inputSchema:preferencesSchema.shape,annotations:localWrite,
+    },async(input)=>{try{
+      const saved=await service.updatePreferences(input);
+      return ok({kind:"owner_preferences",preferences:saved},"Saved local owner experience and read-only digest settings.");
+    }catch(e){return fail(e);}});
     server.registerTool("enable_basic_portfolio_monitoring",{
       title:"Set up basic read-only portfolio monitoring",
       description:"Single explicit action to create only MISSING local watch rules: cash under 5%, largest position over 35%, unrealized portfolio loss under -10% of total account value. Preserves the user's existing thresholds for each metric. Rules are evaluated by owner-configured scans; there are NO broker writes, trading signals or automatic push notifications.",
