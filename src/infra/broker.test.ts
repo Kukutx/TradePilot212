@@ -99,7 +99,7 @@ describe("read-only official broker adapter", () => {
     await expect(new Trading212Reader(config,fetcher as typeof fetch).getPortfolio("demo"))
       .rejects.toThrow(/non-finite/);
   });
-  it("fails closed for invalid broker payload, with no sample fallback", async () {
+  it("fails closed for invalid broker payload, with no sample fallback", async () => {
     const fake = vi.fn(async () => new Response(JSON.stringify({ result: "unexpected" }), { status: 200 }));
     await expect(new Trading212Reader(config, fake as typeof fetch).getPortfolio("demo")).rejects.toThrow();
   });
