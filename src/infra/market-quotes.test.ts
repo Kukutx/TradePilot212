@@ -28,6 +28,17 @@ describe("optional vendor research quotes",()=>{
     expect(JSON.stringify(q)).not.toContain("vendor-key");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it("rejects oversized chunked vendor bodies before consuming all JSON bytes",async()=>{
+    let reads=0;
+    const fake=vi.fn(async()=>new Response(new ReadableStream<Uint8Array>({
+      pull(controller){reads++;controller.enqueue(new Uint8Array(36_000));},
+    }),{status:200}));
+    const config=readConfiguration({...base,TWELVE_DATA_API_KEY:"vendor-test-key"});
+    const quotes=new TwelveDataQuoteService(config,new MemoryStore(),fake as typeof fetch);
+    await expect(quotes.quote("AAPL")).rejects.toThrow(/Quote response too large/);
+    expect(fake).toHaveBeenCalledTimes(1);
+    expect(reads).toBeLessThan(8);
+  });
   it("rejects venue and currency mismatch, untrusted symbol input and stale quotes",async()=>{
     const config=readConfiguration({...base,TWELVE_DATA_API_KEY:"vendor-key-not-real"});
     const fetcher=vi.fn(async()=>new Response(JSON.stringify({
