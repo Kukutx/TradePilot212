@@ -138,6 +138,8 @@ export class Trading212Reader implements BrokerReader {
       const pnlInAccountCurrency = declaredValueCurrency === raw.currency &&
         typeof rawPnl === "number" && Number.isFinite(rawPnl) ? rawPnl : null;
       const value = brokerValue ?? (verifiedSameCurrency ? row.quantity * price : null);
+      if(value!==null && (!Number.isFinite(value)||value<0))
+        throw new Error(`Trading 212 position ${row.instrument.ticker} produced a non-finite account value`);
       const provenance: Holding["valueProvenance"] = brokerValue !== null ? "broker_account_value"
         : verifiedSameCurrency ? "same_currency_quote" : "unknown";
       if (value === null) notes.push(`Missing account-currency value for ${row.instrument.ticker}; FX conversion was not guessed.`);
