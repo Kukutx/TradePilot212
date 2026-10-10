@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
-import { readConfiguration } from "../src/infra/config.js";
+import { executionPermitted,readConfiguration } from "../src/infra/config.js";
 const root=process.cwd();
 dotenv.config({path:path.join(root,".env.local"),quiet:true});
 dotenv.config({path:path.join(root,".env"),quiet:true});
@@ -12,14 +12,16 @@ if(!fs.existsSync(path.join(root,".env.local"))){
 }
 try{
   const config=readConfiguration(process.env);
-  print(true,"OAuth secrets","Configured and checked independently");
+  print(true,"OAuth secrets","Configured independently");
   print(true,"Trusted OAuth hosts",config.trustedClientOrigins.join(", "));
-  print(true,"Data source",config.source==="sample"?"SYNTHETIC sample — no broker requests":"Trading 212 (GET ONLY)");
-  print(true,"Environment",config.defaultEnvironment);
+  print(true,"Data source",config.source==="sample"?"SYNTHETIC sample — no broker writes":"Trading 212");
+  print(true,"Default environment",config.defaultEnvironment);
+  print(true,"Personal execution",config.personalTrading.enabled?"ENABLED with independent approval":"DISABLED (safe default)");
   for(const env of ["demo","live"] as const)
-    print(true,`${env} credentials`,config.broker[env].key?"Read pair configured":"Not configured");
-  print(true,"Node version",process.version);
-  console.log("No brokerage write operation was performed.");
+    print(true,`${env} credentials and execution`,
+      `${config.broker[env].key?"Configured":"Not configured"} / ${executionPermitted(config,env)?"Enabled":"Disabled"}`);
+  print(true,"Node",process.version);
+  console.log("Doctor performs no brokerage write.");
 }catch(error){
   print(false,"Configuration",error instanceof Error?error.message:"Invalid configuration");
   process.exitCode=1;

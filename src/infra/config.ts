@@ -3,9 +3,19 @@ import type { Environment, Source } from "../domain/types.js";
 export type RuntimeEnv = Partial<Record<
   | "PUBLIC_ORIGIN" | "PORT" | "OWNER_PASSWORD" | "JWT_SIGNING_SECRET"
   | "OAUTH_CLIENT_ORIGINS" | "DATA_SOURCE" | "DEFAULT_ENVIRONMENT"
-  | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET",
+  | "T212_DEMO_KEY" | "T212_DEMO_SECRET" | "T212_LIVE_KEY" | "T212_LIVE_SECRET"
+  | "PERSONAL_TRADING_ENABLED" | "PERSONAL_LIVE_TRADING_ENABLED" | "PERSONAL_APPROVAL_SECRET"
+  | "PERSONAL_MAX_NOTIONAL" | "PERSONAL_MAX_QUANTITY" | "PERSONAL_CONFIRMATION_TTL",
   string
 >>;
+export interface PersonalTradingConfig {
+  enabled: boolean;
+  liveEnabled: boolean;
+  approvalSecret: string;
+  maxNotional: number;
+  maxQuantity: number;
+  confirmationTtlSeconds: number;
+}
 export interface Configuration {
   publicOrigin: string;
   ownerPassword: string;
@@ -14,6 +24,22 @@ export interface Configuration {
   source: Source;
   defaultEnvironment: Environment;
   broker: Record<Environment, { origin: string; key: string; secret: string }>;
+  personalTrading: PersonalTradingConfig;
+}
+function flag(env:RuntimeEnv,name:keyof RuntimeEnv):boolean {
+  const value=(env[name]??"false").trim().toLowerCase();
+  if(!["true","false"].includes(value))throw new Error(`${name} must be true or false`);
+  return value==="true";
+}
+function nonNegative(env:RuntimeEnv,name:keyof RuntimeEnv,fallback:number):number{
+  const value=env[name]===undefined||env[name]===""?fallback:Number(env[name]);
+  if(!Number.isFinite(value)||value<0)throw new Error(`${name} must be finite and nonnegative`);
+  return value;
+}
+export function executionPermitted(config:Configuration,environment:Environment):boolean {
+  const p=config.personalTrading, pair=config.broker[environment];
+  return config.source==="trading212" && p.enabled &&
+    (environment==="demo" || p.liveEnabled) && Boolean(pair.key && pair.secret);
 }
 export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Configuration {
   const origin = (env.PUBLIC_ORIGIN || requestOrigin || "http://localhost:8080").replace(/\/+$/, "");
@@ -46,8 +72,23 @@ export function readConfiguration(env: RuntimeEnv, requestOrigin?: string): Conf
   for (const entry of Object.values(broker))
     if (Boolean(entry.key) !== Boolean(entry.secret))
       throw new Error("Trading 212 key and secret must be configured as a pair");
+  const enabled=flag(env,"PERSONAL_TRADING_ENABLED");
+  const liveEnabled=flag(env,"PERSONAL_LIVE_TRADING_ENABLED");
+  const approvalSecret=env.PERSONAL_APPROVAL_SECRET||"";
+  if(liveEnabled&&!enabled)throw new Error("Live trading requires PERSONAL_TRADING_ENABLED=true");
+  if(enabled && (source!=="trading212" || approvalSecret.length<24 ||
+     approvalSecret.startsWith("replace-with") || approvalSecret===ownerPassword || approvalSecret===jwtSecret))
+    throw new Error("Personal broker execution requires a real source and an independent 24+ character approval secret");
+  const ttl=nonNegative(env,"PERSONAL_CONFIRMATION_TTL",90);
+  if(!Number.isInteger(ttl)||ttl<30||ttl>300)throw new Error("PERSONAL_CONFIRMATION_TTL must be an integer between 30 and 300 seconds");
+  const personalTrading:PersonalTradingConfig={
+    enabled,liveEnabled,approvalSecret,
+    maxNotional:nonNegative(env,"PERSONAL_MAX_NOTIONAL",5000),
+    maxQuantity:nonNegative(env,"PERSONAL_MAX_QUANTITY",100000),
+    confirmationTtlSeconds:ttl,
+  };
   return {
     publicOrigin: origin, ownerPassword, jwtSecret, trustedClientOrigins, source,
-    defaultEnvironment, broker,
+    defaultEnvironment, broker,personalTrading,
   };
 }
