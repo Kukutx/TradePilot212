@@ -40,10 +40,29 @@ const execute=z.object({
 async function body(c:Context):Promise<unknown> {
   if(!c.req.header("content-type")?.startsWith("application/json"))
     throw new Error("JSON request required");
-  if(Number(c.req.header("content-length")||0)>32_768)throw new Error("Body too large");
-  const text=await c.req.text();
-  if(new TextEncoder().encode(text).byteLength>32_768)throw new Error("Body too large");
-  return JSON.parse(text) as unknown;
+  const announced=Number(c.req.header("content-length")||0);
+  if(!Number.isFinite(announced)||announced>32_768)throw new Error("Body too large");
+  const stream=c.req.raw.body;
+  if(!stream)throw new Error("JSON body required");
+  const reader=stream.getReader(),chunks:Uint8Array[]=[];
+  let size=0;
+  try{
+    while(true){
+      const item=await reader.read();
+      if(item.done)break;
+      size+=item.value.byteLength;
+      // Limit by actual received bytes, including chunked uploads that have
+      // no Content-Length and Unicode whose byte count exceeds char count.
+      if(size>32_768)throw new Error("Body too large");
+      chunks.push(item.value);
+    }
+  }finally{
+    await reader.cancel().catch(()=>undefined);
+    reader.releaseLock();
+  }
+  const bytes=new Uint8Array(size);let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)) as unknown;
 }
 function exceptionMessage(error:unknown){
   if(error instanceof z.ZodError)return "Invalid operation fields or values";
