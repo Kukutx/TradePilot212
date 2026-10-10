@@ -1,11 +1,1 @@
-{
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "tradepilot212",
-  "main": "src/adapters/cloudflare/index.ts",
-  "compatibility_date": "2026-09-04",
-  "compatibility_flags": ["nodejs_compat"],
-  "assets": { "directory": "./dist/widget", "binding": "ASSETS", "run_worker_first": true },
-  "durable_objects": { "bindings": [{ "name": "TRADEPILOT_STATE", "class_name": "TradePilotState" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TradePilotState"] }],
-  "observability": { "enabled": true, "logs": { "head_sampling_rate": 1 } }
-}
+{"name":"tradepilot-insight-v3","main":"src/transport/cloudflare.ts","compatibility_date":"2026-09-01","compatibility_flags":["nodejs_compat"],"assets":{"directory":"./dist/widget","binding":"ASSETS"},"durable_objects":{"bindings":[{"name":"INSIGHT_STORE","class_name":"InsightStore"}]},"migrations":[{"tag":"v1","new_sqlite_classes":["InsightStore"]}],"triggers":{"crons":["0 7 * * MON-FRI"]}}
