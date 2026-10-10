@@ -8,7 +8,7 @@
 
 **2. Shared MCP Apps UI.** Use the open MCP Apps bridge and host-provided theme tokens; feature-detect any optional extension. Inline is short and task-specific, with at most two primary actions. Fullscreen handles detailed risk investigation, scenarios and personal order review. An owner chooses the Demo/Live account, and an AI research score never becomes an execution authorization.
 
-**3. Independent personal Owner Console (future).** Build a self-hosted authenticated web surface for final real-money order review, step-up approval and broker reconciliation, so private trading does not depend on ChatGPT/Claude high-risk MCP write permissions. This is a new V3 feature, NOT a compatibility fallback. Until reviewed, keep Live opt-in disabled by default.
+**3. Independent personal Owner Console (Alpha implemented).** The new self-hosted `/owner` page offers independent owner-login, read-only data and research, personal preferences, watch setup, and human-confirmed brokerage order/cancel. Browser session, same-origin CSRF, action-bound HMAC and Live opt-in are enforced. This is a new V3 interface—not a legacy fallback. WebAuthn, real-browser compatibility, threat-model review and Live readiness remain unverified.
 
 ## Now implemented
 
@@ -17,13 +17,16 @@
 - Cross-host MCP Apps theme tokens and inline/fullscreen capability hints.
 - `enable_basic_portfolio_monitoring`: one action to create only missing local watch rules (cash below 5%, max holding above 35%, unrealized P/L below -10% of account value), keeping prior user-defined rules. Requires `monitor:write`, never touches broker orders.
 - Empty trading symbol and quantity by default; AI research without share sizing can open a prefilled editor but never silently creates a one-share proposal.
+- Independent `/owner` page with login and step-up human confirmation, personalized timezone-aware daily read-only digest and optional Resend email (OFF by default).
+- Fixed-origin ECB dated reference FX, official SEC primary filing links and optional Twelve Data timestamped quotes; evidence metadata is never used to authorize brokerage writes.
+- Namespaced ChatGPT sidebar/thread entrypoint hints in MCP tool metadata, while keeping portable MCP Apps behavior for Claude.
 
 ## Next priorities
 
-P0: actual ChatGPT and Claude mobile/desktop MCP host verification; production-grade **standalone Owner Console** security design; clear source/error/onboarding UI.
-P1: owner-configured read-only morning/evening briefs, timezone-aware schedules and optional consented external notification channel. Local alert persistence is NOT a push notification.
-P1: broker-confirmed instrument prices and FX provenance, rigorous historical order reconciliation, performance attribution without confusing deposits with investment returns.
-P2: optional ChatGPT sidebar, conversation panel, plugin settings and deep-link extensions after host capability checks; Claude-compatible graceful degradation.
+P0: real ChatGPT/Claude device-and-account MCP host verification and security hardening of the **implemented Alpha** standalone Owner Console, including independent real-browser security review and optional future WebAuthn.
+P1: timezone-aware **one daily** read-only brief and optional Resend email are implemented (OFF by default). Further work: multiple delivery times, verified device push/ChatGPT notification permissions, and operational email QA.
+P1: official ECB reference FX, primary SEC filings and optional vendor quote metadata are implemented. Still needed: licensed broad news, validated paid provider subscriptions, rigorous broker-history order reconciliation and performance attribution without confusing deposits with investment returns.
+P2: optional ChatGPT sidebar/thread entrypoints have been **declared**; runtime host verification, plugin settings and deep-link extensions remain pending. Claude-compatible standard MCP Apps behavior is preserved.
 
 ## Acceptance
 
