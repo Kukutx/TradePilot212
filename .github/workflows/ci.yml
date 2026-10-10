@@ -19,5 +19,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm smoke
       - run: pnpm audit --prod
       - run: pnpm exec wrangler deploy --dry-run
