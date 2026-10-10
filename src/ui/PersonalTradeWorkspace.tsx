@@ -27,6 +27,7 @@ const strings={
     approval:"Independent execution secret (entered in widget only)",approvalHint:"Never enter this secret in the AI chat. A token-specific HMAC proof is sent instead.",
     pending:"Pending broker orders",refresh:"Refresh orders",reviewCancel:"Review cancellation",
     plans:"AI-generated research plans",planReview:"Review proposed order",
+    filled:"Filled",remaining:"Remaining",orderStatus:"Broker status",
     evidence:"Research documentation",sourceUnverified:"Completeness is not factual verification",evidenceChecks:"Evidence checks",
     result:"Broker result",verify:"Read-only verification",unknown:"Unknown broker outcome: never retry automatically.",
     warnings:"Review every warning",notConfigured:"Review not enabled for this connection; reconnect with trading:review scope.",
@@ -47,6 +48,7 @@ const strings={
     approval:"独立交易授权密钥（仅在界面输入）",approvalHint:"切勿在 AI 对话中发送密钥。界面只发送绑定当前确认令牌的 HMAC 证明。",
     pending:"当前待处理订单",refresh:"刷新订单",reviewCancel:"检查撤单",
     plans:"AI 生成的研究候选",planReview:"检查此候选订单",
+    filled:"已成交",remaining:"剩余数量",orderStatus:"券商状态",
     evidence:"研究材料完整度",sourceUnverified:"材料完整不代表事实已核实",evidenceChecks:"研究证据检查",
     result:"券商执行结果",verify:"只读核对状态",unknown:"券商执行状态不明，严禁自动重试。",
     warnings:"请逐条核对风险提示",notConfigured:"当前连接未开启交易审查权限，请重新授权 trading:review。",
@@ -298,7 +300,13 @@ export default function PersonalTradeWorkspace({app,environment,locale,initial}:
           <button type="button" disabled={!cap?.canReview||busy}
             onClick={()=>void perform(refreshPending)}>{t.refresh}</button></div>
         {pending.length?pending.map(p=><div className="pendingRow" key={p.id}>
-          <div><strong>{p.ticker}</strong><small>#{p.id} · {p.type||"ORDER"} · {amount(p.quantity)}</small></div>
+          <div><strong>{p.ticker}</strong>
+            <small>#{p.id} · {p.side||"?"} · {p.type||"ORDER"} · {amount(p.quantity)}</small>
+            <small>{t.orderStatus}: {p.status||"—"}
+              {p.filledQuantity!==undefined? ` · ${t.filled}: ${amount(p.filledQuantity)} · ${t.remaining}: ${amount(Math.max(0,Math.abs(p.quantity)-p.filledQuantity))}`:""}
+            </small>
+            {p.createdAt&&<small>{new Date(p.createdAt).toLocaleString(locale==="zh"?"zh-CN":"en-US")}</small>}
+          </div>
           <button type="button" disabled={!cap?.canReview||busy}
             onClick={()=>void reviewCancellation(p.id)}>{t.reviewCancel}</button>
         </div>):<p>—</p>}

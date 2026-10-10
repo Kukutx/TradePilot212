@@ -89,6 +89,10 @@ export interface PendingOrder {
   type?: string;
   status?: string;
   createdAt?: string;
+  currency?: string;
+  filledQuantity?: number;
+  filledValue?: number;
+  timeInForce?: "DAY" | "GOOD_TILL_CANCEL";
 }
 export interface TradeExecution {
   kind: "trade_execution";

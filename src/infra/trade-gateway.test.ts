@@ -24,6 +24,22 @@ describe("Trading 212 personal command gateway",()=>{
       expect(fetcher).toHaveBeenCalledTimes(1);
     }
   });
+  it("preserves actual broker partial fills and pending status without pretending quantity is remaining",async()=>{
+    const response={
+      id:901,ticker:"AAPL_US_EQ",quantity:3,filledQuantity:1.25,filledValue:125,
+      currency:"USD",side:"BUY",type:"LIMIT",status:"PARTIALLY_FILLED",
+      createdAt:"2026-10-10T12:00:00Z",timeInForce:"GOOD_TILL_CANCEL",
+    };
+    const broker=new Trading212TradeGateway(config,
+      vi.fn(async()=>new Response(JSON.stringify([response])) ) as typeof fetch);
+    const orders=await broker.getPendingOrders("demo");
+    expect(orders).toEqual([{
+      id:"901",ticker:"AAPL_US_EQ",quantity:3,filledQuantity:1.25,filledValue:125,
+      currency:"USD",side:"BUY",type:"LIMIT",status:"PARTIALLY_FILLED",
+      createdAt:"2026-10-10T12:00:00Z",timeInForce:"GOOD_TILL_CANCEL",
+    }]);
+    expect(Math.abs(orders[0]!.quantity)-orders[0]!.filledQuantity!).toBe(1.75);
+  });
   it("never retries an ambiguous server response or unreadable body",async()=>{
     const refused=vi.fn(async()=>new Response("failure",{status:503}));
     await expect(new Trading212TradeGateway(config,refused as typeof fetch).placeOrder(base))
