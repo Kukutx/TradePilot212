@@ -2,7 +2,7 @@
 
 全新架构的**个人自托管 AI 投资研究、组合管理和人工授权交易工作台**。
 
-[未完成的真实验收](docs/HOST_QA.md) · [独立 Owner Console](docs/OWNER_CONSOLE.md) · [自动简报](docs/AUTOMATION_DELIVERY.md) · [研究数据](docs/EXTERNAL_DATA.md) · [体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
+[测试候选验收清单](docs/TEST_READY.md) · [未完成的真实验收](docs/HOST_QA.md) · [独立 Owner Console](docs/OWNER_CONSOLE.md) · [自动简报](docs/AUTOMATION_DELIVERY.md) · [研究数据](docs/EXTERNAL_DATA.md) · [体验升级方案](docs/EXPERIENCE_2026.md) · [English](README.md) · [功能保留矩阵](docs/FEATURE_PARITY.md) · [架构](docs/ARCHITECTURE.md) · [安全](SECURITY.md)
 
 > V3 不支持 V2 的接口、工具名、配置键、OAuth 令牌或状态文件。**功能完整重建，不提供旧协议兼容层**。旧项目仍在独立的 `main`，不会被自动覆盖。
 
@@ -16,7 +16,7 @@
 - **智能分析**：现金／持仓集中度、估值可信覆盖率、历史风险趋势、情景压力测试、监测规则和本地警报。
 - **独立个人控制台**：自托管 `/owner` 网页与 ChatGPT／Claude 不绑定；密码登录、CSRF、独立交易密钥与 Live 二次确认。\n- **个性化自动化**：自选时区／当地小时、组合简报、变化时才通知；Resend 邮件可选且默认关闭。\n- **真实来源研究**：ECB 参考 FX、SEC EDGAR 正式申报、独立配置的 Twelve Data 报价，均保留来源与数据限制。\n- **平台运行**：统一 MCP 2026-07-28，OAuth CIMD/PKCE，自托管 Node、Docker、Cloudflare Workers，中英文 React MCP App。
 
-**AI 可以自动研究、整理与建议，但不能自主下单或撤单。** 定时任务只允许读取券商数据并更新本地风险提示。
+**AI 可以自动研究、整理与建议，但不能自主下单或撤单。** V3 Alpha.3 已进入**代码测试候选**：不再无限添加新功能，优先完成真实 Demo／ChatGPT／Claude 验收。对不明确的券商写入结果，系统会跨重启持续阻止新交易，须本人核对并授权解除。 定时任务只允许读取券商数据并更新本地风险提示。
 
 ## 开始使用
 
