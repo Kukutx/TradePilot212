@@ -17,8 +17,18 @@ function validRedirect(value: string): boolean {
 export function parseClientDocument(id: string, json: unknown): RegisteredClient {
   if (!isSupportedClientId(id) || !json || typeof json !== "object") throw new Error("Unsupported OAuth client");
   const doc = json as Record<string, unknown>;
-  if (doc.client_id !== id || (doc.token_endpoint_auth_method !== undefined && doc.token_endpoint_auth_method !== "none"))
-    throw new Error("Invalid OAuth client metadata");
+  if (doc.client_id !== id) throw new Error("Invalid OAuth client identity");
+  // The modern CIMD plural field is authoritative for supported methods.
+  // ChatGPT may prefer private_key_jwt in the legacy singular field while
+  // still offering "none"; this self-hosted server supports "none" + PKCE.
+  const supported = doc.token_endpoint_auth_methods_supported;
+  if (supported !== undefined) {
+    if (!Array.isArray(supported) || !supported.includes("none") ||
+        !supported.every((method) => typeof method === "string"))
+      throw new Error("OAuth client does not support public PKCE authentication");
+  } else if (doc.token_endpoint_auth_method !== undefined && doc.token_endpoint_auth_method !== "none") {
+    throw new Error("OAuth client does not support public PKCE authentication");
+  }
   const redirects = doc.redirect_uris;
   if (!Array.isArray(redirects) || redirects.length === 0 || redirects.length > 20 ||
       !redirects.every((uri) => typeof uri === "string" && validRedirect(uri)))
@@ -45,9 +55,28 @@ export async function resolveClientDocument(
     headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5_000) });
   if (!res.ok || Number(res.headers.get("content-length") ?? 0) > 16_384)
     throw new Error("OAuth client metadata unavailable");
-  const text = await res.text();
-  if (text.length > 16_384) throw new Error("OAuth client metadata too large");
-  const result = parseClientDocument(clientId, JSON.parse(text) as unknown);
+  // Enforce a streaming byte cap. response.text() only checks size after
+  // loading the entire body and would allow an unbounded response in memory.
+  if (!res.body) throw new Error("OAuth client metadata is empty");
+  const reader = res.body.getReader();
+  let received = 0;
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      received += next.value.byteLength;
+      if (received > 16_384) throw new Error("OAuth client metadata too large");
+      chunks.push(next.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  const payload = new Uint8Array(received);
+  let offset = 0;
+  for (const part of chunks) { payload.set(part, offset); offset += part.byteLength; }
+  const result = parseClientDocument(clientId, JSON.parse(new TextDecoder().decode(payload)) as unknown);
   await store.put(key, result, Date.now() + VALID_FOR_MS);
   return result;
 }
