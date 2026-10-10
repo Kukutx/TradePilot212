@@ -2,6 +2,8 @@ import { describe,expect,it,vi } from "vitest";
 import { readConfiguration } from "./config.js";
 import { BrokerKnownRejection,BrokerOperationUnknown,Trading212TradeGateway } from "./trade-gateway.js";
 import type { TradeDraft } from "../domain/trading.js";
+import {MemoryStore} from "./state.js";
+import {BrokerPacer} from "./broker-pacer.js";
 const config=readConfiguration({
   DATA_SOURCE:"trading212",
   OWNER_PASSWORD:"owner-password-at-least-24-characters",
@@ -39,6 +41,29 @@ describe("Trading 212 personal command gateway",()=>{
       createdAt:"2026-10-10T12:00:00Z",timeInForce:"GOOD_TILL_CANCEL",
     }]);
     expect(Math.abs(orders[0]!.quantity)-orders[0]!.filledQuantity!).toBe(1.75);
+  });
+  it("paces independent personal broker writes before network transmission",async()=>{
+    const store=new MemoryStore(),waits:number[]=[];
+    const pacer=new BrokerPacer(store,()=>100_000,async ms=>{waits.push(ms)});
+    const fetcher=vi.fn(async()=>new Response(JSON.stringify({id:901}),{status:200}));
+    const gateway=new Trading212TradeGateway(config,fetcher as typeof fetch,pacer);
+    await gateway.placeOrder({...base,side:"buy"});
+    await gateway.placeOrder({...base,side:"buy"});
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([1_500]);
+  });
+  it("rejects a saturated broker write quota before contacting Trading 212",async()=>{
+    const store=new MemoryStore(),now=Date.now();
+    // A longer external request backlog must not cause an unsafe outgoing write.
+    for(let i=0;i<13;i++){
+      const scheduled=await store.reserve("v3:broker-quota:demo:market-write",1500,now,30_000);
+      expect(scheduled).not.toBeNull();
+    }
+    const fetcher=vi.fn();
+    const pacer=new BrokerPacer(store,()=>now,async()=>{});
+    const gateway=new Trading212TradeGateway(config,fetcher as typeof fetch,pacer);
+    await expect(gateway.placeOrder({...base,side:"buy"})).rejects.toThrow(/quota is busy/);
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("never retries an ambiguous server response or unreadable body",async()=>{
     const refused=vi.fn(async()=>new Response("failure",{status:503}));
