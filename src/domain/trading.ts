@@ -131,6 +131,7 @@ export interface TradeIdea {
 export interface TradingLimits {
   maxQuantity: number;
   maxNotional: number;
+  allowUnquotedLiveBuys?: boolean;
 }
 function requirePositive(name: string, value: number | undefined): asserts value is number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be positive and finite`);
@@ -185,6 +186,17 @@ export function checkDraft(draft: TradeDraft, instrument: Instrument, account: P
   if(draft.extendedHours&&draft.type!=="market")throw new Error("Extended hours are available only for market orders");
   if(draft.extendedHours&&!instrument.extendedHours)throw new Error("Instrument does not support extended hours");
   const held=account.holdings.find(h=>h.ticker===draft.ticker);
+  // The API exposes a current market price for held positions, not an
+  // independently trusted quote for every unheld symbol. A model price must
+  // not turn an estimated Live order cap into a supposed hard limit.
+  // Keep every order type available: the private owner may explicitly opt in.
+  if(draft.environment==="live" && draft.side==="buy" &&
+     limits.maxNotional>0 && !limits.allowUnquotedLiveBuys){
+    if(draft.type==="stop")
+      throw new Error("Live Buy Stop has an unbounded fill price. Use Stop-Limit or explicitly opt into unbounded Live buys.");
+    if(draft.type==="market" && !(held?.price!==null && held?.price!==undefined && held.price>0))
+      throw new Error("Unheld Live Market Buy has no broker-observed quote. Use a Limit order or explicitly opt into unquoted Live buys.");
+  }
   const heldQuantity=held?.quantity??0;
   const tradableQuantity=held?.tradableQuantity??0;
   if(draft.side==="sell"&&draft.quantity>tradableQuantity+1e-8)throw new Error("Insufficient tradable shares");
