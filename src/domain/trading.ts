@@ -168,6 +168,16 @@ export function resolveInstrument(instruments: Instrument[], query: string): Ins
 /** Revalidate a draft against fresh account + position data before issuing and again before writing. */
 export function checkDraft(draft: TradeDraft, instrument: Instrument, account: PortfolioSnapshot, limits: TradingLimits) {
   if(draft.ticker!==instrument.ticker || draft.environment!==account.environment)throw new Error("Ticker/environment mismatch");
+  // Domain-level runtime validation is mandatory: schemas at the MCP boundary
+  // do not protect internal callers or future non-MCP personal interfaces.
+  if(!["buy","sell"].includes(draft.side))throw new Error("Invalid broker order side");
+  if(!["market","limit","stop","stop_limit"].includes(draft.type))
+    throw new Error("Unsupported broker order type");
+  if(draft.timeValidity!==undefined&&!["DAY","GOOD_TILL_CANCEL"].includes(draft.timeValidity))
+    throw new Error("Invalid broker time validity");
+  if(draft.extendedHours!==undefined&&typeof draft.extendedHours!=="boolean")
+    throw new Error("extendedHours must be a boolean");
+  if(draft.referencePrice!==undefined)requirePositive("referencePrice",draft.referencePrice);
   requirePositive("quantity", draft.quantity);
   if(limits.maxQuantity>0&&draft.quantity>limits.maxQuantity)throw new Error("MAX_ORDER_QUANTITY exceeded");
   if(draft.type==="limit"||draft.type==="stop_limit")requirePositive("limitPrice",draft.limitPrice);
