@@ -38,7 +38,7 @@ export function createHttpApp(deps:HttpDeps) {
     return c.body(null,204);
   });
   installOAuth(app,deps.config,deps.state,fetcher);
-  app.get("/health",c=>c.json({ok:true,service:"TradePilot Insight",version:"3.0.0-alpha.1"}));
+  app.get("/health",c=>c.json({ok:true,service:"TradePilot 212 Personal",version:"3.0.0-alpha.2"}));
   app.post("/mcp",async c=>{
     const scopes=await authenticateBearer(c.req.header("authorization"),deps.config);
     if(!scopes||!scopes.has("portfolio:read")){
