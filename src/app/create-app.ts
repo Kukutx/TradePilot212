@@ -17,7 +17,7 @@ export function createApp(deps: AppDependencies) {
   app.use("*", secureHeaders({ referrerPolicy: "no-referrer", xFrameOptions: false }));
   app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type", "MCP-Protocol-Version", "MCP-Session-Id", "Last-Event-ID"], exposeHeaders: ["MCP-Protocol-Version", "MCP-Session-Id", "WWW-Authenticate"] }));
   app.use("*", async (c, next) => { if (c.req.path !== "/health") c.header("Cache-Control", "no-store"); await next(); });
-  installOAuth(app, deps.config, deps.store);
+  installOAuth(app, deps.config, deps.store, deps.fetcher);
   app.get("/health", (c) => c.json({ ok: true, service: APP_META.name, version: APP_META.version, mcp: `${deps.config.publicBaseUrl}/mcp`, credentials: credentialStatus(deps.config) }));
   app.use("/mcp", (c, next) => bearer(c, deps.config, next));
   app.all("/mcp", async (c) => {
