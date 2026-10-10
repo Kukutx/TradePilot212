@@ -88,7 +88,18 @@ describe("read-only official broker adapter", () => {
         .rejects.toThrow(/currency|currencies/);
     }
   });
-  it("fails closed for invalid broker payload, with no sample fallback", async () => {
+  it("rejects financial notional overflow rather than publishing Infinity as a portfolio valuation",async()=>{
+    const fetcher=vi.fn(async (input:RequestInfo|URL)=>new Response(JSON.stringify(
+      String(input).includes("/account/summary")
+        ? { currency:"USD",totalValue:1000,cash:{availableToTrade:0},
+            investments:{currentValue:1000} }
+        : [{instrument:{ticker:"TEST_US_EQ",currency:"USD"},quantity:1e305,
+            quantityAvailableForTrading:1e305,currentPrice:1e30}]
+    )));
+    await expect(new Trading212Reader(config,fetcher as typeof fetch).getPortfolio("demo"))
+      .rejects.toThrow(/non-finite/);
+  });
+  it("fails closed for invalid broker payload, with no sample fallback", async () {
     const fake = vi.fn(async () => new Response(JSON.stringify({ result: "unexpected" }), { status: 200 }));
     await expect(new Trading212Reader(config, fake as typeof fetch).getPortfolio("demo")).rejects.toThrow();
   });
