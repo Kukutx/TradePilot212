@@ -154,18 +154,16 @@ export function resolveInstrument(instruments: Instrument[], query: string): Ins
   const symbolMatches=instruments.filter(i=>label(i.shortName)===q || label(i.ticker).startsWith(q+"_") || label(i.ticker).startsWith(q+"-"));
   if (symbolMatches.length===1) return symbolMatches[0]!;
   if (symbolMatches.length>1) {
-    const us=symbolMatches.filter(i=>/_US_EQ$/i.test(i.ticker) && label(i.type||"STOCK")==="STOCK");
-    if(us.length===1) return us[0]!;
-    throw new Error(`Ambiguous symbol: ${symbolMatches.slice(0,8).map(i=>i.ticker).join(", ")}`);
+    // A ticker shared across exchanges is NOT a broker identifier. Never
+    // silently select a US listing: ask the owner for an exact T212 ticker.
+    throw new Error(`Ambiguous symbol: ${symbolMatches.slice(0,8).map(i=>i.ticker).join(", ")}. Select the exact Trading 212 ticker.`);
   }
   const matches=instruments.filter(i=>label(i.name)===q || label(i.name).includes(q));
   if(matches.length===1)return matches[0]!;
   if(matches.length>1){
-    const exact=matches.filter(i=>label(i.name)===q && label(i.type||"STOCK")==="STOCK");
-    const preferred=exact.filter(i=>/_US_EQ$/i.test(i.ticker));
-    if(preferred.length===1)return preferred[0]!;
+    const exact=matches.filter(i=>label(i.name)===q);
     if(exact.length===1)return exact[0]!;
-    throw new Error(`Ambiguous name: ${matches.slice(0,8).map(i=>i.ticker).join(", ")}`);
+    throw new Error(`Ambiguous name: ${(exact.length?exact:matches).slice(0,8).map(i=>i.ticker).join(", ")}. Select the exact Trading 212 ticker.`);
   }
   throw new Error(`No matching Trading 212 instrument for ${query}`);
 }
