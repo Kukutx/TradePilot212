@@ -27,6 +27,7 @@ import { randomToken } from "./web-utils.js";
 import { resolveInstrumentFromList, validateOrderAgainstSnapshot } from "./order-policy.js";
 export { resolveInstrumentFromList, validateOrderAgainstSnapshot } from "./order-policy.js";
 import { requireExecutionApproval } from "./execution-approval.js";
+import type { BrokerFactory, BrokerGateway } from "./broker-port.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string };
@@ -35,7 +36,7 @@ type VerificationRecord =
   | { kind: "cancel"; environment: TradingEnvironment; orderId: string; createdAt: string };
 export interface InstrumentCacheEntry { expiresAt: number; instruments: Instrument[] }
 export type InstrumentCache = Map<TradingEnvironment, InstrumentCacheEntry>;
-export interface TradingServiceDeps { config: RuntimeConfig; store: StateStore; audit?: Audit; fetcher?: typeof fetch; instrumentCache?: InstrumentCache }
+export interface TradingServiceDeps { config: RuntimeConfig; store: StateStore; audit?: Audit; fetcher?: typeof fetch; instrumentCache?: InstrumentCache; brokerFactory?: BrokerFactory }
 
 function positiveNumber(name: string, value?: number): asserts value is number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
@@ -73,8 +74,8 @@ export class TradingService {
     this.cache = deps.instrumentCache ?? new Map();
   }
 
-  private client(environment: TradingEnvironment) {
-    return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
+  private client(environment: TradingEnvironment): BrokerGateway {
+    return this.deps.brokerFactory?.(environment) ?? new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
 
   private async instruments(environment: TradingEnvironment) {
