@@ -173,7 +173,15 @@ export class Trading212TradeGateway implements BrokerTradePort {
     const response=await this.request(draft.environment,"POST",path,body);
     const id=response&&typeof response==="object"?
       (response as Record<string,unknown>).id:undefined;
-    return id===undefined?{}:{orderId:String(id)};
+    // A successful HTTP status without an unambiguous broker order ID is
+    // NOT proof an order was accepted. Keep the outcome UNKNOWN to prevent
+    // a second submission from replacing the first under network anomalies.
+    const validId=typeof id==="number"
+      ? Number.isSafeInteger(id)&&id>=0
+      : typeof id==="string" && /^[0-9]{1,20}$/.test(id);
+    if(!validId)
+      throw new BrokerOperationUnknown("Trading 212 order acknowledgement is missing a valid ID. Do not retry automatically.");
+    return {orderId:String(id)};
   }
   async cancelOrder(environment:Environment,id:string){
     assertOrderId(id);
