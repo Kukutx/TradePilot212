@@ -99,6 +99,30 @@ export function installOwnerConsole(
     c.header("Set-Cookie",await auth.logout(c.req.header("cookie")));
     return c.json({authenticated:false});
   });
+  app.get("/owner/api/preferences",async c=>{
+    try{return c.json({kind:"owner_preferences",preferences:await service.preferences(),
+      emailProviderConfigured:config.notifications.provider==="resend"});}
+    catch(error){return c.json({error:exceptionMessage(error)},500);}
+  });
+  app.post("/owner/api/preferences",async c=>{
+    try{
+      const preferences=await service.updatePreferences(await body(c));
+      return c.json({kind:"owner_preferences",preferences});
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
+  });
+  app.post("/owner/api/monitoring/setup",async c=>{
+    try{
+      const {environment:env}=z.object({environment}).strict().parse(await body(c));
+      return c.json(await service.enableBasicMonitoring(env));
+    }catch(error){return c.json({error:exceptionMessage(error)},400);}
+  });
+  app.get("/owner/api/reports",async c=>{
+    const parsed=environment.safeParse(c.req.query("environment")||"demo");
+    if(!parsed.success)return c.json({error:"Invalid account environment"},400);
+    const rows=await store.list<unknown>(`v3:daily-report:${parsed.data}:`);
+    return c.json({kind:"daily_reports",environment:parsed.data,
+      reports:rows.map(row=>row.value).slice(-30)});
+  });
   app.get("/owner/api/overview",async c=>{
     const parsed=environment.safeParse(c.req.query("environment")||"demo");
     if(!parsed.success)return c.json({error:"Invalid environment"},400);
