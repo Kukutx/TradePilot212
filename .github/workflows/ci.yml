@@ -22,6 +22,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: OAuth and MCP security smoke tests
+        run: |
+          export APP_LOGIN_PASSWORD="$(openssl rand -hex 24)"
+          export AUTH_SIGNING_SECRET="$(openssl rand -hex 48)"
+          export EXECUTION_APPROVAL_SECRET="$(openssl rand -hex 32)"
+          pnpm smoke
       - run: pnpm audit --prod
       - run: pnpm release:check
       - run: pnpm exec wrangler deploy --dry-run
