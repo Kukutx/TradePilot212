@@ -65,6 +65,23 @@ describe("Trading 212 personal command gateway",()=>{
     await expect(gateway.placeOrder({...base,side:"buy"})).rejects.toThrow(/quota is busy/);
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it("treats an HTTP-success order without a safe acknowledgement ID as UNKNOWN, never as submitted",async()=>{
+    for(const response of [
+      null,{},{"status":"NEW"},{id:null},{id:"not-an-order"},
+      {id:-1},{id:1.5},{id:Number.MAX_SAFE_INTEGER+1},
+    ]){
+      const fake=vi.fn(async()=>response===null
+        ? new Response(null,{status:204})
+        : new Response(JSON.stringify(response),{status:200}));
+      const gateway=new Trading212TradeGateway(config,fake as typeof fetch);
+      await expect(gateway.placeOrder({...base,side:"buy"}))
+        .rejects.toBeInstanceOf(BrokerOperationUnknown);
+      expect(fake).toHaveBeenCalledTimes(1);
+    }
+    const zero=vi.fn(async()=>new Response(JSON.stringify({id:0}),{status:200}));
+    expect((await new Trading212TradeGateway(config,zero as typeof fetch)
+      .placeOrder({...base,side:"buy"})).orderId).toBe("0");
+  });
   it("never retries an ambiguous server response or unreadable body",async()=>{
     const refused=vi.fn(async()=>new Response("failure",{status:503}));
     await expect(new Trading212TradeGateway(config,refused as typeof fetch).placeOrder(base))
