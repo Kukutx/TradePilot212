@@ -2,7 +2,7 @@
 
 **Self-hosted AI investment intelligence, portfolio management and human-authorized personal trading.**
 
-[Owner Console](docs/OWNER_CONSOLE.md) · [Read-only automation](docs/AUTOMATION_DELIVERY.md) · [External evidence](docs/EXTERNAL_DATA.md) · [Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
+[Manual acceptance matrix](docs/HOST_QA.md) · [Owner Console](docs/OWNER_CONSOLE.md) · [Read-only automation](docs/AUTOMATION_DELIVERY.md) · [External evidence](docs/EXTERNAL_DATA.md) · [Adaptive experience strategy](docs/EXPERIENCE_2026.md) · [简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
 
 V3 is a **clean-slate, breaking redesign**. No legacy V2 protocol, tool, OAuth, environment variable or persisted-state compatibility is implemented. The functioning V2 `main` branch remains intact.
 
