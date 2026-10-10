@@ -18,7 +18,11 @@ const holdingSchema = z.object({
     ticker: z.string().min(1),
     name: z.string().optional(),
     shortName: z.string().optional(),
-    currencyCode: z.string().regex(/^[A-Z]{3}$/),
+    // /equity/positions embeds a compact Instrument with "currency".
+    // /equity/metadata/instruments uses "currencyCode". Both are typed,
+    // but we never guess currency or accept conflicting broker fields.
+    currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+    currencyCode: z.string().regex(/^[A-Z]{3}$/).optional(),
   }),
   quantity: z.number().finite().nonnegative(),
   quantityAvailableForTrading: z.number().finite().nonnegative(),
@@ -110,7 +114,12 @@ export class Trading212Reader implements BrokerReader {
     };
     const notes: string[] = [];
     const holdings: Holding[] = positions.map(row => {
-      const currency = row.instrument.currencyCode;
+      const { currency: positionCurrency, currencyCode } = row.instrument;
+      if (!positionCurrency && !currencyCode)
+        throw new Error(`Trading 212 position ${row.instrument.ticker} has no verified currency`);
+      if (positionCurrency && currencyCode && positionCurrency !== currencyCode)
+        throw new Error(`Trading 212 position ${row.instrument.ticker} has conflicting currencies`);
+      const currency = (positionCurrency ?? currencyCode)!;
       const price = row.currentPrice ?? null;
       const averagePricePaid = row.averagePricePaid ?? null;
       const rawBrokerValue = row.walletImpact?.currentValue;

@@ -59,6 +59,35 @@ describe("read-only official broker adapter", () => {
     expect(result.account.totalCost).toBe(650);
   });
 
+  it("parses the official compact position instrument currency field", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) =>
+      new Response(JSON.stringify(String(input).includes("/account/summary")
+        ? { currency: "EUR", totalValue: 140, cash: { availableToTrade: 40 },
+            investments: { currentValue: 100 } }
+        : [{ instrument: { ticker: "ASML_NL_EQ", name: "ASML", currency: "EUR" },
+             quantity: 2, quantityAvailableForTrading: 2, averagePricePaid: 42, currentPrice: 50,
+             walletImpact: { currency: "EUR", currentValue: 100, unrealizedProfitLoss: 16 } }])));
+    const result = await new Trading212Reader(config, fetcher as typeof fetch).getPortfolio("demo");
+    expect(result.holdings[0]).toMatchObject({
+      currency: "EUR", valueInAccountCurrency: 100,
+      valueProvenance: "broker_account_value", averagePricePaid: 42,
+      unrealizedProfitLossInAccountCurrency: 16,
+    });
+  });
+  it("fails closed for missing or conflicting currency instead of inventing FX", async () => {
+    for (const instrument of [
+      { ticker: "TEST_US_EQ" },
+      { ticker: "TEST_US_EQ", currency: "EUR", currencyCode: "USD" },
+    ]) {
+      const fetcher = vi.fn(async (input: RequestInfo | URL) =>
+        new Response(JSON.stringify(String(input).includes("/account/summary")
+          ? { currency: "EUR", totalValue: 100, cash: { availableToTrade: 0 },
+              investments: { currentValue: 100 } }
+          : [{ instrument, quantity: 1, quantityAvailableForTrading: 1, currentPrice: 100 }])));
+      await expect(new Trading212Reader(config, fetcher as typeof fetch).getPortfolio("demo"))
+        .rejects.toThrow(/currency|currencies/);
+    }
+  });
   it("fails closed for invalid broker payload, with no sample fallback", async () => {
     const fake = vi.fn(async () => new Response(JSON.stringify({ result: "unexpected" }), { status: 200 }));
     await expect(new Trading212Reader(config, fake as typeof fetch).getPortfolio("demo")).rejects.toThrow();
