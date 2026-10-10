@@ -1,15 +1,31 @@
-# Security — TradePilot Insight V3
+# Security — TradePilot 212 V3 Personal
 
-**The broker adapter has no POST, PUT, PATCH or DELETE pathways.** Source-code review, test interception and production allowlisting must preserve this property.
+This is **private single-owner brokerage software**, not a public ChatGPT trading plugin.
 
-Private configuration: `OWNER_PASSWORD`, `JWT_SIGNING_SECRET`, `T212_*_KEY`, `T212_*_SECRET`. Store in local private env files or Cloudflare Secrets. Never paste into an AI prompt or expose in tool results. Use read-only Trading 212 API permissions.
+## Secrets and authorization
+Keep `OWNER_PASSWORD`, `JWT_SIGNING_SECRET`, `PERSONAL_APPROVAL_SECRET`, and `T212_{DEMO,LIVE}_{KEY,SECRET}` outside Git and AI conversations. Trading 212 keys are configured per account environment in self-hosted runtime secrets.
 
-- OAuth: strict allowlisted HTTPS CIMD origins; response `iss`, S256 PKCE, resource audience, signed short-lived access JWT and atomically rotating refresh grants.
-- Modern MCP only; no legacy session/DCR fallback. Cross-origin browser calls are restricted to known OAuth client origins.
-- Broker data: GET-only fixed official hosts, bounded response sizes, schema validation and no synthetic fallback.
-- Currency gaps/partial snapshots must be disclosed and may disable analytics.
-- Monitoring is local alert state only. Cloudflare Cron cannot place trades.
-- Node persistence is private atomic JSON; DO storage is per-instance, not multi-tenant.
-- Never log tokens, raw brokerage payloads, full account identifiers or credentials.
+OAuth requires CIMD+PKCE and explicit scopes. Personal broker writes require `trading:execute` on the connection, `PERSONAL_TRADING_ENABLED=true` on the owner server, and `PERSONAL_LIVE_TRADING_ENABLED=true` additionally for Live. Neither app-only tool metadata nor host confirmation prompts are sufficient authentication.
 
-Report vulnerabilities privately via GitHub Security Advisories. Do not disclose real account data in public issues.
+A human enters the independent secret into the sandboxed UI for each operation. Only a single-use HMAC proof bound to the specific order/cancel token and operation is sent via MCP. The proof is itself a short-lived capability; treat it as sensitive until consumed.
+
+## Write safety
+- Draft generation never submits a broker write.
+- Broker state and order constraints are revalidated before writing.
+- Confirmation is stored as one-use and expires within 30–300 seconds.
+- Each Trading 212 POST or DELETE is sent **at most once**; loss of response never triggers retry.
+- UNKNOWN statuses must be read back before a person takes any further action.
+- Demo/Live cannot swap after confirmation.
+- Sample mode has no executable trade route.
+- Market orders can slip; prices entered by an AI or user are merely references.
+
+## Data and operations
+- Broker URL bases are fixed to official Demo/Live HTTPS hosts.
+- Internal monitoring/Cron may read account data and update local alerts; it cannot place/cancel orders.
+- Durable state is personal, not tenant-isolated multi-user infrastructure.
+- Never log passwords, approval secrets, JWTs, authorization codes, raw brokerage credentials or request bodies.
+- Back up the private `.data/` directory securely; do not copy secrets into images.
+- Node Docker must run behind an HTTPS reverse proxy. Cloudflare Secret Store must be limited to the operator's account.
+
+## Disclosure
+Report security issues privately using GitHub Security Advisories. Do not publish personal account information, keys or live broker requests.

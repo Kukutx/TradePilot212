@@ -1,47 +1,49 @@
-# V3 architecture: no compatibility lanes
+# V3 Personal architecture
 
 ```
-MCP 2026-07-28 host (ChatGPT / supported Claude)
-   │  Client ID Metadata Document + OAuth/PKCE
-   ▼
-Stateless createMcpHandler(legacy=reject)
-   ├─ portfolio snapshot / deterministic analysis
-   ├─ hypothetical stress and review brief
-   ├─ historic order inspection (GET)
-   └─ watch-rule CRUD + local alert feed
-                  │
-         IntelligenceService
-             ├─ Pure analytics (domain)
-             ├─ SamplePortfolioProvider
-             ├─ Trading212Reader (GET-only official origins)
-             └─ StateStore (Node file / Durable Object)
-                  │
-Weekday Cloudflare Cron ─┘ (read portfolio, evaluate rules, persist alerts only)
+ChatGPT / Claude / supported private MCP host
+    │ OAuth CIMD + S256 + owner consent; modern MCP only
+    ▼
+src/server/http.ts — authenticated per-request transport
+    ├─ Portfolio Intelligence tools (read-only)
+    │    └─ IntelligenceService → BrokerReader GET-only → Trading 212
+    ├─ Research / Order review tools (model-visible, read-only)
+    │    └─ PersonalTradingService → resolveTradeIntent + checkDraft
+    ├─ Private interactive MCP App (human-held secret stays inside UI)
+    │    ├─ app_prepare_personal_order / cancel → single-use state token
+    │    └─ app_execute_personal_order / cancel → HMAC + OAuth scope + fresh broker validation
+    │                  └─ Trading212TradeGateway → POST/DELETE ONCE
+    └─ Monitoring tools → local rules/events in StateStore
+
+Cloudflare weekday Cron / host scheduled research
+  └─ Portfolio GET → risk calculations → local events; no broker writes
+
+StateStore: atomic Node JSON / Cloudflare Durable Object
+UI: bilingual React host-adaptive workspace
 ```
 
-## Runtime state
-`v3:code:*`: one-use OAuth authorization code, 5m.
-`v3:refresh:*`: one-use refresh grant, 14d.
-`v3:client:*`: validated allowlisted CIMD cache, 30m.
-`v3:snapshot:*`: local read cache, 30s.
-`v3:rule:*`: saved user thresholds.
-`v3:rule-status:*`: last trigger state for deduplication.
-`v3:event:*`: local monitor alerts, 30d.
-`v3:rate:*`: owner login rate limit.
+## Product execution planes
 
-The entire V2 state and API are deliberately unsupported. No migration code, no hidden aliases. New OAuth connections must be set up from zero.
+**Intelligence plane:** portfolio dashboards, instrument resolution, research briefs/cards, risk simulation, local threshold rules, changes and read-only monitoring. Runs in AI, user-driven and scheduled contexts.
 
-## Protocol
-The formal MCP 2026-07-28 revision removed `initialize` and protocol-level sessions and added `server/discover`, explicit request metadata, and mandatory routing headers. V3 uses `createMcpHandler(...,{legacy:"reject"})`; `Mcp-Method` and `Mcp-Name` validation are enforced by the SDK. Each HTTP request is independently authenticated with bearer audience/issuer/scopes. Origin is allowlisted.
+**Human execution plane:** private instance only, with explicit server flags, independently consented OAuth scope, app-only write endpoint, owner approval secret entered into UI, action/token-bound HMAC, one-use confirmation, fresh broker revalidation, and exactly one broker write. All inputs and platform hints are untrusted.
 
-## Data trust
-The domain model distinguishes `source=sample` vs `source=trading212`. Portfolio totals are in the broker primary currency; instrument `currentPrice` is used for account-currency concentration only when instrument currency matches, or when a verified broker `walletImpact.currentValue` is available. If reconciliation fails, whole-portfolio HHI/concentration/stress totals are **unknown**. This rule prioritizes reliability over a pleasing dashboard.
+**Never** add model-visible broker write tools or a background broker execution path. The user initiating a research plan is not consent to trade.
 
-## AI boundary
-The model/host supplies natural-language interpretation and optionally independently sourced market news. Our tools only provide account-backed numeric facts and deterministic calculations. Source absence is not implied evidence. Tool annotations declare real side effects; watch-rule changes affect only local state. This is not a financial adviser.
+## Broker path restrictions
+`src/infra/broker.ts` is GET-only with fixed allowed endpoints and bounded JSON responses. `src/infra/trade-gateway.ts` exclusively maps known approved GET/POST/DELETE endpoints with correct signed sell quantities. Network errors, 408, 5xx and broken response bodies after any broker write produce **UNKNOWN**; no retry and no automatic order replacement.
 
-## Release gates
-- TypeScript, unit tests, authenticated MCP smoke, dependency audit, Workers dry-run.
-- Demo QA using real Trading 212 **read-only** credentials; no API write permissions.
-- Actual latest-protocol ChatGPT and Claude host testing and privacy review.
-- Separate publication decision after assessing third-party connector and high-risk financial policy.
+## Domain data trust
+Sample != actual broker. There is no automatic fallback to sample on API failure. Currency coverage for risk allocation requires account-currency evidence. Scenario calculations disclose all assumptions. Reference prices and FX manually supplied for trade sizing are **estimates**, not executable price guarantees; limit orders are preferable when uncertain.
+
+## State and OAuth
+V3 storage uses new namespaces: `v3:code:`, `v3:refresh:`, `v3:rule:`, `v3:event:`, `v3:snapshot:`, `v3:trade-confirm:`, `v3:verify:`, `v3:trading-activity:`. V2 state files are unsupported.
+
+OAuth scopes: `portfolio:read`, `monitor:write`, `trading:review`, `trading:execute`, `offline_access`. Tool visibility is not authorization. Only allowlisted Client ID Metadata Documents are accepted; intentionally no old OAuth DCR or MCP session compatibility.
+
+## Production blockers (Draft)
+- No live Trading 212 order has been placed by testing.
+- Need real Demo order, partial fill, cancellation and unknown-response reconciliation acceptance.
+- Need ChatGPT and Claude host tests for app-only actions, rendering/confirmation and permissions.
+- Need robust broker rate-limit/freshness telemetry and user-controlled authentication/secret lifecycle before live use.
+- Need responsive visual QA and edge-case market controls.

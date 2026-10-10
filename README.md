@@ -1,77 +1,40 @@
-# TradePilot Insight V3
+# TradePilot 212 V3 Personal
 
-**An AI-native investment-intelligence app for Trading 212, built on MCP 2026-07-28.**
+**Self-hosted AI investment intelligence, portfolio management and human-authorized personal trading.**
 
-[简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Product strategy](docs/PRODUCT.md) · [Privacy](PRIVACY.md)
+[简体中文](README.zh-CN.md) · [Feature parity](docs/FEATURE_PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](SECURITY.md)
 
-**V3 is a clean-slate replacement, not an upgrade of TradePilot212 v2.** The old source layout, tools, environment keys, state and OAuth registrations are intentionally unsupported. Reconfigure and reconnect from zero.
+V3 is a **clean-slate, breaking redesign**. No legacy V2 protocol, tool, OAuth, environment variable or persisted-state compatibility is implemented. The functioning V2 `main` branch remains intact.
 
-## What it does
+## Functionality
 
-- Read personal Trading 212 Invest / Stocks ISA portfolio data through its official Public API, or use clearly labelled synthetic fixtures.
-- Compute auditable portfolio concentration, cash ratio, position valuation coverage and data limitations.
-- Simulate hypothetical broad portfolio price shocks (never a forecast).
-- Show recent broker order history as a bounded read-only page.
-- Save explicit portfolio threshold rules (cash, largest holding, unrealized loss) and evaluate them automatically with read-only scheduled monitoring. Threshold-crossing events are stored locally for later retrieval.
-- Expose a bilingual interactive MCP App UI and precise tools for reasoning hosts including ChatGPT and compatible Claude clients.
-- Generate account-evidence briefs that intentionally never invent news articles, price forecasts, recommendations or external source citations.
+Portfolio dashboards for Trading 212 Demo/Live, positions, cash, pending orders, recent activity; bilingual model-proposed short/medium/long investment research cards; ticker/name resolution; order sizing by quantity, target money, percent of available cash, percent of held shares and all tradable shares; Market, Limit, Stop, Stop-Limit; interactive review, single-use human-approved execution and cancellation; unknown-write read-back verification; risk analysis, concentration, stress scenarios and scheduled read-only alerts.
 
-**No trading, cancellation, fund transfer or broker-account writes exist anywhere in V3.** Investment trade execution through the ChatGPT Plugin Directory is explicitly disallowed in [the publication rules](https://developers.openai.com/plugins/plugin-guidelines). Trade decisions and final execution remain entirely outside the plugin, inside the broker's own app.
+**No unattended trading.** Broker writes only after an explicit private owner UI action, fresh risk validation, one-use confirmation and client-side HMAC approval. Uncertain POST/DELETE outcomes must never be retried automatically. Demo and Live require separate authorizations, and both are disabled by default.
 
-## System shape
-
-```
-ChatGPT / Claude / modern MCP host
-  └─ 2026-07-28 Streamable HTTP /mcp (no legacy initialize)
-      ├─ OAuth client metadata + PKCE / owner login
-      ├─ Standalone read-only tools
-      └─ Portable React MCP App
-           │
-      IntelligenceService
-      ├─ Account snapshot / deterministic analytics / stress scenarios
-      ├─ Internal watch rules / threshold events
-      ├─ SamplePortfolioProvider (explicit, synthetic)
-      └─ Trading212Reader (GET-only, strictly validated official API)
-            ├─ Demo account
-            └─ Live account (READ ONLY)
-      StateStore ├─ Node atomic private local JSON
-                 └─ Cloudflare Durable Object
-```
-
-## Development
-
-Node.js 24 / pnpm 11 recommended. All configuration uses **new V3 keys**, never v2 keys.
+## Install
 
 ```bash
 pnpm install --frozen-lockfile
-cp .env.example .env.local
-# Replace OWNER_PASSWORD and JWT_SIGNING_SECRET with strong independent values.
-# DATA_SOURCE=sample is the default and NEVER represents a real account.
+pnpm setup
+# Fill in .env.local, never Git-track it
+pnpm doctor
 pnpm check
 pnpm dev
 ```
 
-For real Trading 212 read-only data, set `DATA_SOURCE=trading212` and either/both pairs `T212_DEMO_KEY/T212_DEMO_SECRET`, `T212_LIVE_KEY/T212_LIVE_SECRET`. Use keys with **read permissions only**. Credentials stay in the self-hosted environment and are never included in MCP responses.
+`DATA_SOURCE=sample` is synthetic, clearly labelled and incapable of broker execution. For personal broker usage set `DATA_SOURCE=trading212` and the relevant `T212_DEMO_KEY/SECRET` or `T212_LIVE_KEY/SECRET`.
 
-Production requires a stable HTTPS `PUBLIC_ORIGIN`, explicit OAuth client origin allowlist and proper Cloudflare secrets. Use `pnpm build:widget && pnpm exec wrangler deploy --dry-run` before any deployment. The Cloudflare Cron expression in `wrangler.jsonc` runs weekday **07:00 UTC**, and only checks watch rules when `DATA_SOURCE=trading212`.
+Opt in to **Demo execution** explicitly with `PERSONAL_TRADING_ENABLED=true` and an independent `PERSONAL_APPROVAL_SECRET` created by `pnpm setup`. Live requires the additional `PERSONAL_LIVE_TRADING_ENABLED=true`. Cap notional/quantity and confirmation expiry with `PERSONAL_MAX_NOTIONAL`, `PERSONAL_MAX_QUANTITY`, `PERSONAL_CONFIRMATION_TTL`.
 
-## First connection
+Write-enabled Trading 212 keys must have the necessary order permissions. Demo and Live keys are never interchanged. The HMAC proof sent through MCP is specific to a single action/token. Never put credentials or the approval secret in an AI chat message.
 
-Configure the official remote MCP URL `https://your-instance.example/mcp` in a **modern 2026 protocol** host that supports OAuth Client ID Metadata Documents and PKCE. This project deliberately rejects legacy MCP handshakes and old dynamic client registration. Host support and plan entitlement are not guaranteed, particularly for Claude clients that only implement older OAuth flows.
+## Deploy
 
-Suggested prompts:
-- “Show my TradePilot portfolio intelligence in Demo. Explain data freshness and valuation coverage.”
-- “Analyze concentration and cash risks in my Live portfolio. Don’t recommend trades.”
-- “Simulate a -15% portfolio-wide equity shock and list all assumptions.”
-- “Create a watch rule if my largest holding goes above 35% of account value.”
-- “Summarize read-only investment observations for today and identify which news I should independently research.”
+Use `pnpm dev` for local Node; `pnpm dev:tunnel` for a temporary Cloudflare HTTPS tunnel; `pnpm deploy -- --dry-run` to validate a personal Cloudflare Worker; `pnpm deploy` only when you explicitly intend deployment; or use the included `Dockerfile` behind a private HTTPS reverse proxy.
 
-## Safety and publication
+The MCP server implements **MCP 2026-07-28 and OAuth CIMD/PKCE only**, with no compatibility shim. OAuth scopes: `portfolio:read`, `trading:review`, `trading:execute`, `monitor:write`, and optional `offline_access`. ChatGPT and Claude custom MCP tool/write availability depends on plan, host and workspace policy; some risky actions can be blocked.
 
-Data from Trading 212 is retrieved on request or by an explicit scheduled *read-only* scan; broker response schemas are validated and never replaced with plausible synthetic data on failure. Different-currency holdings with unknown trusted account-currency valuation **remain unknown**, not silently converted. Automatic watch rules only affect self-hosted alert records; they cannot initiate trading.
+**This is not a public Plugin Directory trading app.** Public directory policy prohibits executing investment trades, so personal trade features belong in private self-hosted integration. No public listing, host eligibility or broker live execution has been verified.
 
-MCP Plugin Directory acceptance is **not guaranteed**: third-party connector policies, authenticated test accounts, privacy docs, real-host desktop/mobile QA and developer verification still need review. This open-source self-hosted architecture is not a multi-user SaaS platform.
-
-For details see [docs/PRODUCT.md](docs/PRODUCT.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and [PRIVACY.md](PRIVACY.md).
-
-MIT licensed. This software is informational and does not provide individualized investment advice.
+See [product strategy](docs/PRODUCT.md), [feature parity](docs/FEATURE_PARITY.md), [architecture](docs/ARCHITECTURE.md), [security](SECURITY.md), [privacy](PRIVACY.md). This project is in Draft/Alpha; do not consider it production-ready solely because CI passes.

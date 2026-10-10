@@ -1,14 +1,13 @@
-# Privacy policy — TradePilot Insight V3
-TradePilot Insight is open-source single-owner self-hosted software. It has no developer-operated shared brokerage database or advertising/analytics service.
+# Privacy — TradePilot 212 V3 Personal
 
-**Collected in the operator's deployment:** Trading 212 portfolio holdings, aggregate account cash and investment values, optional historical order metadata, local watch-rule thresholds and alert events, owner OAuth client identity and temporary authorization grants. Private API keys/passwords are configured only in the self-hosted server environment.
+**Operator:** the individual self-hosting their own deployment. There is no repository-author-run shared brokerage account service, brokerage-credential broker or ad/analytics backend.
 
-**Purposes:** account summary, transparent portfolio analytics, read-only historical inspection and optional threshold monitoring. No brokerage execution.
+**Data handled:** account-currency totals, positions, quantities, symbols, order status, requested research briefs, local risk rules and alerts, order/cancel metadata history, short-lived confirmation and verification records, OAuth client metadata and session grants.
 
-**Recipients:** Trading 212 receives authorized GET requests; an AI host (ChatGPT, Claude, etc.) receives only the selected tool results when the owner invokes the plugin. The host's own retention/privacy policy applies. Do not connect untrusted clients.
+**Storage:** on your own Node local `.data/` or Cloudflare Durable Object. Order/activity metadata may be retained up to 90 days; ambiguous write verification 24 hours; local watch events 30 days; monitor rules persist until removed; cached portfolio reads 30 seconds; refresh grants 14 days. Container logs, infrastructure backups and optional analytics are controlled by the operator.
 
-**Retention:** OAuth code 5 minutes, refresh grant 14 days or consumed sooner, client metadata 30 minutes, portfolio read cache 30 seconds, monitor events 30 days. Saved rules persist until owner deletes them. Node `.data/` persists until operator deletes it. Hosted service logs depend on the operator's platform settings.
+**Recipients:** Trading 212 receives approved GET/POST/DELETE only when authorized. ChatGPT/Claude (when you connect them) may receive portfolio or trade proposal data, and on explicit human confirmation, a **token-specific approval proof**. They do not receive the raw approval secret or API keys through designed tool outputs. Host privacy/retention rules apply independently.
 
-**User controls:** choose sample-only mode, withhold Live broker keys, restrict OAuth origins/scopes, delete watch rules, rotate keys, revoke Trading 212 API access, delete local state and stop deployment.
+**Control:** use sample mode, withhold Live keys, disable execution flags, revoke API keys, rotate owner credentials, delete local rules/state, shut down the Worker, and disconnect the AI host. Never attempt to reconcile an unknown brokerage write by deleting state; verify directly with the broker first.
 
-The repo does not send analytics, keys, conversation history, tracking identifiers or portfolio records to a central service operated by the repository author. No multi-user cloud product is provided.
+**Warning:** The private self-hosted project is not a centralized multi-user product; its privacy and hosting guarantees depend on your deployment configuration and connected AI platform.
