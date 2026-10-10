@@ -4,7 +4,7 @@ import { registerPersonalTradingTools } from "./personal-mcp.js";
 import type { PersonalTradingService } from "./trading.js";
 import { z } from "zod";
 import type { IntelligenceService } from "./intelligence.js";
-const URI="ui://tradepilot-insight/overview.html";
+const URI="ui://tradepilot212-personal/overview.html";
 const environment=z.enum(["demo","live"]);
 const ruleKind=z.enum(["cash_below","largest_position_above","unrealized_loss_below"]);
 const read={readOnlyHint:true,destructiveHint:false,openWorldHint:false} as const;
@@ -19,7 +19,7 @@ function fail(e:unknown){
 export function buildMcpServer(
   service:IntelligenceService, scopes:ReadonlySet<string>,widgetHtml:()=>Promise<string>,personal:PersonalTradingService,
 ):McpServer{
-  const server=new McpServer({name:"tradepilot-insight",version:"3.0.0-alpha.1"});
+  const server=new McpServer({name:"tradepilot212-personal",version:"3.0.0-alpha.2"});
   registerAppResource(server,"TradePilot intelligence workspace",URI,{},async()=>({
     contents:[{uri:URI,mimeType:RESOURCE_MIME_TYPE,text:await widgetHtml()}],
   }));
