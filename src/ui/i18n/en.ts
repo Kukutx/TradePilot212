@@ -245,7 +245,7 @@ export const en = {
   weightColumn: "Weight",
   monthColumn: "Month",
   dateColumn: "Date",
-  valueTrendSince: "since {date}, deposits included",
+  valueTrendSince: "since {date}, deposits and withdrawals included",
   valueTrendLabel: "Account value since {date}: {first} to {last}",
   valueHistoryTitle: "Account value",
   valueHistoryNote: "{days} days recorded by TradePilot while it runs, the last value of each day. Changes include deposits and withdrawals.",

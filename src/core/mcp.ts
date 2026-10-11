@@ -129,7 +129,9 @@ export function createMcpServer(
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-    const trend = await values.points(environment, { from }).catch(() => []);
+    // Only the days of the account on screen: after a switch of keys, the old account's days are left out.
+    const account = data.account?.id;
+    const trend = await values.points(environment, { from, ...(typeof account === "number" ? { account } : {}) }).catch(() => []);
     return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}) };
   };
 

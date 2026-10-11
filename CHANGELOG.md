@@ -3,8 +3,8 @@
 ## 2.21.0
 
 - Pending orders on held instruments say how far their trigger is from the last price, e.g. "8.3% below the last price ($128.75)". A stop or stop-limit is measured from its stop price, a limit from its limit price. Trading 212 has no quote endpoint, so orders on instruments you do not hold have no distance. The text that text-only hosts read carries the same distance, and reads "limit 215" instead of "limit limit 215".
-- The dashboard shows a small line of the account value TradePilot recorded over the last 30 days, with the change since the first of those days (deposits included). `get_portfolio_dashboard` returns those days as `valueTrend` once there are two or more.
-- The sample account has a stop-loss on NVIDIA, so the preview shows an order with a distance.
+- The dashboard shows a small line of the account value TradePilot recorded over the last 30 days, with the change since the first of those days (deposits and withdrawals included). `get_portfolio_dashboard` returns those days as `valueTrend` once there are two or more, and only for the account the dashboard shows.
+- The sample account has a stop-loss on NVIDIA, so the preview shows an order with a distance. Like Trading 212, the sample account now holds back the shares a pending sell covers: they no longer count as available, and a sell for more than the rest is rejected.
 
 ## 2.20.0
 

@@ -34199,6 +34199,8 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
     { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) }
   ];
+  const reservedShares = (ticker) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
+  const sellable = (holding) => round(holding.quantity - holding.inPies - reservedShares(holding.ticker), 6);
   const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
   const history = [];
   const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
@@ -34240,7 +34242,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     return {
       instrument: meta3,
       quantity: holding.quantity,
-      quantityAvailableForTrading: round(holding.quantity - holding.inPies, 6),
+      quantityAvailableForTrading: sellable(holding),
       quantityInPies: holding.inPies,
       averagePricePaid: holding.average,
       currentPrice: price,
@@ -34286,7 +34288,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       holding.average = (holding.average * holding.quantity + instrument.price * quantity) / (holding.quantity + quantity);
       holding.quantity = round(holding.quantity + quantity, 6);
     } else {
-      if (!holding || holding.quantity - holding.inPies < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
+      if (!holding || sellable(holding) < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
       cash += value;
       holding.quantity = round(holding.quantity + quantity, 6);
       if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
@@ -34342,6 +34344,8 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
         if (result2.error) return result2.error;
         return json2({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker).price) });
       }
+      const holding = holdings.find((item) => item.ticker === ticker);
+      if (quantity < 0 && (!holding || sellable(holding) < -quantity - 1e-9)) return json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400);
       const held = reservation(order);
       if (held > cash) return json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
       cash -= held;
@@ -38333,7 +38337,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
   const dashboard = async (environment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-    const trend = await values.points(environment, { from }).catch(() => []);
+    const account = data.account?.id;
+    const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
     return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
   };
   G(
@@ -40044,12 +40049,12 @@ var ValueHistory = class {
   }
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
-   * date-time bound compares when each value was read. After a switch to another Trading 212 account,
-   * only the current account's days are returned.
+   * date-time bound compares when each value was read. Only one Trading 212 account's days are
+   * returned: `account` when given, otherwise the account of the newest point.
    */
   async points(environment, range = {}) {
     const stored = (await this.deps.store.list(`value-history:${this.series(environment)}:`)).flatMap((entry) => entry.value).sort((a, b) => a.date.localeCompare(b.date));
-    const current = stored[stored.length - 1]?.account;
+    const current = range.account ?? stored[stored.length - 1]?.account;
     return stored.filter((point) => point.account === current && within(point, range.from, "from") && within(point, range.to, "to")).map(({ account: _account, ...point }) => point);
   }
 };

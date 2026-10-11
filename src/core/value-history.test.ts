@@ -112,7 +112,7 @@ describe("dashboard value trend", () => {
     const today = Date.now();
     const day = (offset: number) => new Date(today - offset * 86_400_000).toISOString();
     // One day older than the window, then three inside it.
-    for (const [offset, value] of [[40, 800], [20, 900], [10, 950], [0, 1000]] as const) await services.values.record("demo", { date: day(offset).slice(0, 10), totalValue: value, at: day(offset) });
+    for (const [offset, value] of [[40, 800], [20, 900], [10, 950], [0, 1000]] as const) await services.values.record("demo", { date: day(offset).slice(0, 10), totalValue: value, at: day(offset), account: 1 });
     const server = createMcpServer(services, services.config, async () => "<html></html>", new Set(["trade:read"]));
     const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
     await server.connect(serverSide);
@@ -122,6 +122,10 @@ describe("dashboard value trend", () => {
     const data = outcome.structuredContent as { valueTrend?: Array<{ totalValue: number }> };
     expect(data.valueTrend?.map((point) => point.totalValue)).toEqual([900, 950, 1000]);
     expect(JSON.stringify(outcome.content)).toContain("Account value recorded on 3 day(s)");
+    // Days recorded for another Trading 212 account are not shown as this account's trend.
+    services.account.id = 2;
+    const other = await client.callTool({ name: "get_portfolio_dashboard", arguments: { environment: "demo" } });
+    expect((other.structuredContent as { valueTrend?: unknown }).valueTrend).toBeUndefined();
     await client.close();
   });
 });
