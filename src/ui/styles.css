@@ -119,6 +119,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   font-size: 14px;
   font-weight: 720;
   letter-spacing: .01em;
+  white-space: nowrap;
 }
 .environmentSwitch button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 5px rgba(0,0,0,.08); }
 .environmentSwitch button.live.active { background: #321214; color: #fff; }
@@ -493,7 +494,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .languageSwitch { padding-left: 2px; }
   .languageSwitch .icon { display: none; }
   .languageSwitch button { min-width: 44px; padding: 0 6px; }
-  .environmentSwitch button { padding: 0 6px; }
+  .environmentSwitch button { gap: 5px; padding: 0 5px; }
+  .iconAction { height: 44px; width: 44px; }
   .metricGrid { grid-template-columns: 1fr 1fr; }
   .metric { min-height: 62px; }
   .horizonTabs span { font-size: 12px; }

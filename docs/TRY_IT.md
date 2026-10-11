@@ -65,7 +65,7 @@ pnpm preview            # sample account
 pnpm preview --demo     # your Demo keys from .env.local
 ```
 
-Open http://127.0.0.1:4212. Pick a view (dashboard, allocation, performance, income, an order, rebalance, protective orders, a basket, pies, automation), and switch the language, light or dark theme and phone, tablet or desktop width in the header. Each view also shows the text the model would read and the calls the widget made.
+Open http://127.0.0.1:4212. Pick a view (dashboard, allocation, performance, income, an order, a cancellation, rebalance, protective orders, a basket, pies, automation), and switch the language, light or dark theme and phone, tablet or desktop width in the header. Each view also shows the text the model would read and the calls the widget made.
 
 The preview listens on 127.0.0.1 only and needs a per-run token for every call. `--demo` uses only your Demo keys: Live is switched off, Demo automation and webhooks are off, and orders still need your confirmation in the widget.
 

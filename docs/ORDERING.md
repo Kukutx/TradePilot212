@@ -82,7 +82,7 @@ A Stop buy is valued at its stop price when that is above the market, so `MAX_OR
 
 ## Following up an order
 
-`get_order_status` looks up one order by id: still open (and how much filled), or how it ended, with its fills. Pending orders are cancelled from the dashboard, after a confirmation. `get_trade_history` with `includeUnfilled` also lists orders that were cancelled, rejected or expired.
+`get_order_status` looks up one order by id: still open (and how much filled), or how it ended, with its fills. `review_order_cancel` opens a pending order's cancellation in the widget for you to confirm; the model cannot cancel by itself. `get_trade_history` with `includeUnfilled` also lists orders that were cancelled, rejected or expired.
 
 ## Price and FX timestamps
 

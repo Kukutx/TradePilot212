@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.14.0
+
+Cancelling from the chat
+- `review_order_cancel` opens a pending order's cancellation in the widget, prepared the same way as from the dashboard. Nothing is cancelled until you confirm it there. An order that is no longer open says so instead of offering a button.
+
+Names, amounts and wording
+- Holdings, dividends, realized P/L, pie slices, baskets and automation show the instrument name first and the ticker second, instead of tickers such as `VUSAl_EQ`.
+- Pie amounts carry the account currency; cancel confirmations, price alerts and the order editor's price fields show the instrument currency.
+- Profit, loss and change values show their sign (+€12.30). Counts use proper plurals in English and measure words in Chinese ("3 个候选").
+- Demo and Live, order statuses, instrument types, time in force and the quote source are translated instead of shown raw. Basket titles, protective and plan notes, pie notices and results are translated from their codes.
+- New messages for `PRICE_OUT_OF_RANGE` (with a reminder that GBX is pence), `EXECUTION_BUSY`, and the notices `STOP_ALREADY_TRIGGERED`, `LIMIT_FILLS_AT_ONCE`, `PRICE_FAR_FROM_LAST` and `MARKET_HOURS_UNKNOWN`.
+- Allocation uses total account value throughout, and the asset-type breakdown includes cash, so it adds up to 100%.
+
+States
+- Live without API keys shows a setup card naming the two settings to add, with a button back to Demo, instead of an empty account under a "Connected" badge.
+- Loading shows placeholder tiles and a spinning refresh icon. A failed action says which action failed and offers Retry in place.
+- The order editor checks quantity and prices at the field, no longer turns a cleared quantity into 0, and explains that the reference price is only used for estimates and limits.
+
+Layout and accessibility
+- At phone width the view tabs keep the active tab in view and fade at the edges, basket legs fit on one line with their remove button, pie slices show their quantity without sideways scrolling, and the Demo/Live switch stays on one line.
+- Body text is 13–14px, labels at least 12px, and controls are at least 40–44px tall on narrow screens. The language switch is one segmented control.
+- Confirmation panels are dialogs: focus moves to their heading, stays inside while they are open, and returns afterwards. Icon buttons have labels.
+- A review no longer asks the host for fullscreen by itself; only the Full view button does.
+- "Keep watching" ideas show a status chip instead of a disabled button.
+
+Preview
+- `pnpm preview` has a "Cancel an order" view.
+
 ## 2.13.0
 
 Order safety

@@ -2,7 +2,7 @@
 // terminals) show the model only a tool's text, so every result carries the facts needed to answer
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
-import type { AccountSummary, ActivityEvent, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
+import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, ExportReport, IncomeSummary, PerformanceSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
@@ -377,6 +377,11 @@ export function describePayload(data: unknown): string {
     }
     case "order_preview": lines = orderPreview(payload as unknown as OrderPreview); break;
     case "order_execution": lines = orderExecution(payload as unknown as OrderExecutionResult); break;
+    case "cancel_draft": {
+      const draft = payload as unknown as CancelDraftPayload;
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
     case "cancel_preview": lines = cancelPreview(payload as unknown as CancelPreview); break;
     case "order_status": lines = orderStatus(payload as unknown as OrderStatusReport); break;
     case "cash_history": lines = cashHistory(payload as unknown as Parameters<typeof cashHistory>[0]); break;

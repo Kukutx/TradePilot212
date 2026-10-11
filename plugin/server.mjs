@@ -37294,12 +37294,21 @@ var PiesService = class {
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
     const totals = pies2.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
     const currency = await this.deps.trading.accountCurrency(environment);
-    return { ...base, pies: pies2, totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) }, ...currency ? { currency } : {}, notes };
+    return {
+      ...base,
+      pies: currency ? pies2.map((pie) => ({ ...pie, currency })) : pies2,
+      totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) },
+      ...currency ? { currency } : {},
+      notes
+    };
   }
+  /** One pie; its amounts carry the account currency, so a single-pie view never shows bare numbers. */
   async getPie(environment, id) {
     this.assertCredentials(environment);
     const [summaries, detail] = [await this.summaries(environment), await this.detail(environment, id)];
-    return pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const pie = pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const currency = await this.deps.trading.accountCurrency(environment);
+    return currency ? { ...pie, currency } : pie;
   }
   /** Resolve tickers, normalise shares and fill unchanged settings so the broker gets a full body. */
   async buildRequest(draft, current) {
@@ -37411,7 +37420,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.13.0"
+  version: "2.14.0"
 };
 
 // src/core/text-summary.ts
@@ -37733,6 +37742,11 @@ function describePayload(data) {
     case "order_execution":
       lines = orderExecution(payload);
       break;
+    case "cancel_draft": {
+      const draft = payload;
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
     case "cancel_preview":
       lines = cancelPreview(payload);
       break;
@@ -38627,6 +38641,28 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
           return result(
             { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config3), writeEnabled: true },
             `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_order_cancel",
+      {
+        title: "Review an Order Cancellation",
+        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
+        inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, orderId }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          return result(
+            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...order ? { order } : {}, credentials: credentialStatus(config3), writeEnabled: true },
+            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`
           );
         } catch (error62) {
           return toolError(error62);

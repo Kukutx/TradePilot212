@@ -66,6 +66,7 @@ const labels: Record<string, { en: string; zh: string }> = {
   protective: { en: "Stop-loss and take-profit", zh: "止损止盈" },
   rebalance: { en: "Rebalance", zh: "再平衡" },
   basket: { en: "Order basket", zh: "批量下单" },
+  cancel: { en: "Cancel an order", zh: "撤单确认" },
   pies: { en: "Pies", zh: "Pies 列表" },
   pie: { en: "One pie", zh: "单个 Pie" },
   piechange: { en: "Change a pie", zh: "修改 Pie" },

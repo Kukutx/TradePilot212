@@ -124,6 +124,12 @@ async function scenarios(): Promise<Scenario[]> {
     });
   }
 
+  const pending = dashboard.orders[0];
+  if (pending?.id !== undefined) {
+    const name = dashboard.positions.find((position) => position.instrument.ticker === pending.ticker)?.instrument.name ?? pending.ticker ?? "";
+    list.push({ id: "cancel", group: "orders", tool: "review_order_cancel", args: { orderId: String(pending.id) }, prompt: { en: `Cancel my pending ${name} order.`, zh: `撤掉 ${name} 的挂单。` } });
+  }
+
   const pies = await services.pies.listPies("demo").catch(() => null);
   list.push({ id: "pies", group: "pies", tool: "list_pies", args: {}, prompt: { en: "Show my pies.", zh: "看看我的 Pies。" } });
   const pie = pies?.pies[0];
