@@ -1,0 +1,46 @@
+import type { PendingOrder, Position } from "../../shared/contracts";
+import type { SupportedLocale } from "../i18n";
+import { amount } from "./format";
+import { instrumentLabel, orderCurrency, type InstrumentBook } from "./instruments";
+import { orderStatusLabel, orderTypeLabel, type Translator } from "./messages";
+
+export interface PendingOrderSummary {
+  ticker: string;
+  name: string;
+  /** The symbol under the name, empty when the name is the symbol. */
+  detail: string;
+  side: "buy" | "sell";
+  /** "Limit $215.00", or "Stop Limit" with both prices in `prices`. */
+  type: string;
+  prices: string[];
+  status?: string;
+  quantity?: number;
+}
+
+/** A pending order as people read it: the instrument's name, the side, the order type with priced amounts, the status. */
+export function summarizeOrder(order: PendingOrder, t: Translator, locale: SupportedLocale, positions: Position[] = [], book?: InstrumentBook): PendingOrderSummary {
+  const ticker = typeof order.ticker === "string" ? order.ticker : "";
+  const held = positions.find((position) => position.instrument.ticker === ticker)?.instrument;
+  const embedded = order.instrument as { name?: unknown } | undefined;
+  const label = instrumentLabel(ticker, book, held ?? (typeof embedded?.name === "string" ? { name: embedded.name } : undefined));
+  const currency = orderCurrency(order, positions, book);
+  const quantity = typeof order.quantity === "number" ? order.quantity : undefined;
+  const side = String(order.side ?? "").toUpperCase() === "SELL" || (quantity ?? 0) < 0 ? "sell" : "buy";
+  const price = (value: unknown) => (typeof value === "number" ? amount(value, currency, locale) : undefined);
+  const stop = price(order.stopPrice);
+  const limit = price(order.limitPrice);
+  const typeName = orderTypeLabel(typeof order.type === "string" ? order.type : undefined, t);
+  // A plain Limit or Stop order reads "Limit $215.00"; a Stop-Limit names both prices.
+  const type = stop && limit ? typeName : [typeName, stop ?? limit].filter(Boolean).join(" ");
+  const prices = stop && limit ? [`${t("stopPrice")} ${stop}`, `${t("limitPrice")} ${limit}`] : [];
+  return {
+    ticker,
+    name: label.name || ticker || "—",
+    detail: label.detail,
+    side,
+    type,
+    prices,
+    ...(typeof order.status === "string" && order.status ? { status: orderStatusLabel(order.status, t) } : {}),
+    ...(quantity === undefined ? {} : { quantity: Math.abs(quantity) }),
+  };
+}

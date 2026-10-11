@@ -1,8 +1,9 @@
 import type { AlertCondition, AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
 import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
-import { DetailRow } from "../components/common";
-import { dateTime, money, num } from "../lib/format";
-import type { Translator } from "../lib/messages";
+import { DetailRow, InstrumentName } from "../components/common";
+import { amount, dateTime, num } from "../lib/format";
+import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
+import { quoteProviderLabel, type Translator } from "../lib/messages";
 
 const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
   above: "alertAbove",
@@ -23,25 +24,27 @@ function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string
   return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
 }
 
-function alertTarget(alert: PriceAlert, locale: SupportedLocale): string {
-  return alert.price !== undefined ? num(alert.price, locale) : `${num(alert.percent, locale, 2)}%`;
+/** Alert prices are in the instrument's currency; percent conditions stay percentages. */
+function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined, locale: SupportedLocale): string {
+  return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, locale, t }: { data: AutomationOverview; locale: SupportedLocale; t: Translator }) {
+export function AutomationView({ data, book, locale, t }: { data: AutomationOverview; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
   const on = (value: boolean) => (value ? t("settingOn") : t("settingOff"));
-  const amount = (value: number | undefined) => (data.currency ? money(value, data.currency, locale) : num(value, locale, 2));
+  const sum = (value: number | undefined) => amount(value, data.currency, locale);
+  const price = (ticker: string, value: number | undefined) => amount(value, instrumentCurrency(ticker, book), locale);
   return (
     <main className="contentStack">
       <section className="dataPanel" aria-label={t("automationTitle")}>
         <div className="pieHeader"><h2>{t("automationTitle")}</h2></div>
         <div className="confirmationRows">
           <DetailRow label={t("ordersToday")} value={`${data.usageToday.orders}${data.policy.dailyOrderLimit ? ` / ${data.policy.dailyOrderLimit}` : ""}`} />
-          <DetailRow label={t("valueToday")} value={`${amount(data.usageToday.notional)}${data.policy.dailyNotionalLimit ? ` / ${amount(data.policy.dailyNotionalLimit)}` : ""}`} />
+          <DetailRow label={t("valueToday")} value={`${sum(data.usageToday.notional)}${data.policy.dailyNotionalLimit ? ` / ${sum(data.policy.dailyNotionalLimit)}` : ""}`} />
           <DetailRow label={t("settingDemoAutomation")} value={on(data.settings.demoAutomation)} />
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
           <DetailRow label={t("settingWebhook")} value={on(data.settings.webhook)} />
           <DetailRow label={t("settingDigest")} value={data.settings.digestHourUtc === null ? t("settingOff") : `${String(data.settings.digestHourUtc).padStart(2, "0")}:00 UTC`} />
-          <DetailRow label={t("settingQuotes")} value={data.settings.quoteProvider} />
+          <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />
         </div>
       </section>
 
@@ -55,7 +58,7 @@ export function AutomationView({ data, locale, t }: { data: AutomationOverview; 
                   <strong>{plan.label}</strong>
                   <span className={`statusPill ${plan.paused ? "muted" : plan.autoExecute ? "auto" : ""}`}>{plan.paused ? t("planPaused") : plan.autoExecute ? t("planAuto") : t("planConfirm")}</span>
                 </div>
-                <small>{plan.legs.map((leg) => `${leg.ticker} ${amount(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent, locale, 2)}%)` : ""}`).join(" · ")}</small>
+                <small>{plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
                 <small>{schedule(plan, t, locale)} · {t("nextRun")} {dateTime(plan.nextRunAt, locale)}</small>
                 {plan.lastOutcome && <small className="mutedInline">{plan.lastOutcome}</small>}
               </li>
@@ -71,11 +74,11 @@ export function AutomationView({ data, locale, t }: { data: AutomationOverview; 
             {data.alerts.map((alert) => (
               <li key={alert.id}>
                 <div className="automationRow">
-                  <strong>{alert.ticker}</strong>
+                  <InstrumentName ticker={alert.ticker} book={book} />
                   <span className={`statusPill ${alert.triggeredAt ? "fired" : ""}`}>{alert.triggeredAt ? t("alertTriggered") : t("alertArmed")}</span>
                 </div>
-                <small>{t(CONDITION_KEY[alert.condition])} {alertTarget(alert, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${num(alert.lastPrice, locale)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${num(alert.highWatermark, locale)}` : ""}</small>
-                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {num(alert.triggeredPrice, locale)}</small>}
+                <small>{t(CONDITION_KEY[alert.condition])} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}</small>
+                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {price(alert.ticker, alert.triggeredPrice)}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
               </li>
             ))}
@@ -89,7 +92,7 @@ export function AutomationView({ data, locale, t }: { data: AutomationOverview; 
           <ul className="automationList">
             {data.links.map((link) => (
               <li key={link.id}>
-                <div className="automationRow"><strong>{link.ticker}</strong><small>{dateTime(link.createdAt, locale)}</small></div>
+                <div className="automationRow"><InstrumentName ticker={link.ticker} book={book} /><small>{dateTime(link.createdAt, locale)}</small></div>
                 <small>{link.orders.map((order) => `${order.role === "stop_loss" ? t("stopLoss") : t("takeProfit")} #${order.orderId}`).join(" · ")}</small>
               </li>
             ))}

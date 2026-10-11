@@ -1,24 +1,122 @@
-import type { PolicyCheck, RebalanceNote, RebalancePlan } from "../../shared/automation";
-import type { ActivityEvent, ExecutionVerificationResult, Instrument, OrderNotice, OrderSizing, StructuredError } from "../../shared/contracts";
-import type { MessageKey, SupportedLocale } from "../i18n";
-import { dateTime, money, num, pct } from "./format";
+import type { BasketDraftPayload, BasketExecutionResult, BasketLeg, BasketPurpose, PolicyCheck, RebalanceNote, RebalancePlan } from "../../shared/automation";
+import type { ActivityEvent, ExecutionVerificationResult, Instrument, OrderNotice, OrderSizing, OrderType, StructuredError, TimeValidity, TradingEnvironment } from "../../shared/contracts";
+import type { PieChangePreview, PieChangeResult, PieInstrumentIssue } from "../../shared/pies";
+import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
+import { amount, dateTime, money, num, pct, qty } from "./format";
+import { instrumentLabel, type InstrumentBook } from "./instruments";
 
 export type Translator = (key: MessageKey) => string;
+
+export function fill(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
+}
+
+/** Picks the singular or plural message for a count with Intl.PluralRules, then fills {count}. */
+export function plural(count: number, locale: SupportedLocale, one: string, other: string, values: Record<string, string> = {}): string {
+  const rule = new Intl.PluralRules(localeTag(locale)).select(count);
+  return fill(rule === "one" ? one : other, { count: num(count, locale), ...values });
+}
+
+const COUNT_KEYS = {
+  candidates: ["countCandidatesOne", "countCandidatesOther"],
+  orders: ["countOrdersOne", "countOrdersOther"],
+  checksPassed: ["countChecksPassedOne", "countChecksPassedOther"],
+} as const satisfies Record<string, readonly [MessageKey, MessageKey]>;
+
+export function countText(kind: keyof typeof COUNT_KEYS, count: number, t: Translator, locale: SupportedLocale): string {
+  const [one, other] = COUNT_KEYS[kind];
+  return plural(count, locale, t(one), t(other));
+}
+
+export function envLabel(environment: TradingEnvironment, t: Translator): string {
+  return environment === "live" ? t("live") : t("demo");
+}
+
+export function orderTypeLabel(type: OrderType | string | undefined, t: Translator): string {
+  switch (String(type ?? "").toLowerCase()) {
+    case "market": return t("market");
+    case "limit": return t("limit");
+    case "stop": return t("stop");
+    case "stop_limit": return t("stopLimit");
+    default: return String(type ?? "");
+  }
+}
+
+export function validityLabel(validity: TimeValidity | string | undefined, t: Translator): string {
+  if (validity === "GOOD_TILL_CANCEL") return t("gtc");
+  if (validity === "DAY" || validity === undefined) return t("day");
+  return String(validity);
+}
+
+const STATUS_KEYS: Record<string, MessageKey> = {
+  LOCAL: "orderStatusSending",
+  UNCONFIRMED: "orderStatusSending",
+  CONFIRMED: "orderStatusOpen",
+  NEW: "orderStatusOpen",
+  PARTIALLY_FILLED: "orderStatusPartial",
+  FILLED: "orderStatusFilled",
+  CANCELLING: "orderStatusCancelling",
+  CANCELLED: "orderStatusCancelled",
+  REJECTED: "orderStatusRejected",
+  REPLACING: "orderStatusReplacing",
+  REPLACED: "orderStatusReplaced",
+};
+
+/** Trading 212 order statuses (NEW, PARTIALLY_FILLED, …) as words; unknown ones are shown as sent. */
+export function orderStatusLabel(status: string, t: Translator): string {
+  const key = STATUS_KEYS[status.toUpperCase()];
+  return key ? t(key) : status;
+}
+
+const TYPE_KEYS: Record<string, MessageKey> = {
+  STOCK: "typeStock",
+  ETF: "typeEtf",
+  WARRANT: "typeWarrant",
+  CRYPTO: "typeCrypto",
+  CRYPTOCURRENCY: "typeCrypto",
+  FUTURES: "typeFutures",
+  INDEX: "typeIndex",
+  FOREX: "typeForex",
+  CVR: "typeCvr",
+  CORPACT: "typeCorpAct",
+  UNKNOWN: "typeOther",
+  CASH: "typeCash",
+};
+
+export function instrumentTypeLabel(type: string, t: Translator): string {
+  const key = TYPE_KEYS[type.toUpperCase()];
+  return key ? t(key) : type;
+}
+
+const PROVIDER_NAMES: Record<string, string> = { stooq: "Stooq", finnhub: "Finnhub", twelvedata: "Twelve Data", alphavantage: "Alpha Vantage" };
+
+export function quoteProviderLabel(provider: string, t: Translator): string {
+  if (!provider || provider === "none") return t("quoteNone");
+  return PROVIDER_NAMES[provider] ?? provider;
+}
 
 export function formatProblem(problem: StructuredError, t: Translator, locale: SupportedLocale): string {
   const details = problem.details ?? {};
   const number = (key: string) => typeof details[key] === "number" ? num(details[key] as number, locale) : String(details[key] ?? "—");
+  const currency = typeof details.currency === "string" && details.currency ? details.currency : undefined;
+  const sum = (key: string) => (typeof details[key] === "number" ? amount(details[key] as number, currency, locale) : "—");
   switch (problem.code) {
     case "CREDENTIALS_NOT_CONFIGURED": return t("errorCredentials");
     case "INSTRUMENT_NOT_FOUND": return t("errorInstrumentNotFound");
     case "INSTRUMENT_AMBIGUOUS": return details.matches ? `${t("errorInstrumentAmbiguous")} ${details.matches}` : t("errorInstrumentAmbiguous");
     case "NO_AVAILABLE_POSITION": return t("errorNoPosition");
     case "NO_AVAILABLE_CASH": return t("errorNoCash");
-    case "INSUFFICIENT_SELLABLE_QUANTITY": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorSellable")} ${number("requested")} / ${number("available")}` : t("errorSellable");
-    case "INSUFFICIENT_CASH": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorCash")} ${number("requested")} / ${number("available")} ${details.currency ?? ""}`.trim() : t("errorCash");
-    case "ORDER_NOTIONAL_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorNotionalLimit")} ${number("requested")} / ${number("limit")} ${details.currency ?? ""}`.trim() : t("errorNotionalLimit");
+    case "INSUFFICIENT_SELLABLE_QUANTITY": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorSellable")} ${qty(details.requested, locale)} / ${qty(details.available, locale)}` : t("errorSellable");
+    case "INSUFFICIENT_CASH": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorCash")} ${sum("requested")} / ${sum("available")}` : t("errorCash");
+    case "ORDER_NOTIONAL_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorNotionalLimit")} ${sum("requested")} / ${sum("limit")}` : t("errorNotionalLimit");
     case "ORDER_QUANTITY_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorQuantityLimit")} ${number("requested")} / ${number("limit")}` : t("errorQuantityLimit");
     case "FX_RATE_REQUIRED": return fill(t("errorFxRate"), { from: String(details.from ?? ""), to: String(details.to ?? "") });
+    case "PRICE_OUT_OF_RANGE": {
+      if (typeof details.price !== "number" || typeof details.last !== "number") return problem.message;
+      const field = details.field === "stopPrice" ? t("stopPrice") : t("limitPrice");
+      const text = fill(t("errorPriceOutOfRange"), { field, price: sum("price"), last: sum("last") });
+      return currency === "GBX" ? `${text} ${t("errorPriceOutOfRangeGbx")}` : text;
+    }
     case "REFERENCE_PRICE_REQUIRED": return t("errorReferencePrice");
     case "UNSUPPORTED_EXTENDED_HOURS": return t("errorExtendedHours");
     case "CONFIRMATION_EXPIRED": return t("errorConfirmationExpired");
@@ -26,6 +124,7 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "BROKER_RATE_LIMITED": return t("errorBrokerRateLimit");
     case "BROKER_REQUEST_FAILED": return t("errorBroker");
     case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
+    case "EXECUTION_BUSY": return t("errorExecutionBusy");
     case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
     case "PIE_NOT_FOUND": return t("errorPieNotFound");
@@ -37,16 +136,19 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
 }
 
 export function noticeText(notice: OrderNotice, t: Translator, locale: SupportedLocale): string {
+  const details = notice.details ?? {};
+  const currency = typeof details.currency === "string" && details.currency ? details.currency : undefined;
+  const price = (key: string) => (typeof details[key] === "number" ? amount(details[key] as number, currency, locale) : undefined);
   switch (notice.code) {
     case "LIVE_FUNDS": return t("liveFundsNotice");
     case "MARKET_SLIPPAGE": return t("marketSlippageNotice");
     case "REFERENCE_PRICE_STALE": {
-      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
+      const seconds = typeof details.ageSeconds === "number" ? details.ageSeconds : undefined;
       return seconds === undefined ? t("referenceStaleNotice") : `${t("referenceStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
     }
     case "REFERENCE_PRICE_TIME_UNKNOWN": return t("referenceTimeUnknownNotice");
     case "FX_RATE_STALE": {
-      const seconds = typeof notice.details?.ageSeconds === "number" ? notice.details.ageSeconds : undefined;
+      const seconds = typeof details.ageSeconds === "number" ? details.ageSeconds : undefined;
       return seconds === undefined ? t("fxStaleNotice") : `${t("fxStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
     }
     case "CROSS_CURRENCY_FUNDS_CHECK": return t("crossCurrencyNotice");
@@ -54,8 +156,28 @@ export function noticeText(notice: OrderNotice, t: Translator, locale: Supported
     case "MARKET_CLOSED":
     case "MARKET_CLOSED_QUEUED": {
       const base = t(notice.code === "MARKET_CLOSED" ? "marketClosedNotice" : "marketClosedQueuedNotice");
-      const nextOpen = typeof notice.details?.nextOpen === "string" ? notice.details.nextOpen : undefined;
+      const nextOpen = typeof details.nextOpen === "string" ? details.nextOpen : undefined;
       return nextOpen ? `${base} ${t("nextOpenLabel")} ${dateTime(nextOpen, locale)}` : base;
+    }
+    case "MARKET_HOURS_UNKNOWN":
+      if (details.reason === "unavailable") return t("noticeHoursUnavailable");
+      if (details.reason === "no_schedule") return t("noticeHoursNoSchedule");
+      return notice.message;
+    case "STOP_ALREADY_TRIGGERED": {
+      const stop = price("stopPrice");
+      const last = price("last");
+      return stop && last ? fill(t("noticeStopTriggered"), { stop, last }) : notice.message;
+    }
+    case "LIMIT_FILLS_AT_ONCE": {
+      const limit = price("limitPrice");
+      const last = price("last");
+      return limit && last ? fill(t("noticeLimitAtOnce"), { limit, last }) : notice.message;
+    }
+    case "PRICE_FAR_FROM_LAST": {
+      const percent = typeof details.percent === "number" ? details.percent : undefined;
+      const last = price("last");
+      if (percent === undefined || !last) return notice.message;
+      return fill(t(percent >= 0 ? "noticeFarAbove" : "noticeFarBelow"), { percent: pct(Math.abs(percent) / 100, locale, 0), last });
     }
     default: return notice.message;
   }
@@ -78,8 +200,8 @@ export function sizingText(
   locale: SupportedLocale,
   t: Translator,
 ): string {
-  if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${num(sizing.quantity, locale)}`;
-  if (sizing.mode === "notional") return `${t("targetAmount")} · ${num(sizing.amount, locale)} ${sizing.currency ?? instrument?.currencyCode ?? ""}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`.trim();
+  if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${qty(sizing.quantity, locale)}`;
+  if (sizing.mode === "notional") return `${t("targetAmount")} · ${amount(sizing.amount, sizing.currency ?? instrument?.currencyCode, locale)}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
   return t("allAvailableShares");
@@ -115,6 +237,11 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
   }
 }
 
+/** Activity that needs a look from the person: uncertain, rejected, skipped or flagged. */
+export function activityNeedsAttention(event: ActivityEvent): boolean {
+  return event.type.includes("unknown") || event.type.includes("rejected") || event.type === "plan_skipped" || event.type === "protective_attention";
+}
+
 export function policyRuleLabel(rule: PolicyCheck["rule"], t: Translator): string {
   switch (rule) {
     case "allowed_tickers": return t("policyRuleAllowedTickers");
@@ -127,10 +254,6 @@ export function policyRuleLabel(rule: PolicyCheck["rule"], t: Translator): strin
     case "reference_age": return t("policyRuleReferenceAge");
     default: return String(rule);
   }
-}
-
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 }
 
 /** The policy check in the widget's language, built from its details; the server's English text is the fallback. */
@@ -147,7 +270,8 @@ export function policyMessage(check: PolicyCheck, t: Translator, locale: Support
     case "allowed_types": {
       const type = text("type");
       if (type === undefined) return check.message;
-      return fill(t(check.status === "pass" ? "policyMsgTypePass" : "policyMsgTypeBlock"), { type: type || "—", allowed: text("allowed") ?? "" });
+      const allowed = (text("allowed") ?? "").split(/,\s*/).filter(Boolean).map((item) => instrumentTypeLabel(item, t)).join(", ");
+      return fill(t(check.status === "pass" ? "policyMsgTypePass" : "policyMsgTypeBlock"), { type: type ? instrumentTypeLabel(type, t) : "—", allowed });
     }
     case "max_position_weight": {
       if (check.status === "skip") return t("policyMsgWeightSkip");
@@ -168,8 +292,8 @@ export function policyMessage(check: PolicyCheck, t: Translator, locale: Support
       const limit = number("limit");
       const currency = text("currency");
       if (next === undefined || limit === undefined) return check.message;
-      const amount = (value: number) => (currency ? money(value, currency, locale) : num(value, locale));
-      return fill(t(check.status === "block" ? "policyMsgNotionalBlock" : "policyMsgNotionalPass"), { next: amount(next), limit: amount(limit) });
+      const sum = (value: number) => amount(value, currency, locale);
+      return fill(t(check.status === "block" ? "policyMsgNotionalBlock" : "policyMsgNotionalPass"), { next: sum(next), limit: sum(limit) });
     }
     case "market_closed":
       return t("policyMsgMarketClosed");
@@ -186,16 +310,23 @@ export function policyMessage(check: PolicyCheck, t: Translator, locale: Support
 }
 
 /** A rebalance note in the widget's language; notes without a known code keep the server's text. */
-export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: SupportedLocale): string {
+export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: SupportedLocale, book?: InstrumentBook): string {
   const details = note.details ?? {};
   const value = (key: string) => details[key];
   switch (note.code) {
-    case "untargeted_kept": return fill(t("rebalanceNoteUntargeted"), { count: num(Number(value("count")), locale, 0) });
-    case "sell_limited": return fill(t("rebalanceNoteSellLimited"), { ticker: String(value("ticker") ?? ""), sellable: num(Number(value("sellable")), locale) });
+    case "untargeted_kept": {
+      const count = Number(value("count"));
+      return plural(count, locale, t("rebalanceNoteUntargetedOne"), t("rebalanceNoteUntargeted"));
+    }
+    case "sell_limited": {
+      const sellable = Number(value("sellable"));
+      const ticker = String(value("ticker") ?? "");
+      return plural(sellable, locale, t("rebalanceNoteSellLimitedOne"), t("rebalanceNoteSellLimited"), { ticker: ticker ? instrumentLabel(ticker, book).name : "", sellable: qty(sellable, locale) });
+    }
     case "buys_scaled": {
       const currency = String(value("currency") ?? "");
       const budget = Number(value("budget"));
-      return fill(t("rebalanceNoteScaled"), { percent: pct(Number(value("scale")), locale, 0), budget: currency ? money(budget, currency, locale) : num(budget, locale) });
+      return fill(t("rebalanceNoteScaled"), { percent: pct(Number(value("scale")), locale, 0), budget: amount(budget, currency || undefined, locale) });
     }
     case "implied_rates": return fill(t("rebalanceNoteImplied"), { currencies: String(value("currencies") ?? "") });
     case "quoted_rates": return fill(t("rebalanceNoteQuoted"), { currencies: String(value("currencies") ?? ""), source: String(value("source") ?? ""), asOf: dateTime(String(value("asOf") ?? ""), locale) });
@@ -225,3 +356,133 @@ export function policyStatusLabel(status: PolicyCheck["status"], t: Translator):
     default: return String(status);
   }
 }
+
+// ---- Server text that has no code: translated from the payload's structure, with the server's words as the fallback ----
+
+type BasketShape = Pick<BasketDraftPayload, "purpose" | "title"> & { legs: BasketLeg[] };
+
+/** Titles the server writes for its own baskets ("Rebalance", "Protect VUSA"); titles from the person or the model stay. */
+export function basketTitle(basket: BasketShape, t: Translator, book?: InstrumentBook): string {
+  const title = basket.title.trim();
+  if (basket.purpose === "rebalance" && (title === "Rebalance" || !title)) return t("basketTitleRebalance");
+  if (basket.purpose === "protective" && (title.startsWith("Protect ") || !title)) {
+    const leg = basket.legs[0];
+    const name = leg ? instrumentLabel(leg.draft.ticker, book, leg.instrument).name : title.slice("Protect ".length);
+    return fill(t("basketTitleProtect"), { name });
+  }
+  if (!title || title === "Order basket") return t("basketDraft");
+  return title;
+}
+
+/** Why a leg is in the basket, from its purpose and order type rather than the server's sentence. */
+export function legReason(leg: BasketLeg, basket: Pick<BasketDraftPayload, "purpose" | "title">, t: Translator): string | undefined {
+  if (basket.purpose === "protective") {
+    if (leg.draft.type === "stop") return t("stopLoss");
+    if (leg.draft.type === "limit") return t("takeProfit");
+  }
+  if (basket.purpose === "dca" && leg.reason?.startsWith("Plan ")) return fill(t("legReasonPlan"), { label: basket.title });
+  return leg.reason;
+}
+
+const PROTECTIVE_NOTES: Record<string, MessageKey> = {
+  "Both orders stay at Trading 212 until they fill or you cancel them.": "protectiveNoteStays",
+  "TradePilot links the two orders: about a minute after one fills, it cancels the other. Trading 212 may reject the second if the first already reserves the shares; then only the first is placed.": "protectiveNoteLinked",
+  "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares.": "protectiveNoteUnlinked",
+  "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.": "protectiveNoteGap",
+};
+
+/** A basket note in the widget's language. Plan and protective notes are recognised by their wording and rebuilt from their values. */
+export function basketNoteText(note: string, basket: BasketShape, t: Translator, locale: SupportedLocale, book?: InstrumentBook): string {
+  if (basket.purpose === "protective") {
+    const key = PROTECTIVE_NOTES[note];
+    if (key === "protectiveNoteStays" && basket.legs.length === 1) return t("protectiveNoteStaysOne");
+    if (key) return t(key);
+  }
+  if (basket.purpose === "dca") {
+    const legs = (text: string) => [...text.matchAll(/(\d+(?:\.\d+)?) ([A-Z]{3}) ([^\s,]+)/g)]
+      .map(([, value, currency, ticker]) => `${money(Number(value), currency!, locale)} ${instrumentLabel(ticker!, book).name}`).join(locale === "zh-CN" ? "、" : ", ");
+    const sized = /^Sized from each holding's last broker price, or an external quote for legs not held yet; (.+)\.$/.exec(note);
+    if (sized) return fill(t("dcaNoteSized"), { legs: legs(sized[1]!) });
+    const fx = /^Amounts in (.+?) use (?:the exchange rate your holdings imply or, where none does, (.+?)'s|the exchange rate the broker's valuation of your holdings implies); Trading 212 converts at its own rate and fee\.$/.exec(note);
+    if (fx) return fill(t(fx[2] ? "dcaNoteFxQuoted" : "dcaNoteFxImplied"), { currencies: fx[1]!, source: fx[2] ?? "" });
+    const small = /^([^\s:]+): (\d+(?:\.\d+)?) ([A-Z]{3}) is less than the smallest tradable quantity\.$/.exec(note);
+    if (small) return fill(t("dcaNoteTooSmall"), { name: instrumentLabel(small[1]!, book).name, amount: money(Number(small[2]), small[3]!, locale) });
+  }
+  return note;
+}
+
+/** The headline of a basket result, counted from its legs; the server's English sentence is not shown. */
+export function basketResultText(result: BasketExecutionResult, t: Translator, locale: SupportedLocale): string {
+  const submitted = result.legs.filter((leg) => leg.result?.ok).length;
+  const total = result.legs.length;
+  const headline = plural(total, locale, t("basketResultCountOne"), t("basketResultCount"), { submitted: num(submitted, locale), env: envLabel(result.environment, t) });
+  const stop = result.legs.map((leg) => leg.skipped).find((reason) => reason?.startsWith("Not sent: an earlier order's result is uncertain"));
+  return stop ? `${headline} ${t("legStopUncertain")}` : headline;
+}
+
+/** Why a basket leg was not sent, in the widget's language when the server's reason is one it knows. */
+export function legSkipText(reason: string, t: Translator, book?: InstrumentBook): string {
+  if (reason.startsWith("Not sent: an earlier order's result is uncertain")) return t("legStopUncertain");
+  const unfunded = /^Not sent: the sell of (\S+) that funds it was (not sent|rejected)\.$/.exec(reason);
+  if (unfunded) return fill(t(unfunded[2] === "rejected" ? "legStopUnfundedRejected" : "legStopUnfundedNotSent"), { name: instrumentLabel(unfunded[1]!, book).name });
+  if (reason === "Not sent.") return t("legNotSent");
+  const checks = /^The basket no longer passes its checks: (.*)$/s.exec(reason);
+  if (checks) return `${t("legStopChecks")} ${checks[1]}`;
+  return reason;
+}
+
+/** The message of a pie change preview in the widget's language, with values from the preview itself. */
+export function pieNoticeText(notice: string, preview: PieChangePreview, t: Translator, locale: SupportedLocale, book?: InstrumentBook): string {
+  if (notice.startsWith("Trading 212 marks the pies API as deprecated")) return t("pieNoticeDeprecated");
+  if (notice.startsWith("LIVE: this changes a pie")) return t("pieNoticeLive");
+  if (notice.startsWith("Removing ")) {
+    const owned = new Map((preview.current?.instruments ?? []).map((item) => [item.ticker, item.ownedQuantity]));
+    const removed = preview.changes.filter((change) => change.to === 0 && (owned.get(change.ticker) ?? 0) > 0);
+    if (!removed.length) return notice;
+    return fill(t("pieNoticeRemoved"), { names: removed.map((item) => instrumentLabel(item.ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") });
+  }
+  if (notice.startsWith("New target shares apply to future investments")) return t("pieNoticeUpdate");
+  if (notice.startsWith("Creating a pie invests nothing")) return t("pieNoticeCreate");
+  if (notice.startsWith("The copy has the same slices")) return t("pieNoticeDuplicate");
+  if (notice.startsWith("This pie holds nothing")) return t("pieNoticeDeleteEmpty");
+  if (notice.startsWith("This pie holds about") && preview.current) return fill(t("pieNoticeDelete"), { value: amount(preview.current.value, preview.current.currency, locale) });
+  return notice;
+}
+
+export function pieResultText(result: PieChangeResult, t: Translator): string {
+  if (result.ok) return fill(t("pieResultSent"), { env: envLabel(result.environment, t) });
+  if (result.status === "unknown") return t("pieResultUnknown");
+  if (result.message.includes("(403)")) return t("pieResult403");
+  return result.message;
+}
+
+const ISSUE_KEYS: Record<string, MessageKey> = {
+  DELISTED: "pieIssueDelisted",
+  SUSPENDED: "pieIssueSuspended",
+  NO_LONGER_TRADABLE: "pieIssueNotTradable",
+  MAX_POSITION_SIZE_REACHED: "pieIssueMaxPosition",
+  APPROACHING_MAX_POSITION_SIZE: "pieIssueNearMaxPosition",
+  COMPLEX_INSTRUMENT_APP_TEST_REQUIRED: "pieIssueComplex",
+};
+
+export function pieIssueText(issue: PieInstrumentIssue, t: Translator): string {
+  const key = ISSUE_KEYS[issue.name];
+  return key ? t(key) : fill(t("pieIssueOther"), { name: issue.name.replaceAll("_", " ").toLowerCase() });
+}
+
+export type ExecutionKind = "order" | "cancel";
+
+/** A successful order or cancellation, said in the widget's language; failures use the structured error. */
+export function executionText(kind: ExecutionKind, environment: TradingEnvironment, t: Translator): string {
+  return fill(t(kind === "cancel" ? "execCancelSubmitted" : "execOrderSubmitted"), { env: envLabel(environment, t) });
+}
+
+export function purposeLabel(purpose: BasketPurpose, t: Translator): string {
+  switch (purpose) {
+    case "rebalance": return t("basketPurposeRebalance");
+    case "protective": return t("basketPurposeProtective");
+    case "dca": return t("basketPurposeDca");
+    default: return t("basketPurposeCustom");
+  }
+}
+
