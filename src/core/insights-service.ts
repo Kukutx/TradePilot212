@@ -42,16 +42,22 @@ function itemTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendIte
   return Number.isFinite(time) ? time : NaN;
 }
 
-export function parseWindow(input: { from?: string; to?: string; period?: "1m" | "3m" | "ytd" | "1y" | "all" }, now = new Date()): HistoryWindow {
-  const to = input.to ? new Date(input.to) : now;
-  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be an ISO date-time", { field: "to" });
+export type HistoryPeriod = "1w" | "1m" | "3m" | "ytd" | "1y" | "all";
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A date without a time is a whole UTC day: `from` starts it and `to` ends it. */
+export function parseWindow(input: { from?: string; to?: string; period?: HistoryPeriod }, now = new Date()): HistoryWindow {
+  const day = 86_400_000;
+  const to = input.to ? new Date(DATE_ONLY.test(input.to) ? Date.parse(input.to) + day - 1 : input.to) : now;
+  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
   if (input.from) {
     const from = new Date(input.from);
-    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be an ISO date-time before to", { field: "from" });
+    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
     return { from, to };
   }
-  const day = 86_400_000;
   switch (input.period ?? "all") {
+    case "1w": return { from: new Date(to.getTime() - 7 * day), to };
     case "1m": return { from: new Date(to.getTime() - 30 * day), to };
     case "3m": return { from: new Date(to.getTime() - 91 * day), to };
     case "1y": return { from: new Date(to.getTime() - 365 * day), to };
@@ -74,7 +80,10 @@ export class InsightsService {
   /** Walk newest-first history pages until the window start or the page budget is reached. */
   async collect<K extends HistoryKind>(environment: TradingEnvironment, kind: K, window: HistoryWindow, maxPages = DEFAULT_HISTORY_PAGES): Promise<Collected<HistoryItemOf<K>>> {
     const pages = Math.max(1, Math.min(MAX_HISTORY_PAGES, Math.floor(maxPages)));
-    const key = `${environment}:${kind}:${window.from?.toISOString() ?? "all"}:${pages}`;
+    // Rolling periods start at a different millisecond on every call; walking back to the start of that
+    // UTC day lets one read serve every call made that day.
+    const start = window.from ? new Date(Math.floor(window.from.getTime() / 86_400_000) * 86_400_000) : undefined;
+    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}`;
     const cached = this.historyCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as Collected<HistoryItemOf<K>>;
 
@@ -86,7 +95,7 @@ export class InsightsService {
       const result = await client.getHistoryPage(kind, next);
       items.push(...(result.items as HistoryItemOf<K>[]));
       const oldest = result.items.length ? itemTime(kind, result.items[result.items.length - 1]!) : NaN;
-      const reachedStart = window.from !== undefined && Number.isFinite(oldest) && oldest < window.from.getTime();
+      const reachedStart = start !== undefined && Number.isFinite(oldest) && oldest < start.getTime();
       if (!result.nextPagePath || reachedStart) { next = undefined; break; }
       next = result.nextPagePath;
       if (page === pages - 1) truncated = true;
@@ -132,10 +141,20 @@ export class InsightsService {
 
   async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number) {
     const collected = await this.collect(environment, "orders", window, maxPages);
+    // A name or symbol resolves to the exact ticker; one Trading 212 no longer lists falls back to a prefix match.
+    let exact: string | undefined;
+    if (ticker?.trim()) {
+      try {
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker.toUpperCase();
+      } catch {
+        exact = undefined;
+      }
+    }
     const wanted = ticker?.trim().toUpperCase();
+    const matches = (value: string) => exact ? value === exact : value === wanted || value.startsWith(`${wanted}_`);
     const fills = collected.items
       .filter((item) => item.fill)
-      .filter((item) => !wanted || (item.order?.ticker ?? "").toUpperCase() === wanted || (item.order?.ticker ?? "").toUpperCase().startsWith(`${wanted}_`))
+      .filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase()))
       .filter((item) => {
         const time = itemTime("orders", item);
         return Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());
@@ -143,6 +162,7 @@ export class InsightsService {
       .slice(0, Math.max(1, Math.min(200, limit)))
       .map((item) => ({
         ticker: item.order?.ticker,
+        ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
         side: item.order?.side,
         type: item.order?.type,
         status: item.order?.status,
@@ -150,10 +170,13 @@ export class InsightsService {
         filledAt: item.fill?.filledAt,
         quantity: item.fill?.quantity,
         price: item.fill?.price,
+        priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
         netValue: item.fill?.walletImpact?.netValue,
+        accountCurrency: item.fill?.walletImpact?.currency,
         realisedProfitLoss: item.fill?.walletImpact?.realisedProfitLoss,
         fxRate: item.fill?.walletImpact?.fxRate,
         costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
+        ...(item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...(tax.currency ? { currency: tax.currency } : {}) })) } : {}),
       }));
     return { kind: "trade_history" as const, environment, fills, truncated: collected.truncated, timestamp: new Date().toISOString() };
   }

@@ -85,6 +85,7 @@ export const en = {
   confirmCancelTitleLive: "Cancel LIVE order?",
   confirmCancelTitleDemo: "Cancel DEMO order?",
   confirmCancel: "Confirm cancellation",
+  liveCancelAckLabel: "I understand this cancels a real order on Trading 212 LIVE. A cancelled stop-loss no longer protects the position.",
   back: "Back",
   submitted: "Submitted",
   notSubmitted: "Not submitted",

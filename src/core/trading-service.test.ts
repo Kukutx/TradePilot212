@@ -97,6 +97,7 @@ function config(): RuntimeConfig {
     quoteApiKey: "",
     quoteSymbols: new Map(),
     sampleData: false,
+    oauthRedirectHosts: [],
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },

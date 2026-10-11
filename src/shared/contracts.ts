@@ -345,6 +345,8 @@ export interface CancelPreview {
   expiresAt: string;
   environment: TradingEnvironment;
   orderId: string;
+  /** The order as Trading 212 reports it, so the confirmation can say what is being cancelled. */
+  order?: PendingOrder;
 }
 
 export interface DashboardPayload extends PortfolioSnapshot {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PolicyCheck } from "../../shared/automation";
-import type { Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
+import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon } from "../components/common";
 import { dateTime, num, money, time } from "../lib/format";
@@ -94,6 +94,19 @@ export function OrderEditor({
   );
 }
 
+/** What a cancellation removes, e.g. "Sell 5 NVDA_US_EQ · Stop · @ 110 · Order 123". */
+export function cancelDescription(preview: CancelPreview, t: Translator, locale: SupportedLocale): string {
+  const order = preview.order;
+  if (!order?.ticker) return `${t("order")} ${preview.orderId}`;
+  const quantity = order.quantity ?? 0;
+  const sell = String(order.side ?? "").toUpperCase() === "SELL" || quantity < 0;
+  const type = String(order.type ?? "").toUpperCase();
+  const typeLabel = type === "LIMIT" ? t("limit") : type === "STOP" ? t("stop") : type === "STOP_LIMIT" ? t("stopLimit") : type === "MARKET" ? t("market") : type;
+  const price = order.limitPrice ?? order.stopPrice;
+  return [`${sell ? t("sell") : t("buy")} ${num(Math.abs(quantity), locale)} ${order.ticker}`, typeLabel, price ? `@ ${num(price, locale)}` : "", `${t("order")} ${preview.orderId}`]
+    .filter(Boolean).join(" · ");
+}
+
 /** Second, explicit step for Live writes: the confirm button stays disabled until this is ticked. */
 export function LiveAcknowledgement({ checked, onChange, t }: { checked: boolean; onChange: (value: boolean) => void; t: Translator }) {
   return (
@@ -160,6 +173,7 @@ export function ConfirmModal({
   confirmLabel,
   busy,
   t,
+  acknowledgement,
   onCancel,
   onConfirm,
 }: {
@@ -169,14 +183,23 @@ export function ConfirmModal({
   confirmLabel: string;
   busy: boolean;
   t: Translator;
+  /** When set, a checkbox with this text must be ticked before confirming. */
+  acknowledgement?: string;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (acknowledged: boolean) => void;
 }) {
+  const [acknowledged, setAcknowledged] = useState(false);
   return (
     <main className="transactionStage">
       <section className={`transactionPanel smallDialog ${danger ? "liveTransaction" : ""}`} aria-label={title}>
         <h2>{title}</h2><p>{body}</p>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
+        {acknowledgement && (
+          <label className="liveAck">
+            <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+            <span>{acknowledgement}</span>
+          </label>
+        )}
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onCancel}>{t("back")}</button><button type="button" className={danger ? "dangerButton" : "primaryButton"} disabled={busy || (!!acknowledgement && !acknowledged)} onClick={() => onConfirm(!!acknowledgement && acknowledged)}>{busy ? t("processing") : confirmLabel}</button></div>
       </section>
     </main>
   );

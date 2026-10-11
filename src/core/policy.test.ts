@@ -37,7 +37,8 @@ describe("policy engine", () => {
   it("enforces daily order and value budgets", () => {
     expect(blockingChecks(rules({ dailyOrderLimit: 3 }, { usage: { orders: 3, notional: 0 } }))).toHaveLength(1);
     expect(blockingChecks(rules({ dailyNotionalLimit: 250 }, { usage: { orders: 1, notional: 200 } }))[0]?.rule).toBe("daily_notional_limit");
-    expect(addUsage({ orders: 1, notional: 10 }, 50, false)).toEqual({ orders: 2, notional: 10 });
+    expect(addUsage({ orders: 1, notional: 10 }, undefined)).toEqual({ orders: 2, notional: 10 });
+    expect(addUsage({ orders: 1, notional: 10 }, 50)).toEqual({ orders: 2, notional: 60 });
   });
 
   it("applies allow and block lists, and type limits only to buys", () => {

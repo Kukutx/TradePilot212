@@ -12,6 +12,7 @@
     "dev:chatgpt": "node scripts/dev-chatgpt.mjs",
     "start": "node dist/node/adapters/node/index.js",
     "stdio": "tsx src/adapters/stdio/index.ts",
+    "preview": "pnpm build:widget && tsx src/adapters/preview/index.ts",
     "dev:cloudflare": "pnpm build:widget && wrangler dev",
     "deploy:cloudflare": "pnpm build:widget && wrangler deploy",
     "build:widget": "vite build",

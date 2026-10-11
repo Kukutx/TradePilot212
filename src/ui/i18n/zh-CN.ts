@@ -87,6 +87,7 @@ export const zhCN: Record<MessageKey, string> = {
   confirmCancelTitleLive: "确认撤销 LIVE 订单？",
   confirmCancelTitleDemo: "确认撤销 DEMO 订单？",
   confirmCancel: "确认撤单",
+  liveCancelAckLabel: "我明白这会撤销 Trading 212 LIVE 上的真实订单；止损单撤销后，持仓不再受保护。",
   back: "返回",
   submitted: "已提交",
   notSubmitted: "未提交",

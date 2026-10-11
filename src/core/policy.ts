@@ -15,6 +15,7 @@ export interface PolicyInput {
   instrument: Instrument;
   position?: Position;
   account: AccountSummary;
+  /** The order's estimated value in the account currency; undefined when it cannot be converted. */
   estimatedNotional?: number;
   market?: MarketStatus;
   /** Already submitted today, plus earlier legs of the same basket. */
@@ -38,6 +39,10 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
   const ticker = instrument.ticker.toUpperCase();
   const sameCurrency = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
   const checks: PolicyCheck[] = [];
+  // What the holding is worth now, in the account currency: the broker's own valuation when it gives one.
+  const wallet = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
+  const heldQuantity = Math.max(0, position?.quantity ?? 0);
+  const heldValue = !heldQuantity ? 0 : typeof wallet === "number" ? wallet : sameCurrency ? heldQuantity * (position?.currentPrice ?? 0) : undefined;
 
   if (policy.allowedTickers.length) {
     const allowed = policy.allowedTickers.includes(ticker);
@@ -55,10 +60,9 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
 
   if (policy.maxPositionWeight > 0 && draft.side === "buy") {
     const totalValue = account.totalValue ?? 0;
-    if (!sameCurrency || !totalValue || input.estimatedNotional === undefined) {
-      checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed without a same-currency price and account value." });
+    if (heldValue === undefined || !totalValue || input.estimatedNotional === undefined) {
+      checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed: the order's value in the account currency or the account value is unknown." });
     } else {
-      const heldValue = Math.max(0, position?.quantity ?? 0) * (position?.currentPrice ?? 0);
       const resulting = (heldValue + input.estimatedNotional) / totalValue;
       const over = resulting > policy.maxPositionWeight + 1e-9;
       checks.push({
@@ -79,8 +83,8 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
   }
 
   if (policy.dailyNotionalLimit > 0) {
-    if (!sameCurrency || input.estimatedNotional === undefined) {
-      checks.push({ rule: "daily_notional_limit", status: "warn", message: "This order's value is not counted toward the daily budget because it is in another currency or cannot be estimated." });
+    if (input.estimatedNotional === undefined) {
+      checks.push({ rule: "daily_notional_limit", status: "warn", message: "This order's value is not counted toward the daily budget because it cannot be estimated in the account currency." });
     } else {
       const next = input.usage.notional + input.estimatedNotional;
       const over = next > policy.dailyNotionalLimit + 1e-9;
@@ -118,7 +122,7 @@ export function usageKey(environment: string, now = new Date()): string {
   return `usage:${environment}:${now.toISOString().slice(0, 10)}`;
 }
 
-/** Add an order to the running usage; only same-currency notional counts toward the budget. */
-export function addUsage(usage: DailyUsage, estimatedNotional: number | undefined, sameCurrency: boolean): DailyUsage {
-  return { orders: usage.orders + 1, notional: usage.notional + (sameCurrency && estimatedNotional ? estimatedNotional : 0) };
+/** Add an order to the running usage; its value counts when it is known in the account currency. */
+export function addUsage(usage: DailyUsage, accountNotional: number | undefined): DailyUsage {
+  return { orders: usage.orders + 1, notional: usage.notional + (accountNotional && accountNotional > 0 ? accountNotional : 0) };
 }

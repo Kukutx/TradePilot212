@@ -83,10 +83,11 @@ const orderSizingSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("all_available") }),
 ]);
 
+const dateOrDateTime = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)) && /T/.test(value), "Use YYYY-MM-DD or an ISO date-time");
 const windowSchema = {
-  period: z.enum(["1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
+  period: z.enum(["1w", "1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
+  from: dateOrDateTime.optional().describe("Start: YYYY-MM-DD (start of that UTC day) or an ISO date-time"),
+  to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: z.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES)
     .describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute."),
 };
@@ -1011,14 +1012,14 @@ export function createMcpServer(
       "app_execute_cancel",
       {
         title: "Execute confirmed cancellation",
-        description: "App-only destructive write. Consumes a one-time cancellation token.",
-        inputSchema: z.object({ token: z.string().min(20) }),
+        description: "App-only destructive write. Consumes a one-time cancellation token. Live cancellations need liveAcknowledged=true after the user confirmed that a cancelled stop-loss no longer protects the position.",
+        inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional() }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token }) => {
+      async ({ token, liveAcknowledged }) => {
         try {
-          const data = await trading.executeCancel(token);
+          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

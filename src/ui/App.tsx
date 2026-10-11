@@ -23,7 +23,7 @@ import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type SupportedLocale } from "./i18n";
 import { Icon } from "./components/common";
 import { formatProblem, verificationText } from "./lib/messages";
-import { ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
+import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
 import { PortfolioView } from "./views/PortfolioView";
 import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
@@ -513,13 +513,13 @@ export default function App() {
     }
   }
 
-  async function confirmCancel(): Promise<void> {
+  async function confirmCancel(liveAcknowledged = false): Promise<void> {
     if (!cancelPreview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = cancelPreview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode });
+      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
       setExecution(result);
       setVerification(null);
       setCancelPreview(null);
@@ -759,13 +759,14 @@ export default function App() {
       {cancelPreview && (
         <ConfirmModal
           title={cancelPreview.environment === "live" ? t("confirmCancelTitleLive") : t("confirmCancelTitleDemo")}
-          body={`${t("order")} ${cancelPreview.orderId}`}
+          body={cancelDescription(cancelPreview, t, locale)}
           danger={cancelPreview.environment === "live"}
           confirmLabel={t("confirmCancel")}
           busy={status === "loading"}
           t={t}
+          {...(cancelPreview.environment === "live" ? { acknowledgement: t("liveCancelAckLabel") } : {})}
           onCancel={() => setCancelPreview(null)}
-          onConfirm={() => void confirmCancel()}
+          onConfirm={(acknowledged) => void confirmCancel(acknowledged)}
         />
       )}
     </div>

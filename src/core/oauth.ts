@@ -1,7 +1,7 @@
 import { jwtVerify, SignJWT } from "jose";
 import type { Context, Hono } from "hono";
 import type { RuntimeConfig } from "./config.js";
-import { assertAuthConfigured } from "./config.js";
+import { assertAuthConfigured, isLoopbackHost } from "./config.js";
 import type { StateStore } from "./state-store.js";
 import { randomToken, safeEqual, sha256Base64Url } from "./web-utils.js";
 import { oauthPageCopy, renderOAuthMessagePage, renderOAuthPage, resolveOAuthLocale } from "./oauth-page.js";
@@ -58,12 +58,21 @@ function normalizeScope(value: string) {
   return list.join(" ");
 }
 
-/** Only HTTPS redirects, plus plain HTTP to loopback for local clients. */
-function validRedirect(value: string) {
+/** `allowed` holds exact hosts, or ".example.com" for any subdomain of example.com. */
+function hostMatches(hostname: string, allowed: string[]) {
+  const host = hostname.toLowerCase();
+  return allowed.some((entry) => entry.startsWith(".") ? host.endsWith(entry) : host === entry);
+}
+
+/** Hosts of the chat apps TradePilot is built for; any other host gets a warning on the consent page. */
+const KNOWN_CLIENT_HOSTS = [".chatgpt.com", "chatgpt.com", "chat.openai.com", ".claude.ai", "claude.ai", ".claude.com", "claude.com"];
+
+/** HTTPS redirects (limited to OAUTH_REDIRECT_HOSTS when set), plus plain HTTP to loopback for local clients. */
+function validRedirect(value: string, allowedHosts: string[]) {
   try {
     const url = new URL(value);
-    if (url.protocol === "https:") return true;
-    return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    if (isLoopbackHost(url.hostname)) return url.protocol === "http:" || url.protocol === "https:";
+    return url.protocol === "https:" && (!allowedHosts.length || hostMatches(url.hostname, allowedHosts));
   } catch {
     return false;
   }
@@ -78,7 +87,7 @@ function escape(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-async function issue(config: RuntimeConfig, scope: string, clientId: string, use: TokenUse) {
+async function issue(config: RuntimeConfig, scope: string, clientId: string, use: TokenUse, jti: string = crypto.randomUUID()) {
   const ttl = use === "access" ? config.accessTokenTtlSeconds : config.refreshTokenTtlSeconds;
   return new SignJWT({ scope, token_use: use, client_id: clientId })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -87,7 +96,7 @@ async function issue(config: RuntimeConfig, scope: string, clientId: string, use
     .setSubject("tradepilot-owner")
     .setIssuedAt()
     .setExpirationTime(nowSeconds() + ttl)
-    .setJti(crypto.randomUUID())
+    .setJti(jti)
     .sign(key(config));
 }
 
@@ -101,7 +110,7 @@ async function verify(config: RuntimeConfig, token: string, use: TokenUse) {
   const scope = typeof payload.scope === "string" ? payload.scope : "";
   const clientId = typeof payload.client_id === "string" ? payload.client_id : "";
   if (!scope || !clientId) throw new Error("Invalid token claims");
-  return { scope, clientId };
+  return { scope, clientId, jti: typeof payload.jti === "string" ? payload.jti : "" };
 }
 
 async function bodyRecord(c: Context): Promise<Record<string, unknown>> {
@@ -162,7 +171,7 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
       }
       const body = await bodyRecord(c);
       const redirectUris = strings(body.redirect_uris);
-      if (!redirectUris.length || redirectUris.length > 20 || redirectUris.some((x) => !validRedirect(x))) {
+      if (!redirectUris.length || redirectUris.length > 20 || redirectUris.some((x) => !validRedirect(x, config.oauthRedirectHosts))) {
         return c.json({ error: "invalid_redirect_uri" }, 400);
       }
       if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== "none") {
@@ -202,6 +211,8 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
     const requestedResource = string(source, "resource") || resource(config);
     if (!client) throw new Error("Unknown OAuth client");
     if (!client.redirect_uris.includes(redirectUri)) throw new Error("redirect_uri is not registered");
+    // Re-checked here so tightening OAUTH_REDIRECT_HOSTS also applies to clients registered earlier.
+    if (!validRedirect(redirectUri, config.oauthRedirectHosts)) throw new Error("redirect_uri is not allowed");
     const pkceOk = string(source, "response_type") === "code"
       && /^[A-Za-z0-9_-]{43,128}$/.test(codeChallenge)
       && string(source, "code_challenge_method") === "S256";
@@ -241,9 +252,13 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
       const enUrl = new URL(c.req.url);
       enUrl.searchParams.set("ui_locales", "en");
       c.header("Cache-Control", "no-store");
+      const redirectHost = new URL(p.redirectUri).hostname.toLowerCase();
       return c.html(renderOAuthPage({
         locale,
-        clientName: p.client.client_name ?? "ChatGPT",
+        clientName: p.client.client_name?.trim() ?? "",
+        redirectHost,
+        knownClient: isLoopbackHost(redirectHost) || hostMatches(redirectHost, KNOWN_CLIENT_HOSTS),
+        scopes: splitScope(p.scope),
         hiddenHtml: hidden,
         zhUrl: zhUrl.toString(),
         enUrl: enUrl.toString(),
@@ -301,7 +316,7 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
     await markClientUsed(clientId);
     const access = await issue(config, record.scope, clientId, "access");
     const refresh = splitScope(record.scope).includes("offline_access")
-      ? await issue(config, record.scope, clientId, "refresh")
+      ? await issueRefresh(record.scope, clientId)
       : undefined;
     return c.json({
       access_token: access,
@@ -312,11 +327,26 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
     });
   }
 
+  // Refresh tokens rotate: each one works once. Presenting a used one again means it leaked, so the
+  // client's session ends and the owner has to sign in again.
+  const refreshKey = (clientId: string) => `refresh:${clientId}`;
+  async function issueRefresh(scope: string, clientId: string) {
+    const jti = crypto.randomUUID();
+    await store.put(refreshKey(clientId), jti, Date.now() + config.refreshTokenTtlSeconds * 1000);
+    return await issue(config, scope, clientId, "refresh", jti);
+  }
+
   async function refreshToken(c: Context, body: Record<string, unknown>) {
     const verified = await verify(config, string(body, "refresh_token"), "refresh");
     const clientId = string(body, "client_id");
     if (clientId !== verified.clientId || !(await markClientUsed(clientId))) {
       return c.json({ error: "invalid_grant" }, 400);
+    }
+    const current = await store.get<string>(refreshKey(clientId));
+    // Tokens from before rotation have no record yet; they are accepted once and then rotate.
+    if (current !== undefined && current !== verified.jti) {
+      await store.put(refreshKey(clientId), "revoked", Date.now() + config.refreshTokenTtlSeconds * 1000);
+      return c.json({ error: "invalid_grant", error_description: "Refresh token reuse detected; sign in again." }, 400);
     }
     // A refresh may narrow the granted scope but never widen it.
     const next = string(body, "scope") ? normalizeScope(string(body, "scope")) : verified.scope;
@@ -324,7 +354,7 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
     if (!splitScope(next).every((x) => original.has(x))) return c.json({ error: "invalid_scope" }, 400);
     return c.json({
       access_token: await issue(config, next, clientId, "access"),
-      refresh_token: await issue(config, next, clientId, "refresh"),
+      refresh_token: await issueRefresh(next, clientId),
       token_type: "Bearer",
       expires_in: config.accessTokenTtlSeconds,
       scope: next,
