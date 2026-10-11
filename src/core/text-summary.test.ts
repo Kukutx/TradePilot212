@@ -48,9 +48,9 @@ describe("text summaries for hosts that only show text", () => {
 
   it("summarizes a tax year with gains and losses apart and says it is not a tax calculation", async () => {
     const services = sample();
-    const year = await services.insights.taxYear("demo", { yearStart: "04-06" });
+    const year = await services.insights.taxYear("demo", { yearStart: "04-06", timeZone: "Europe/London" });
     const text = describePayload(year);
-    expect(text).toMatch(/^Tax year \d{4}-04-06 to \d{4}-04-05/);
+    expect(text).toMatch(/^Tax year \d{4}-04-06 to \d{4}-04-05 \(Europe\/London\)/);
     expect(text).toMatch(/Sales: \d+, proceeds/);
     expect(text).toMatch(/not as the tax due/);
   });

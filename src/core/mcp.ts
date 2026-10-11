@@ -270,20 +270,21 @@ export function createMcpServer(
     {
       title: "Tax Year Summary",
       description:
-        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 01-01 unless yearStart says otherwise (UK: 04-06). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 01-01 unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         year: z.number().int().min(2000).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
         yearStart: z.string().regex(/^\d{2}-\d{2}$/).default("01-01").describe("First day of the tax year as MM-DD, such as 04-06 for the UK"),
+        timeZone: z.string().min(1).max(64).default("UTC").describe("IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin"),
         maxPages: windowSchema.maxPages,
       }),
       annotations: readOnly,
       _meta: {},
     },
-    async ({ environment, year, yearStart, maxPages }) => {
+    async ({ environment, year, yearStart, timeZone, maxPages }) => {
       try {
-        const data = await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, maxPages });
-        return result(data, `Tax year ${data.period.from.slice(0, 10)} to ${data.period.to.slice(0, 10)}${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
+        const data = await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone, maxPages });
+        return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }

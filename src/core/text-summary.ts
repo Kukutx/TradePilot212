@@ -139,7 +139,7 @@ function performance(data: PerformanceSummary): string[] {
 function taxYear(data: TaxYearSummary): string[] {
   const c = data.accountCurrency;
   return [
-    `Tax year ${day(data.period.from)} to ${day(data.period.to)}${data.ended ? "" : " (still running)"}, amounts in ${c}.`,
+    `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}, amounts in ${c}.`,
     `Sales: ${data.disposals.count}, proceeds ${num(data.disposals.proceeds)}; gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${signed(data.disposals.net)}.`,
     `Dividends ${num(data.income.dividends)}; interest ${num(data.income.interest)}; costs ${num(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num(item.amount)}`).join(", ")})` : ""}.`,
     ...section("Sales by instrument", rows(data.byTicker, (item) => `${item.ticker}: ${item.disposals} sale(s), proceeds ${num(item.proceeds)}, realized ${signed(item.realizedProfitLoss)}`)),

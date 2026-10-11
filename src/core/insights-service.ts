@@ -16,7 +16,7 @@ import type {
 } from "../shared/history.js";
 import {
   analyzeAllocation, currentTaxYear, DEFAULT_ALLOCATION_LIMITS, marketStatus, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear,
-  taxYearWindow, type AllocationLimits, type HistoryWindow,
+  taxYearWindow, validTimeZone, type AllocationLimits, type HistoryWindow,
 } from "./analytics.js";
 import type { RuntimeConfig } from "./config.js";
 import { requireCredentials } from "./config.js";
@@ -149,11 +149,12 @@ export class InsightsService {
   async performance(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number): Promise<PerformanceSummary> {
     const client = this.client(environment);
     const account: AccountSummary = await client.getAccountSummary();
+    const valuedAt = new Date();
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
     const transactions = await this.collect(environment, "transactions", window, maxPages);
     return summarizePerformance({
-      environment, account, window,
+      environment, account, window, now: valuedAt,
       orders: orders.items, dividends: dividends.items, transactions: transactions.items,
       truncated: orders.truncated || dividends.truncated || transactions.truncated,
     });
@@ -178,11 +179,13 @@ export class InsightsService {
    * One tax year's sales, dividends, interest and costs. `year` is the calendar year the tax year starts in
    * (the latest one that has started by default); `yearStart` is its first day as MM-DD (UK: 04-06).
    */
-  async taxYear(environment: TradingEnvironment, options: { year?: number; yearStart?: string; maxPages?: number } = {}, now = new Date()): Promise<TaxYearSummary> {
+  async taxYear(environment: TradingEnvironment, options: { year?: number; yearStart?: string; timeZone?: string; maxPages?: number } = {}, now = new Date()): Promise<TaxYearSummary> {
     const start = parseYearStart(options.yearStart);
     if (options.yearStart?.trim() && start.text !== options.yearStart.trim()) fail("INVALID_INPUT", "yearStart must be a real month and day as MM-DD, such as 04-06", { field: "yearStart" });
-    const year = options.year ?? currentTaxYear(start, now);
-    const window = taxYearWindow(year, start);
+    const timeZone = options.timeZone?.trim() || "UTC";
+    if (!validTimeZone(timeZone)) fail("INVALID_INPUT", "timeZone must be an IANA time zone such as Europe/London", { field: "timeZone" });
+    const year = options.year ?? currentTaxYear(start, now, timeZone);
+    const window = taxYearWindow(year, start, timeZone);
     if (window.from.getTime() > now.getTime()) fail("INVALID_INPUT", `The tax year starting ${window.from.toISOString().slice(0, 10)} has not started yet`, { field: "year", year });
     const client = this.client(environment);
     const account: AccountSummary = await client.getAccountSummary();
@@ -191,7 +194,7 @@ export class InsightsService {
     const dividends = await this.collect(environment, "dividends", fetchWindow, options.maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, options.maxPages);
     return summarizeTaxYear({
-      environment, accountCurrency: account.currency ?? "", year, yearStart: start, now,
+      environment, accountCurrency: account.currency ?? "", year, yearStart: start, timeZone, now,
       orders: orders.items, dividends: dividends.items, transactions: transactions.items,
       truncated: orders.truncated || dividends.truncated || transactions.truncated,
     });

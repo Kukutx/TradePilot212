@@ -241,9 +241,10 @@ export function summarizePerformance(input: {
   ];
   if (input.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
   if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
-  // Only today's account value is known, so a window ending earlier has no value to measure a return against.
-  const endsNow = Math.abs((input.now ?? new Date()).getTime() - window.to.getTime()) <= 86_400_000;
-  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before today, because only today's account value is available.");
+  // Only the account value at `now` is known, so the window must reach it: one that ends earlier would
+  // leave out deposits and withdrawals the value already reflects. A few minutes cover reading the history.
+  const endsNow = window.to.getTime() >= (input.now ?? new Date()).getTime() - 5 * 60_000;
+  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before now, because only the current account value is available.");
   const measurable = !window.from && endsNow && !input.truncated && currentValue !== undefined;
 
   // The annual return weighs each deposit and withdrawal by how long it was invested. It needs the
@@ -256,7 +257,9 @@ export function summarizePerformance(input: {
       const amount = Math.abs(item.amount ?? 0);
       return DEPOSIT.has(type) ? [{ at, amount: -amount }] : WITHDRAW.has(type) ? [{ at, amount }] : [];
     }).filter((flow) => Number.isFinite(flow.at));
-    const first = flows.length ? Math.min(...flows.map((flow) => flow.at)) : undefined;
+    // The year is counted from the first deposit; an earlier withdrawal (after a transfer in) still counts as a flow.
+    const deposits = flows.filter((flow) => flow.amount < 0);
+    const first = deposits.length ? Math.min(...deposits.map((flow) => flow.at)) : undefined;
     if (first !== undefined && window.to.getTime() - first >= 365 * 86_400_000) {
       const rate = moneyWeightedReturn([...flows, { at: window.to.getTime(), amount: currentValue! }]);
       if (rate !== undefined) annualized = { rate, since: new Date(first).toISOString() };
@@ -411,15 +414,46 @@ export function parseYearStart(value: string | undefined): { month: number; day:
   return valid ? { month, day, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
 }
 
-/** The tax year that starts in `year`, as a window from its first to its last millisecond (UTC). */
-export function taxYearWindow(year: number, start: { month: number; day: number }): { from: Date; to: Date } {
-  return { from: new Date(Date.UTC(year, start.month - 1, start.day)), to: new Date(Date.UTC(year + 1, start.month - 1, start.day) - 1) };
+/** Whether `timeZone` is an IANA zone this runtime knows, such as Europe/London. */
+export function validTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** The latest tax year that has started by `now`. */
-export function currentTaxYear(start: { month: number; day: number }, now = new Date()): number {
-  const year = now.getUTCFullYear();
-  return now.getTime() >= Date.UTC(year, start.month - 1, start.day) ? year : year - 1;
+/** Milliseconds that local time in `timeZone` is ahead of UTC at `instant`. */
+function zoneOffset(instant: number, timeZone: string): number {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+  return Date.UTC(parts.year!, parts.month! - 1, parts.day!, parts.hour!, parts.minute!, parts.second!) - Math.floor(instant / 1000) * 1000;
+}
+
+/** The local calendar date of an instant in `timeZone`, as YYYY-MM-DD. */
+function localDay(instant: number, timeZone: string): string {
+  return new Date(instant + zoneOffset(instant, timeZone)).toISOString().slice(0, 10);
+}
+
+/** The instant a local calendar day starts in `timeZone`. */
+function localMidnight(year: number, month: number, day: number, timeZone: string): number {
+  const guess = Date.UTC(year, month - 1, day);
+  const first = guess - zoneOffset(guess, timeZone);
+  // A second pass settles days where the offset changes between the guess and local midnight.
+  return guess - zoneOffset(first, timeZone);
+}
+
+/** The tax year that starts in `year`, from its first to its last millisecond in `timeZone` (UTC by default). */
+export function taxYearWindow(year: number, start: { month: number; day: number }, timeZone = "UTC"): { from: Date; to: Date } {
+  return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
+}
+
+/** The latest tax year that has started by `now` in `timeZone`. */
+export function currentTaxYear(start: { month: number; day: number }, now = new Date(), timeZone = "UTC"): number {
+  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
+  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone) ? year : year - 1;
 }
 
 export function summarizeTaxYear(input: {
@@ -430,13 +464,18 @@ export function summarizeTaxYear(input: {
   transactions: HistoryTransactionItem[];
   year: number;
   yearStart: { month: number; day: number; text: string };
+  /** IANA zone the tax year's days are counted in; UTC by default. */
+  timeZone?: string;
   truncated: boolean;
   now?: Date;
 }): TaxYearSummary {
   const now = input.now ?? new Date();
-  const window = taxYearWindow(input.year, input.yearStart);
-  const fills = input.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
-  let count = 0, proceeds = 0, gains = 0, losses = 0;
+  const timeZone = input.timeZone ?? "UTC";
+  const window = taxYearWindow(input.year, input.yearStart, timeZone);
+  // A sale belongs to the year it filled in; the order's creation date could fall in an earlier year.
+  const fills = input.orders.filter((item) => item.fill && inWindow(item.fill.filledAt, window));
+  const undated = input.orders.filter((item) => item.fill && !Number.isFinite(Date.parse(item.fill.filledAt ?? ""))).length;
+  let count = 0, proceeds = 0, gains = 0, losses = 0, unvalued = 0;
   const perTicker = new Map<string, { disposals: number; proceeds: number; realizedProfitLoss: number }>();
   const costs: Array<{ key: string; amount: number }> = [];
   for (const item of fills) {
@@ -445,7 +484,9 @@ export function summarizeTaxYear(input: {
     const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
     if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
     const pnl = wallet?.realisedProfitLoss ?? 0;
-    const value = Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * quantity);
+    // Only Trading 212's account-currency value counts; price × quantity would be in the instrument's currency.
+    const value = wallet?.netValue === undefined ? 0 : Math.abs(wallet.netValue);
+    if (wallet?.netValue === undefined) unvalued++;
     count++;
     proceeds += value;
     if (pnl > 0) gains += pnl; else losses += pnl;
@@ -471,6 +512,9 @@ export function summarizeTaxYear(input: {
     "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need.",
   ];
   if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
+  if (timeZone === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
+  if (unvalued) notes.push(`${unvalued} sale(s) had no account-currency value from Trading 212; proceeds leave them out, but their realised P/L is counted.`);
+  if (undated) notes.push(`${undated} fill(s) had no fill date and are left out; check them in the Trading 212 statement.`);
   if (input.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
   return {
     kind: "tax_year",
@@ -478,6 +522,9 @@ export function summarizeTaxYear(input: {
     accountCurrency: input.accountCurrency,
     year: input.year,
     yearStart: input.yearStart.text,
+    timeZone,
+    firstDay: `${input.year}-${input.yearStart.text}`,
+    lastDay: localDay(window.to.getTime(), timeZone),
     period: { from: window.from.toISOString(), to: window.to.toISOString() },
     ended,
     disposals: { count, proceeds: round(proceeds), gains: round(gains), losses: round(losses), net: round(gains + losses) },

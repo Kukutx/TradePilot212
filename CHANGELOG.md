@@ -2,9 +2,9 @@
 
 ## 2.15.0
 
-- New `get_tax_year_summary` tool and `tax-year` skill: one tax year's sales with realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 1 January unless `yearStart` says otherwise (`04-06` for the UK). The figures are Trading 212's average-cost results; the notes say how country rules can differ and where to get the filing documents.
+- New `get_tax_year_summary` tool and `tax-year` skill: one tax year's sales with realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 1 January unless `yearStart` says otherwise (`04-06` for the UK), and its days are counted in `timeZone` (`Europe/London`), so a trade just after local midnight lands in the right year. The figures are Trading 212's average-cost results; the notes say how country rules can differ and where to get the filing documents.
 - `get_portfolio_performance` adds an annualized money-weighted return (XIRR) for all-time windows once the first deposit is a year old. The widget shows it under the realized P/L, with the date it is measured from.
-- The simple return is no longer computed for a window that ends before today, where it compared today's account value with older deposits.
+- The simple return is no longer computed for a window that ends in the past, where it compared today's account value with older deposits.
 - Performance and income no longer change tickers to capitals (`VUSAl_EQ` became `VUSAL_EQ`), which left those instruments without their names in the widget.
 
 ## 2.14.1

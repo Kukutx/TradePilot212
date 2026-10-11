@@ -5,12 +5,11 @@ description: Gather a Trading 212 tax year with TradePilot - sales with realised
 
 # Tax year
 
-1. Work out the tax year. Ask nothing when the user's country is clear from the request or the account currency:
-   - UK: starts 6 April, so `yearStart` is `04-06`; "2025/26" is `year` 2025.
-   - Most other countries (Germany, France, Spain, Italy, Poland, the Netherlands, the US …): the calendar year, `yearStart` `01-01`.
-   - If neither tells you, use the calendar year and say so.
+1. Work out which country the user files in. Use it only when the request makes it clear (for example "UK tax year", "Steuererklärung", "2025/26"); the account currency does not tell you where someone is taxed, so otherwise ask. Then:
+   - UK: starts 6 April, so `yearStart` is `04-06` and `timeZone` is `Europe/London`; "2025/26" is `year` 2025.
+   - Most other countries (Germany, France, Spain, Italy, Poland, the Netherlands, the US …): the calendar year, `yearStart` `01-01`, with the country's zone as `timeZone` (for example `Europe/Berlin`).
    With no year named, leave `year` out: the tool takes the latest tax year that has started.
-2. Call `get_tax_year_summary` with `environment`, `year` and `yearStart`. If `truncated` is true, rerun with a larger `maxPages` (up to 40) before reporting.
+2. Call `get_tax_year_summary` with `environment`, `year`, `yearStart` and `timeZone`. If `truncated` is true, rerun with a larger `maxPages` (up to 40) before reporting.
 3. For the detail behind a figure, call `get_trade_history` with `from` and `to` set to the tool's `period` (each sale with its realised P/L and costs), and `get_cash_history` for each dividend and interest payment.
 4. For the documents a return is filed from, offer `manage_history_export` to request Trading 212's CSV for the same period, and point the user to the annual statement in the Trading 212 app.
 

@@ -121,5 +121,6 @@ describe("tax year summary", () => {
   it("rejects a start day that does not exist and a year that has not started", async () => {
     await expect(service([]).taxYear("demo", { yearStart: "02-30" })).rejects.toThrow(/yearStart must be a real month and day/);
     await expect(service([]).taxYear("demo", { year: 2027 }, new Date("2026-10-01T00:00:00Z"))).rejects.toThrow(/has not started yet/);
+    await expect(service([]).taxYear("demo", { timeZone: "Mars/Olympus" })).rejects.toThrow(/IANA time zone/);
   });
 });

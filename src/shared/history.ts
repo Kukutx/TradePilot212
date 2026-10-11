@@ -163,6 +163,11 @@ export interface TaxYearSummary {
   /** Calendar year the tax year starts in, and the month-day it starts on ("01-01", or "04-06" in the UK). */
   year: number;
   yearStart: string;
+  /** IANA zone the days are counted in. */
+  timeZone: string;
+  /** First and last day of the tax year, as local dates. */
+  firstDay: string;
+  lastDay: string;
   /** From the first moment of the tax year to the last; `ended` is false while it is still running. */
   period: { from: string; to: string };
   ended: boolean;

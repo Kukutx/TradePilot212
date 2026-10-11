@@ -67,6 +67,24 @@ describe("performance summary", () => {
     expect(result.byTicker.map((item) => item.ticker)).toEqual(["VUSAl_EQ"]);
   });
 
+  it("needs the window to reach the time the account was valued", () => {
+    // Ends yesterday evening, less than a day before now, but a deposit made today would be missing.
+    const result = summarizePerformance({ environment: "demo", account: { currency: "EUR", totalValue: 990 }, orders, dividends, transactions, window: { to: new Date("2026-09-30T23:59:59.999Z") }, truncated: false, now: new Date("2026-10-01T09:00:00Z") });
+    expect(result.simpleReturn).toBeUndefined();
+    const today = summarizePerformance({ environment: "demo", account: { currency: "EUR", totalValue: 990 }, orders, dividends, transactions, window: { to: new Date("2026-10-01T23:59:59.999Z") }, truncated: false, now: new Date("2026-10-01T09:00:00Z") });
+    expect(today.simpleReturn).toBeCloseTo(0.1);
+  });
+
+  it("counts the year from the first deposit, not an earlier withdrawal", () => {
+    const flows: HistoryTransactionItem[] = [
+      { type: "WITHDRAW", amount: -50, dateTime: "2024-01-01T00:00:00Z" },
+      { type: "DEPOSIT", amount: 1000, dateTime: "2026-06-01T00:00:00Z" },
+    ];
+    const result = summarizePerformance({ environment: "demo", account: { currency: "EUR", totalValue: 1100 }, orders: [], dividends: [], transactions: flows, window: { to: new Date("2026-10-01T00:00:00Z") }, truncated: false, now: new Date("2026-10-01T00:00:00Z") });
+    expect(result.annualizedReturn).toBeUndefined();
+    expect(result.notes.join(" ")).toMatch(/at least a year/);
+  });
+
   it("leaves out the annualized return until there is a year of deposits", () => {
     const recent: HistoryTransactionItem[] = [{ type: "DEPOSIT", amount: 1000, dateTime: "2026-06-01T00:00:00Z" }];
     const result = summarizePerformance({ environment: "demo", account: { currency: "EUR", totalValue: 1050 }, orders: [], dividends: [], transactions: recent, window: { to: new Date("2026-10-01T00:00:00Z") }, truncated: false, now: new Date("2026-10-01T00:00:00Z") });
@@ -87,7 +105,7 @@ describe("performance summary", () => {
     expect(result.contributions.withdrawals).toBe(100);
     expect(result.simpleReturn).toBeUndefined();
     expect(result.annualizedReturn).toBeUndefined();
-    expect(result.notes.join(" ")).toMatch(/end before today/);
+    expect(result.notes.join(" ")).toMatch(/end before now/);
   });
 
   it("does not report a return when history is truncated", () => {
@@ -144,11 +162,34 @@ describe("tax year summary", () => {
     expect(result.income.dividends).toBe(12.2);
   });
 
+  it("counts days in the tax payer's time zone", () => {
+    const result = summarizeTaxYear({
+      environment: "demo", accountCurrency: "GBP", year: 2026, yearStart: parseYearStart("04-06"), timeZone: "Europe/London", truncated: false, now: new Date("2027-05-01T00:00:00Z"),
+      // 00:30 on 6 April in London is still 5 April in UTC.
+      orders: [fill("VUSAl_EQ", "SELL", "2026-04-05T23:30:00Z", 100, 10, 0), fill("VUSAl_EQ", "SELL", "2027-04-05T23:30:00Z", 100, 5, 0)],
+      dividends: [], transactions: [],
+    });
+    expect(result.period).toEqual({ from: "2026-04-05T23:00:00.000Z", to: "2027-04-05T22:59:59.999Z" });
+    expect(result).toMatchObject({ firstDay: "2026-04-06", lastDay: "2027-04-05", timeZone: "Europe/London" });
+    expect(result.disposals).toMatchObject({ count: 1, gains: 10 });
+  });
+
+  it("dates sales by their fill and leaves out values it cannot put in the account currency", () => {
+    const undated: HistoryOrderItem = { order: { ticker: "AAPL_US_EQ", side: "SELL", createdAt: "2026-02-01T00:00:00Z" }, fill: { quantity: -1, price: 200, walletImpact: { netValue: 180, realisedProfitLoss: 20 } } };
+    const unvalued: HistoryOrderItem = { order: { ticker: "AAPL_US_EQ", side: "SELL" }, fill: { filledAt: "2026-03-01T00:00:00Z", quantity: -1, price: 210, walletImpact: { realisedProfitLoss: 15 } } };
+    const result = summarizeTaxYear({ environment: "demo", accountCurrency: "GBP", orders: [undated, unvalued], dividends: [], transactions: [], year: 2026, yearStart: parseYearStart("01-01"), truncated: false, now: new Date("2027-02-01T00:00:00Z") });
+    expect(result.disposals).toEqual({ count: 1, proceeds: 0, gains: 15, losses: 0, net: 15 });
+    expect(result.notes.join(" ")).toMatch(/1 sale\(s\) had no account-currency value/);
+    expect(result.notes.join(" ")).toMatch(/1 fill\(s\) had no fill date/);
+  });
+
   it("reads the year start and picks the latest started tax year", () => {
     expect(parseYearStart("04-06")).toEqual({ month: 4, day: 6, text: "04-06" });
     expect(parseYearStart("02-30").text).toBe("01-01");
     expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-05T12:00:00Z"))).toBe(2025);
     expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-06T00:00:00Z"))).toBe(2026);
+    expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-05T23:30:00Z"), "Europe/London")).toBe(2026);
+    expect(currentTaxYear({ month: 1, day: 1 }, new Date("2026-12-31T23:30:00Z"), "Europe/Berlin")).toBe(2027);
   });
 });
 
