@@ -21,11 +21,22 @@ export interface ExternalQuote {
   source: QuoteProviderName;
 }
 
+export interface ExternalFxRate {
+  from: string;
+  to: string;
+  /** Units of `to` per 1 unit of `from`. */
+  rate: number;
+  asOf: string;
+  source: QuoteProviderName;
+}
+
 export interface QuoteProvider {
   name: QuoteProviderName;
   /** The provider symbol for an instrument, or undefined when it cannot be mapped safely. */
   symbolFor(instrument: Instrument): string | undefined;
   quote(instrument: Instrument): Promise<ExternalQuote | undefined>;
+  /** An exchange rate, for currencies none of your holdings price; undefined when the provider has none. */
+  fxRate(from: string, to: string): Promise<ExternalFxRate | undefined>;
 }
 
 const CACHE_MS = 60_000;
@@ -98,13 +109,55 @@ function providerFetcher(name: Exclude<QuoteProviderName, "none">, key: string, 
   }
 }
 
+/** The provider's symbol for a currency pair, or undefined when it has no free exchange rates. */
+function fxSymbol(name: Exclude<QuoteProviderName, "none">, from: string, to: string): string | undefined {
+  switch (name) {
+    case "stooq": return `${from}${to}`;
+    case "twelvedata": return `${from}/${to}`;
+    case "alphavantage": return `${from}:${to}`;
+    case "finnhub": return undefined;
+  }
+}
+
+function fxFetcher(name: Exclude<QuoteProviderName, "none">, key: string, fetcher: Fetch): Fetcher {
+  if (name !== "alphavantage") return providerFetcher(name, key, fetcher);
+  return async (symbol) => {
+    const [from = "", to = ""] = symbol.split(":");
+    const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}&apikey=${encodeURIComponent(key)}`) as { "Realtime Currency Exchange Rate"?: Record<string, string> };
+    const quote = body["Realtime Currency Exchange Rate"] ?? {};
+    const price = positive(quote["5. Exchange Rate"]);
+    const refreshed = quote["6. Last Refreshed"];
+    const asOf = refreshed && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(refreshed) ? `${refreshed.replace(" ", "T")}Z` : undefined;
+    return price ? { price, ...(asOf ? { asOf } : {}) } : undefined;
+  };
+}
+
 /** Build the configured provider, or undefined when QUOTE_PROVIDER=none or a keyed provider has no key. */
 export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (input, init) => globalThis.fetch(input, init)): QuoteProvider | undefined {
   const name = config.quoteProvider;
   if (name === "none") return undefined;
   if (name !== "stooq" && !config.quoteApiKey) return undefined;
   const fetchQuote = providerFetcher(name, config.quoteApiKey, fetcher);
+  const fetchFx = fxFetcher(name, config.quoteApiKey, fetcher);
   const cache = new Map<string, { expiresAt: number; quote: ExternalQuote | undefined }>();
+  const fxCache = new Map<string, { expiresAt: number; rate: ExternalFxRate | undefined }>();
+
+  /** A rate between two ISO currencies, from the provider or the cache. */
+  const pairRate = async (from: string, to: string): Promise<ExternalFxRate | undefined> => {
+    const symbol = fxSymbol(name, from, to);
+    if (!symbol) return undefined;
+    const cached = fxCache.get(symbol);
+    if (cached && cached.expiresAt > Date.now()) return cached.rate;
+    let rate: ExternalFxRate | undefined;
+    try {
+      const result = await fetchFx(symbol);
+      if (result) rate = { from, to, rate: result.price, asOf: result.asOf ?? new Date().toISOString(), source: name };
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot FX rate failed", provider: name, symbol, error: error instanceof Error ? error.message : String(error) }));
+    }
+    fxCache.set(symbol, { expiresAt: Date.now() + CACHE_MS, rate });
+    return rate;
+  };
 
   const symbolFor = (instrument: Instrument) => {
     const mapped = config.quoteSymbols.get(instrument.ticker.toUpperCase());
@@ -131,6 +184,18 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
       }
       cache.set(symbol, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
+    },
+    async fxRate(from, to) {
+      const source = from.toUpperCase();
+      const target = to.toUpperCase();
+      if (!/^[A-Z]{3}$/.test(source) || !/^[A-Z]{3}$/.test(target) || source === target) return undefined;
+      // Pence are quoted as pounds: 1 GBP = 100 GBX.
+      const base = source === "GBX" ? "GBP" : source;
+      const quote = target === "GBX" ? "GBP" : target;
+      const scale = (target === "GBX" ? 100 : 1) / (source === "GBX" ? 100 : 1);
+      if (base === quote) return { from: source, to: target, rate: scale, asOf: new Date().toISOString(), source: name };
+      const rate = await pairRate(base, quote);
+      return rate ? { ...rate, from: source, to: target, rate: rate.rate * scale } : undefined;
     },
   };
 }

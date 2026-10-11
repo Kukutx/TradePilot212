@@ -107,5 +107,17 @@ describe("OAuth endpoints", () => {
     expect((await refresh(clientId, first.refresh_token!)).status).toBe(400);
     // After reuse, even the newest token stops working until the owner signs in again.
     expect((await refresh(clientId, second.refresh_token)).status).toBe(400);
+    const again = await signIn(clientId, "trade:read offline_access");
+    expect((await refresh(clientId, again.refresh_token!)).status).toBe(200);
+  });
+
+  it("lets only one of two concurrent refreshes with the same token through, and ends the chain", async () => {
+    const { register, signIn, refresh } = await setup();
+    const clientId = await register();
+    const first = await signIn(clientId, "trade:read offline_access");
+    const results = await Promise.all([refresh(clientId, first.refresh_token!), refresh(clientId, first.refresh_token!)]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 400]);
+    const winner = await results.find((response) => response.status === 200)!.json() as { refresh_token: string };
+    expect((await refresh(clientId, winner.refresh_token)).status).toBe(400);
   });
 });

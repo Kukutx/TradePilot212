@@ -111,7 +111,7 @@ function fakeFetch(): typeof fetch {
     const body = url.endsWith("/equity/metadata/instruments")
       ? [instrument]
       : url.endsWith("/equity/positions")
-        ? [{ instrument, quantity: 2, quantityAvailableForTrading: 1.6, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 }]
+        ? [{ instrument, quantity: 2, quantityAvailableForTrading: 1.6, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100, walletImpact: { currentValue: 185.19 } }]
         : url.endsWith("/equity/account/summary")
           ? { currency: "EUR", cash: { availableToTrade: 1000 } }
           : [];
@@ -306,6 +306,36 @@ describe("currencies, uncertain results and Live confirmations", () => {
     // 5 shares are 42,375 GBX but only 500 EUR.
     expect(validateOrderAgainstSnapshot(order(5), etf, undefined, account, { maxOrderNotional: 600, maxOrderQuantity: 0 }, rates).accountNotional).toBeCloseTo(500, 6);
     expect(() => validateOrderAgainstSnapshot(order(10), etf, undefined, account, { maxOrderNotional: 600, maxOrderQuantity: 0 }, rates)).toThrow(/1000\.00 EUR exceeds MAX_ORDER_NOTIONAL/);
+  });
+
+  it("never compares an amount in another currency with the cap as is", () => {
+    const msft: Instrument = { ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD" };
+    const order = (quantity: number, fxRate?: number): OrderDraft => ({ environment: "demo", ticker: msft.ticker, side: "buy", type: "market", quantity, referencePrice: 100, ...(fxRate ? { fxRate } : {}) });
+    const account = { currency: "PLN", cash: { availableToTrade: 100_000 } };
+    const caps = { maxOrderNotional: 5000, maxOrderQuantity: 0 };
+    // 4000 USD would pass a 5000 cap compared as is, but it is 16,000 PLN.
+    expect(() => validateOrderAgainstSnapshot(order(40), msft, undefined, account, caps)).toThrow(/No PLN to USD exchange rate is known/);
+    expect(() => validateOrderAgainstSnapshot(order(40, 0.25), msft, undefined, account, caps)).toThrow(/16000\.00 PLN exceeds MAX_ORDER_NOTIONAL/);
+    expect(validateOrderAgainstSnapshot(order(10, 0.25), msft, undefined, account, caps).accountNotional).toBeCloseTo(4000, 6);
+    // The broker's valuation of a holding wins over a rate passed with the order.
+    expect(validateOrderAgainstSnapshot(order(10, 0.25), msft, undefined, account, caps, { PLN: 1, USD: 0.5 }).accountNotional).toBeCloseTo(2000, 6);
+    // With the cap off there is nothing to compare, so no rate is needed.
+    expect(validateOrderAgainstSnapshot(order(40), msft, undefined, account, { maxOrderNotional: 0, maxOrderQuantity: 0 }).accountNotional).toBeUndefined();
+  });
+
+  it("carries a rate given for the account currency on the draft", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    const resolved = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 216, sizing: { mode: "notional", amount: 108, currency: "EUR", fxRateToInstrumentCurrency: 1.1 } });
+    expect(resolved.draft).toMatchObject({ fxRate: 1.1 });
+  });
+
+  it("sizes with a rate passed with the intent only where the holdings imply none", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    // AAPL is held, so its implied 1.08 USD per EUR wins over the passed 2.
+    const held = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 216, fxRate: 2, sizing: { mode: "cash_percent", percent: 10 } });
+    expect(held.draft).toMatchObject({ quantity: 0.5 });
+    expect(held.draft.fxRate).toBeUndefined();
+    expect(held.note).toMatch(/implied by your holdings/);
   });
 
   it("reports an accepted write whose response can't be read as unknown, and counts it toward the budget", async () => {

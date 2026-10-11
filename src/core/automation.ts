@@ -10,7 +10,7 @@ import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
 import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport } from "../shared/automation.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
-import { crossRate, knownFxRates } from "./fx.js";
+import { crossRate } from "./fx.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type BasketRequest, type TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
@@ -185,14 +185,18 @@ export class AutomationService {
   async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[] }> {
     const dashboard = await this.deps.trading.getDashboard(plan.environment);
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
-    const rates = knownFxRates(dashboard.positions, accountCurrency);
     const converted = new Set<string>();
     const drafts: OrderDraft[] = [];
     const skipped: string[] = [];
     const instruments = await this.deps.trading.instruments(plan.environment);
+    const find = (ticker: string) => {
+      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
+      return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
+    };
+    // Holdings imply most rates; a currency none of them is priced in takes the quote provider's.
+    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, plan.legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
     for (const leg of plan.legs) {
-      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      const { position, instrument } = find(leg.ticker);
       if (!instrument) { skipped.push(`${leg.ticker}: no longer listed by Trading 212.`); continue; }
       // Held legs use the broker's last price; others the external quote provider, when one can price them.
       const quote = position?.currentPrice ? undefined : await this.deps.trading.externalQuote(instrument);
@@ -201,13 +205,17 @@ export class AutomationService {
       // Leg amounts are in the account currency; other quote currencies use the rate your holdings imply.
       const currency = instrument.currencyCode.toUpperCase();
       const fx = accountCurrency ? crossRate(rates, accountCurrency, currency) : undefined;
-      if (!fx) { skipped.push(`${leg.ticker}: quoted in ${currency} and no holding in ${currency} gives an exchange rate from ${accountCurrency || "the account currency"}.`); continue; }
+      if (!fx) { skipped.push(`${leg.ticker}: quoted in ${currency}; no holding in ${currency} gives an exchange rate from ${accountCurrency || "the account currency"} and the quote source has none.`); continue; }
+      const external = quoted.get(currency);
       if (currency !== accountCurrency) converted.add(currency);
       const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : undefined;
       // A limit leg is sized at its limit, so it never spends more than the leg amount.
       const quantity = floorTo(leg.amount * fx / (limitPrice ?? price), 4);
       if (quantity <= 0) { skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`); continue; }
-      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
+      const base = {
+        environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString(),
+        ...(external ? { fxRate: external.rate, fxRateAt: external.asOf } : {}),
+      };
       drafts.push(limitPrice === undefined ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
@@ -218,7 +226,7 @@ export class AutomationService {
       planId: plan.id,
       notes: [
         `Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
-        ...(converted.size ? [`Amounts in ${[...converted].join(", ")} use the exchange rate the broker's valuation of your holdings implies; Trading 212 converts at its own rate and fee.`] : []),
+        ...(converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0]!.source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : []),
         ...skipped,
       ],
       skipped,

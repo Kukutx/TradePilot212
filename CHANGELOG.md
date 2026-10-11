@@ -6,6 +6,9 @@ Currencies
 - `MAX_ORDER_NOTIONAL`, the position-weight rule and the daily value budget now work in the account currency. Before, an order for a fund quoted in pence was compared in pence, so a 500 EUR buy of VUSA counted as about 42,000 and was blocked, while orders in other currencies were left out of the weight and value rules.
 - Trading 212 reports a holding's currency as `currency`; TradePilot now reads it, so exchange rates, the currency split and the caps see the right currency.
 - Amount and cash-percentage orders in another currency are sized at the rate implied by your holdings when no rate is given, and the preview says so. A cross-currency buy is checked against your available cash at that rate.
+- For a currency none of your holdings is priced in, the quote source supplies the rate (Stooq, Twelve Data or Alpha Vantage), so a first purchase in a new currency is still valued in the account currency. Orders, plan legs and rebalance plans say where a quoted rate came from and when.
+- With no rate at all, an order in another currency is blocked while `MAX_ORDER_NOTIONAL` is on, instead of being compared with the cap in its own currency. Pass `fxRate` with `fxRateAt` to supply one.
+- Cap, cash and sellable-quantity errors carry their amounts, so the widget shows "requested / limit" in place of an empty label.
 - Investment plan legs quoted in another currency (for example a GBX fund in a EUR account) are converted instead of skipped.
 - The confirmation screen and basket legs show the order's value in the account currency next to the instrument currency.
 - The allocation counts cash held in pies and merges GBX into GBP in the currency split.
@@ -25,10 +28,10 @@ Hosts that show text
 
 Sign-in
 - The sign-in page shows the client's name, the host it returns to and the permissions it asks for, and warns when the host is not a known ChatGPT or Claude address. `OAUTH_REDIRECT_HOSTS` limits which hosts clients may register.
-- Refresh tokens rotate on every use; reusing an old one ends that client's session.
+- Refresh tokens rotate on every use; reusing an old one ends that client's session until the owner signs in again. Two requests presenting the same token at once can no longer both succeed.
 
 Analytics
-- A date-only `to` covers that whole day, `1w` is a valid period, and `get_trade_history` resolves names as well as tickers.
+- A date-only `to` covers that whole day, `1w` is a valid period, and `get_trade_history` resolves names as well as tickers. A date that does not exist, such as 2026-02-30, is rejected instead of rolling into March.
 - Expected dividends no longer undercount a holding bought partway through the year: a quarterly payer with two payments so far is projected at four.
 
 Widget

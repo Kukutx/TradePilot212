@@ -30,7 +30,7 @@ import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type D
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
-import type { ExternalQuote, QuoteProvider } from "./quotes.js";
+import type { ExternalFxRate, ExternalQuote, QuoteProvider } from "./quotes.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 interface PendingBasket {
@@ -190,7 +190,7 @@ export function validateOrderAgainstSnapshot(
   positiveNumber("quantity", draft.quantity);
 
   if (config.maxOrderQuantity > 0 && draft.quantity > config.maxOrderQuantity)
-    throw new Error(`Quantity exceeds MAX_ORDER_QUANTITY (${config.maxOrderQuantity})`);
+    fail("ORDER_QUANTITY_LIMIT", `Quantity exceeds MAX_ORDER_QUANTITY (${config.maxOrderQuantity})`, { requested: draft.quantity, limit: config.maxOrderQuantity });
   if (["limit", "stop_limit"].includes(draft.type)) positiveNumber("limitPrice", draft.limitPrice);
   if (["stop", "stop_limit"].includes(draft.type)) positiveNumber("stopPrice", draft.stopPrice);
   if (draft.extendedHours && draft.type !== "market")
@@ -200,7 +200,7 @@ export function validateOrderAgainstSnapshot(
   if (draft.side === "buy" && instrument.maxOpenQuantity && Math.max(0, position?.quantity ?? 0) + draft.quantity > instrument.maxOpenQuantity + Number.EPSILON)
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
-    throw new Error(`Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`);
+    fail("INSUFFICIENT_SELLABLE_QUANTITY", `Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`, { requested: draft.quantity, available: position?.quantityAvailableForTrading ?? 0 });
 
   // A Market order's referencePrice comes from the caller, so it must not be able to talk the
   // notional cap down: when the broker reports a current price, the higher of the two is used.
@@ -212,32 +212,40 @@ export function validateOrderAgainstSnapshot(
       : marketPrices.length ? Math.max(...marketPrices) : undefined;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : undefined;
   const accountCurrency = (account.currency ?? "").toUpperCase();
-  const sameCurrency = !!accountCurrency && accountCurrency === instrument.currencyCode.toUpperCase();
-  // The order's value in the account currency: exact for the same currency, otherwise converted at the
-  // rate the broker's valuation of your holdings implies (pence and pounds are always convertible).
+  const instrumentCurrency = instrument.currencyCode.toUpperCase();
+  const sameCurrency = !!accountCurrency && accountCurrency === instrumentCurrency;
+  // The broker's valuation of your holdings wins; a rate the caller supplied fills a currency it lacks.
+  if (draft.fxRate !== undefined) positiveNumber("fxRate", draft.fxRate);
+  const known = draft.fxRate && accountCurrency && !crossRate(rates, accountCurrency, instrumentCurrency)
+    ? { ...rates, [accountCurrency]: 1, [instrumentCurrency]: draft.fxRate }
+    : rates;
+  // The order's value in the account currency: exact for the same currency, otherwise converted at a
+  // known rate (pence and pounds are always convertible).
   const accountNotional = estimatedNotional === undefined
     ? undefined
-    : sameCurrency ? estimatedNotional : toAccountCurrency(estimatedNotional, instrument.currencyCode, accountCurrency, rates);
+    : sameCurrency ? estimatedNotional : toAccountCurrency(estimatedNotional, instrumentCurrency, accountCurrency, known);
 
   if (config.maxOrderNotional > 0) {
     if (!estimatedNotional)
       throw new Error("A current referencePrice is required for this Market order while MAX_ORDER_NOTIONAL is enabled. Set MAX_ORDER_NOTIONAL=0 to disable the app-level notional cap.");
     if (!Number.isFinite(estimatedNotional) || estimatedNotional <= 0) throw new Error("Estimated order notional is invalid");
-    // The cap is in the account currency; without a rate, pence count as pounds/100 and anything else as is.
-    const pence = instrument.currencyCode.toUpperCase() === "GBX";
-    const capped = accountNotional ?? (pence ? estimatedNotional / 100 : estimatedNotional);
-    const cappedCurrency = accountNotional !== undefined ? accountCurrency : pence ? "GBP" : instrument.currencyCode;
+    // The cap is in the account currency, so an amount in another currency is never compared as is.
+    if (accountNotional === undefined && accountCurrency)
+      fail("FX_RATE_REQUIRED", `No ${accountCurrency} to ${instrumentCurrency} exchange rate is known (no holding is priced in ${instrumentCurrency} and the quote source has none), so the order can't be checked against MAX_ORDER_NOTIONAL (${config.maxOrderNotional} ${accountCurrency}). Pass fxRate (${instrumentCurrency} per 1 ${accountCurrency}) with fxRateAt from a dated source, or set MAX_ORDER_NOTIONAL=0.`,
+        { from: accountCurrency, to: instrumentCurrency, limit: config.maxOrderNotional });
+    const capped = accountNotional ?? estimatedNotional;
+    const cappedCurrency = accountCurrency || instrumentCurrency;
     if (capped > config.maxOrderNotional)
-      throw new Error(`Estimated order value ${capped.toFixed(2)} ${cappedCurrency} exceeds MAX_ORDER_NOTIONAL (${config.maxOrderNotional})`);
+      fail("ORDER_NOTIONAL_LIMIT", `Estimated order value ${capped.toFixed(2)} ${cappedCurrency} exceeds MAX_ORDER_NOTIONAL (${config.maxOrderNotional})`, { requested: round(capped, 2), limit: config.maxOrderNotional, currency: cappedCurrency });
   }
 
   const availableCash = account.cash?.availableToTrade;
   const cashCheckApplied = draft.side !== "buy" || (sameCurrency && estimatedNotional !== undefined);
   if (draft.side === "buy" && sameCurrency && availableCash !== undefined && estimatedNotional !== undefined && estimatedNotional > availableCash)
-    throw new Error(`Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`);
+    fail("INSUFFICIENT_CASH", `Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round(estimatedNotional, 2), available: round(availableCash, 2), currency: accountCurrency });
   // A converted value is an estimate (Trading 212 also adds its FX fee), so only a clear excess blocks.
   if (draft.side === "buy" && !sameCurrency && availableCash !== undefined && accountNotional !== undefined && accountNotional > availableCash * 1.01)
-    throw new Error(`Estimated order value about ${accountNotional.toFixed(2)} ${account.currency} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`);
+    fail("INSUFFICIENT_CASH", `Estimated order value about ${accountNotional.toFixed(2)} ${account.currency} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round(accountNotional, 2), available: round(availableCash, 2), currency: accountCurrency });
 
   return {
     ...(estimatedNotional === undefined ? {} : { estimatedNotional }),
@@ -301,6 +309,24 @@ export class TradingService {
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
   externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
     return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
+  }
+
+  /**
+   * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
+   * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
+   */
+  async ratesFor(positions: Position[], accountCurrency: string, currencies: Iterable<string>): Promise<{ rates: FxRates; quoted: Map<string, ExternalFxRate> }> {
+    const account = accountCurrency.toUpperCase();
+    const rates = knownFxRates(positions, account);
+    const quoted = new Map<string, ExternalFxRate>();
+    const provider = this.deps.quotes;
+    if (!account || !provider) return { rates, quoted };
+    for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
+      if (crossRate(rates, account, currency)) continue;
+      const rate = await provider.fxRate(account, currency);
+      if (rate) { rates[currency] = rate.rate; quoted.set(currency, rate); }
+    }
+    return { rates, quoted };
   }
 
   /** Best available price: the broker's position price when held, else the external quote. */
@@ -442,7 +468,15 @@ export class TradingService {
     const instrument = resolveInstrumentFromList(instruments, intent.instrument);
     const position = this.positionFor(positions, instrument.ticker);
     const sizing = intent.sizing;
-    const rates = knownFxRates(positions, account.currency ?? "");
+    // A rate you pass is used only where your holdings imply none; the quote provider fills the rest.
+    if (intent.fxRate !== undefined) positiveNumber("fxRate", intent.fxRate);
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, intent.fxRate ? [] : [instrumentCode]);
+    const external = quoted.get(instrumentCode);
+    const passedRate = !!intent.fxRate && !!accountCode && !crossRate(rates, accountCode, instrumentCode);
+    if (passedRate) rates[instrumentCode] = intent.fxRate!;
+    const rateSource = external ? ` (${external.source} rate as of ${external.asOf})` : passedRate ? "" : " (implied by your holdings)";
     let quantity: number;
     let note: string;
     let requestedNotional: number | undefined;
@@ -451,6 +485,7 @@ export class TradingService {
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
     let fxRateAt = intent.fxRateAt;
+    let givenRate = passedRate ? intent.fxRate : undefined;
     // Amount-based sizing of an instrument you do not hold falls back to the external quote provider.
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === undefined
       && !position?.currentPrice && intent.type === "market";
@@ -458,13 +493,18 @@ export class TradingService {
       const quote = await this.externalQuote(instrument);
       if (quote) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
     }
-    /** The given rate, else the one your holdings imply; `from` → instrument currency. */
+    /** The given rate, else the one your holdings imply or the quote provider gives; `from` → instrument currency. */
     const fxRate = (from: string, given: number | undefined) => {
-      if (given !== undefined) { positiveNumber("fxRateToInstrumentCurrency", given); return { rate: given, implied: false }; }
+      if (given !== undefined) {
+        positiveNumber("fxRateToInstrumentCurrency", given);
+        // Carried on the draft so the review can value the order in the account currency.
+        if (from.toUpperCase() === (account.currency ?? "").toUpperCase()) givenRate = given;
+        return { rate: given, source: "" };
+      }
       const rate = crossRate(rates, from, instrument.currencyCode);
-      if (!rate) throw new Error(`Converting ${from} to ${instrument.currencyCode} needs fxRateToInstrumentCurrency (${instrument.currencyCode} per 1 ${from}); no holding in ${instrument.currencyCode} gives an exchange rate to use instead.`);
-      fxRateAt ??= fetchedAt;
-      return { rate, implied: true };
+      if (!rate) throw new Error(`Converting ${from} to ${instrument.currencyCode} needs fxRateToInstrumentCurrency (${instrument.currencyCode} per 1 ${from}); no holding in ${instrument.currencyCode} gives an exchange rate and the quote source has none.`);
+      fxRateAt ??= external?.asOf ?? fetchedAt;
+      return { rate, source: rateSource };
     };
 
     if (sizing.mode === "quantity") {
@@ -491,9 +531,9 @@ export class TradingService {
       let quoteAmount = requestedNotional;
       let converted = "";
       if (accountCurrency !== instrumentCurrency) {
-        const { rate, implied } = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        const { rate, source } = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
         quoteAmount = requestedNotional * rate;
-        converted = ` converted at ${round(rate, 6)} ${instrumentCurrency}/${accountCurrency}${implied ? " (implied by your holdings)" : ""}`;
+        converted = ` converted at ${round(rate, 6)} ${instrumentCurrency}/${accountCurrency}${source}`;
       }
       quantity = floorQuantity(quoteAmount / pricingReference);
       if (quantity <= 0) throw new Error("The selected cash percentage is too small to produce a positive quantity");
@@ -536,7 +576,7 @@ export class TradingService {
       requestedNotional = sizing.amount;
       requestedNotionalCurrency = requestedCurrency;
       let quoteAmount = sizing.amount;
-      let conversion: { rate: number; implied: boolean } | undefined;
+      let conversion: { rate: number; source: string } | undefined;
       if (requestedCurrency !== instrumentCurrency) {
         conversion = fxRate(requestedCurrency, sizing.fxRateToInstrumentCurrency);
         quoteAmount = sizing.amount * conversion.rate;
@@ -546,9 +586,11 @@ export class TradingService {
       estimatedQuoteNotional = pricingReference * quantity;
       note = !conversion
         ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`
-        : `${sizing.amount} ${requestedCurrency} converted at ${round(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.implied ? " (implied by your holdings)" : ""} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
+        : `${sizing.amount} ${requestedCurrency} converted at ${round(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
     }
 
+    // A provider rate travels with the draft, so the confirmation values it the same way.
+    if (givenRate === undefined && external) { givenRate = external.rate; fxRateAt ??= external.asOf; }
     const draft: OrderDraft = {
       environment: intent.environment,
       ticker: instrument.ticker,
@@ -561,6 +603,7 @@ export class TradingService {
       ...(intent.stopPrice === undefined ? {} : { stopPrice: intent.stopPrice }),
       ...(referencePrice === undefined ? {} : { referencePrice }),
       ...(referencePriceAt ? { referencePriceAt } : {}),
+      ...(givenRate === undefined ? {} : { fxRate: givenRate }),
       ...(fxRateAt ? { fxRateAt } : {}),
     };
 
@@ -586,7 +629,8 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, knownFxRates(positions, account.currency ?? "")) };
+    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
+    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
 
   private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
@@ -755,7 +799,11 @@ export class TradingService {
       resolved.push({ ...target, ticker: instrument.ticker, ...(quote ? { referencePrice: quote.price, referencePriceAt: quote.asOf } : {}) });
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
-    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
+    // Currencies no holding prices take the quote provider's rate, unless the caller gave one.
+    const missing = resolved.map((target) => currency.get(target.ticker.toUpperCase()) ?? "").filter((code) => code && !options.fxRates?.[code.toUpperCase()]);
+    const { quoted } = await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", missing);
+    const quotedFxRates = Object.fromEntries(quoted);
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { ...options, ...(quoted.size ? { quotedFxRates } : {}) }, (ticker) => currency.get(ticker.toUpperCase()));
   }
 
   /** Attach each leg's instrument so a review can show names; legs that do not resolve stay as they are. */
@@ -837,12 +885,11 @@ export class TradingService {
    * Validate every leg of a basket against one account snapshot. Sells run before buys, and
    * unless `independentSells` is set, later legs see the shares and cash earlier legs use.
    */
-  private assessBasket(request: Pick<BasketRequest, "environment" | "drafts" | "independentSells">, snapshot: Snapshot, usageBefore: DailyUsage, markets: Map<string, MarketStatus | undefined>) {
+  private assessBasket(request: Pick<BasketRequest, "environment" | "drafts" | "independentSells">, snapshot: Snapshot, usageBefore: DailyUsage, markets: Map<string, MarketStatus | undefined>, rates: FxRates) {
     const ordered = [...request.drafts].sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
     const sold = new Map<string, number>();
     let cashDelta = 0;
     let usage = usageBefore;
-    const rates = knownFxRates(snapshot.positions, snapshot.account.currency ?? "");
     return ordered.map((raw, index) => {
       if (raw.environment !== request.environment) fail("INVALID_INPUT", "Every basket leg must use the basket's environment");
       try {
@@ -867,6 +914,15 @@ export class TradingService {
     });
   }
 
+  /** Rates for every leg's currency, except legs that carry their own. */
+  private async basketRates(snapshot: Snapshot, drafts: OrderDraft[]) {
+    const currencies = drafts.flatMap((draft) => {
+      if (draft.fxRate) return [];
+      try { return [resolveInstrumentFromList(snapshot.instruments, draft.ticker).currencyCode]; } catch { return []; }
+    });
+    return (await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", currencies)).rates;
+  }
+
   private async marketsFor(environment: TradingEnvironment, snapshot: Snapshot, drafts: OrderDraft[]) {
     const markets = new Map<string, MarketStatus | undefined>();
     for (const draft of drafts) {
@@ -885,7 +941,7 @@ export class TradingService {
     const snapshot = await this.snapshot(request.environment);
     const snapshotAt = new Date().toISOString();
     const markets = await this.marketsFor(request.environment, snapshot, request.drafts);
-    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets);
+    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets, await this.basketRates(snapshot, request.drafts));
     const blocked = legs.flatMap((leg) => blockingChecks(leg.policy).map((check) => `${leg.instrument.ticker}: ${check.message}`));
     if (blocked.length) fail("POLICY_BLOCKED", blocked.join(" "), { rule: blockingChecks(legs.flatMap((leg) => leg.policy))[0]!.rule });
 
@@ -959,7 +1015,7 @@ export class TradingService {
     try {
       const snapshot = await this.snapshot(pending.environment);
       const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
-      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets);
+      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets, await this.basketRates(snapshot, pending.drafts));
     } catch (error) {
       stopReason = `The basket no longer passes its checks: ${asStructuredError(error).message}`;
     }

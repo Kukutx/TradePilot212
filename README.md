@@ -229,7 +229,7 @@ CONFIRMATION_TTL_SECONDS=90
 
 `DEFAULT_TRADING_ENV` applies only when a request does not explicitly select Demo or Live.
 
-`MAX_ORDER_NOTIONAL` is in the account currency. An order in another currency is converted at the rate implied by your holdings, and pence (GBX) at 100 to the pound.
+`MAX_ORDER_NOTIONAL` is in the account currency. An order in another currency is converted at the rate implied by your holdings, or, for a currency none of them is priced in, at the quote source's rate; pence (GBX) count at 100 to the pound. When no rate is known at all, the order is blocked while the cap is on instead of being compared in its own currency: pass `fxRate` (instrument-currency units per 1 account-currency unit) with `fxRateAt`, or set `MAX_ORDER_NOTIONAL=0`.
 
 Set `MAX_ORDER_NOTIONAL=0` or `MAX_ORDER_QUANTITY=0` to disable the corresponding TradePilot application-level cap. Trading 212 account/instrument rules and explicit confirmation still apply.
 

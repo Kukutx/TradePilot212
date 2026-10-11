@@ -18,6 +18,7 @@ export type TradePilotErrorCode =
   | "INSUFFICIENT_CASH"
   | "ORDER_NOTIONAL_LIMIT"
   | "ORDER_QUANTITY_LIMIT"
+  | "FX_RATE_REQUIRED"
   | "REFERENCE_PRICE_REQUIRED"
   | "UNSUPPORTED_EXTENDED_HOURS"
   | "CONFIRMATION_EXPIRED"
@@ -213,6 +214,11 @@ export interface OrderDraft {
   stopPrice?: number;
   referencePrice?: number;
   referencePriceAt?: string;
+  /**
+   * Instrument-currency units per 1 account-currency unit, from a dated source (`fxRateAt`). Used only
+   * when no holding implies a rate, e.g. the first purchase of an instrument quoted in a new currency.
+   */
+  fxRate?: number;
   fxRateAt?: string;
 }
 
@@ -235,6 +241,8 @@ export interface OrderIntent {
   stopPrice?: number;
   referencePrice?: number;
   referencePriceAt?: string;
+  /** Instrument-currency units per 1 account-currency unit, for an instrument quoted in a currency you hold nothing in. */
+  fxRate?: number;
   fxRateAt?: string;
 }
 

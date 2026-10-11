@@ -238,7 +238,7 @@ CONFIRMATION_TTL_SECONDS=90
 
 `DEFAULT_TRADING_ENV` 只在用户没有明确指定 Demo / Live 时生效。
 
-`MAX_ORDER_NOTIONAL` 按账户货币计算。其他货币的订单按持仓推算出的汇率折算，便士（GBX）按 100 便士兑 1 英镑。
+`MAX_ORDER_NOTIONAL` 按账户货币计算。其他货币的订单按持仓推算出的汇率折算；没有任何持仓用到的货币，改用行情源的汇率；便士（GBX）按 100 便士兑 1 英镑。如果完全拿不到汇率，开启上限时这笔订单会被拦下，而不会拿外币金额直接和上限比较：可以传入 `fxRate`（1 单位账户货币折合多少标的货币）和 `fxRateAt`，或者设 `MAX_ORDER_NOTIONAL=0`。
 
 把 `MAX_ORDER_NOTIONAL=0` 或 `MAX_ORDER_QUANTITY=0` 可以关闭对应的 TradePilot 应用层限制。Trading 212 自身的账户/标的限制以及最终人工确认仍然保留。
 

@@ -45,15 +45,29 @@ function itemTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendIte
 export type HistoryPeriod = "1w" | "1m" | "3m" | "ytd" | "1y" | "all";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+
+/**
+ * A date or ISO date-time; NaN when it is not one. JavaScript rolls a day past the end of the month
+ * into the next (2026-02-30 becomes March 2), so the calendar date is checked first.
+ */
+function parseDate(value: string, endOfDay: boolean): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return NaN;
+  const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const calendar = new Date(Date.UTC(year, month - 1, date));
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== date) return NaN;
+  return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS - 1 : 0) : Date.parse(value);
+}
 
 /** A date without a time is a whole UTC day: `from` starts it and `to` ends it. */
 export function parseWindow(input: { from?: string; to?: string; period?: HistoryPeriod }, now = new Date()): HistoryWindow {
-  const day = 86_400_000;
-  const to = input.to ? new Date(DATE_ONLY.test(input.to) ? Date.parse(input.to) + day - 1 : input.to) : now;
-  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
+  const day = DAY_MS;
+  const to = input.to ? new Date(parseDate(input.to, true)) : now;
+  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a real date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
   if (input.from) {
-    const from = new Date(input.from);
-    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
+    const from = new Date(parseDate(input.from, false));
+    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a real date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
     return { from, to };
   }
   switch (input.period ?? "all") {

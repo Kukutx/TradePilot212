@@ -18,6 +18,7 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "INSUFFICIENT_CASH": return typeof details.requested === "number" && typeof details.available === "number" ? `${t("errorCash")} ${number("requested")} / ${number("available")} ${details.currency ?? ""}`.trim() : t("errorCash");
     case "ORDER_NOTIONAL_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorNotionalLimit")} ${number("requested")} / ${number("limit")} ${details.currency ?? ""}`.trim() : t("errorNotionalLimit");
     case "ORDER_QUANTITY_LIMIT": return typeof details.requested === "number" && typeof details.limit === "number" ? `${t("errorQuantityLimit")} ${number("requested")} / ${number("limit")}` : t("errorQuantityLimit");
+    case "FX_RATE_REQUIRED": return fill(t("errorFxRate"), { from: String(details.from ?? ""), to: String(details.to ?? "") });
     case "REFERENCE_PRICE_REQUIRED": return t("errorReferencePrice");
     case "UNSUPPORTED_EXTENDED_HOURS": return t("errorExtendedHours");
     case "CONFIRMATION_EXPIRED": return t("errorConfirmationExpired");
@@ -196,6 +197,7 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
       return fill(t("rebalanceNoteScaled"), { percent: pct(Number(value("scale")), locale, 0), budget: currency ? money(budget, currency, locale) : num(budget, locale) });
     }
     case "implied_rates": return fill(t("rebalanceNoteImplied"), { currencies: String(value("currencies") ?? "") });
+    case "quoted_rates": return fill(t("rebalanceNoteQuoted"), { currencies: String(value("currencies") ?? ""), source: String(value("source") ?? ""), asOf: dateTime(String(value("asOf") ?? ""), locale) });
     case "nothing_possible": return t("rebalanceNoteNothing");
     case "within_threshold": return t("rebalanceNoteWithin");
     case "price_source": return t("rebalanceNotePrices");

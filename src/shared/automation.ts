@@ -117,7 +117,7 @@ export interface RebalanceTrade {
 }
 
 export type RebalanceSkipCode = "no_fx_rate" | "no_price" | "below_one_share" | "below_minimum";
-export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "implied_rates" | "nothing_possible" | "within_threshold" | "price_source";
+export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source";
 
 /** A plan note with the facts behind it, so the widget can say it in its own language. */
 export interface RebalanceNote {

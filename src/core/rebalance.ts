@@ -5,6 +5,7 @@ import type { AccountSummary, Position, TradingEnvironment } from "../shared/con
 import type { RebalanceNote, RebalancePlan, RebalanceTarget, RebalanceTrade } from "../shared/automation.js";
 import { fail } from "./errors.js";
 import { knownFxRates } from "./fx.js";
+import type { ExternalFxRate } from "./quotes.js";
 
 export interface RebalanceOptions {
   /** Share of total value to keep as cash after rebalancing (0 to 1). */
@@ -17,6 +18,8 @@ export interface RebalanceOptions {
   quantityDecimals?: number;
   /** Instrument-currency units per 1 account-currency unit, keyed by currency code. */
   fxRates?: Record<string, number>;
+  /** Rates from the quote provider for currencies no holding is priced in; holdings and fxRates win. */
+  quotedFxRates?: Record<string, ExternalFxRate>;
 }
 
 const floorTo = (value: number, digits: number) => {
@@ -86,18 +89,21 @@ export function planRebalance(
     if (untouched.length) note("untargeted_kept", `${untouched.length} holding(s) without a target are left as they are.`, { count: untouched.length });
   }
 
-  // Rates you pass win; otherwise they come from the broker's valuation of your holdings.
-  const fxRates: Record<string, number> = { ...knownFxRates(positions, accountCurrency), ...options.fxRates };
+  // Rates you pass win; then the broker's valuation of your holdings; then the quote provider.
+  const implied = knownFxRates(positions, accountCurrency);
+  const quotedRates = Object.fromEntries(Object.entries(options.quotedFxRates ?? {}).filter(([code]) => !implied[code]).map(([code, rate]) => [code, rate.rate]));
+  const fxRates: Record<string, number> = { ...quotedRates, ...implied, ...options.fxRates };
   const usedImplied = new Set<string>();
+  const usedQuoted = new Set<string>();
   const lines: Line[] = [];
   for (const [key, target] of wanted) {
     const position = byTicker.get(key);
     const currency = (position?.instrument.currencyCode || instrumentCurrency(target.ticker) || accountCurrency).toUpperCase();
     const fx = currency === accountCurrency ? 1 : fxRates[currency];
-    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) usedImplied.add(currency);
+    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) (implied[currency] ? usedImplied : usedQuoted).add(currency);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
     if (!fx || fx <= 0) {
-      skipped.push({ ticker: target.ticker, code: "no_fx_rate", currency, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      skipped.push({ ticker: target.ticker, code: "no_fx_rate", currency, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate and the quote source has none; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
       continue;
     }
     if (!price || price <= 0) {
@@ -161,6 +167,13 @@ export function planRebalance(
 
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
   if (usedImplied.size) note("implied_rates", `Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`, { currencies: [...usedImplied].sort().join(", ") });
+  if (usedQuoted.size) {
+    const sources = [...usedQuoted].sort().map((code) => options.quotedFxRates?.[code]).filter((rate): rate is ExternalFxRate => !!rate);
+    const currencies = sources.map((rate) => rate.to).join(", ");
+    const source = sources[0]?.source ?? "";
+    const asOf = sources.map((rate) => rate.asOf).sort()[0] ?? "";
+    note("quoted_rates", `Exchange rates for ${currencies} come from ${source} (as of ${asOf}); Trading 212 converts at its own rate and fee.`, { currencies, source, asOf });
+  }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
     else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");

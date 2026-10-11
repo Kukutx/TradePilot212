@@ -71,6 +71,9 @@ const candidateSchema = z.object({
   sources: z.array(z.string().min(1).max(500)).max(12).optional(),
 });
 
+const fxRateSchema = z.number().positive().optional()
+  .describe("Instrument-currency units per 1 account-currency unit, with fxRateAt from a dated source. Needed only for an instrument quoted in a currency none of your holdings use, so the order's value can be checked against MAX_ORDER_NOTIONAL.");
+
 const orderDraftSchema = z.object({
   environment: environmentEnum,
   ticker: z.string().min(1),
@@ -83,6 +86,7 @@ const orderDraftSchema = z.object({
   stopPrice: z.number().positive().optional(),
   referencePrice: z.number().positive().optional(),
   referencePriceAt: z.string().datetime().optional(),
+  fxRate: fxRateSchema,
   fxRateAt: z.string().datetime().optional(),
 });
 
@@ -391,7 +395,7 @@ export function createMcpServer(
       {
         title: "Review Flexible Trading 212 Order",
         description:
-          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
+          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
         inputSchema: z.object({
           environment: environmentWithDefault,
           instrument: z.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -404,6 +408,7 @@ export function createMcpServer(
           stopPrice: z.number().positive().optional(),
           referencePrice: z.number().positive().optional(),
           referencePriceAt: z.string().datetime().optional(),
+          fxRate: fxRateSchema,
           fxRateAt: z.string().datetime().optional(),
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },

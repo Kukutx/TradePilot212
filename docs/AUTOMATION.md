@@ -30,9 +30,9 @@ Every order path runs the same rules (`src/core/policy.ts`): single orders, bask
 | Variable | Default | Rule |
 |---|---|---|
 | `POLICY_APPLY_TO` | `live` | Which environments the rules below bind: `live`, `demo`, `both` or `none`. The other environment keeps only the per-order caps and broker checks. |
-| `POLICY_MAX_POSITION_WEIGHT` | `0.25` | A buy may not take one instrument above this share of total account value. An order in another currency is converted at the rate implied by your holdings; the rule is skipped when no rate is known. |
+| `POLICY_MAX_POSITION_WEIGHT` | `0.25` | A buy may not take one instrument above this share of total account value. An order in another currency is converted at the rate implied by your holdings or the quote source's rate; the rule is skipped when no rate is known. |
 | `POLICY_DAILY_ORDER_LIMIT` | `20` | Orders sent through TradePilot per environment per UTC day. |
-| `POLICY_DAILY_NOTIONAL_LIMIT` | `0` (off) | Estimated value sent per UTC day, in the account currency. Orders in another currency count at the rate implied by your holdings; one with no known rate gets a warning and is not counted. |
+| `POLICY_DAILY_NOTIONAL_LIMIT` | `0` (off) | Estimated value sent per UTC day, in the account currency. Orders in another currency count at the rate implied by your holdings or the quote source's rate; one with no known rate gets a warning and is not counted. |
 | `POLICY_ALLOWED_TICKERS` | empty | When set, only these exact Trading 212 tickers may be traded. |
 | `POLICY_BLOCKED_TICKERS` | empty | These tickers may never be traded. |
 | `POLICY_ALLOWED_TYPES` | empty | When set, only these instrument types may be bought, for example `ETF`. Sells are always allowed. |
@@ -62,7 +62,7 @@ Protective baskets are the exception to cumulative checks. A stop-loss and a tak
 - Buys share the cash above an optional `cashWeight` reserve, in proportion to how far each is below its target. When cash is short they are scaled down, and the plan says so.
 - Trades smaller than `minTradeValue` are dropped. `wholeSharesOnly` disables fractional quantities.
 - Holdings without a target are left alone unless `sellUntargeted` is set.
-- An instrument you do not hold is priced from the external quote source when it can map it; otherwise it needs a `referencePrice` (add `referencePriceAt` so the review can check its age). An instrument quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1); with no such holding it needs an `fxRates` entry. Otherwise it is listed under `skipped` with the reason.
+- An instrument you do not hold is priced from the external quote source when it can map it; otherwise it needs a `referencePrice` (add `referencePriceAt` so the review can check its age). An instrument quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1), else at the quote source's rate; with neither it needs an `fxRates` entry. Otherwise it is listed under `skipped` with the reason.
 
 The math is pure and tested (`src/core/rebalance.ts`), so the model never computes order sizes in its head.
 
@@ -89,7 +89,7 @@ A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval
 - **A due plan blocked before anything is sent**, by the policy or because the market is closed: the plan stays due and is tried again about every 10 minutes, when its run lock expires. The reason is logged once per due date.
 - **An unattended run that reached the broker**, even with a rejected or unclear result: the plan moves to its next date and is never re-sent automatically. Check `lastOutcome` and the activity log.
 
-Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1), and skipped with a note when no rate is known.
+Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1), else at the quote source's rate, and skipped with a note when no rate is known.
 
 Running a plan before its due date counts as that run. Once the early run reaches the broker, the plan moves to the date after the one that was due, so the scheduled date does not buy again.
 
@@ -123,6 +123,8 @@ A triggered alert writes one `price_alert_triggered` activity event, goes to the
 ## Quotes for instruments you do not hold
 
 Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price.
+
+The same source supplies exchange rates for currencies none of your holdings is priced in, so a first purchase in a new currency can be valued in the account currency (for `MAX_ORDER_NOTIONAL`, the policy rules and amount-based sizing). Stooq, Twelve Data and Alpha Vantage give rates; Finnhub's are not on its free plan. A rate implied by your holdings always wins, and the preview names the source and time of a quoted one.
 
 | `QUOTE_PROVIDER` | Key | Notes |
 |---|---|---|

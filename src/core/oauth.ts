@@ -314,6 +314,8 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
       && await safeEqual(challenge, record.codeChallenge);
     if (!matches) return c.json({ error: "invalid_grant" }, 400);
     await markClientUsed(clientId);
+    // Signing in again is what ends a revoked refresh chain.
+    await store.delete(revokedKey(clientId));
     const access = await issue(config, record.scope, clientId, "access");
     const refresh = splitScope(record.scope).includes("offline_access")
       ? await issueRefresh(record.scope, clientId)
@@ -330,9 +332,11 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
   // Refresh tokens rotate: each one works once. Presenting a used one again means it leaked, so the
   // client's session ends and the owner has to sign in again.
   const refreshKey = (clientId: string) => `refresh:${clientId}`;
+  const revokedKey = (clientId: string) => `refresh-revoked:${clientId}`;
+  const refreshExpiry = () => Date.now() + config.refreshTokenTtlSeconds * 1000;
   async function issueRefresh(scope: string, clientId: string) {
     const jti = crypto.randomUUID();
-    await store.put(refreshKey(clientId), jti, Date.now() + config.refreshTokenTtlSeconds * 1000);
+    await store.put(refreshKey(clientId), jti, refreshExpiry());
     return await issue(config, scope, clientId, "refresh", jti);
   }
 
@@ -342,10 +346,15 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
     if (clientId !== verified.clientId || !(await markClientUsed(clientId))) {
       return c.json({ error: "invalid_grant" }, 400);
     }
+    // Claiming the token is one atomic step, so of two requests presenting it at once only one wins.
+    const claim = await store.increment(`refresh-used:${verified.jti}`, config.refreshTokenTtlSeconds * 1000);
     const current = await store.get<string>(refreshKey(clientId));
+    const revoked = await store.get<boolean>(revokedKey(clientId));
     // Tokens from before rotation have no record yet; they are accepted once and then rotate.
-    if (current !== undefined && current !== verified.jti) {
-      await store.put(refreshKey(clientId), "revoked", Date.now() + config.refreshTokenTtlSeconds * 1000);
+    if (claim.count > 1 || revoked || (current !== undefined && current !== verified.jti)) {
+      // The flag outlives a rotation the winning request finishes later; only a new sign-in clears it.
+      await store.put(revokedKey(clientId), true, refreshExpiry());
+      await store.put(refreshKey(clientId), "revoked", refreshExpiry());
       return c.json({ error: "invalid_grant", error_description: "Refresh token reuse detected; sign in again." }, 400);
     }
     // A refresh may narrow the granted scope but never widen it.
