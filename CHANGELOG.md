@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.20.0
+
+- An account value chart. Trading 212's API reports only today's value, so the scheduler now reads the account summary about once an hour and keeps the last value of each UTC day (with cash and holdings), for about six years. `get_portfolio_performance` returns the recorded days in its window as `valueHistory`, and the Performance tab draws them as a line with a crosshair readout (pointer or arrow keys) and a table view. The value includes deposits and withdrawals; days the server was not running have no point.
+- A dependency-free line chart joins the widget's bar and column charts.
+
 ## 2.19.0
 
 - Invest spare cash by targets without selling: `plan_portfolio_rebalance` takes `buyOnly`, and `investAmount` to cap the amount (it implies `buyOnly`). Only the cash above the cash weight is used, in the targets below their weight and most in the furthest below; overweight holdings stay as they are. The plan says when less cash is free than asked, and when no cash is free at all (this note also replaces a misleading "already within the minimum" note in an ordinary rebalance with no cash).

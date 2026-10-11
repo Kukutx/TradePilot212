@@ -32702,10 +32702,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round7 = 0;
+    let round8 = 0;
     while (true) {
-      round7 += 1;
-      if (round7 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round8 += 1;
+      if (round8 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -35412,6 +35412,12 @@ var TradingService = class {
       return void 0;
     }
   }
+  /** The account summary alone: one request, for the scheduler's daily value record. */
+  async accountSummary(environment) {
+    const account = await this.client(environment).getAccountSummary();
+    if (account.currency) this.currencies.set(environment, account.currency);
+    return account;
+  }
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.instruments;
@@ -37790,7 +37796,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.19.0"
+  version: "2.20.0"
 };
 
 // src/core/text-summary.ts
@@ -37909,9 +37915,21 @@ function performance(data) {
     ...data.currentValue === void 0 ? [] : [`Current value ${num2(data.currentValue)}${data.unrealizedProfitLoss === void 0 ? "" : `, unrealized P/L ${signed(data.unrealizedProfitLoss)}`}${data.simpleReturn === void 0 ? "" : `, simple return on net deposits ${signed(data.simpleReturn * 100, 1)}%`}.`],
     ...data.annualizedReturn === void 0 ? [] : [`Annualized return (money-weighted, since ${day(data.annualizedSince)}) ${signed(data.annualizedReturn * 100, 1)}% a year.`],
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num2(data.trades.turnover)}.`,
+    ...valueHistoryLines(data.valueHistory),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
     ...data.notes
+  ];
+}
+function valueHistoryLines(points2) {
+  if (!points2 || points2.length < 2) return [];
+  const first = points2[0];
+  const last = points2[points2.length - 1];
+  const change = last.totalValue - first.totalValue;
+  const low = points2.reduce((min, point) => point.totalValue < min.totalValue ? point : min);
+  const high = points2.reduce((max, point) => point.totalValue > max.totalValue ? point : max);
+  return [
+    `Account value recorded on ${points2.length} day(s): ${num2(first.totalValue)} on ${first.date} to ${num2(last.totalValue)} on ${last.date} (${signed(change)}${first.totalValue ? `, ${signed(change / first.totalValue * 100, 1)}%` : ""}; includes deposits and withdrawals). Low ${num2(low.totalValue)} on ${low.date}, high ${num2(high.totalValue)} on ${high.date}.`
   ];
 }
 function taxYear(data) {
@@ -38295,7 +38313,7 @@ var windowSchema = {
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation: automation2, alerts, targets: targetAllocations, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation2, alerts, targets: targetAllocations, values, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -38395,14 +38413,16 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals). Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
+        const summary = await insights.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages);
+        const points2 = await values.points(environment, { ...summary.period.from ? { from: summary.period.from } : {}, to: summary.period.to }).catch(() => []);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...points2.length >= 2 ? { valueHistory: points2 } : {} };
         return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -39952,6 +39972,53 @@ var ProtectiveLinks = class {
   }
 };
 
+// src/core/value-history.ts
+var HOUR_MS2 = 36e5;
+var KEEP_MS = 6 * 366 * 864e5;
+var monthKey = (environment, date5) => `value-history:${environment}:${date5.slice(0, 7)}`;
+var round7 = (value) => Math.round(value * 100) / 100;
+var ValueHistory = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /** One scheduler tick: about once an hour per environment, record today's value. */
+  async snapshot(now = /* @__PURE__ */ new Date()) {
+    const credentials = credentialStatus(this.deps.config);
+    const recorded = [];
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const slot = await this.deps.store.increment(`value-snapshot:${environment}`, HOUR_MS2, now.getTime());
+      if (slot.count > 1) continue;
+      const account = await this.deps.trading.accountSummary(environment);
+      if (typeof account.totalValue !== "number" || !Number.isFinite(account.totalValue)) continue;
+      const point = {
+        date: now.toISOString().slice(0, 10),
+        totalValue: round7(account.totalValue),
+        ...typeof account.cash?.availableToTrade === "number" ? { cash: round7(account.cash.availableToTrade) } : {},
+        ...typeof account.investments?.currentValue === "number" ? { invested: round7(account.investments.currentValue) } : {},
+        at: now.toISOString()
+      };
+      await this.record(environment, point);
+      recorded.push({ environment, point });
+    }
+    return recorded;
+  }
+  /** Store a point, replacing any earlier one for the same day. */
+  async record(environment, point) {
+    const key = monthKey(environment, point.date);
+    const month = (await this.deps.store.get(key) ?? []).filter((item) => item.date !== point.date);
+    const points2 = [...month, point].sort((a, b) => a.date.localeCompare(b.date));
+    await this.deps.store.put(key, points2, Date.parse(point.at) + KEEP_MS);
+  }
+  /** Recorded days from `from` (a date or time; inclusive) to `to`, oldest first. */
+  async points(environment, range = {}) {
+    const from = range.from?.slice(0, 10);
+    const to = range.to?.slice(0, 10);
+    return (await this.deps.store.list(`value-history:${environment}:`)).flatMap((entry) => entry.value).filter((point) => (!from || point.date >= from) && (!to || point.date <= to)).sort((a, b) => a.date.localeCompare(b.date));
+  }
+};
+
 // src/app/services.ts
 var processSampleBroker;
 function createServices(input2) {
@@ -39970,6 +40037,7 @@ function createServices(input2) {
   const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
+  const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
@@ -39985,6 +40053,7 @@ function createServices(input2) {
   const tick2 = async () => ({
     links: await stage("protective links", () => links.reconcile()),
     orders: await stage("order watch", () => orders.check()),
+    values: await stage("value history", () => values.snapshot()),
     plans: await stage("plans", () => automation2.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     targets: await stage("targets", () => targets.check()),
@@ -40034,7 +40103,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation2, links, orders, alerts, targets, pies: pies2, digest, runScheduled, automationOverview };
+  return { trading, insights, automation: automation2, links, orders, values, alerts, targets, pies: pies2, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

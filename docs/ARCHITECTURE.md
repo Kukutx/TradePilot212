@@ -63,6 +63,7 @@ src/
 │  ├─ rebalance.ts         pure target-weight rebalance planner
 │  ├─ state-store.ts
 │  ├─ trading-service.ts
+│  ├─ value-history.ts     daily account value record for the performance chart
 │  ├─ trading212-client.ts
 │  └─ web-utils.ts
 ├─ shared/
@@ -116,6 +117,8 @@ Owns application rules.
 `TargetAllocations` (`targets.ts`) keeps saved target weights per environment. It runs on the tick after alerts but reads the account at most once an hour per environment, compares weights with the pure `allocationDrift`, and writes an `allocation_drift` event at most once a day while the drift is over its threshold. The same drift is attached to `analyze_portfolio_allocation`. It never writes to the broker.
 
 `OrderWatch` (`order-watch.ts`) runs on the tick right after protective links, at most every 5 minutes per environment. It keeps the open orders from the previous check in the store. For orders that have left the book, it reads the order history once with `recentOrderOutcomes`, which now also returns the average fill price and the filled value, adds up fill rows, and pages by fill time. An order whose history entry is missing or not final yet is kept for up to three checks. Each order then gets one `order_filled`, `order_partly_filled`, `order_closed` or `order_outcome_unknown` event, with the fill facts as fields so the widget can show them. Fill times are also kept under `order-fills:<env>` for the digest. It never writes to the broker. `ORDER_WATCH=false` turns it off.
+
+`ValueHistory` (`value-history.ts`) runs on the tick after the order watch. About once an hour per environment it reads only the account summary (`TradingService.accountSummary`) and upserts the day's point under `value-history:<env>:<YYYY-MM>`. One key per month keeps every stored value well under the Durable Object value limit. `get_portfolio_performance` reads the points in its window with `points()`.
 
 `notify.ts` builds an optional webhook sender from `NOTIFY_WEBHOOK_URL`. `TradingService.recordActivity` passes every event to it; the sender filters by type, signs the body when a secret is set, and swallows delivery errors.
 
