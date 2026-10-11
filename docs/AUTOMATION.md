@@ -138,7 +138,7 @@ The same source supplies exchange rates for currencies none of your holdings is 
 | `alphavantage` | free key | Small daily limit; latest trading day's price. |
 | `none` | | External quotes off. |
 
-US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. Check one with `get_quote` before relying on it. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
+US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. When the provider quotes in a different unit from Trading 212, add a factor: `VUSAl_EQ=VUSA.L*100` turns a price in pounds into pence. Check one with `get_quote` before relying on it: a quote off by a factor of 100 would size an order 100 times too large or too small. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
 
 An external price only sizes an order; the order still goes through the usual review, policy and broker checks, and Live orders still wait for your confirmation.
 

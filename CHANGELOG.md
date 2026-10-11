@@ -30,6 +30,9 @@ Sign-in and hosting
 - The Cloudflare Worker builds the app once per isolate, so instrument, exchange, FX and quote caches survive between requests; the Node server shares one set of services with its scheduler.
 - The local state file is flushed to disk before it replaces the old one, the previous version is kept as `.bak`, and an unreadable file is set aside and the backup loaded instead of stopping every request. A process waiting for the file lock now outlasts a lock left by a crashed process.
 
+Quotes
+- A `QUOTE_SYMBOLS` entry can carry a factor, such as `VUSAl_EQ=VUSA.L*100`, for a provider that quotes in pounds an instrument Trading 212 prices in pence.
+
 Hosts that show text
 - Orders placed by amount in the Trading 212 app show their value instead of "0 shares"; the policy text gives the quantity cap; market hours include the next close.
 - Tool annotations: deleting plans and alerts is marked destructive, and the review tools that read the broker are marked as reaching it.

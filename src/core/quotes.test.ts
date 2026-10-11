@@ -56,6 +56,7 @@ describe("quote providers", () => {
   it("uses an explicit symbol map and reports no data as no price", async () => {
     const provider = createQuoteProvider(createConfig({ QUOTE_SYMBOLS: "VUSAl_EQ=VUSA.UK" }), fakeFetch())!;
     expect(provider.symbolFor(vusa)).toBe("VUSA.UK");
+    expect(() => createConfig({ QUOTE_SYMBOLS: "VUSAl_EQ=VUSA.L*abc" })).toThrow(/factor/);
     expect(await provider.quote(vusa)).toBeUndefined();
   });
 
@@ -104,6 +105,11 @@ describe("exchange rates from the quote provider", () => {
 });
 
 describe("quotes for instruments you do not hold", () => {
+  it("scales a mapped quote into the instrument's unit", async () => {
+    const { trading } = services({ QUOTE_SYMBOLS: "VUSAl_EQ=VUSL.UK*100" });
+    expect(await trading.lookupPrice("demo", "VUSAl_EQ")).toMatchObject({ price: 8000, symbol: "VUSL.UK" });
+  });
+
   it("answers get_quote-style lookups from the provider", async () => {
     const { trading } = services();
     expect(await trading.lookupPrice("demo", "AAPL")).toMatchObject({ price: 250.5, source: "stooq" });
