@@ -140,8 +140,10 @@ export interface AllocationDrift {
   /** One row per target, largest drift first. */
   rows: AllocationDriftRow[];
   cash: { target: number; current: number; drift: number };
-  /** Holdings without a target, with their current weight; they do not count toward maxDrift. */
+  /** Holdings without a target, with their current weight; they count toward maxDrift only with sellUntargeted. */
   untargeted: Array<{ ticker: string; current: number }>;
+  /** A rebalance to these targets sells the holdings without one. */
+  sellUntargeted?: boolean;
   /** When the targets were saved. */
   savedAt: string;
 }

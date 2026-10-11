@@ -68,10 +68,10 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 ### Saved targets and drift notices
 
-`manage_target_allocation` saves target weights for an environment (`set`), shows them with today's drift (`get`) and removes them (`clear`). Weights are shares of total account value; `cashWeight` is the share meant to stay in cash and defaults to whatever the targets leave over. Once targets are saved:
+`manage_target_allocation` saves target weights for an environment (`set`), shows them with today's drift (`get`) and removes them (`clear`). Weights are shares of total account value; `cashWeight` is the share meant to stay in cash and defaults to whatever the targets leave over. `sellUntargeted` says whether a rebalance to these targets sells holdings that have none (default: they are kept, and then they do not count as drift). Once targets are saved:
 
 - `analyze_portfolio_allocation` and the widget's Allocation tab show each target and cash against today's weight, with the drift in percentage points. Holdings without a target are listed but do not count.
-- `plan_portfolio_rebalance` without `targets` uses the saved ones and their cash weight. In the widget, **Rebalance to targets** opens that plan as a basket to review; nothing is sent until you confirm it.
+- `plan_portfolio_rebalance` without `targets` uses the saved ones, their cash weight and their `sellUntargeted` choice. In the widget, **Rebalance to targets** opens that plan as a basket to review; nothing is sent until you confirm it.
 - The scheduler compares the account with the targets about once an hour. While any target or cash is more than `driftThreshold` (default `0.05`, 5 points) away, it writes an `allocation_drift` activity event and sends it to the webhook, at most once a day.
 
 Targets only inform; they never place orders, so they work without order tools.

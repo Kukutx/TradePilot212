@@ -236,6 +236,8 @@ export interface TargetAllocation {
   cashWeight: number;
   /** Drift in weight points (0.05 = 5 points) above which the scheduler notifies. */
   driftThreshold: number;
+  /** Holdings without a target are sold by a rebalance to these targets, and count as drift; kept by default. */
+  sellUntargeted?: boolean;
   updatedAt: string;
   /** When the scheduler last sent a drift notice; at most one a day while the drift lasts. */
   lastNotifiedAt?: string;

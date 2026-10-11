@@ -3,7 +3,7 @@
 ## 2.16.0
 
 Target allocation
-- New `manage_target_allocation` tool saves target weights per environment (with a cash weight and a drift threshold), shows them against today's weights, and clears them. It never places orders and works without order tools.
+- New `manage_target_allocation` tool saves target weights per environment (with a cash weight, a drift threshold and whether a rebalance sells holdings without a target), shows them against today's weights, and clears them. It never places orders and works without order tools.
 - The Allocation tab shows each target and cash as a bar with a target mark and the drift in percentage points, highlighted past the threshold, and lists holdings without a target. `analyze_portfolio_allocation` returns the same as `drift`, with a flag when it is over the threshold.
 - **Rebalance to targets** in the Allocation tab, and `plan_portfolio_rebalance` called without `targets`, plan the trades from the saved targets as a basket you review and confirm.
 - The scheduler compares the account with the targets about once an hour and, while the drift is over the threshold (5 points by default), writes an `allocation_drift` activity event and sends it to the webhook, at most once a day.

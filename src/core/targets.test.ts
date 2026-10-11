@@ -46,6 +46,19 @@ describe("allocation drift", () => {
     expect(driftSummary(drift)).toBe("AAPL_US_EQ is 62.0% against a 50.0% target (+12.0 points); notices start above 5.0 points.");
   });
 
+  it("counts holdings without a target only when the targets sell them", () => {
+    const holdings = [
+      { ticker: "AAPL_US_EQ", name: "Apple", currency: "USD", value: 1, weight: 0.45 },
+      { ticker: "VUSAl_EQ", name: "S&P 500", currency: "GBX", value: 1, weight: 0.33 },
+      { ticker: "KO_US_EQ", name: "Coca-Cola", currency: "USD", value: 1, weight: 0.2 },
+    ];
+    // Kept: the largest drift is cash, 8 points under its target.
+    expect(allocationDrift(saved(), { cashWeight: 0.02, holdings })).toMatchObject({ maxDrift: 0.08, over: true });
+    // Sold: Coca-Cola's 20% is all drift.
+    expect(allocationDrift(saved({ sellUntargeted: true, driftThreshold: 0.1 }), { cashWeight: 0.02, holdings })).toMatchObject({ sellUntargeted: true, maxDrift: 0.2, over: true });
+    expect(allocationDrift(saved({ driftThreshold: 0.1 }), { cashWeight: 0.02, holdings }).over).toBe(false);
+  });
+
   it("counts a target that is not held as fully under weight", () => {
     const drift = allocationDrift(saved({ driftThreshold: 0.5 }), { cashWeight: 0.1, holdings: [{ ticker: "AAPL_US_EQ", name: "Apple", currency: "USD", value: 1, weight: 0.9 }] });
     expect(drift.rows.find((row) => row.ticker === "VUSAl_EQ")).toEqual({ ticker: "VUSAl_EQ", target: 0.4, current: 0, drift: -0.4 });
@@ -63,6 +76,12 @@ describe("saved targets", () => {
     await expect(services.targets.set("demo", { targets: [{ instrument: "AAPL", weight: 0.3 }, { instrument: "AAPL_US_EQ", weight: 0.2 }] })).rejects.toThrow(/named more than once/);
     await expect(services.targets.set("demo", { targets: [{ instrument: "AAPL", weight: 0.8 }], cashWeight: 0.3 })).rejects.toThrow(/more than 100%/);
     await expect(services.targets.set("live", { targets: [{ instrument: "AAPL", weight: 0.8 }] })).rejects.toThrow(/LIVE credentials/);
+    // Rounded to 0.5001 and 0.5 when stored, which the rebalance planner would refuse.
+    await expect(services.targets.set("demo", { targets: [{ instrument: "AAPL", weight: 0.50005 }, { instrument: "KO_US_EQ", weight: 0.5 }] })).rejects.toThrow(/more than 100%/);
+    await expect(services.targets.set("demo", { targets: [{ instrument: "AAPL", weight: 0.00001 }] })).rejects.toThrow(/at least 0.0001/);
+    const thirds = await services.targets.set("demo", { targets: ["AAPL", "KO_US_EQ", "MSFT_US_EQ"].map((instrument) => ({ instrument, weight: 1 / 3 })) });
+    expect(thirds.cashWeight).toBe(0.0001);
+    await expect(services.trading.planRebalance("demo", thirds.targets, { cashWeight: thirds.cashWeight })).resolves.toBeDefined();
     expect(await services.targets.clear("demo")).toBe(true);
     expect(await services.targets.get("demo")).toBeUndefined();
   });

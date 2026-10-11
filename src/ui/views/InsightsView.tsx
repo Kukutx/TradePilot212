@@ -105,7 +105,7 @@ function DriftPanel({ drift, book, locale, t, onRebalance, busy }: {
         })}
       </ul>
       {drift.untargeted.length > 0 && (
-        <p className="panelNote">{fill(t("driftUntargeted"), { list: drift.untargeted.map((item) => `${instrumentLabel(item.ticker, book).name} ${pct(item.current, locale)}`).join(locale === "zh-CN" ? "、" : ", ") })}</p>
+        <p className="panelNote">{fill(t(drift.sellUntargeted ? "driftUntargetedSold" : "driftUntargeted"), { list: drift.untargeted.map((item) => `${instrumentLabel(item.ticker, book).name} ${pct(item.current, locale)}`).join(locale === "zh-CN" ? "、" : ", ") })}</p>
       )}
     </section>
   );

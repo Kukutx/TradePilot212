@@ -581,7 +581,7 @@ export function createMcpServer(
         })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
         cashWeight: z.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
-        sellUntargeted: z.boolean().default(false).describe("Sell holdings that have no target"),
+        sellUntargeted: z.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used"),
         wholeSharesOnly: z.boolean().default(false),
         fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency"),
       }),
@@ -593,7 +593,8 @@ export function createMcpServer(
         const saved = targets ? undefined : await targetAllocations.get(environment);
         if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
         const plan = await trading.planRebalance(environment, targets ?? saved!.targets, {
-          cashWeight: cashWeight ?? saved?.cashWeight ?? 0, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}),
+          cashWeight: cashWeight ?? saved?.cashWeight ?? 0, minTradeValue, sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
+          quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}),
         });
         const data = { ...(await trading.withInstruments(trading.rebalanceBasket(plan))), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
         return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
@@ -738,11 +739,12 @@ export function createMcpServer(
         targets: z.array(z.object({ instrument: z.string().min(1).describe("Trading 212 ticker, symbol or name"), weight: z.number().gt(0).max(1) })).min(1).max(MAX_BASKET_LEGS).optional().describe("Required for set; replaces the saved targets"),
         cashWeight: z.number().min(0).max(1).optional(),
         driftThreshold: z.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points"),
+        sellUntargeted: z.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       _meta: {},
     },
-    async ({ action, environment, targets, cashWeight, driftThreshold }) => {
+    async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
       try {
         if (action === "clear") {
           const existed = await targetAllocations.clear(environment);
@@ -750,13 +752,24 @@ export function createMcpServer(
         }
         if (action === "set") {
           if (!targets) return toolError(new Error("targets are required to save a target allocation"));
-          await targetAllocations.set(environment, { targets, ...(cashWeight === undefined ? {} : { cashWeight }), ...(driftThreshold === undefined ? {} : { driftThreshold }) });
+          await targetAllocations.set(environment, {
+            targets, ...(cashWeight === undefined ? {} : { cashWeight }), ...(driftThreshold === undefined ? {} : { driftThreshold }), ...(sellUntargeted === undefined ? {} : { sellUntargeted }),
+          });
         }
         const saved = await targetAllocations.get(environment);
         if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
-        const analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
+        const webhookHint = config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
+        // The targets are saved by now; a failed account read only leaves out today's drift.
+        let analysis: Awaited<ReturnType<typeof targetAllocations.withDrift>>;
+        try {
+          analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
+        }
         const data = { kind: "target_allocation", environment, targets: saved, ...(analysis.drift ? { drift: analysis.drift } : {}), accountCurrency: analysis.accountCurrency };
-        return result(data, `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat."}`);
+        return result(data, `${lead}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${webhookHint}`);
       } catch (error) {
         return toolError(error);
       }

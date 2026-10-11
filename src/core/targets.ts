@@ -22,6 +22,7 @@ export interface TargetInput {
   targets: Array<{ instrument: string; weight: number }>;
   cashWeight?: number;
   driftThreshold?: number;
+  sellUntargeted?: boolean;
 }
 
 /** Current weights against the saved targets. Drift is in weight points of total account value. */
@@ -35,14 +36,17 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
     .sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const targeted = new Set(saved.targets.map((target) => target.ticker));
   const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
-  const maxDrift = Math.max(Math.abs(cash.drift), ...rows.map((row) => Math.abs(row.drift)));
+  const untargeted = analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) }));
+  // Holdings without a target only count when the targets say to sell them; otherwise they are kept as they are.
+  const maxDrift = Math.max(Math.abs(cash.drift), ...rows.map((row) => Math.abs(row.drift)), ...(saved.sellUntargeted ? untargeted.map((item) => item.current) : []));
   return {
     threshold: saved.driftThreshold,
     maxDrift: exact(maxDrift),
     over: maxDrift > saved.driftThreshold + 1e-9,
     rows,
     cash,
-    untargeted: analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) })),
+    untargeted,
+    ...(saved.sellUntargeted ? { sellUntargeted: true } : {}),
     savedAt: saved.updatedAt,
   };
 }
@@ -78,15 +82,18 @@ export class TargetAllocations {
       if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
       const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
       if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
-      targets.push({ ticker, weight: share(target.weight) });
+      const weight = share(target.weight);
+      if (!(weight > 0)) fail("INVALID_INPUT", "Each target weight must be at least 0.0001 (0.01%)", { field: "weight", instrument: target.instrument });
+      targets.push({ ticker, weight });
     }
-    const invested = targets.reduce((sum, target) => sum + target.weight, 0);
+    // The checks use the rounded weights that are stored, with the same tolerance as the rebalance planner.
+    const invested = share(targets.reduce((sum, target) => sum + target.weight, 0));
     // Without a cash weight, whatever the targets leave over is meant to stay in cash.
     const cashWeight = share(input.cashWeight ?? Math.max(0, 1 - invested));
-    if (invested + cashWeight > 1.0001) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(1)}%) and cash (${(cashWeight * 100).toFixed(1)}%) add up to more than 100%`, { field: "targets" });
+    if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved: TargetAllocation = { environment, targets, cashWeight, driftThreshold, updatedAt: now.toISOString() };
+    const saved: TargetAllocation = { environment, targets, cashWeight, driftThreshold, ...(input.sellUntargeted ? { sellUntargeted: true } : {}), updatedAt: now.toISOString() };
     await this.deps.store.put(targetKey(environment), saved);
     return saved;
   }

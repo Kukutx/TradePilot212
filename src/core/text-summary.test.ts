@@ -62,7 +62,7 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toMatch(/Against targets \(largest drift [\d.]+ points; notices above 5 points\):/);
     expect(text).toMatch(/- AAPL_US_EQ: [\d.]+% now, target 50%, [+-][\d.]+ pts/);
     expect(text).toMatch(/- Cash: [\d.]+% now, target 10%/);
-    expect(text).toMatch(/No target: .*MSFT_US_EQ/);
+    expect(text).toMatch(/No target \(kept by a rebalance\): .*MSFT_US_EQ/);
     expect(text).toMatch(/- AAPL_US_EQ is [\d.]+% against a 50.0% target/);
   });
 

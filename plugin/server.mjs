@@ -37709,13 +37709,13 @@ function driftLines(drift) {
   return section(`Against targets (largest drift ${num2(drift.maxDrift * 100, 1)} points; notices above ${num2(drift.threshold * 100, 1)} points)`, [
     ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
-    ...drift.untargeted.length ? [`- No target: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []
+    ...drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []
   ]);
 }
 function targetAllocation(data) {
   if (!data.targets) return [data.cleared === void 0 ? `No ${env(data.environment)} targets are saved.` : data.cleared ? `${env(data.environment)} targets cleared.` : `No ${env(data.environment)} targets were saved.`];
   return [
-    `${env(data.environment)} targets saved ${minute(data.targets.updatedAt)}: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}; cash ${pct(data.targets.cashWeight)}.`,
+    `${env(data.environment)} targets saved ${minute(data.targets.updatedAt)}: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}; cash ${pct(data.targets.cashWeight)}; holdings without a target are ${data.targets.sellUntargeted ? "sold" : "kept"} by a rebalance.`,
     ...data.drift ? driftLines(data.drift) : []
   ];
 }
@@ -38545,7 +38545,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
         cashWeight: external_exports.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
-        sellUntargeted: external_exports.boolean().default(false).describe("Sell holdings that have no target"),
+        sellUntargeted: external_exports.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used"),
         wholeSharesOnly: external_exports.boolean().default(false),
         fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency`)
       }),
@@ -38559,7 +38559,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         const plan = await trading.planRebalance(environment, targets ?? saved.targets, {
           cashWeight: cashWeight ?? saved?.cashWeight ?? 0,
           minTradeValue,
-          sellUntargeted,
+          sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
           quantityDecimals: wholeSharesOnly ? 0 : 4,
           ...fxRates ? { fxRates } : {}
         });
@@ -38693,12 +38693,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({ instrument: external_exports.string().min(1).describe("Trading 212 ticker, symbol or name"), weight: external_exports.number().gt(0).max(1) })).min(1).max(MAX_BASKET_LEGS).optional().describe("Required for set; replaces the saved targets"),
         cashWeight: external_exports.number().min(0).max(1).optional(),
-        driftThreshold: external_exports.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points")
+        driftThreshold: external_exports.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points"),
+        sellUntargeted: external_exports.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)")
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       _meta: {}
     },
-    async ({ action, environment, targets, cashWeight, driftThreshold }) => {
+    async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
       try {
         if (action === "clear") {
           const existed = await targetAllocations.clear(environment);
@@ -38706,13 +38707,26 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         }
         if (action === "set") {
           if (!targets) return toolError(new Error("targets are required to save a target allocation"));
-          await targetAllocations.set(environment, { targets, ...cashWeight === void 0 ? {} : { cashWeight }, ...driftThreshold === void 0 ? {} : { driftThreshold } });
+          await targetAllocations.set(environment, {
+            targets,
+            ...cashWeight === void 0 ? {} : { cashWeight },
+            ...driftThreshold === void 0 ? {} : { driftThreshold },
+            ...sellUntargeted === void 0 ? {} : { sellUntargeted }
+          });
         }
         const saved = await targetAllocations.get(environment);
         if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
-        const analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
+        const webhookHint = config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
+        let analysis;
+        try {
+          analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        } catch (error62) {
+          const reason = error62 instanceof Error ? error62.message : String(error62);
+          return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
+        }
         const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency };
-        return result(data, `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat."}`);
+        return result(data, `${lead}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${webhookHint}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -39626,14 +39640,16 @@ function allocationDrift(saved, analysis) {
   }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const targeted = new Set(saved.targets.map((target) => target.ticker));
   const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
-  const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)));
+  const untargeted = analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) }));
+  const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)), ...saved.sellUntargeted ? untargeted.map((item) => item.current) : []);
   return {
     threshold: saved.driftThreshold,
     maxDrift: exact(maxDrift),
     over: maxDrift > saved.driftThreshold + 1e-9,
     rows: rows2,
     cash,
-    untargeted: analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) })),
+    untargeted,
+    ...saved.sellUntargeted ? { sellUntargeted: true } : {},
     savedAt: saved.updatedAt
   };
 }
@@ -39660,14 +39676,16 @@ var TargetAllocations = class {
       if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
       const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
       if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
-      targets.push({ ticker, weight: share2(target.weight) });
+      const weight2 = share2(target.weight);
+      if (!(weight2 > 0)) fail("INVALID_INPUT", "Each target weight must be at least 0.0001 (0.01%)", { field: "weight", instrument: target.instrument });
+      targets.push({ ticker, weight: weight2 });
     }
-    const invested = targets.reduce((sum, target) => sum + target.weight, 0);
+    const invested = share2(targets.reduce((sum, target) => sum + target.weight, 0));
     const cashWeight = share2(input2.cashWeight ?? Math.max(0, 1 - invested));
-    if (invested + cashWeight > 1.0001) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(1)}%) and cash (${(cashWeight * 100).toFixed(1)}%) add up to more than 100%`, { field: "targets" });
+    if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved = { environment, targets, cashWeight, driftThreshold, updatedAt: now.toISOString() };
+    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString() };
     await this.deps.store.put(targetKey(environment), saved);
     return saved;
   }
