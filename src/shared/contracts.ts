@@ -1,3 +1,5 @@
+import type { PolicyCheck } from "./automation.js";
+
 export type TradingEnvironment = "demo" | "live";
 export type OrderSide = "buy" | "sell";
 export type OrderType = "market" | "limit" | "stop" | "stop_limit";
@@ -20,6 +22,8 @@ export type TradePilotErrorCode =
   | "UNSUPPORTED_EXTENDED_HOURS"
   | "CONFIRMATION_EXPIRED"
   | "VERIFICATION_NOT_FOUND"
+  | "POLICY_BLOCKED"
+  | "PLAN_NOT_FOUND"
   | "BROKER_RATE_LIMITED"
   | "BROKER_REQUEST_FAILED"
   | "EXECUTION_STATUS_UNKNOWN"
@@ -108,7 +112,12 @@ export type ActivityType =
   | "cancel_prepared"
   | "cancel_submitted"
   | "cancel_rejected"
-  | "cancel_status_unknown";
+  | "cancel_status_unknown"
+  | "basket_prepared"
+  | "basket_submitted"
+  | "plan_due"
+  | "plan_auto_executed"
+  | "plan_skipped";
 
 export interface ActivityEvent {
   id: string;
@@ -121,6 +130,8 @@ export interface ActivityEvent {
   orderType?: OrderType;
   quantity?: number;
   outcome?: string;
+  planId?: string;
+  legs?: number;
 }
 
 export interface PortfolioSnapshot {
@@ -274,6 +285,8 @@ export interface OrderPreview {
   availableCash?: number;
   availableToSell?: number;
   notices: OrderNotice[];
+  /** Policy rules evaluated for this order; blocked orders never get a token. */
+  policy?: PolicyCheck[];
   warnings?: string[];
 }
 

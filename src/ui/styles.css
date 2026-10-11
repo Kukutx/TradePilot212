@@ -521,3 +521,80 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .column:last-child .columnLabel, .column:first-child .columnLabel { display: block; }
 }
 .panelTitle { margin: 0 0 8px; font-size: 15px; font-weight: 730; letter-spacing: -.02em; }
+
+/* ---- Policy checks (single orders and baskets) ---- */
+.policyBlock { display: grid; gap: 6px; margin-top: 12px; }
+.policyTitle { display: block; color: var(--tp-muted); font-size: 9px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.policyList { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.policyCheck { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 7px 9px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); font-size: 10px; line-height: 1.4; }
+.policyGlyph { width: 17px; height: 17px; flex: 0 0 auto; display: inline-grid; place-items: center; border-radius: 50%; background: var(--tp-muted); color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }
+.policyCopy { display: grid; gap: 2px; min-width: 0; }
+.policyCopy strong { font-weight: 720; }
+.policyCopy span { color: var(--tp-muted); overflow-wrap: anywhere; }
+.policyCheck.pass .policyGlyph { background: var(--tp-green); }
+.policyCheck.warn { background: var(--tp-amber-soft); border-color: color-mix(in srgb, var(--tp-amber) 22%, transparent); color: #79500e; }
+.policyCheck.warn .policyGlyph { background: var(--tp-amber); }
+.policyCheck.block { background: var(--tp-red-soft); border-color: color-mix(in srgb, var(--tp-red) 25%, transparent); color: var(--tp-red); }
+.policyCheck.block .policyGlyph { background: var(--tp-red); }
+.policyCheck.skip .policyGlyph { background: var(--tp-border-strong); color: var(--tp-text); }
+.policyPassed > summary { display: inline-flex; align-items: center; gap: 7px; width: fit-content; min-height: 28px; color: var(--tp-muted); font-size: 10px; font-weight: 680; cursor: pointer; }
+.policyPassed > summary .policyGlyph { background: var(--tp-green); }
+.policyPassed[open] > summary { margin-bottom: 5px; }
+
+/* ---- Order baskets ---- */
+.purposeTag { display: inline-flex; align-items: center; min-height: 22px; margin-left: 6px; padding: 0 7px; border-radius: 7px; background: var(--tp-blue-soft); color: var(--tp-blue); font-size: 9px; font-weight: 760; }
+.basketPanel .confirmationHero { padding-bottom: 12px; }
+.basketCount { font-size: 28px; }
+.basketSubtitle { margin-top: 4px; color: var(--tp-muted); font-size: 11px; overflow-wrap: anywhere; }
+.basketLiveNotice { margin: 0 0 10px; }
+.basketLegList { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.basketLeg { min-width: 0; padding: 12px 13px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg); }
+.basketLegTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.basketLegHeading { display: flex; align-items: center; gap: 9px; flex: 1 1 auto; min-width: 0; }
+.basketLegHeading > div { flex: 1 1 auto; min-width: 0; }
+.basketLegHeading strong, .basketLegHeading small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.basketLegHeading strong { font-size: 12px; }
+.basketLegHeading small { margin-top: 2px; color: var(--tp-muted); font-size: 9px; }
+.sideBadge { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 760; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sideBadge.buy { background: var(--tp-green-soft); color: var(--tp-green); }
+.sideBadge.sell { background: var(--tp-red-soft); color: var(--tp-red); }
+.removeLegButton { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--tp-border); border-radius: 10px; background: transparent; color: var(--tp-muted); }
+.removeLegButton:hover { background: var(--tp-red-soft); color: var(--tp-red); }
+.removeLegButton .icon { width: 14px; height: 14px; }
+.basketFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 11px 0 0; }
+.basketFacts > div { min-width: 0; }
+.basketFacts > div.wide { grid-column: 1 / -1; }
+.basketFacts dt { color: var(--tp-muted); font-size: 9px; margin-bottom: 3px; }
+.basketFacts dd { margin: 0; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mutedInline { color: var(--tp-muted); font-weight: 500; }
+.rebalanceSummary { display: grid; gap: 7px; margin-bottom: 14px; }
+.basketNotes { display: grid; gap: 5px; margin-top: 12px; }
+.basketNotes ul { margin: 0; padding-left: 16px; color: var(--tp-muted); font-size: 10px; line-height: 1.5; }
+.basketNotes li { overflow-wrap: anywhere; }
+.basketNotes li strong { color: var(--tp-text); }
+.basketHint { margin: 12px 0 0; color: var(--tp-muted); font-size: 10px; line-height: 1.45; }
+.resultBadge { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 10px; font-weight: 760; white-space: nowrap; }
+.resultBadge.submitted { background: var(--tp-green-soft); color: var(--tp-green); }
+.resultBadge.rejected { background: var(--tp-red-soft); color: var(--tp-red); }
+.resultBadge.unknown { background: var(--tp-amber-soft); color: #79500e; }
+.resultLeg.unknown { border-color: color-mix(in srgb, var(--tp-amber) 30%, var(--tp-border)); }
+.resultLeg.rejected { border-color: color-mix(in srgb, var(--tp-red) 25%, var(--tp-border)); }
+.resultMessage { margin: 8px 0 0; color: var(--tp-muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.resultMessage.verificationResult { color: var(--tp-text); }
+.verificationLine { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--tp-muted); font-size: 9px; }
+.verificationLine code { font-size: 9px; overflow-wrap: anywhere; word-break: break-all; }
+
+@container (max-width: 640px) {
+  .basketLeg { padding: 11px; }
+  .removeLegButton { width: 44px; height: 44px; }
+  .verificationLine .secondaryButton { width: 100%; }
+}
+
+@container (max-width: 420px) {
+  .basketFacts { grid-template-columns: minmax(0, 1fr); }
+  .basketLegTop { flex-wrap: wrap; }
+  .basketLegHeading { flex-wrap: wrap; }
+  .basketLegHeading > div { flex-basis: calc(100% - 41px); }
+  .sideBadge, .resultBadge { margin-left: 41px; }
+  .basketCount { font-size: 24px; }
+}

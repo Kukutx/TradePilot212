@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6.0
+
+- Added a policy engine (`POLICY_*`, binding Live by default). It covers a position-weight cap, daily order and value budgets, allowed and blocked tickers, allowed instrument types, blocking Market orders while closed, and reference-price age. Rules run at review and again before each write, and the confirmation screen lists every result. `get_trading_policy` shows the rules and today's usage.
+- Added order baskets: up to 20 orders validated against one snapshot, sells first, confirmed once, and sent one by one. An uncertain result stops the remaining orders.
+- Added `plan_portfolio_rebalance`, which computes the trades toward target weights from broker prices and available cash, with a cash reserve, minimum trade value, whole-share option and explicit FX rates.
+- Added `review_protective_orders` for broker-native Good-Till-Cancel stop-loss and take-profit sells.
+- Added weekly and monthly investment plans (`manage_investment_plans`, `list_investment_plans`, `review_investment_plan`). Due plans are announced and opened as a basket for confirmation. With `AUTOMATION_DEMO_ENABLED=true`, Demo plans marked `autoExecute` run unattended. Live plans never do.
+- Added a 15-minute Cron Trigger on Cloudflare and a scheduler interval in the Node and stdio servers.
+- Added a `rebalance` skill, and a plugin option for unattended Demo plans.
+- Rewrote `docs/AUTOMATION.md` around automation levels L0–L3.
+
 ## 2.5.0
 
 - Added read-only analytics tools backed by Trading 212 history: `analyze_portfolio_allocation`, `get_portfolio_performance`, `get_income_summary`, `get_trade_history`, `get_market_hours`, and `manage_history_export`. See `docs/ANALYTICS.md`.

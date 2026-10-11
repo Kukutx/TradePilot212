@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { createApp } from "../../app/create-app.js";
+import { createServices } from "../../app/services.js";
 import { createConfig, type RuntimeEnv } from "../../core/config.js";
 import type { StateStore } from "../../core/state-store.js";
 import type { InstrumentCache } from "../../core/trading-service.js";
@@ -23,4 +24,16 @@ class DurableStateStore implements StateStore {
   constructor(private readonly stub: DurableObjectStub<TradePilotState>) {}
   put<T>(k:string,v:T,e?:number){return this.stub.put(k,v,e)} get<T>(k:string){return this.stub.get(k) as Promise<T|undefined>} consume<T>(k:string){return this.stub.consume(k) as Promise<T|undefined>} delete(k:string){return this.stub.delete(k)} list<T>(p:string){return this.stub.list(p) as Promise<Array<{key:string;value:T}>>} increment(k:string,w:number,n=Date.now()){return this.stub.increment(k,w,n)}
 }
-export default { async fetch(request: Request, env: WorkerEnv): Promise<Response> { const origin = new URL(request.url).origin, config = createConfig(env,origin), store = new DurableStateStore(env.TRADEPILOT_STATE.getByName("global")); const app = createApp({config,store,instrumentCache,widgetHtml:async()=>{const response=await env.ASSETS.fetch(new Request(`${origin}/index.html`)); if(!response.ok) throw new Error("Widget asset unavailable"); return response.text();}}); return app.fetch(request,env); } } satisfies ExportedHandler<WorkerEnv>;
+export default {
+  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+    const origin = new URL(request.url).origin, config = createConfig(env, origin), store = new DurableStateStore(env.TRADEPILOT_STATE.getByName("global"));
+    const app = createApp({ config, store, instrumentCache, widgetHtml: async () => { const response = await env.ASSETS.fetch(new Request(`${origin}/index.html`)); if (!response.ok) throw new Error("Widget asset unavailable"); return response.text(); } });
+    return app.fetch(request, env);
+  },
+  // Cron Trigger (wrangler.jsonc): announce due plans and, when enabled, run Demo autoExecute plans.
+  async scheduled(_controller: ScheduledController, env: WorkerEnv): Promise<void> {
+    const config = createConfig(env), store = new DurableStateStore(env.TRADEPILOT_STATE.getByName("global"));
+    const reports = await createServices({ config, store, instrumentCache }).automation.runDuePlans();
+    if (reports.length) console.log(JSON.stringify({ message: "TradePilot plan tick", reports: reports.map(({ result: _result, ...report }) => report) }));
+  },
+} satisfies ExportedHandler<WorkerEnv>;

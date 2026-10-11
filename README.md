@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md) · English
 
-TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT or Claude, adds deterministic performance, income, cost and allocation analytics, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
+TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT or Claude. It adds deterministic performance, income, cost and allocation analytics, rebalancing, protective orders and investment plans, all behind a configurable policy engine. It provides a compact portfolio and trade-plan UI. Every Live broker write still needs an explicit confirmation.
 
 Each deployment belongs to one user. Your Trading 212 credentials stay in your own environment; the repository owner does not run a shared brokerage backend.
 
@@ -20,6 +20,11 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
 - performance, dividend/interest income, trading costs, trade history, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - market-hours awareness, including a warning when a Market order would queue until the next open
+- a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
+- order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
+- target-weight rebalancing that sizes the trades from broker prices and available cash
+- broker-native stop-loss and take-profit orders (Good-Till-Cancel)
+- weekly or monthly investment plans that wait for your confirmation when due; Demo plans can optionally run unattended
 - a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
@@ -188,13 +193,16 @@ If a write times out or returns an ambiguous server error, TradePilot does **not
 
 See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 
-## Scheduling and market research
+## Automation levels
 
-TradePilot intentionally does not contain a stock-research scheduler, news crawler, or autonomous trading loop.
+| Level | What it does | Confirmation |
+|---|---|---|
+| L0 | Scheduled read-only briefs and analytics | none needed |
+| L1 | Broker-native stop-loss / take-profit orders | once, when placed |
+| L2 | Investment plans: due runs are announced and opened as a basket | once per run |
+| L3 | Unattended runs of due plans | **Demo only**, opt-in with `AUTOMATION_DEMO_ENABLED=true` |
 
-A scheduled ChatGPT task can perform market research, read the portfolio through TradePilot, and render a trade plan. Execution remains a separate interactive action.
-
-See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
+Live never runs unattended; that is enforced in code, not configuration. Research and news stay in a scheduled ChatGPT or Claude task. See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
 
 ## Configuration
 
@@ -210,6 +218,18 @@ CONFIRMATION_TTL_SECONDS=90
 `DEFAULT_TRADING_ENV` applies only when a request does not explicitly select Demo or Live.
 
 Set `MAX_ORDER_NOTIONAL=0` or `MAX_ORDER_QUANTITY=0` to disable the corresponding TradePilot application-level cap. Trading 212 account/instrument rules and explicit confirmation still apply.
+
+Policy rules (`POLICY_*`) bind Live by default. A typical Live setup:
+
+```env
+POLICY_MAX_POSITION_WEIGHT=0.2
+POLICY_DAILY_ORDER_LIMIT=10
+POLICY_DAILY_NOTIONAL_LIMIT=3000
+POLICY_ALLOWED_TYPES=ETF,STOCK
+POLICY_MARKET_ORDERS_WHEN_CLOSED=false
+```
+
+All policy variables are described in [docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine).
 
 ## Local development
 
@@ -265,12 +285,12 @@ ChatGPT / MCP host
   Hono + OAuth/PKCE
         │
         ▼
- TradingService ───── Trading212Client
-        │                   │
-        │                   ▼
-        │              Trading 212
+ TradingService ─┬─ Trading212Client ── Trading 212
+ InsightsService ┤        ▲
+ AutomationService ─ policy · rebalance (pure)
+        │
         ▼
-    StateStore
+    StateStore            ← Cron Trigger / interval: due plans
      ├─ file-backed state (Node)
      └─ Durable Object / SQLite (Workers)
 
@@ -297,7 +317,9 @@ See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 - `.env.local`, `.dev.vars`, `.data`, build output, and Wrangler state are excluded from Git.
 - Trading 212 API credentials are deployed as Worker Secrets, not source configuration.
 - Demo and Live credentials are separate.
-- order and cancellation confirmations are short-lived and one-time.
+- order, basket and cancellation confirmations are short-lived and one-time.
+- the policy engine runs at review and again at execution; a blocked order never receives a token.
+- Live investment plans cannot be set to run unattended.
 - write requests are never automatically retried after an ambiguous response.
 - order constraints are revalidated immediately before submission.
 - recent activity stores order metadata only; it does not store API credentials.

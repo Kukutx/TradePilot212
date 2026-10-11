@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, OrderDraft } from "../shared/contracts.js";
-import type { RuntimeConfig } from "./config.js";
+import { createConfig, type RuntimeConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 import { resolveInstrumentFromList, TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
 
@@ -87,6 +87,8 @@ function config(): RuntimeConfig {
     maxOrderNotional: 5000,
     maxOrderQuantity: 100000,
     defaultTradingEnvironment: "demo",
+    policy: createConfig({}).policy,
+    demoAutomationEnabled: false,
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },

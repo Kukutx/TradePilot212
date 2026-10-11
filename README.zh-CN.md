@@ -2,7 +2,7 @@
 
 简体中文 · [English](./README.md)
 
-TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT 或 Claude，提供确定性的收益、分红、费用和仓位配置分析，以及简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
+TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT 或 Claude，提供确定性的收益、分红、费用和仓位配置分析，以及再平衡、保护性止损止盈和定投计划，所有下单都经过可配置的规则引擎。它还提供简洁的持仓与交易计划界面。Live 账户的每一次券商写操作仍然需要你明确确认。
 
 每个部署实例只属于一个用户。Trading 212 凭据保存在用户自己的环境里，仓库维护者不提供共享券商后端，也不接触其他用户的 API 密钥。
 
@@ -20,6 +20,11 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
 - 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录以及仓位集中度（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
 - 交易时段感知：休市时下市价单会提示订单将排队到下次开盘
+- 规则引擎：单一持仓占比上限、每日下单笔数和金额预算、标的和品种白名单/黑名单、休市禁止市价单、参考价时效（[docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)）
+- 组合篮子：最多 20 笔订单一起校验、一次确认，先卖后买，遇到结果不确定的订单就停止发送剩余订单
+- 按目标权重再平衡：根据券商价格和可用现金算出买卖数量
+- 券商原生止损和止盈单（GTC，长期有效）
+- 每周或每月定投计划：到期后等你确认；Demo 计划可以选择无人值守自动执行
 - Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
@@ -188,13 +193,16 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
 
 具体规则见 [docs/ORDERING.md](./docs/ORDERING.md)。
 
-## 定时分析与市场研究
+## 自动化级别
 
-TradePilot 本身不实现选股定时器、新闻爬虫或自动交易循环。
+| 级别 | 内容 | 需要确认 |
+|---|---|---|
+| L0 | 定时只读简报和分析 | 不需要 |
+| L1 | 券商原生止损/止盈单 | 下单时确认一次 |
+| L2 | 定投计划：到期时提醒，并打开为待确认的篮子 | 每次执行确认一次 |
+| L3 | 到期计划无人值守执行 | **仅限 Demo**，需设置 `AUTOMATION_DEMO_ENABLED=true` |
 
-定时 ChatGPT 任务可以负责市场研究、读取 TradePilot 持仓并生成交易计划；真实执行继续保持为独立的交互操作。
-
-详见 [docs/AUTOMATION.md](./docs/AUTOMATION.md)。
+Live 账户永远不会无人值守下单，这一点写在代码里，不能通过配置打开。市场研究和新闻仍由定时的 ChatGPT 或 Claude 任务完成。详见 [docs/AUTOMATION.md](./docs/AUTOMATION.md)。
 
 ## 常用配置
 
@@ -208,6 +216,18 @@ CONFIRMATION_TTL_SECONDS=90
 `DEFAULT_TRADING_ENV` 只在用户没有明确指定 Demo / Live 时生效。
 
 把 `MAX_ORDER_NOTIONAL=0` 或 `MAX_ORDER_QUANTITY=0` 可以关闭对应的 TradePilot 应用层限制。Trading 212 自身的账户/标的限制以及最终人工确认仍然保留。
+
+规则引擎（`POLICY_*`）默认只约束 Live。一个常见的 Live 配置：
+
+```env
+POLICY_MAX_POSITION_WEIGHT=0.2
+POLICY_DAILY_ORDER_LIMIT=10
+POLICY_DAILY_NOTIONAL_LIMIT=3000
+POLICY_ALLOWED_TYPES=ETF,STOCK
+POLICY_MARKET_ORDERS_WHEN_CLOSED=false
+```
+
+全部规则变量见 [docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)。
 
 ## 本地开发
 
@@ -295,7 +315,9 @@ React App UI ← MCP App Resource
 - `.env.local`、`.dev.vars`、`.data`、构建目录和 Wrangler 本地状态均不会提交到 Git。
 - Trading 212 API 凭据通过 Worker Secrets 部署，不进入源码配置。
 - Demo / Live 凭据完全独立。
-- 下单和撤单确认短期有效且只能使用一次。
+- 下单、篮子和撤单确认短期有效且只能使用一次。
+- 规则引擎在审查时和执行前各检查一次；被规则拦下的订单拿不到确认令牌。
+- Live 定投计划不能设置为无人值守执行。
 - 写请求出现不确定结果时不会自动重试。
 - 真正提交前会再次检查订单约束。
 - 最近操作记录只保存订单元数据，不保存 API 凭据。

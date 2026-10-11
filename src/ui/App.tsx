@@ -18,6 +18,7 @@ import type {
   TradePlanPayload,
   TradingEnvironment,
 } from "../shared/contracts";
+import type { BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type SupportedLocale } from "./i18n";
 import { Icon } from "./components/common";
@@ -27,6 +28,7 @@ import { PortfolioView } from "./views/PortfolioView";
 import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
+import { BasketView, type BasketDraftView } from "./views/BasketView";
 
 type BasePayload =
   | DashboardPayload
@@ -40,6 +42,7 @@ type BasePayload =
       resolution?: OrderResolution;
     }
   | InsightPayload
+  | BasketDraftView
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
@@ -146,6 +149,10 @@ export default function App() {
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
   const [execution, setExecution] = useState<OrderExecutionResult | null>(null);
   const [verification, setVerification] = useState<ExecutionVerificationResult | null>(null);
+  const [basketLegs, setBasketLegs] = useState<BasketLeg[]>([]);
+  const [basketPreview, setBasketPreview] = useState<BasketPreview | null>(null);
+  const [basketResult, setBasketResult] = useState<BasketExecutionResult | null>(null);
+  const [basketVerifications, setBasketVerifications] = useState<Record<string, ExecutionVerificationResult>>({});
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -184,6 +191,13 @@ export default function App() {
           setTab("holdings");
         }
         if (payload.kind === "order_draft") setDraft(payload.draft);
+        if (payload.kind === "basket_draft") {
+          setBasketLegs(payload.legs ?? []);
+          setBasketPreview(null);
+          setBasketResult(null);
+          setBasketVerifications({});
+          setExecution(null);
+        }
       };
     },
   });
@@ -191,9 +205,10 @@ export default function App() {
   useHostStyles(app, app?.getHostContext());
 
   const transactionActive = Boolean(draft || preview || cancelPreview);
+  const basketActive = base?.kind === "basket_draft" && !transactionActive;
 
   useEffect(() => {
-    if (!transactionActive) {
+    if (!transactionActive && !basketActive) {
       transactionExpansionAttempted.current = false;
       return;
     }
@@ -207,7 +222,7 @@ export default function App() {
       .catch(() => {
         // The in-flow transaction layout is the fallback when the host declines fullscreen.
       });
-  }, [app, availableDisplayModes, displayMode, transactionActive]);
+  }, [app, availableDisplayModes, basketActive, displayMode, transactionActive]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -303,6 +318,8 @@ export default function App() {
     setVerification(null);
     setPreview(null);
     setCancelPreview(null);
+    setBasketPreview(null);
+    setBasketResult(null);
     setInsights({});
     if (draft) setDraft({ ...draft, environment: next });
     if (base?.kind === "order_draft") {
@@ -362,6 +379,70 @@ export default function App() {
     }
   }
 
+  function resetBasket(): void {
+    setBasketLegs([]);
+    setBasketPreview(null);
+    setBasketResult(null);
+    setBasketVerifications({});
+  }
+
+  async function closeBasket(): Promise<void> {
+    resetBasket();
+    setErrorMessage(null);
+    await refresh(environment, "holdings");
+  }
+
+  async function reviewBasket(): Promise<void> {
+    if (base?.kind !== "basket_draft" || basketLegs.length === 0) return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      setBasketPreview(await callTool<BasketPreview>("app_prepare_basket", {
+        environment: base.environment,
+        purpose: base.purpose,
+        title: base.title,
+        drafts: basketLegs.map((leg) => ({ ...leg.draft, environment: base.environment })),
+        ...(base.planId ? { planId: base.planId } : {}),
+        ...(base.notes?.length ? { notes: base.notes } : {}),
+      }));
+    } catch (requestError) {
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  async function confirmBasket(): Promise<void> {
+    if (!basketPreview) return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const confirmationCode = basketPreview["token"];
+      const result = await callTool<BasketExecutionResult>("app_execute_basket", { ["token"]: confirmationCode });
+      setBasketResult(result);
+      setBasketVerifications({});
+    } catch (requestError) {
+      // The token may already be consumed; never resend it. The person must review again explicitly.
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setBasketPreview(null);
+      setStatus("idle");
+    }
+  }
+
+  async function verifyBasketLeg(verificationId: string): Promise<void> {
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const result = await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId });
+      setBasketVerifications((current) => ({ ...current, [verificationId]: result }));
+    } catch (requestError) {
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
   async function startCancel(orderId: string): Promise<void> {
     setStatus("loading");
     setErrorMessage(null);
@@ -412,11 +493,12 @@ export default function App() {
       if (event.key !== "Escape") return;
       if (cancelPreview) setCancelPreview(null);
       else if (preview) setPreview(null);
+      else if (basketPreview && status !== "loading") setBasketPreview(null);
       else if (draft) { setDraft(null); setPreview(null); if (base?.kind === "order_draft") void refresh(environment); }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [base, cancelPreview, draft, environment, preview]);
+  }, [base, basketPreview, cancelPreview, draft, environment, preview, status]);
 
   if (!app && !error) {
     return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
@@ -441,7 +523,7 @@ export default function App() {
               type="button"
               className={environment === "demo" ? "active" : ""}
               onClick={() => void switchEnvironment("demo")}
-              disabled={status === "loading"}
+              disabled={status === "loading" || basketActive}
             >
               <span className={`statusDot ${credentials.demo ? "ready" : ""}`} />
               {t("demo")}
@@ -450,7 +532,7 @@ export default function App() {
               type="button"
               className={environment === "live" ? "active live" : "live"}
               onClick={() => void switchEnvironment("live")}
-              disabled={status === "loading"}
+              disabled={status === "loading" || basketActive}
             >
               <span className={`statusDot ${credentials.live ? "ready" : ""}`} />
               {t("live")}
@@ -470,7 +552,7 @@ export default function App() {
               <span className="actionText">{displayMode === "fullscreen" ? t("collapse") : t("expand")}</span>
             </button>
           )}
-          <button className="iconAction" type="button" onClick={() => void refresh()} disabled={status === "loading"} title={t("refresh")}>
+          <button className="iconAction" type="button" onClick={() => void refresh()} disabled={status === "loading" || basketActive} title={t("refresh")}>
             <Icon name="refresh" />
             <span className="actionText">{status === "loading" ? t("refreshing") : t("refresh")}</span>
           </button>
@@ -549,6 +631,26 @@ export default function App() {
 
 
         </>
+      )}
+
+      {basketActive && base?.kind === "basket_draft" && (
+        <BasketView
+          payload={base}
+          legs={basketLegs}
+          preview={basketPreview}
+          result={basketResult}
+          verifications={basketVerifications}
+          canReview={writeEnabled && Boolean(credentials[base.environment])}
+          busy={status === "loading"}
+          locale={locale}
+          t={t}
+          onRemoveLeg={(index) => { if (!basketPreview && !basketResult) setBasketLegs((current) => current.filter((_, i) => i !== index)); }}
+          onReview={() => void reviewBasket()}
+          onBack={() => setBasketPreview(null)}
+          onConfirm={() => void confirmBasket()}
+          onClose={() => void closeBasket()}
+          onVerify={(id) => void verifyBasketLeg(id)}
+        />
       )}
 
       {draft && !preview && !cancelPreview && (

@@ -1,3 +1,4 @@
+import type { PolicyCheck } from "../../shared/automation";
 import type { ActivityEvent, ExecutionVerificationResult, Instrument, OrderNotice, OrderSizing, StructuredError } from "../../shared/contracts";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { dateTime, num } from "./format";
@@ -24,6 +25,8 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "BROKER_RATE_LIMITED": return t("errorBrokerRateLimit");
     case "BROKER_REQUEST_FAILED": return t("errorBroker");
     case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
+    case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
+    case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
     case "INVALID_INPUT": return problem.message;
     default: return problem.message || t("errorInternal");
   }
@@ -89,5 +92,35 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "cancel_submitted": return t("activityCancelSubmitted");
     case "cancel_rejected": return t("activityCancelRejected");
     case "cancel_status_unknown": return t("activityCancelUnknown");
+    case "basket_prepared": return t("activityBasketPrepared");
+    case "basket_submitted": return t("activityBasketSubmitted");
+    case "plan_due": return t("activityPlanDue");
+    case "plan_auto_executed": return t("activityPlanAutoExecuted");
+    case "plan_skipped": return t("activityPlanSkipped");
+    default: return String((event as ActivityEvent).type);
+  }
+}
+
+export function policyRuleLabel(rule: PolicyCheck["rule"], t: Translator): string {
+  switch (rule) {
+    case "allowed_tickers": return t("policyRuleAllowedTickers");
+    case "blocked_tickers": return t("policyRuleBlockedTickers");
+    case "allowed_types": return t("policyRuleAllowedTypes");
+    case "max_position_weight": return t("policyRuleMaxPositionWeight");
+    case "daily_order_limit": return t("policyRuleDailyOrderLimit");
+    case "daily_notional_limit": return t("policyRuleDailyNotionalLimit");
+    case "market_closed": return t("policyRuleMarketClosed");
+    case "reference_age": return t("policyRuleReferenceAge");
+    default: return String(rule);
+  }
+}
+
+export function policyStatusLabel(status: PolicyCheck["status"], t: Translator): string {
+  switch (status) {
+    case "pass": return t("policyPass");
+    case "warn": return t("policyWarn");
+    case "skip": return t("policySkip");
+    case "block": return t("policyBlock");
+    default: return String(status);
   }
 }

@@ -1,3 +1,4 @@
+import { AutomationService } from "../core/automation.js";
 import type { RuntimeConfig } from "../core/config.js";
 import { InsightsService } from "../core/insights-service.js";
 import type { StateStore } from "../core/state-store.js";
@@ -11,10 +12,17 @@ export interface ServiceDependencies {
   instrumentCache?: InstrumentCache;
 }
 
-/** Build the runtime-neutral services shared by the HTTP and stdio transports. */
+export type Services = ReturnType<typeof createServices>;
+
+/** Build the runtime-neutral services shared by the HTTP and stdio transports and the scheduler. */
 export function createServices(deps: ServiceDependencies) {
-  // Insights reuse the trading service's instrument cache; the closure only runs after both exist.
-  const trading = new TradingService({ ...deps, marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument) });
+  // The closures only run after all three services exist.
+  const trading = new TradingService({
+    ...deps,
+    marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
+    afterBasket: (planId, result) => automation.recordRun(planId, result),
+  });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
-  return { trading, insights };
+  const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
+  return { trading, insights, automation };
 }

@@ -4,6 +4,7 @@ import process from "node:process";
 import { serve } from "@hono/node-server";
 import dotenv from "dotenv";
 import { createApp } from "../../app/create-app.js";
+import { createServices } from "../../app/services.js";
 import { createConfig } from "../../core/config.js";
 import { FileStateStore } from "./file-state-store.js";
 
@@ -13,4 +14,8 @@ const port = Number(process.env.PORT ?? 8000), config = createConfig(process.env
 const store = await FileStateStore.open(path.join(root, ".data", "state.json"));
 const audit = async (event: string, details: Record<string, unknown>) => { try { const dir = path.join(root, ".data"); await fs.mkdir(dir,{recursive:true}); await fs.appendFile(path.join(dir,"audit.jsonl"),`${JSON.stringify({ts:new Date().toISOString(),event,...details})}\n`); } catch (error) { console.error("Audit write failed", error); } };
 const app = createApp({ config, store, widgetHtml: () => fs.readFile(path.join(root,"dist","widget","index.html"),"utf8"), audit });
+// Plan scheduler: announces due plans and, with AUTOMATION_DEMO_ENABLED=true, runs Demo autoExecute plans.
+const automation = createServices({ config, store, audit }).automation;
+const tick = () => automation.runDuePlans().catch((error: unknown) => console.error("Plan tick failed", error));
+setInterval(tick, 15 * 60_000).unref(); void tick();
 serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => console.log(`TradePilot 212 listening on http://localhost:${port}`));

@@ -33,6 +33,12 @@ nonNegativeSetting("MAX_ORDER_QUANTITY", 100000);
 const confirmationTtl = Number(process.env.CONFIRMATION_TTL_SECONDS ?? "90");
 result("CONFIRMATION_TTL_SECONDS", Number.isFinite(confirmationTtl) && confirmationTtl > 0, String(confirmationTtl));
 
+const policyScope = (process.env.POLICY_APPLY_TO || "live").trim().toLowerCase();
+result("POLICY_APPLY_TO", ["live", "demo", "both", "none"].includes(policyScope), `policy rules bind ${policyScope}`);
+const positionCap = Number(process.env.POLICY_MAX_POSITION_WEIGHT || "0.25");
+result("POLICY_MAX_POSITION_WEIGHT", Number.isFinite(positionCap) && positionCap >= 0 && positionCap <= 1, String(positionCap));
+result("Demo automation", true, /^(1|true|yes|on)$/i.test(process.env.AUTOMATION_DEMO_ENABLED ?? "") ? "due Demo autoExecute plans run unattended" : "off (plans wait for confirmation)");
+
 function pair(prefix) {
   const key = process.env[`T212_${prefix}_API_KEY`] ?? "";
   const secret = process.env[`T212_${prefix}_API_SECRET`] ?? "";

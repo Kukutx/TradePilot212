@@ -29,7 +29,8 @@ const dataDir = path.resolve(process.env.TRADEPILOT_DATA_DIR || path.join(os.hom
 const allowWrites = /^(1|true|yes)$/i.test(process.env.TRADEPILOT_ALLOW_WRITES ?? "");
 // A plugin host may pass an unset option through as its literal placeholder; treat that as empty.
 for (const [key, value] of Object.entries(process.env)) if (value?.startsWith("${user_config.")) process.env[key] = "";
-const config = createConfig(process.env);
+// Unattended Demo runs are order writes, so they also require writes to be enabled here.
+const config = { ...createConfig(process.env), ...(allowWrites ? {} : { demoAutomationEnabled: false }) };
 const store = await FileStateStore.open(path.join(dataDir, "state.json"));
 const audit = async (event: string, details: Record<string, unknown>) => {
   try {
@@ -53,8 +54,11 @@ async function widgetHtml(): Promise<string> {
   return "<!doctype html><meta charset=utf-8><p>TradePilot 212 UI is not built. Run <code>pnpm build</code>.</p>";
 }
 
-const { trading, insights } = createServices({ config, store, audit });
+const services = createServices({ config, store, audit });
 const scopes = new Set(allowWrites ? ["trade:read", "trade:write"] : ["trade:read"]);
-const server = createMcpServer(trading, insights, config, widgetHtml, scopes);
+const server = createMcpServer(services, config, widgetHtml, scopes);
 await server.connect(new StdioServerTransport());
+const tick = () => services.automation.runDuePlans().catch((error: unknown) => log("Plan tick failed", error));
+setInterval(tick, 15 * 60_000).unref();
+void tick();
 log(`ready (writes ${allowWrites ? "enabled" : "disabled"}, state in ${dataDir})`);

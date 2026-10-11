@@ -19,15 +19,39 @@ import type {
   TradePlanPayload,
   TradingEnvironment,
 } from "../shared/contracts.js";
+import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
+import { planRebalance, type RebalanceOptions } from "./rebalance.js";
+import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type DailyUsage } from "./policy.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
-type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string };
+interface PendingBasket {
+  kind: "basket";
+  environment: TradingEnvironment;
+  purpose: BasketPurpose;
+  title: string;
+  drafts: OrderDraft[];
+  independentSells: boolean;
+  planId?: string;
+}
+type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
+interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
+export interface BasketRequest {
+  environment: TradingEnvironment;
+  purpose: BasketPurpose;
+  title: string;
+  drafts: OrderDraft[];
+  /** Protective orders cover the same shares, so their sells are checked one by one, not summed. */
+  independentSells?: boolean;
+  planId?: string;
+  notes?: string[];
+}
+export const MAX_BASKET_LEGS = 20;
 type VerificationRecord =
   | { kind: "order"; environment: TradingEnvironment; draft: OrderDraft; baselineQuantity: number; createdAt: string }
   | { kind: "cancel"; environment: TradingEnvironment; orderId: string; createdAt: string };
@@ -41,6 +65,8 @@ export interface TradingServiceDeps {
   instrumentCache?: InstrumentCache;
   /** Optional exchange-session lookup used to warn about orders placed while the market is closed. */
   marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
+  /** Called after a basket created for a standing plan has been executed. */
+  afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
 }
 
 function positiveNumber(name: string, value?: number): asserts value is number {
@@ -55,6 +81,7 @@ function floorQuantity(value: number, digits = 8): number {
 const ACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const REFERENCE_STALE_SECONDS = 300;
+const USAGE_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
 function dateAgeSeconds(value?: string, now = Date.now()): number | undefined {
   if (!value) return undefined;
@@ -173,6 +200,10 @@ export function validateOrderAgainstSnapshot(
   };
 }
 
+function sameCurrency(account: AccountSummary, instrument: Instrument) {
+  return !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
+}
+
 export class TradingService {
   private readonly cache: InstrumentCache;
 
@@ -196,7 +227,7 @@ export class TradingService {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
 
-  private async recordActivity(
+  async recordActivity(
     type: ActivityType,
     environment: TradingEnvironment,
     details: Omit<ActivityEvent, "id" | "timestamp" | "environment" | "type"> = {},
@@ -430,7 +461,82 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    return { instrument, position, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config) };
+    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config) };
+  }
+
+  private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
+    const client = this.client(environment);
+    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    return { instruments, positions, account };
+  }
+
+  private async market(environment: TradingEnvironment, instrument: Instrument) {
+    try {
+      return await this.deps.marketStatus?.(environment, instrument);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async usageToday(environment: TradingEnvironment): Promise<DailyUsage> {
+    return (await this.deps.store.get<DailyUsage>(usageKey(environment))) ?? EMPTY_USAGE;
+  }
+
+  private async recordUsage(environment: TradingEnvironment, estimatedNotional: number | undefined, sameCurrency: boolean) {
+    try {
+      const key = usageKey(environment);
+      const next = addUsage((await this.deps.store.get<DailyUsage>(key)) ?? EMPTY_USAGE, estimatedNotional, sameCurrency);
+      await this.deps.store.put(key, next, Date.now() + USAGE_TTL_MS);
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot usage persistence failed", error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+
+  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string }, market?: MarketStatus): OrderNotice[] {
+    const notices: OrderNotice[] = [];
+    if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
+    if (current.estimatedNotional === undefined) {
+      notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
+    } else if (!current.cashCheckApplied && draft.side === "buy") {
+      notices.push({
+        code: "CROSS_CURRENCY_FUNDS_CHECK",
+        message: "The account and instrument use different currencies, so Trading 212 remains the final funds check.",
+        details: { instrumentCurrency: current.estimatedNotionalCurrency, accountCurrency: current.accountCurrency ?? "" },
+      });
+      const fxAgeSeconds = dateAgeSeconds(draft.fxRateAt);
+      if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
+    }
+    if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (market && market.session !== "unknown" && !market.isOpen) {
+      const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
+      notices.push({
+        code: queued ? "MARKET_CLOSED_QUEUED" : "MARKET_CLOSED",
+        message: queued
+          ? "The market is closed. Trading 212 queues this Market order and fills it at the next open, possibly at a gap price."
+          : "The regular market session is closed for this instrument.",
+        details: { session: market.session, nextOpen: market.nextOpen ?? null },
+      });
+    }
+    if (draft.referencePrice !== undefined) {
+      const ageSeconds = dateAgeSeconds(draft.referencePriceAt);
+      if (ageSeconds === undefined) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });
+      else if (ageSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "REFERENCE_PRICE_STALE", message: "The reference price may be stale.", details: { ageSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
+    }
+    return notices;
+  }
+
+  private policyFor(draft: OrderDraft, instrument: Instrument, position: Position | undefined, account: AccountSummary, estimatedNotional: number | undefined, market: MarketStatus | undefined, usage: DailyUsage): PolicyCheck[] {
+    return evaluatePolicy(this.deps.config.policy[draft.environment], {
+      draft, instrument, account, usage,
+      ...(position ? { position } : {}),
+      ...(estimatedNotional === undefined ? {} : { estimatedNotional }),
+      ...(market ? { market } : {}),
+    });
+  }
+
+  private assertPolicy(checks: PolicyCheck[], ticker: string) {
+    const blocked = blockingChecks(checks);
+    if (blocked.length) fail("POLICY_BLOCKED", `${ticker}: ${blocked.map((check) => check.message).join(" ")}`, { rule: blocked[0]!.rule });
   }
 
   private async issue(value: Pending) {
@@ -455,36 +561,10 @@ export class TradingService {
     const draft = { ...raw, ticker: raw.ticker.trim() };
     const current = await this.current(draft);
     const snapshotAt = new Date().toISOString();
-    const notices: OrderNotice[] = [];
-    if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
-    if (current.estimatedNotional === undefined) {
-      notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
-    } else if (!current.cashCheckApplied && draft.side === "buy") {
-      notices.push({
-        code: "CROSS_CURRENCY_FUNDS_CHECK",
-        message: "The account and instrument use different currencies, so Trading 212 remains the final funds check.",
-        details: { instrumentCurrency: current.estimatedNotionalCurrency, accountCurrency: current.accountCurrency ?? "" },
-      });
-      const fxAgeSeconds = dateAgeSeconds(draft.fxRateAt);
-      if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
-    }
-    if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
-    const market = await this.deps.marketStatus?.(draft.environment, current.instrument);
-    if (market && market.session !== "unknown" && !market.isOpen) {
-      const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
-      notices.push({
-        code: queued ? "MARKET_CLOSED_QUEUED" : "MARKET_CLOSED",
-        message: queued
-          ? "The market is closed. Trading 212 queues this Market order and fills it at the next open, possibly at a gap price."
-          : "The regular market session is closed for this instrument.",
-        details: { session: market.session, nextOpen: market.nextOpen ?? null },
-      });
-    }
-    if (draft.referencePrice !== undefined) {
-      const ageSeconds = dateAgeSeconds(draft.referencePriceAt);
-      if (ageSeconds === undefined) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });
-      else if (ageSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "REFERENCE_PRICE_STALE", message: "The reference price may be stale.", details: { ageSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
-    }
+    const market = await this.market(draft.environment, current.instrument);
+    const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment));
+    this.assertPolicy(policy, draft.ticker);
+    const notices = this.orderNotices(draft, current, market);
     const confirmation = await this.issue({ kind: "order", draft });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
@@ -499,6 +579,7 @@ export class TradingService {
       ...(current.availableCash === undefined ? {} : { availableCash: current.availableCash }),
       ...(current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {}),
       notices,
+      policy,
       warnings: notices.map((notice) => notice.message),
     };
   }
@@ -507,22 +588,237 @@ export class TradingService {
     const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const draft = pending.draft;
-    let baselineQuantity = 0;
+    let current: Awaited<ReturnType<TradingService["current"]>>;
     try {
-      const current = await this.current(draft);
-      baselineQuantity = current.position?.quantity ?? 0;
+      current = await this.current(draft);
+      // Re-check the policy: the market may have closed or the daily budget filled since review.
+      const market = await this.market(draft.environment, current.instrument);
+      this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+    } catch (error) {
+      return this.failedSubmission(draft, 0, error);
+    }
+    return this.submit(draft, current.position?.quantity ?? 0, current.estimatedNotional, sameCurrency(current.account, current.instrument));
+  }
+
+  /** Compute (but never send) the trades that move the account toward target weights. */
+  async planRebalance(environment: TradingEnvironment, targets: RebalanceTarget[], options: RebalanceOptions = {}): Promise<RebalancePlan> {
+    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    const snapshot = await this.snapshot(environment);
+    const resolved = targets.map((target) => ({ ...target, ticker: resolveInstrumentFromList(snapshot.instruments, target.ticker).ticker }));
+    const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
+  }
+
+  rebalanceBasket(plan: RebalancePlan): Omit<BasketDraftPayload, "credentials" | "writeEnabled"> {
+    const at = new Date().toISOString();
+    return {
+      kind: "basket_draft",
+      environment: plan.environment,
+      purpose: "rebalance",
+      title: "Rebalance",
+      legs: plan.trades.map((trade) => ({
+        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, referencePriceAt: at },
+        reason: `${(trade.currentWeight * 100).toFixed(1)}% → ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`,
+      })),
+      notes: [...plan.notes, ...plan.skipped.map((item) => `${item.ticker}: ${item.reason}`)],
+    };
+  }
+
+  /**
+   * Draft broker-native protective orders for a holding: a Stop sell below the price and/or a
+   * Limit sell above it, both Good-Till-Cancel. Trading 212 triggers them; nothing runs here.
+   */
+  async protectiveBasket(environment: TradingEnvironment, instrumentQuery: string, input: { stopLossPrice?: number; takeProfitPrice?: number; quantity?: number }): Promise<Omit<BasketDraftPayload, "credentials" | "writeEnabled">> {
+    if (input.stopLossPrice === undefined && input.takeProfitPrice === undefined) fail("INVALID_INPUT", "Give a stopLossPrice, a takeProfitPrice, or both");
+    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    const snapshot = await this.snapshot(environment);
+    const instrument = resolveInstrumentFromList(snapshot.instruments, instrumentQuery);
+    const position = this.positionFor(snapshot.positions, instrument.ticker);
+    if (!position || position.quantityAvailableForTrading <= 0) fail("NO_AVAILABLE_POSITION", `There is no tradable ${instrument.ticker} position to protect`);
+    const quantity = input.quantity ?? position.quantityAvailableForTrading;
+    if (quantity <= 0 || quantity > position.quantityAvailableForTrading + Number.EPSILON) fail("INSUFFICIENT_SELLABLE_QUANTITY", `quantity must be between 0 and ${position.quantityAvailableForTrading}`);
+    const price = position.currentPrice;
+    if (input.stopLossPrice !== undefined && price && input.stopLossPrice >= price) fail("INVALID_INPUT", `The stop-loss price must be below the current price ${price}`, { field: "stopLossPrice" });
+    if (input.takeProfitPrice !== undefined && price && input.takeProfitPrice <= price) fail("INVALID_INPUT", `The take-profit price must be above the current price ${price}`, { field: "takeProfitPrice" });
+
+    const legs: BasketDraftPayload["legs"] = [];
+    if (input.stopLossPrice !== undefined) legs.push({ draft: { environment, ticker: instrument.ticker, side: "sell", type: "stop", quantity, stopPrice: input.stopLossPrice, timeValidity: "GOOD_TILL_CANCEL" }, reason: `Stop-loss at ${input.stopLossPrice} ${instrument.currencyCode}` });
+    if (input.takeProfitPrice !== undefined) legs.push({ draft: { environment, ticker: instrument.ticker, side: "sell", type: "limit", quantity, limitPrice: input.takeProfitPrice, timeValidity: "GOOD_TILL_CANCEL" }, reason: `Take-profit at ${input.takeProfitPrice} ${instrument.currencyCode}` });
+    return {
+      kind: "basket_draft",
+      environment,
+      purpose: "protective",
+      title: `Protect ${instrument.shortName || instrument.ticker}`,
+      legs,
+      notes: [
+        "Both orders stay at Trading 212 until they fill or you cancel them.",
+        ...(legs.length === 2 ? ["They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."] : []),
+        "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+      ],
+    };
+  }
+
+  /**
+   * Validate every leg of a basket against one account snapshot. Sells run before buys, and
+   * unless `independentSells` is set, later legs see the shares and cash earlier legs use.
+   */
+  private assessBasket(request: Pick<BasketRequest, "environment" | "drafts" | "independentSells">, snapshot: Snapshot, usageBefore: DailyUsage, markets: Map<string, MarketStatus | undefined>) {
+    const ordered = [...request.drafts].sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
+    const sold = new Map<string, number>();
+    let cashDelta = 0;
+    let usage = usageBefore;
+    return ordered.map((raw, index) => {
+      if (raw.environment !== request.environment) fail("INVALID_INPUT", "Every basket leg must use the basket's environment");
+      try {
+        const instrument = resolveInstrumentFromList(snapshot.instruments, raw.ticker);
+        const draft: OrderDraft = { ...raw, ticker: instrument.ticker };
+        const held = this.positionFor(snapshot.positions, instrument.ticker);
+        const alreadySold = request.independentSells ? 0 : sold.get(instrument.ticker) ?? 0;
+        const position = held ? { ...held, quantityAvailableForTrading: held.quantityAvailableForTrading - alreadySold } : undefined;
+        const cash = snapshot.account.cash?.availableToTrade;
+        const account: AccountSummary = cash === undefined ? snapshot.account : { ...snapshot.account, cash: { ...snapshot.account.cash, availableToTrade: cash + cashDelta } };
+        const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config);
+        const market = markets.get(instrument.ticker);
+        const policy = this.policyFor(draft, instrument, held, snapshot.account, checked.estimatedNotional, market, usage);
+        const same = sameCurrency(snapshot.account, instrument);
+        if (draft.side === "sell") sold.set(instrument.ticker, alreadySold + draft.quantity);
+        if (same && checked.estimatedNotional !== undefined) cashDelta += draft.side === "sell" ? checked.estimatedNotional : -checked.estimatedNotional;
+        usage = addUsage(usage, checked.estimatedNotional, same);
+        return { draft, instrument, position: held, checked, market, policy, same };
+      } catch (error) {
+        const structured = asStructuredError(error);
+        fail(structured.code, `Leg ${index + 1} (${raw.side} ${raw.quantity} ${raw.ticker}): ${structured.message}`, structured.details);
+      }
+    });
+  }
+
+  private async marketsFor(environment: TradingEnvironment, snapshot: Snapshot, drafts: OrderDraft[]) {
+    const markets = new Map<string, MarketStatus | undefined>();
+    for (const draft of drafts) {
+      try {
+        const instrument = resolveInstrumentFromList(snapshot.instruments, draft.ticker);
+        if (!markets.has(instrument.ticker)) markets.set(instrument.ticker, await this.market(environment, instrument));
+      } catch { /* reported by assessBasket */ }
+    }
+    return markets;
+  }
+
+  async prepareBasket(request: BasketRequest): Promise<BasketPreview> {
+    if (!credentialStatus(this.deps.config)[request.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${request.environment.toUpperCase()} credentials are not configured`);
+    if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
+    const snapshot = await this.snapshot(request.environment);
+    const snapshotAt = new Date().toISOString();
+    const markets = await this.marketsFor(request.environment, snapshot, request.drafts);
+    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets);
+    const blocked = legs.flatMap((leg) => blockingChecks(leg.policy).map((check) => `${leg.instrument.ticker}: ${check.message}`));
+    if (blocked.length) fail("POLICY_BLOCKED", blocked.join(" "), { rule: blockingChecks(legs.flatMap((leg) => leg.policy))[0]!.rule });
+
+    const drafts = legs.map((leg) => leg.draft);
+    const confirmation = await this.issue({
+      kind: "basket",
+      environment: request.environment,
+      purpose: request.purpose,
+      title: request.title,
+      drafts,
+      independentSells: !!request.independentSells,
+      ...(request.planId ? { planId: request.planId } : {}),
+    });
+    await this.recordActivity("basket_prepared", request.environment, { legs: drafts.length, ...(request.planId ? { planId: request.planId } : {}) });
+    return {
+      kind: "basket_preview",
+      ...confirmation,
+      snapshotAt,
+      environment: request.environment,
+      purpose: request.purpose,
+      title: request.title,
+      legs: legs.map((leg) => ({
+        draft: leg.draft,
+        instrument: leg.instrument,
+        ...(leg.checked.estimatedNotional === undefined ? {} : { estimatedNotional: leg.checked.estimatedNotional }),
+        estimatedNotionalCurrency: leg.checked.estimatedNotionalCurrency,
+        notices: this.orderNotices(leg.draft, leg.checked, leg.market),
+        policy: leg.policy,
+      })),
+      notes: [
+        ...(request.notes ?? []),
+        "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.",
+      ],
+      ...(request.planId ? { planId: request.planId } : {}),
+    };
+  }
+
+  private async submit(draft: OrderDraft, baselineQuantity: number, estimatedNotional: number | undefined, same: boolean): Promise<OrderExecutionResult> {
+    try {
       const order = await this.client(draft.environment).placeOrder(draft);
+      await this.recordUsage(draft.environment, estimatedNotional, same);
       await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
       return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
     } catch (error) {
-      if (error instanceof ExecutionStatusUnknownError) {
-        const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString() });
-        await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
-        return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), error: asStructuredError(error), message: error.message };
-      }
-      await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
+      return this.failedSubmission(draft, baselineQuantity, error);
     }
+  }
+
+  private async failedSubmission(draft: OrderDraft, baselineQuantity: number, error: unknown): Promise<OrderExecutionResult> {
+    if (error instanceof ExecutionStatusUnknownError) {
+      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString() });
+      await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), error: asStructuredError(error), message: error.message };
+    }
+    await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+    return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
+  }
+
+  /** Send a confirmed basket. Writes are never retried; an uncertain result stops the rest. */
+  async executeBasket(confirmationId: string): Promise<BasketExecutionResult> {
+    const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== "basket") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const results: BasketExecutionResult["legs"] = [];
+    let stopReason: string | undefined;
+
+    let assessed: ReturnType<TradingService["assessBasket"]> | undefined;
+    try {
+      const snapshot = await this.snapshot(pending.environment);
+      const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
+      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets);
+    } catch (error) {
+      stopReason = `The basket no longer passes its checks: ${asStructuredError(error).message}`;
+    }
+
+    if (assessed) {
+      for (const leg of assessed) {
+        if (stopReason) { results.push({ draft: leg.draft, skipped: stopReason }); continue; }
+        const blocked = blockingChecks(leg.policy);
+        if (blocked.length) { results.push({ draft: leg.draft, skipped: blocked.map((check) => check.message).join(" ") }); continue; }
+        const result = await this.submit(leg.draft, leg.position?.quantity ?? 0, leg.checked.estimatedNotional, leg.same);
+        results.push({ draft: leg.draft, result });
+        if (result.status === "unknown") stopReason = "Not sent: an earlier order's result is uncertain. Verify it before sending the rest.";
+      }
+    } else {
+      for (const draft of pending.drafts) results.push({ draft, skipped: stopReason ?? "Not sent." });
+    }
+
+    const submitted = results.filter((leg) => leg.result?.ok).length;
+    const status: BasketExecutionResult["status"] = submitted === results.length
+      ? "submitted"
+      : submitted > 0 ? "partial" : results.some((leg) => leg.result?.status === "unknown") || !assessed ? "stopped" : "rejected";
+    const outcome: BasketExecutionResult = {
+      kind: "basket_execution",
+      environment: pending.environment,
+      purpose: pending.purpose,
+      ok: status === "submitted",
+      status,
+      legs: results,
+      message: `${submitted} of ${results.length} order(s) submitted to Trading 212 ${pending.environment.toUpperCase()}.${stopReason ? ` ${stopReason}` : ""}`,
+    };
+    await this.recordActivity("basket_submitted", pending.environment, { legs: results.length, outcome: status, ...(pending.planId ? { planId: pending.planId } : {}) });
+    if (pending.planId && this.deps.afterBasket) {
+      try {
+        await this.deps.afterBasket(pending.planId, outcome);
+      } catch (error) {
+        console.error(JSON.stringify({ message: "TradePilot plan update failed", error: error instanceof Error ? error.message : String(error) }));
+      }
+    }
+    return outcome;
   }
 
   async prepareCancel(environment: TradingEnvironment, orderId: string): Promise<CancelPreview> {

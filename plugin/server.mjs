@@ -16540,8 +16540,8 @@ var contributors = {
 function aggregateChecks(schema) {
   const agg = {};
   const def = schema._zod.def;
-  const list = schema._zod.traits.has("$ZodCheck") ? [schema, ...def.checks ?? []] : def.checks ?? [];
-  for (const ch of list)
+  const list2 = schema._zod.traits.has("$ZodCheck") ? [schema, ...def.checks ?? []] : def.checks ?? [];
+  for (const ch of list2)
     contributors[ch._zod.def.check]?.(agg, ch._zod.def);
   const bag = schema._zod.bag;
   if (bag.minimum !== void 0)
@@ -32562,11 +32562,11 @@ var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     if (!f) throw new Error(`Unknown format "${name}"`);
     return f;
   };
-  function addFormats2(ajv, list, fs3, exportName) {
+  function addFormats2(ajv, list2, fs3, exportName) {
     var _a3;
     var _b;
     (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 || (_b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`);
-    for (const f of list) ajv.addFormat(f, fs3[f]);
+    for (const f of list2) ajv.addFormat(f, fs3[f]);
   }
   module.exports = exports = formatsPlugin;
   Object.defineProperty(exports, "__esModule", { value: true });
@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round2 = 0;
+    let round3 = 0;
     while (true) {
-      round2 += 1;
-      if (round2 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round3 += 1;
+      if (round3 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34181,6 +34181,36 @@ function tradingEnvironment(env) {
   if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
   return value;
 }
+function list(env, name) {
+  return (env[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
+}
+function flag(env, name) {
+  return /^(1|true|yes|on)$/i.test(env[name] ?? "");
+}
+function weight(env, name, fallback) {
+  const value = nonNegative(env, name, fallback);
+  if (value > 1) throw new Error(`${name} must be a fraction between 0 and 1`);
+  return value;
+}
+function createPolicy(env) {
+  const configured = {
+    maxPositionWeight: weight(env, "POLICY_MAX_POSITION_WEIGHT", 0.25),
+    dailyOrderLimit: Math.floor(nonNegative(env, "POLICY_DAILY_ORDER_LIMIT", 20)),
+    dailyNotionalLimit: nonNegative(env, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
+    allowedTickers: list(env, "POLICY_ALLOWED_TICKERS"),
+    blockedTickers: list(env, "POLICY_BLOCKED_TICKERS"),
+    allowedTypes: list(env, "POLICY_ALLOWED_TYPES"),
+    marketOrdersWhenClosed: env.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
+    maxReferenceAgeSeconds: Math.floor(nonNegative(env, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0))
+  };
+  const relaxed = { ...configured, maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 };
+  const applyTo = (env.POLICY_APPLY_TO || "live").trim().toLowerCase();
+  if (!["live", "demo", "both", "none"].includes(applyTo)) throw new Error("POLICY_APPLY_TO must be live, demo, both, or none");
+  return {
+    demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
+    live: applyTo === "live" || applyTo === "both" ? configured : relaxed
+  };
+}
 function createConfig(env, requestOrigin) {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   return {
@@ -34193,6 +34223,8 @@ function createConfig(env, requestOrigin) {
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5e3),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 1e5),
     defaultTradingEnvironment: tradingEnvironment(env),
+    policy: createPolicy(env),
+    demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
@@ -34221,237 +34253,6 @@ function G(B, Q, F, V, q) {
 
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
 var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
-
-// src/core/analytics.ts
-var DEFAULT_ALLOCATION_LIMITS = {
-  maxSingleWeight: 0.2,
-  maxTop5Weight: 0.6,
-  cashHighWeight: 0.3,
-  cashLowWeight: 0.02,
-  maxCurrencyWeight: 0.85
-};
-var round = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
-var ratio = (part, whole) => whole > 0 ? part / whole : 0;
-function sumBy(items, key, amount) {
-  const totals = /* @__PURE__ */ new Map();
-  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount(item));
-  return [...totals].map(([k, v]) => ({ key: k, amount: round(v) })).sort((a, b) => b.amount - a.amount);
-}
-function positionValue(position) {
-  const wallet = position.walletImpact;
-  if (typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue)) return wallet.currentValue;
-  return position.quantity * position.currentPrice;
-}
-function positionPnl(position) {
-  const wallet = position.walletImpact;
-  return typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : void 0;
-}
-function analyzeAllocation(environment, account, positions, instruments = [], limits = DEFAULT_ALLOCATION_LIMITS, now = /* @__PURE__ */ new Date()) {
-  const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
-  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0);
-  const holdings = positions.map((position) => {
-    const ticker = position.instrument?.ticker ?? "";
-    const meta3 = byTicker.get(ticker.toUpperCase());
-    const pnl = positionPnl(position);
-    const type = meta3?.type ?? position.instrument?.type;
-    return {
-      ticker,
-      name: position.instrument?.name ?? meta3?.name ?? ticker,
-      currency: (position.instrument?.currencyCode ?? position.instrument?.currency ?? meta3?.currencyCode ?? "?").toUpperCase(),
-      ...type ? { type } : {},
-      value: positionValue(position),
-      weight: 0,
-      ...pnl === void 0 ? {} : { unrealizedProfitLoss: pnl }
-    };
-  }).filter((item) => item.value > 0);
-  const investedValue = holdings.reduce((sum, item) => sum + item.value, 0);
-  const totalValue = investedValue + cash;
-  for (const item of holdings) item.weight = ratio(item.value, totalValue);
-  holdings.sort((a, b) => b.value - a.value);
-  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount }) => ({ k, value: amount, weight: ratio(amount, totalValue) }));
-  const byCurrency = group((item) => item.currency).map(({ k, value, weight }) => ({ currency: k, value, weight }));
-  const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight }) => ({ type: k, value, weight }));
-  const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
-  const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
-  const largestWeight = investedWeights[0] ?? 0;
-  const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
-  const cashWeight = ratio(cash, totalValue);
-  const flags = [];
-  const pct = (value) => `${round(value * 100, 1)}%`;
-  if (holdings[0] && largestWeight > limits.maxSingleWeight)
-    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct(largestWeight)} of invested value (limit ${pct(limits.maxSingleWeight)}).` });
-  if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
-    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct(top5Weight)} of invested value (limit ${pct(limits.maxTop5Weight)}).` });
-  if (totalValue > 0 && cashWeight > limits.cashHighWeight)
-    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct(cashWeight)} of the account.` });
-  if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
-    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct(cashWeight)} of the account.` });
-  const topCurrency = byCurrency[0];
-  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight && byCurrency.length >= 1)
-    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.currency}.` });
-  return {
-    kind: "allocation",
-    environment,
-    accountCurrency: account.currency ?? "",
-    totalValue: round(totalValue),
-    investedValue: round(investedValue),
-    cash: round(cash),
-    cashWeight,
-    holdings: holdings.map((item) => ({ ...item, value: round(item.value) })),
-    byCurrency,
-    byType,
-    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round(1 / herfindahl, 1) : 0 },
-    flags,
-    timestamp: now.toISOString()
-  };
-}
-var inWindow = (value, window) => {
-  if (!value) return false;
-  const time3 = Date.parse(value);
-  return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
-};
-var DEPOSIT = /* @__PURE__ */ new Set(["DEPOSIT"]);
-var WITHDRAW = /* @__PURE__ */ new Set(["WITHDRAW", "WITHDRAWAL"]);
-var INTEREST = /* @__PURE__ */ new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
-function fillTicker(item) {
-  return (item.order?.ticker ?? item.order?.instrument?.ticker ?? "?").toUpperCase();
-}
-function summarizePerformance(input2) {
-  const { window } = input2;
-  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
-  const dividends = input2.dividends.filter((item) => inWindow(item.paidOn, window));
-  const transactions = input2.transactions.filter((item) => inWindow(item.dateTime, window));
-  let deposits = 0, withdrawals = 0, interest = 0;
-  const transactionCosts = [];
-  for (const item of transactions) {
-    const amount = item.amount ?? 0;
-    const type = (item.type ?? "").toUpperCase();
-    if (DEPOSIT.has(type)) deposits += Math.abs(amount);
-    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount);
-    else if (INTEREST.has(type)) interest += amount;
-    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount) });
-  }
-  const taxes = [];
-  const perTicker = /* @__PURE__ */ new Map();
-  const tickerRow = (ticker) => {
-    let row = perTicker.get(ticker);
-    if (!row) perTicker.set(ticker, row = { realizedProfitLoss: 0, dividends: 0, costs: 0 });
-    return row;
-  };
-  let realized = 0, buys = 0, sells = 0, turnover = 0;
-  for (const item of fills) {
-    const ticker = fillTicker(item);
-    const wallet = item.fill?.walletImpact;
-    const pnl = wallet?.realisedProfitLoss ?? 0;
-    realized += pnl;
-    tickerRow(ticker).realizedProfitLoss += pnl;
-    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
-    const side = (item.order?.side ?? "").toUpperCase();
-    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if (side === "SELL" || quantity < 0) sells++;
-    else buys++;
-    for (const tax of wallet?.taxes ?? []) {
-      const amount = Math.abs(tax.quantity ?? 0);
-      taxes.push({ key: tax.name ?? "OTHER", amount, ticker });
-      tickerRow(ticker).costs += amount;
-    }
-  }
-  let dividendTotal = 0;
-  for (const item of dividends) {
-    const amount = item.amount ?? 0;
-    dividendTotal += amount;
-    tickerRow((item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase()).dividends += amount;
-  }
-  const costs = [...taxes, ...transactionCosts];
-  const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
-  const net = deposits - withdrawals;
-  const currentValue = input2.account.totalValue;
-  const notes = [
-    "Amounts are in the account currency as reported by Trading 212.",
-    "Realized P/L comes from the broker's per-fill wallet impact and already reflects FX at execution."
-  ];
-  if (input2.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
-  if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
-  return {
-    kind: "performance",
-    environment: input2.environment,
-    accountCurrency: input2.account.currency ?? "",
-    period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
-    coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
-    contributions: { deposits: round(deposits), withdrawals: round(withdrawals), net: round(net) },
-    income: { dividends: round(dividendTotal), interest: round(interest) },
-    costs: { total: round(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    realizedProfitLoss: round(realized),
-    ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
-    ...currentValue === void 0 ? {} : { currentValue },
-    ...!window.from && !input2.truncated && currentValue !== void 0 && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
-    trades: { buys, sells, turnover: round(turnover) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round(row.realizedProfitLoss), dividends: round(row.dividends), costs: round(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
-    notes,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-function summarizeIncome(input2) {
-  const events = [
-    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
-    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
-  ];
-  const windowed = events.filter((item) => inWindow(item.at, input2.window));
-  const yearAgo = new Date(input2.window.to.getTime() - 365 * 864e5);
-  const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
-  const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
-  const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
-  return {
-    kind: "income",
-    environment: input2.environment,
-    accountCurrency: input2.accountCurrency,
-    period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
-    total: round(dividends + interest),
-    dividends: round(dividends),
-    interest: round(interest),
-    byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
-    byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
-    trailing12Months: round(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    truncated: input2.truncated,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-var SESSION_BY_EVENT = {
-  OPEN: "regular",
-  BREAK_END: "regular",
-  BREAK_START: "break",
-  PRE_MARKET_OPEN: "pre_market",
-  AFTER_HOURS_OPEN: "after_hours",
-  OVERNIGHT_OPEN: "overnight",
-  CLOSE: "closed",
-  AFTER_HOURS_CLOSE: "closed"
-};
-function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
-  const checkedAt = now.toISOString();
-  const scheduleId = instrument.workingScheduleId;
-  const exchange = exchanges.find((item) => item.workingSchedules?.some((schedule2) => schedule2.id === scheduleId));
-  const schedule = exchange?.workingSchedules.find((item) => item.id === scheduleId);
-  if (scheduleId === void 0 || !schedule?.timeEvents?.length)
-    return { ticker: instrument.ticker, ...scheduleId === void 0 ? {} : { scheduleId }, session: "unknown", isOpen: false, checkedAt };
-  const events = schedule.timeEvents.map((event) => ({ ...event, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
-  const nowTime = now.getTime();
-  const past = events.filter((event) => event.time <= nowTime);
-  const future = events.filter((event) => event.time > nowTime);
-  const last = past[past.length - 1];
-  const session = last ? SESSION_BY_EVENT[last.type] ?? "unknown" : "closed";
-  const nextOpen = future.find((event) => event.type === "OPEN");
-  const nextClose = future.find((event) => event.type === "CLOSE");
-  return {
-    ticker: instrument.ticker,
-    scheduleId,
-    ...exchange ? { exchange: exchange.name } : {},
-    session,
-    isOpen: session === "regular",
-    ...nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {},
-    ...nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {},
-    checkedAt
-  };
-}
 
 // src/core/errors.ts
 var TradePilotError = class extends Error {
@@ -34497,6 +34298,201 @@ function asStructuredError(error62) {
 }
 function fail(code, message, details) {
   throw new TradePilotError(code, message, details);
+}
+
+// src/core/rebalance.ts
+var floorTo = (value, digits) => {
+  const factor = 10 ** digits;
+  return Math.floor(value * factor + 1e-9) / factor;
+};
+var money = (value) => Math.round(value * 100) / 100;
+var share = (value) => Math.round(value * 1e4) / 1e4;
+function planRebalance(environment, account, positions, targets, options = {}, instrumentCurrency = () => void 0) {
+  const accountCurrency = (account.currency ?? "").toUpperCase();
+  const totalValue = account.totalValue ?? 0;
+  const cashBefore = account.cash?.availableToTrade ?? 0;
+  if (!accountCurrency || totalValue <= 0) fail("INVALID_INPUT", "The account value is unavailable, so a rebalance cannot be computed");
+  const cashWeight = options.cashWeight ?? 0;
+  const minTradeValue = options.minTradeValue ?? 1;
+  const decimals = options.quantityDecimals ?? 4;
+  const targetSum = targets.reduce((sum, target) => sum + target.weight, 0);
+  if (targets.some((target) => target.weight < 0 || target.weight > 1)) fail("INVALID_INPUT", "Each target weight must be between 0 and 1");
+  if (targetSum + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Target weights (${(targetSum * 100).toFixed(1)}%) plus cash (${(cashWeight * 100).toFixed(1)}%) exceed 100%`);
+  const seen = /* @__PURE__ */ new Set();
+  for (const target of targets) {
+    const key = target.ticker.toUpperCase();
+    if (seen.has(key)) fail("INVALID_INPUT", `${target.ticker} appears more than once in the targets`);
+    seen.add(key);
+  }
+  const notes = [];
+  const skipped = [];
+  const byTicker = new Map(positions.map((position) => [position.instrument.ticker.toUpperCase(), position]));
+  const wanted = new Map(targets.map((target) => [target.ticker.toUpperCase(), target]));
+  if (options.sellUntargeted) {
+    for (const position of positions) {
+      const key = position.instrument.ticker.toUpperCase();
+      if (!wanted.has(key) && position.quantity > 0) wanted.set(key, { ticker: position.instrument.ticker, weight: 0 });
+    }
+  } else {
+    const untouched = positions.filter((position) => !wanted.has(position.instrument.ticker.toUpperCase()) && position.quantity > 0);
+    if (untouched.length) notes.push(`${untouched.length} holding(s) without a target are left as they are.`);
+  }
+  const lines = [];
+  for (const [key, target] of wanted) {
+    const position = byTicker.get(key);
+    const currency = (position?.instrument.currencyCode ?? instrumentCurrency(target.ticker) ?? accountCurrency).toUpperCase();
+    const fx = currency === accountCurrency ? 1 : options.fxRates?.[currency];
+    const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
+    if (!fx || fx <= 0) {
+      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency}; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      continue;
+    }
+    if (!price || price <= 0) {
+      skipped.push({ ticker: target.ticker, reason: "No price: Trading 212 only reports prices for held instruments, so pass referencePrice." });
+      continue;
+    }
+    const heldQuantity = Math.max(0, position?.quantity ?? 0);
+    lines.push({
+      ticker: position?.instrument.ticker ?? target.ticker,
+      currency,
+      price,
+      fx,
+      heldQuantity,
+      sellable: Math.max(0, position?.quantityAvailableForTrading ?? 0),
+      currentValue: heldQuantity * price / fx,
+      targetWeight: target.weight
+    });
+  }
+  const trades = [];
+  const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
+  let cash = cashBefore;
+  for (const line of lines) {
+    const excess = line.currentValue - line.targetWeight * totalValue;
+    if (excess < minTradeValue) continue;
+    const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
+    const quantity = Math.min(wantedQuantity, line.sellable);
+    if (quantity < wantedQuantity) notes.push(`${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`);
+    const value = quantity * line.price / line.fx;
+    if (quantity <= 0 || value < minTradeValue) continue;
+    cash += value;
+    valueAfter.set(line.ticker, line.currentValue - value);
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+  }
+  const reserve = cashWeight * totalValue;
+  const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
+  const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  const budget = Math.max(0, cash - reserve);
+  const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
+  if (wantedCash > 0 && scale < 1) notes.push(`Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`);
+  for (const { line, gap } of shortfalls) {
+    const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
+    const value = quantity * line.price / line.fx;
+    if (quantity <= 0 || value < minTradeValue) {
+      if (scale > 0) skipped.push({ ticker: line.ticker, reason: decimals === 0 ? "The buy is smaller than one whole share." : "The buy is below the minimum trade value." });
+      continue;
+    }
+    cash -= value;
+    valueAfter.set(line.ticker, line.currentValue + value);
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+  }
+  for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
+  if (!trades.length) notes.push("The portfolio is already within the minimum trade value of every target.");
+  notes.push("Prices are the broker's last position prices or the reference prices you supplied; Market orders can fill elsewhere.");
+  return {
+    kind: "rebalance_plan",
+    environment,
+    accountCurrency,
+    totalValue: money(totalValue),
+    cashBefore: money(cashBefore),
+    cashAfter: money(cash),
+    trades,
+    skipped,
+    notes
+  };
+}
+
+// src/core/policy.ts
+var EMPTY_USAGE = { orders: 0, notional: 0 };
+function ageSeconds(value, now) {
+  if (!value) return void 0;
+  const time3 = Date.parse(value);
+  return Number.isFinite(time3) ? Math.max(0, Math.floor((now.getTime() - time3) / 1e3)) : void 0;
+}
+var round = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
+function evaluatePolicy(policy, input2) {
+  const { draft, instrument, position, account } = input2;
+  const now = input2.now ?? /* @__PURE__ */ new Date();
+  const ticker = instrument.ticker.toUpperCase();
+  const sameCurrency2 = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
+  const checks = [];
+  if (policy.allowedTickers.length) {
+    const allowed = policy.allowedTickers.includes(ticker);
+    checks.push({ rule: "allowed_tickers", status: allowed ? "pass" : "block", message: allowed ? `${ticker} is on the allowed list.` : `${ticker} is not on the allowed ticker list.` });
+  }
+  if (policy.blockedTickers.includes(ticker)) {
+    checks.push({ rule: "blocked_tickers", status: "block", message: `${ticker} is on the blocked ticker list.` });
+  }
+  if (policy.allowedTypes.length && draft.side === "buy") {
+    const type = (instrument.type ?? "").toUpperCase();
+    const allowed = policy.allowedTypes.includes(type);
+    checks.push({ rule: "allowed_types", status: allowed ? "pass" : "block", message: allowed ? `${type} instruments are allowed.` : `Buying ${type || "this instrument type"} is not allowed (allowed: ${policy.allowedTypes.join(", ")}).` });
+  }
+  if (policy.maxPositionWeight > 0 && draft.side === "buy") {
+    const totalValue = account.totalValue ?? 0;
+    if (!sameCurrency2 || !totalValue || input2.estimatedNotional === void 0) {
+      checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed without a same-currency price and account value." });
+    } else {
+      const heldValue = Math.max(0, position?.quantity ?? 0) * (position?.currentPrice ?? 0);
+      const resulting = (heldValue + input2.estimatedNotional) / totalValue;
+      const over = resulting > policy.maxPositionWeight + 1e-9;
+      checks.push({
+        rule: "max_position_weight",
+        status: over ? "block" : "pass",
+        message: over ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy.maxPositionWeight * 100).toFixed(1)}% limit.` : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
+        details: { resultingWeight: round(resulting), limit: policy.maxPositionWeight }
+      });
+    }
+  }
+  if (policy.dailyOrderLimit > 0) {
+    const next = input2.usage.orders + 1;
+    const over = next > policy.dailyOrderLimit;
+    checks.push({ rule: "daily_order_limit", status: over ? "block" : "pass", message: over ? `This would be order ${next} today; the daily limit is ${policy.dailyOrderLimit}.` : `Order ${next} of ${policy.dailyOrderLimit} today.`, details: { ordersToday: input2.usage.orders, limit: policy.dailyOrderLimit } });
+  }
+  if (policy.dailyNotionalLimit > 0) {
+    if (!sameCurrency2 || input2.estimatedNotional === void 0) {
+      checks.push({ rule: "daily_notional_limit", status: "warn", message: "This order's value is not counted toward the daily budget because it is in another currency or cannot be estimated." });
+    } else {
+      const next = input2.usage.notional + input2.estimatedNotional;
+      const over = next > policy.dailyNotionalLimit + 1e-9;
+      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round(input2.usage.notional, 2), limit: policy.dailyNotionalLimit } });
+    }
+  }
+  if (!policy.marketOrdersWhenClosed && draft.type === "market" && input2.market && input2.market.session !== "unknown" && !input2.market.isOpen) {
+    const extended2 = draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(input2.market.session);
+    if (!extended2) {
+      checks.push({
+        rule: "market_closed",
+        status: "block",
+        message: "Market orders are blocked while the market is closed. Use a Limit order or wait for the open.",
+        details: { session: input2.market.session, nextOpen: input2.market.nextOpen ?? null }
+      });
+    }
+  }
+  if (policy.maxReferenceAgeSeconds > 0 && draft.type === "market" && draft.referencePrice !== void 0) {
+    const age = ageSeconds(draft.referencePriceAt, now);
+    const stale = age === void 0 || age > policy.maxReferenceAgeSeconds;
+    checks.push({ rule: "reference_age", status: stale ? "block" : "pass", message: stale ? `The reference price is ${age === void 0 ? "undated" : `${age}s old`}; the policy requires one newer than ${policy.maxReferenceAgeSeconds}s.` : `Reference price is ${age}s old.`, ...age === void 0 ? {} : { details: { ageSeconds: age } } });
+  }
+  return checks;
+}
+function blockingChecks(checks) {
+  return checks.filter((check2) => check2.status === "block");
+}
+function usageKey(environment, now = /* @__PURE__ */ new Date()) {
+  return `usage:${environment}:${now.toISOString().slice(0, 10)}`;
+}
+function addUsage(usage, estimatedNotional, sameCurrency2) {
+  return { orders: usage.orders + 1, notional: usage.notional + (sameCurrency2 && estimatedNotional ? estimatedNotional : 0) };
 }
 
 // src/core/trading212-client.ts
@@ -34651,6 +34647,7 @@ function randomToken(bytes = 32) {
 }
 
 // src/core/trading-service.ts
+var MAX_BASKET_LEGS = 20;
 function positiveNumber(name, value) {
   if (value === void 0 || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
 }
@@ -34661,6 +34658,7 @@ function floorQuantity(value, digits = 8) {
 var ACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1e3;
 var VERIFICATION_TTL_MS = 24 * 60 * 60 * 1e3;
 var REFERENCE_STALE_SECONDS = 300;
+var USAGE_TTL_MS = 2 * 24 * 60 * 60 * 1e3;
 function dateAgeSeconds(value, now = Date.now()) {
   if (!value) return void 0;
   const parsed = Date.parse(value);
@@ -34740,9 +34738,9 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
       throw new Error(`Estimated order notional ${estimatedNotional.toFixed(2)} ${instrument.currencyCode} exceeds MAX_ORDER_NOTIONAL (${config3.maxOrderNotional})`);
   }
   const availableCash = account.cash?.availableToTrade;
-  const sameCurrency = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
-  const cashCheckApplied = draft.side !== "buy" || sameCurrency && estimatedNotional !== void 0;
-  if (draft.side === "buy" && sameCurrency && availableCash !== void 0 && estimatedNotional !== void 0 && estimatedNotional > availableCash)
+  const sameCurrency2 = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
+  const cashCheckApplied = draft.side !== "buy" || sameCurrency2 && estimatedNotional !== void 0;
+  if (draft.side === "buy" && sameCurrency2 && availableCash !== void 0 && estimatedNotional !== void 0 && estimatedNotional > availableCash)
     throw new Error(`Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`);
   return {
     ...estimatedNotional === void 0 ? {} : { estimatedNotional },
@@ -34751,6 +34749,9 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     ...availableCash === void 0 ? {} : { availableCash },
     ...account.currency ? { accountCurrency: account.currency } : {}
   };
+}
+function sameCurrency(account, instrument) {
+  return !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
 }
 var TradingService = class {
   constructor(deps) {
@@ -34973,7 +34974,76 @@ var TradingService = class {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    return { instrument, position, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config) };
+    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config) };
+  }
+  async snapshot(environment) {
+    const client = this.client(environment);
+    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    return { instruments, positions, account };
+  }
+  async market(environment, instrument) {
+    try {
+      return await this.deps.marketStatus?.(environment, instrument);
+    } catch {
+      return void 0;
+    }
+  }
+  async usageToday(environment) {
+    return await this.deps.store.get(usageKey(environment)) ?? EMPTY_USAGE;
+  }
+  async recordUsage(environment, estimatedNotional, sameCurrency2) {
+    try {
+      const key = usageKey(environment);
+      const next = addUsage(await this.deps.store.get(key) ?? EMPTY_USAGE, estimatedNotional, sameCurrency2);
+      await this.deps.store.put(key, next, Date.now() + USAGE_TTL_MS);
+    } catch (error62) {
+      console.error(JSON.stringify({ message: "TradePilot usage persistence failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+    }
+  }
+  orderNotices(draft, current, market) {
+    const notices = [];
+    if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
+    if (current.estimatedNotional === void 0) {
+      notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
+    } else if (!current.cashCheckApplied && draft.side === "buy") {
+      notices.push({
+        code: "CROSS_CURRENCY_FUNDS_CHECK",
+        message: "The account and instrument use different currencies, so Trading 212 remains the final funds check.",
+        details: { instrumentCurrency: current.estimatedNotionalCurrency, accountCurrency: current.accountCurrency ?? "" }
+      });
+      const fxAgeSeconds = dateAgeSeconds(draft.fxRateAt);
+      if (fxAgeSeconds !== void 0 && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
+    }
+    if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (market && market.session !== "unknown" && !market.isOpen) {
+      const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
+      notices.push({
+        code: queued ? "MARKET_CLOSED_QUEUED" : "MARKET_CLOSED",
+        message: queued ? "The market is closed. Trading 212 queues this Market order and fills it at the next open, possibly at a gap price." : "The regular market session is closed for this instrument.",
+        details: { session: market.session, nextOpen: market.nextOpen ?? null }
+      });
+    }
+    if (draft.referencePrice !== void 0) {
+      const ageSeconds2 = dateAgeSeconds(draft.referencePriceAt);
+      if (ageSeconds2 === void 0) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });
+      else if (ageSeconds2 > REFERENCE_STALE_SECONDS) notices.push({ code: "REFERENCE_PRICE_STALE", message: "The reference price may be stale.", details: { ageSeconds: ageSeconds2, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
+    }
+    return notices;
+  }
+  policyFor(draft, instrument, position, account, estimatedNotional, market, usage) {
+    return evaluatePolicy(this.deps.config.policy[draft.environment], {
+      draft,
+      instrument,
+      account,
+      usage,
+      ...position ? { position } : {},
+      ...estimatedNotional === void 0 ? {} : { estimatedNotional },
+      ...market ? { market } : {}
+    });
+  }
+  assertPolicy(checks, ticker) {
+    const blocked = blockingChecks(checks);
+    if (blocked.length) fail("POLICY_BLOCKED", `${ticker}: ${blocked.map((check2) => check2.message).join(" ")}`, { rule: blocked[0].rule });
   }
   async issue(value) {
     const token = randomToken();
@@ -34995,34 +35065,10 @@ var TradingService = class {
     const draft = { ...raw, ticker: raw.ticker.trim() };
     const current = await this.current(draft);
     const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
-    const notices = [];
-    if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
-    if (current.estimatedNotional === void 0) {
-      notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
-    } else if (!current.cashCheckApplied && draft.side === "buy") {
-      notices.push({
-        code: "CROSS_CURRENCY_FUNDS_CHECK",
-        message: "The account and instrument use different currencies, so Trading 212 remains the final funds check.",
-        details: { instrumentCurrency: current.estimatedNotionalCurrency, accountCurrency: current.accountCurrency ?? "" }
-      });
-      const fxAgeSeconds = dateAgeSeconds(draft.fxRateAt);
-      if (fxAgeSeconds !== void 0 && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
-    }
-    if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
-    const market = await this.deps.marketStatus?.(draft.environment, current.instrument);
-    if (market && market.session !== "unknown" && !market.isOpen) {
-      const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
-      notices.push({
-        code: queued ? "MARKET_CLOSED_QUEUED" : "MARKET_CLOSED",
-        message: queued ? "The market is closed. Trading 212 queues this Market order and fills it at the next open, possibly at a gap price." : "The regular market session is closed for this instrument.",
-        details: { session: market.session, nextOpen: market.nextOpen ?? null }
-      });
-    }
-    if (draft.referencePrice !== void 0) {
-      const ageSeconds = dateAgeSeconds(draft.referencePriceAt);
-      if (ageSeconds === void 0) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });
-      else if (ageSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "REFERENCE_PRICE_STALE", message: "The reference price may be stale.", details: { ageSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
-    }
+    const market = await this.market(draft.environment, current.instrument);
+    const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment));
+    this.assertPolicy(policy, draft.ticker);
+    const notices = this.orderNotices(draft, current, market);
     const confirmation = await this.issue({ kind: "order", draft });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
@@ -35037,6 +35083,7 @@ var TradingService = class {
       ...current.availableCash === void 0 ? {} : { availableCash: current.availableCash },
       ...current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {},
       notices,
+      policy,
       warnings: notices.map((notice) => notice.message)
     };
   }
@@ -35044,22 +35091,227 @@ var TradingService = class {
     const pending = await this.deps.store.consume(`confirm:${confirmationId}`);
     if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const draft = pending.draft;
-    let baselineQuantity = 0;
+    let current;
     try {
-      const current = await this.current(draft);
-      baselineQuantity = current.position?.quantity ?? 0;
+      current = await this.current(draft);
+      const market = await this.market(draft.environment, current.instrument);
+      this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+    } catch (error62) {
+      return this.failedSubmission(draft, 0, error62);
+    }
+    return this.submit(draft, current.position?.quantity ?? 0, current.estimatedNotional, sameCurrency(current.account, current.instrument));
+  }
+  /** Compute (but never send) the trades that move the account toward target weights. */
+  async planRebalance(environment, targets, options = {}) {
+    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    const snapshot = await this.snapshot(environment);
+    const resolved = targets.map((target) => ({ ...target, ticker: resolveInstrumentFromList(snapshot.instruments, target.ticker).ticker }));
+    const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
+  }
+  rebalanceBasket(plan) {
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      kind: "basket_draft",
+      environment: plan.environment,
+      purpose: "rebalance",
+      title: "Rebalance",
+      legs: plan.trades.map((trade) => ({
+        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, referencePriceAt: at },
+        reason: `${(trade.currentWeight * 100).toFixed(1)}% \u2192 ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`
+      })),
+      notes: [...plan.notes, ...plan.skipped.map((item) => `${item.ticker}: ${item.reason}`)]
+    };
+  }
+  /**
+   * Draft broker-native protective orders for a holding: a Stop sell below the price and/or a
+   * Limit sell above it, both Good-Till-Cancel. Trading 212 triggers them; nothing runs here.
+   */
+  async protectiveBasket(environment, instrumentQuery, input2) {
+    if (input2.stopLossPrice === void 0 && input2.takeProfitPrice === void 0) fail("INVALID_INPUT", "Give a stopLossPrice, a takeProfitPrice, or both");
+    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    const snapshot = await this.snapshot(environment);
+    const instrument = resolveInstrumentFromList(snapshot.instruments, instrumentQuery);
+    const position = this.positionFor(snapshot.positions, instrument.ticker);
+    if (!position || position.quantityAvailableForTrading <= 0) fail("NO_AVAILABLE_POSITION", `There is no tradable ${instrument.ticker} position to protect`);
+    const quantity = input2.quantity ?? position.quantityAvailableForTrading;
+    if (quantity <= 0 || quantity > position.quantityAvailableForTrading + Number.EPSILON) fail("INSUFFICIENT_SELLABLE_QUANTITY", `quantity must be between 0 and ${position.quantityAvailableForTrading}`);
+    const price = position.currentPrice;
+    if (input2.stopLossPrice !== void 0 && price && input2.stopLossPrice >= price) fail("INVALID_INPUT", `The stop-loss price must be below the current price ${price}`, { field: "stopLossPrice" });
+    if (input2.takeProfitPrice !== void 0 && price && input2.takeProfitPrice <= price) fail("INVALID_INPUT", `The take-profit price must be above the current price ${price}`, { field: "takeProfitPrice" });
+    const legs = [];
+    if (input2.stopLossPrice !== void 0) legs.push({ draft: { environment, ticker: instrument.ticker, side: "sell", type: "stop", quantity, stopPrice: input2.stopLossPrice, timeValidity: "GOOD_TILL_CANCEL" }, reason: `Stop-loss at ${input2.stopLossPrice} ${instrument.currencyCode}` });
+    if (input2.takeProfitPrice !== void 0) legs.push({ draft: { environment, ticker: instrument.ticker, side: "sell", type: "limit", quantity, limitPrice: input2.takeProfitPrice, timeValidity: "GOOD_TILL_CANCEL" }, reason: `Take-profit at ${input2.takeProfitPrice} ${instrument.currencyCode}` });
+    return {
+      kind: "basket_draft",
+      environment,
+      purpose: "protective",
+      title: `Protect ${instrument.shortName || instrument.ticker}`,
+      legs,
+      notes: [
+        "Both orders stay at Trading 212 until they fill or you cancel them.",
+        ...legs.length === 2 ? ["They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."] : [],
+        "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price."
+      ]
+    };
+  }
+  /**
+   * Validate every leg of a basket against one account snapshot. Sells run before buys, and
+   * unless `independentSells` is set, later legs see the shares and cash earlier legs use.
+   */
+  assessBasket(request, snapshot, usageBefore, markets) {
+    const ordered = [...request.drafts].sort((a, b) => a.side === b.side ? 0 : a.side === "sell" ? -1 : 1);
+    const sold = /* @__PURE__ */ new Map();
+    let cashDelta = 0;
+    let usage = usageBefore;
+    return ordered.map((raw, index) => {
+      if (raw.environment !== request.environment) fail("INVALID_INPUT", "Every basket leg must use the basket's environment");
+      try {
+        const instrument = resolveInstrumentFromList(snapshot.instruments, raw.ticker);
+        const draft = { ...raw, ticker: instrument.ticker };
+        const held = this.positionFor(snapshot.positions, instrument.ticker);
+        const alreadySold = request.independentSells ? 0 : sold.get(instrument.ticker) ?? 0;
+        const position = held ? { ...held, quantityAvailableForTrading: held.quantityAvailableForTrading - alreadySold } : void 0;
+        const cash = snapshot.account.cash?.availableToTrade;
+        const account = cash === void 0 ? snapshot.account : { ...snapshot.account, cash: { ...snapshot.account.cash, availableToTrade: cash + cashDelta } };
+        const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config);
+        const market = markets.get(instrument.ticker);
+        const policy = this.policyFor(draft, instrument, held, snapshot.account, checked.estimatedNotional, market, usage);
+        const same = sameCurrency(snapshot.account, instrument);
+        if (draft.side === "sell") sold.set(instrument.ticker, alreadySold + draft.quantity);
+        if (same && checked.estimatedNotional !== void 0) cashDelta += draft.side === "sell" ? checked.estimatedNotional : -checked.estimatedNotional;
+        usage = addUsage(usage, checked.estimatedNotional, same);
+        return { draft, instrument, position: held, checked, market, policy, same };
+      } catch (error62) {
+        const structured = asStructuredError(error62);
+        fail(structured.code, `Leg ${index + 1} (${raw.side} ${raw.quantity} ${raw.ticker}): ${structured.message}`, structured.details);
+      }
+    });
+  }
+  async marketsFor(environment, snapshot, drafts) {
+    const markets = /* @__PURE__ */ new Map();
+    for (const draft of drafts) {
+      try {
+        const instrument = resolveInstrumentFromList(snapshot.instruments, draft.ticker);
+        if (!markets.has(instrument.ticker)) markets.set(instrument.ticker, await this.market(environment, instrument));
+      } catch {
+      }
+    }
+    return markets;
+  }
+  async prepareBasket(request) {
+    if (!credentialStatus(this.deps.config)[request.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${request.environment.toUpperCase()} credentials are not configured`);
+    if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
+    const snapshot = await this.snapshot(request.environment);
+    const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
+    const markets = await this.marketsFor(request.environment, snapshot, request.drafts);
+    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets);
+    const blocked = legs.flatMap((leg) => blockingChecks(leg.policy).map((check2) => `${leg.instrument.ticker}: ${check2.message}`));
+    if (blocked.length) fail("POLICY_BLOCKED", blocked.join(" "), { rule: blockingChecks(legs.flatMap((leg) => leg.policy))[0].rule });
+    const drafts = legs.map((leg) => leg.draft);
+    const confirmation = await this.issue({
+      kind: "basket",
+      environment: request.environment,
+      purpose: request.purpose,
+      title: request.title,
+      drafts,
+      independentSells: !!request.independentSells,
+      ...request.planId ? { planId: request.planId } : {}
+    });
+    await this.recordActivity("basket_prepared", request.environment, { legs: drafts.length, ...request.planId ? { planId: request.planId } : {} });
+    return {
+      kind: "basket_preview",
+      ...confirmation,
+      snapshotAt,
+      environment: request.environment,
+      purpose: request.purpose,
+      title: request.title,
+      legs: legs.map((leg) => ({
+        draft: leg.draft,
+        instrument: leg.instrument,
+        ...leg.checked.estimatedNotional === void 0 ? {} : { estimatedNotional: leg.checked.estimatedNotional },
+        estimatedNotionalCurrency: leg.checked.estimatedNotionalCurrency,
+        notices: this.orderNotices(leg.draft, leg.checked, leg.market),
+        policy: leg.policy
+      })),
+      notes: [
+        ...request.notes ?? [],
+        "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent."
+      ],
+      ...request.planId ? { planId: request.planId } : {}
+    };
+  }
+  async submit(draft, baselineQuantity, estimatedNotional, same) {
+    try {
       const order = await this.client(draft.environment).placeOrder(draft);
+      await this.recordUsage(draft.environment, estimatedNotional, same);
       await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
       return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
     } catch (error62) {
-      if (error62 instanceof ExecutionStatusUnknownError) {
-        const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
-        await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
-        return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...verificationId ? { verificationId } : {}, error: asStructuredError(error62), message: error62.message };
-      }
-      await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
+      return this.failedSubmission(draft, baselineQuantity, error62);
     }
+  }
+  async failedSubmission(draft, baselineQuantity, error62) {
+    if (error62 instanceof ExecutionStatusUnknownError) {
+      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...verificationId ? { verificationId } : {}, error: asStructuredError(error62), message: error62.message };
+    }
+    await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+    return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
+  }
+  /** Send a confirmed basket. Writes are never retried; an uncertain result stops the rest. */
+  async executeBasket(confirmationId) {
+    const pending = await this.deps.store.consume(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== "basket") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const results = [];
+    let stopReason;
+    let assessed;
+    try {
+      const snapshot = await this.snapshot(pending.environment);
+      const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
+      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets);
+    } catch (error62) {
+      stopReason = `The basket no longer passes its checks: ${asStructuredError(error62).message}`;
+    }
+    if (assessed) {
+      for (const leg of assessed) {
+        if (stopReason) {
+          results.push({ draft: leg.draft, skipped: stopReason });
+          continue;
+        }
+        const blocked = blockingChecks(leg.policy);
+        if (blocked.length) {
+          results.push({ draft: leg.draft, skipped: blocked.map((check2) => check2.message).join(" ") });
+          continue;
+        }
+        const result2 = await this.submit(leg.draft, leg.position?.quantity ?? 0, leg.checked.estimatedNotional, leg.same);
+        results.push({ draft: leg.draft, result: result2 });
+        if (result2.status === "unknown") stopReason = "Not sent: an earlier order's result is uncertain. Verify it before sending the rest.";
+      }
+    } else {
+      for (const draft of pending.drafts) results.push({ draft, skipped: stopReason ?? "Not sent." });
+    }
+    const submitted = results.filter((leg) => leg.result?.ok).length;
+    const status = submitted === results.length ? "submitted" : submitted > 0 ? "partial" : results.some((leg) => leg.result?.status === "unknown") || !assessed ? "stopped" : "rejected";
+    const outcome = {
+      kind: "basket_execution",
+      environment: pending.environment,
+      purpose: pending.purpose,
+      ok: status === "submitted",
+      status,
+      legs: results,
+      message: `${submitted} of ${results.length} order(s) submitted to Trading 212 ${pending.environment.toUpperCase()}.${stopReason ? ` ${stopReason}` : ""}`
+    };
+    await this.recordActivity("basket_submitted", pending.environment, { legs: results.length, outcome: status, ...pending.planId ? { planId: pending.planId } : {} });
+    if (pending.planId && this.deps.afterBasket) {
+      try {
+        await this.deps.afterBasket(pending.planId, outcome);
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot plan update failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+    }
+    return outcome;
   }
   async prepareCancel(environment, orderId) {
     const id = orderId.trim();
@@ -35130,6 +35382,237 @@ var TradingService = class {
     return result2;
   }
 };
+
+// src/core/analytics.ts
+var DEFAULT_ALLOCATION_LIMITS = {
+  maxSingleWeight: 0.2,
+  maxTop5Weight: 0.6,
+  cashHighWeight: 0.3,
+  cashLowWeight: 0.02,
+  maxCurrencyWeight: 0.85
+};
+var round2 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var ratio = (part, whole) => whole > 0 ? part / whole : 0;
+function sumBy(items, key, amount) {
+  const totals = /* @__PURE__ */ new Map();
+  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount(item));
+  return [...totals].map(([k, v]) => ({ key: k, amount: round2(v) })).sort((a, b) => b.amount - a.amount);
+}
+function positionValue(position) {
+  const wallet = position.walletImpact;
+  if (typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue)) return wallet.currentValue;
+  return position.quantity * position.currentPrice;
+}
+function positionPnl(position) {
+  const wallet = position.walletImpact;
+  return typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : void 0;
+}
+function analyzeAllocation(environment, account, positions, instruments = [], limits = DEFAULT_ALLOCATION_LIMITS, now = /* @__PURE__ */ new Date()) {
+  const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
+  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0);
+  const holdings = positions.map((position) => {
+    const ticker = position.instrument?.ticker ?? "";
+    const meta3 = byTicker.get(ticker.toUpperCase());
+    const pnl = positionPnl(position);
+    const type = meta3?.type ?? position.instrument?.type;
+    return {
+      ticker,
+      name: position.instrument?.name ?? meta3?.name ?? ticker,
+      currency: (position.instrument?.currencyCode ?? position.instrument?.currency ?? meta3?.currencyCode ?? "?").toUpperCase(),
+      ...type ? { type } : {},
+      value: positionValue(position),
+      weight: 0,
+      ...pnl === void 0 ? {} : { unrealizedProfitLoss: pnl }
+    };
+  }).filter((item) => item.value > 0);
+  const investedValue = holdings.reduce((sum, item) => sum + item.value, 0);
+  const totalValue = investedValue + cash;
+  for (const item of holdings) item.weight = ratio(item.value, totalValue);
+  holdings.sort((a, b) => b.value - a.value);
+  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount }) => ({ k, value: amount, weight: ratio(amount, totalValue) }));
+  const byCurrency = group((item) => item.currency).map(({ k, value, weight: weight2 }) => ({ currency: k, value, weight: weight2 }));
+  const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight: weight2 }) => ({ type: k, value, weight: weight2 }));
+  const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
+  const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
+  const largestWeight = investedWeights[0] ?? 0;
+  const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
+  const cashWeight = ratio(cash, totalValue);
+  const flags = [];
+  const pct = (value) => `${round2(value * 100, 1)}%`;
+  if (holdings[0] && largestWeight > limits.maxSingleWeight)
+    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct(largestWeight)} of invested value (limit ${pct(limits.maxSingleWeight)}).` });
+  if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
+    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct(top5Weight)} of invested value (limit ${pct(limits.maxTop5Weight)}).` });
+  if (totalValue > 0 && cashWeight > limits.cashHighWeight)
+    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct(cashWeight)} of the account.` });
+  if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
+    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct(cashWeight)} of the account.` });
+  const topCurrency = byCurrency[0];
+  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight && byCurrency.length >= 1)
+    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.currency}.` });
+  return {
+    kind: "allocation",
+    environment,
+    accountCurrency: account.currency ?? "",
+    totalValue: round2(totalValue),
+    investedValue: round2(investedValue),
+    cash: round2(cash),
+    cashWeight,
+    holdings: holdings.map((item) => ({ ...item, value: round2(item.value) })),
+    byCurrency,
+    byType,
+    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round2(1 / herfindahl, 1) : 0 },
+    flags,
+    timestamp: now.toISOString()
+  };
+}
+var inWindow = (value, window) => {
+  if (!value) return false;
+  const time3 = Date.parse(value);
+  return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
+};
+var DEPOSIT = /* @__PURE__ */ new Set(["DEPOSIT"]);
+var WITHDRAW = /* @__PURE__ */ new Set(["WITHDRAW", "WITHDRAWAL"]);
+var INTEREST = /* @__PURE__ */ new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
+function fillTicker(item) {
+  return (item.order?.ticker ?? item.order?.instrument?.ticker ?? "?").toUpperCase();
+}
+function summarizePerformance(input2) {
+  const { window } = input2;
+  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
+  const dividends = input2.dividends.filter((item) => inWindow(item.paidOn, window));
+  const transactions = input2.transactions.filter((item) => inWindow(item.dateTime, window));
+  let deposits = 0, withdrawals = 0, interest = 0;
+  const transactionCosts = [];
+  for (const item of transactions) {
+    const amount = item.amount ?? 0;
+    const type = (item.type ?? "").toUpperCase();
+    if (DEPOSIT.has(type)) deposits += Math.abs(amount);
+    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount);
+    else if (INTEREST.has(type)) interest += amount;
+    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount) });
+  }
+  const taxes = [];
+  const perTicker = /* @__PURE__ */ new Map();
+  const tickerRow = (ticker) => {
+    let row = perTicker.get(ticker);
+    if (!row) perTicker.set(ticker, row = { realizedProfitLoss: 0, dividends: 0, costs: 0 });
+    return row;
+  };
+  let realized = 0, buys = 0, sells = 0, turnover = 0;
+  for (const item of fills) {
+    const ticker = fillTicker(item);
+    const wallet = item.fill?.walletImpact;
+    const pnl = wallet?.realisedProfitLoss ?? 0;
+    realized += pnl;
+    tickerRow(ticker).realizedProfitLoss += pnl;
+    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
+    const side = (item.order?.side ?? "").toUpperCase();
+    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
+    if (side === "SELL" || quantity < 0) sells++;
+    else buys++;
+    for (const tax of wallet?.taxes ?? []) {
+      const amount = Math.abs(tax.quantity ?? 0);
+      taxes.push({ key: tax.name ?? "OTHER", amount, ticker });
+      tickerRow(ticker).costs += amount;
+    }
+  }
+  let dividendTotal = 0;
+  for (const item of dividends) {
+    const amount = item.amount ?? 0;
+    dividendTotal += amount;
+    tickerRow((item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase()).dividends += amount;
+  }
+  const costs = [...taxes, ...transactionCosts];
+  const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
+  const net = deposits - withdrawals;
+  const currentValue = input2.account.totalValue;
+  const notes = [
+    "Amounts are in the account currency as reported by Trading 212.",
+    "Realized P/L comes from the broker's per-fill wallet impact and already reflects FX at execution."
+  ];
+  if (input2.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
+  if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
+  return {
+    kind: "performance",
+    environment: input2.environment,
+    accountCurrency: input2.account.currency ?? "",
+    period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
+    coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
+    contributions: { deposits: round2(deposits), withdrawals: round2(withdrawals), net: round2(net) },
+    income: { dividends: round2(dividendTotal), interest: round2(interest) },
+    costs: { total: round2(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    realizedProfitLoss: round2(realized),
+    ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
+    ...currentValue === void 0 ? {} : { currentValue },
+    ...!window.from && !input2.truncated && currentValue !== void 0 && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
+    trades: { buys, sells, turnover: round2(turnover) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round2(row.realizedProfitLoss), dividends: round2(row.dividends), costs: round2(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    notes,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function summarizeIncome(input2) {
+  const events = [
+    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
+    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
+  ];
+  const windowed = events.filter((item) => inWindow(item.at, input2.window));
+  const yearAgo = new Date(input2.window.to.getTime() - 365 * 864e5);
+  const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
+  const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  return {
+    kind: "income",
+    environment: input2.environment,
+    accountCurrency: input2.accountCurrency,
+    period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
+    total: round2(dividends + interest),
+    dividends: round2(dividends),
+    interest: round2(interest),
+    byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
+    byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
+    trailing12Months: round2(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    truncated: input2.truncated,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+var SESSION_BY_EVENT = {
+  OPEN: "regular",
+  BREAK_END: "regular",
+  BREAK_START: "break",
+  PRE_MARKET_OPEN: "pre_market",
+  AFTER_HOURS_OPEN: "after_hours",
+  OVERNIGHT_OPEN: "overnight",
+  CLOSE: "closed",
+  AFTER_HOURS_CLOSE: "closed"
+};
+function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
+  const checkedAt = now.toISOString();
+  const scheduleId = instrument.workingScheduleId;
+  const exchange = exchanges.find((item) => item.workingSchedules?.some((schedule2) => schedule2.id === scheduleId));
+  const schedule = exchange?.workingSchedules.find((item) => item.id === scheduleId);
+  if (scheduleId === void 0 || !schedule?.timeEvents?.length)
+    return { ticker: instrument.ticker, ...scheduleId === void 0 ? {} : { scheduleId }, session: "unknown", isOpen: false, checkedAt };
+  const events = schedule.timeEvents.map((event) => ({ ...event, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
+  const nowTime = now.getTime();
+  const past = events.filter((event) => event.time <= nowTime);
+  const future = events.filter((event) => event.time > nowTime);
+  const last = past[past.length - 1];
+  const session = last ? SESSION_BY_EVENT[last.type] ?? "unknown" : "closed";
+  const nextOpen = future.find((event) => event.type === "OPEN");
+  const nextClose = future.find((event) => event.type === "CLOSE");
+  return {
+    ticker: instrument.ticker,
+    scheduleId,
+    ...exchange ? { exchange: exchange.name } : {},
+    session,
+    isOpen: session === "regular",
+    ...nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {},
+    ...nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {},
+    checkedAt
+  };
+}
 
 // src/core/insights-service.ts
 var DEFAULT_HISTORY_PAGES = 10;
@@ -35291,11 +35774,219 @@ var InsightsService = class {
   }
 };
 
+// src/core/automation.ts
+var MAX_PLANS = 20;
+var MAX_PLAN_LEGS = 10;
+var DEFAULT_HOUR_UTC = 15;
+var RUN_LOCK_MS = 10 * 6e4;
+var DAY_MS = 864e5;
+var planKey = (id) => `plan:${id}`;
+var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
+function nextRunAt(plan, after) {
+  if (plan.frequency === "monthly") {
+    const day = plan.dayOfMonth ?? 1;
+    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day, plan.hourUtc));
+    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day, plan.hourUtc));
+    return candidate2;
+  }
+  const weekday = plan.weekday ?? 1;
+  const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan.hourUtc));
+  const isoToday = today.getUTCDay() || 7;
+  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS);
+  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS);
+  return candidate;
+}
+function validateSchedule(input2) {
+  if (input2.frequency === "monthly" && (input2.dayOfMonth === void 0 || !Number.isInteger(input2.dayOfMonth) || input2.dayOfMonth < 1 || input2.dayOfMonth > 28))
+    fail("INVALID_INPUT", "Monthly plans need dayOfMonth between 1 and 28", { field: "dayOfMonth" });
+  if (input2.frequency === "weekly" && (input2.weekday === void 0 || !Number.isInteger(input2.weekday) || input2.weekday < 1 || input2.weekday > 7))
+    fail("INVALID_INPUT", "Weekly plans need weekday between 1 (Monday) and 7 (Sunday)", { field: "weekday" });
+  if (input2.hourUtc !== void 0 && (!Number.isInteger(input2.hourUtc) || input2.hourUtc < 0 || input2.hourUtc > 23))
+    fail("INVALID_INPUT", "hourUtc must be an integer from 0 to 23", { field: "hourUtc" });
+}
+function assertAutoExecuteAllowed(environment, autoExecute) {
+  if (autoExecute && environment !== "demo") fail("INVALID_INPUT", "Unattended execution is only available for Demo plans. Live plans always wait for your confirmation.", { field: "autoExecute" });
+}
+var AutomationService = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  async listPlans(environment) {
+    const entries = await this.deps.store.list("plan:");
+    return entries.map((entry) => entry.value).filter((plan) => !environment || plan.environment === environment).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
+  }
+  async getPlan(id) {
+    const plan = await this.deps.store.get(planKey(id));
+    if (!plan) fail("PLAN_NOT_FOUND", "Plan not found", { planId: id });
+    return plan;
+  }
+  async resolveLegs(environment, legs) {
+    if (!legs.length || legs.length > MAX_PLAN_LEGS) fail("INVALID_INPUT", `A plan needs 1 to ${MAX_PLAN_LEGS} legs`);
+    const instruments = await this.deps.trading.instruments(environment);
+    return legs.map((leg) => {
+      if (!Number.isFinite(leg.amount) || leg.amount <= 0) fail("INVALID_INPUT", "Each plan leg needs a positive amount", { field: "amount" });
+      return { ticker: resolveInstrumentFromList(instruments, leg.ticker).ticker, amount: leg.amount };
+    });
+  }
+  async createPlan(input2, now = /* @__PURE__ */ new Date()) {
+    validateSchedule(input2);
+    assertAutoExecuteAllowed(input2.environment, input2.autoExecute);
+    if (!credentialStatus(this.deps.config)[input2.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input2.environment.toUpperCase()} credentials are not configured`);
+    if ((await this.listPlans()).length >= MAX_PLANS) fail("INVALID_INPUT", `At most ${MAX_PLANS} plans can be stored`);
+    const schedule = {
+      frequency: input2.frequency,
+      ...input2.frequency === "monthly" ? { dayOfMonth: input2.dayOfMonth } : { weekday: input2.weekday },
+      hourUtc: input2.hourUtc ?? DEFAULT_HOUR_UTC
+    };
+    const plan = {
+      id: `dca_${randomToken(12)}`,
+      environment: input2.environment,
+      label: input2.label.trim().slice(0, 80) || "DCA plan",
+      legs: await this.resolveLegs(input2.environment, input2.legs),
+      ...schedule,
+      autoExecute: !!input2.autoExecute,
+      paused: false,
+      nextRunAt: nextRunAt(schedule, now).toISOString(),
+      createdAt: now.toISOString()
+    };
+    await this.deps.store.put(planKey(plan.id), plan);
+    return plan;
+  }
+  async updatePlan(id, patch) {
+    const plan = await this.getPlan(id);
+    assertAutoExecuteAllowed(plan.environment, patch.autoExecute);
+    const updated = {
+      ...plan,
+      ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
+      ...patch.legs === void 0 ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) },
+      ...patch.paused === void 0 ? {} : { paused: patch.paused },
+      ...patch.autoExecute === void 0 ? {} : { autoExecute: patch.autoExecute }
+    };
+    await this.deps.store.put(planKey(id), updated);
+    return updated;
+  }
+  async deletePlan(id) {
+    await this.getPlan(id);
+    await this.deps.store.delete(planKey(id));
+  }
+  /**
+   * Turn a plan into Market buy orders sized from the broker's last position price.
+   * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
+   */
+  async buildBasket(plan, now = /* @__PURE__ */ new Date()) {
+    const dashboard = await this.deps.trading.getDashboard(plan.environment);
+    const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
+    const drafts = [];
+    const skipped = [];
+    for (const leg of plan.legs) {
+      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      if (!position?.currentPrice) {
+        skipped.push(`${leg.ticker}: no broker price because it is not held yet; buy it once manually.`);
+        continue;
+      }
+      if (!accountCurrency || position.instrument.currencyCode.toUpperCase() !== accountCurrency) {
+        skipped.push(`${leg.ticker}: quoted in ${position.instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+        continue;
+      }
+      const quantity = floorTo2(leg.amount / position.currentPrice, 4);
+      if (quantity <= 0) {
+        skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`);
+        continue;
+      }
+      drafts.push({ environment: plan.environment, ticker: position.instrument.ticker, side: "buy", type: "market", quantity, referencePrice: position.currentPrice, referencePriceAt: now.toISOString() });
+    }
+    return {
+      environment: plan.environment,
+      purpose: "dca",
+      title: plan.label,
+      drafts,
+      planId: plan.id,
+      notes: [`Sized from each holding's last broker price; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      skipped
+    };
+  }
+  async reviewPlan(id) {
+    const plan = await this.getPlan(id);
+    const basket = await this.buildBasket(plan);
+    return {
+      kind: "basket_draft",
+      environment: plan.environment,
+      purpose: "dca",
+      title: plan.label,
+      legs: basket.drafts.map((draft) => ({ draft, reason: `Plan "${plan.label}"` })),
+      notes: basket.notes ?? [],
+      planId: plan.id
+    };
+  }
+  /** Called after a plan's basket was executed, whether by the user or by the scheduler. */
+  async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
+    const plan = await this.deps.store.get(planKey(planId));
+    if (!plan) return;
+    const anySent = result2.legs.some((leg) => leg.result?.ok);
+    await this.deps.store.put(planKey(planId), {
+      ...plan,
+      lastRunAt: now.toISOString(),
+      lastOutcome: result2.message,
+      // Only a run that sent something moves the plan on; otherwise it stays due.
+      ...anySent ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+    });
+  }
+  /**
+   * One scheduler tick. Due Live plans and Demo plans without autoExecute are announced once in
+   * the activity log for the user to confirm. Due Demo autoExecute plans run when Demo automation
+   * is enabled. A plan blocked by policy (for example a closed market) stays due for the next tick.
+   */
+  async runDuePlans(now = /* @__PURE__ */ new Date()) {
+    const reports = [];
+    for (const plan of await this.listPlans()) {
+      if (plan.paused || Date.parse(plan.nextRunAt) > now.getTime()) continue;
+      const unattended = plan.autoExecute && plan.environment === "demo" && this.deps.config.demoAutomationEnabled;
+      if (!unattended) {
+        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
+        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id });
+        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message: `"${plan.label}" is due and waits for your confirmation.` });
+        continue;
+      }
+      const lock = await this.deps.store.increment(`plan-lock:${plan.id}:${plan.nextRunAt}`, RUN_LOCK_MS, now.getTime());
+      if (lock.count > 1) continue;
+      try {
+        const basket = await this.buildBasket(plan, now);
+        if (!basket.drafts.length) {
+          await this.skip(plan, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
+          reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
+          continue;
+        }
+        const preview = await this.deps.trading.prepareBasket(basket);
+        const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED"));
+        if (closed.length) throw new Error(`Market closed for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until the next tick inside the session.`);
+        const result2 = await this.deps.trading.executeBasket(preview.token);
+        await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result2.legs.length, outcome: result2.status });
+        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result2.message, result: result2 });
+      } catch (error62) {
+        const message = asStructuredError(error62).message;
+        await this.skip(plan, now, message, false);
+        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message });
+      }
+    }
+    return reports;
+  }
+  async skip(plan, now, message, advance) {
+    await this.deps.store.put(planKey(plan.id), {
+      ...plan,
+      lastOutcome: message,
+      ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+    });
+    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
+    if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
+  }
+};
+
 // src/shared/meta.ts
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.5.0"
+  version: "2.6.0"
 };
 
 // src/core/mcp.ts
@@ -35366,7 +36057,7 @@ var windowSchema = {
   to: external_exports.string().datetime().optional(),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version });
@@ -35397,7 +36088,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment }) => {
       try {
-        const data = { ...await trading2.getDashboard(environment), writeEnabled: canWrite };
+        const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
         return result(data, `Rendered ${environment.toUpperCase()} Trading 212 portfolio dashboard.`);
       } catch (error62) {
         return toolError(error62);
@@ -35420,7 +36111,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, query, limit }) => {
       try {
-        const instruments = await trading2.searchInstruments(environment, query, limit);
+        const instruments = await trading.searchInstruments(environment, query, limit);
         return result(
           { environment, query, credentials: credentialStatus(config3), instruments },
           instruments.length ? `Found ${instruments.length} Trading 212 instrument matches.` : `No matches or ${environment.toUpperCase()} credentials are not configured.`
@@ -35449,7 +36140,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = { ...await insights2.allocation(environment, limits), credentials: credentialStatus(config3), writeEnabled: canWrite };
+        const data = { ...await insights.allocation(environment, limits), credentials: credentialStatus(config3), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s).`);
       } catch (error62) {
         return toolError(error62);
@@ -35468,7 +36159,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights2.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
         return result(data, `Realized P/L ${data.realizedProfitLoss} ${data.accountCurrency}, income ${data.income.dividends + data.income.interest}, costs ${data.costs.total}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -35487,7 +36178,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights2.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
         return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
       } catch (error62) {
         return toolError(error62);
@@ -35511,7 +36202,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, ticker, limit, period, from, to }) => {
       try {
-        const data = await insights2.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit);
         return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -35530,7 +36221,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, instrument }) => {
       try {
-        const data = await insights2.marketHours(environment, instrument);
+        const data = await insights.marketHours(environment, instrument);
         return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -35550,10 +36241,10 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     async ({ environment, action, period, from, to }) => {
       try {
         if (action === "request") {
-          const created = await insights2.requestExport(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }));
+          const created = await insights.requestExport(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }));
           return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
         }
-        const reports = await insights2.listExports(environment);
+        const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
       } catch (error62) {
         return toolError(error62);
@@ -35575,7 +36266,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, limit }) => {
       try {
-        const activity = await trading2.getActivity(environment, limit);
+        const activity = await trading.getActivity(environment, limit);
         return result({ environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error62) {
         return toolError(error62);
@@ -35597,7 +36288,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, candidates }) => {
       try {
-        const data = { ...await trading2.getTradePlan(environment, candidates), writeEnabled: canWrite };
+        const data = { ...await trading.getTradePlan(environment, candidates), writeEnabled: canWrite };
         return result(
           data,
           `Rendered ${candidates.length} candidates. No trade has been placed; execution is only available after explicit user confirmation in the widget.`
@@ -35633,7 +36324,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async (intent) => {
         try {
-          const resolved = await trading2.resolveOrderIntent(intent);
+          const resolved = await trading.resolveOrderIntent(intent);
           return result(
             {
               kind: "order_draft",
@@ -35678,6 +36369,199 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
   }
   j(
     server2,
+    "get_trading_policy",
+    {
+      title: "Trading Policy",
+      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault }),
+      annotations: readOnly,
+      _meta: {}
+    },
+    async ({ environment }) => {
+      try {
+        const usage = await trading.usageToday(environment);
+        const data = { kind: "trading_policy", environment, policy: config3.policy[environment], maxOrderNotional: config3.maxOrderNotional, maxOrderQuantity: config3.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config3.demoAutomationEnabled };
+        return result(data, `${environment.toUpperCase()} policy loaded; ${usage.orders} order(s) sent through TradePilot today.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "plan_portfolio_rebalance",
+    {
+      title: "Plan a Rebalance",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold need a referencePrice because Trading 212 has no quote endpoint.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        targets: external_exports.array(external_exports.object({
+          ticker: external_exports.string().min(1).describe("Trading 212 ticker, symbol or name"),
+          weight: external_exports.number().min(0).max(1),
+          referencePrice: external_exports.number().positive().optional()
+        })).min(1).max(MAX_BASKET_LEGS),
+        cashWeight: external_exports.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
+        minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
+        sellUntargeted: external_exports.boolean().default(false).describe("Sell holdings that have no target"),
+        wholeSharesOnly: external_exports.boolean().default(false),
+        fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe('Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account')
+      }),
+      annotations: readOnly,
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
+      try {
+        const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...fxRates ? { fxRates } : {} });
+        const data = { ...trading.rebalanceBasket(plan), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
+        const summary = plan.trades.map((trade) => `${trade.side} ${trade.quantity} ${trade.ticker}`).join(", ") || "no trades";
+        return result(data, `Rebalance plan: ${summary}. Cash ${plan.cashBefore} \u2192 ${plan.cashAfter} ${plan.accountCurrency}. Nothing has been sent${canWrite ? "; the user can review and confirm the basket in the widget" : ""}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "list_investment_plans",
+    {
+      title: "Investment Plans",
+      description: "List standing dollar-cost-averaging plans with their schedule, legs, next due time, last outcome and whether Demo plans run unattended. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentEnum.optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {}
+    },
+    async ({ environment }) => {
+      try {
+        const plans = await automation.listPlans(environment);
+        return result({ kind: "investment_plans", plans, demoAutomationEnabled: config3.demoAutomationEnabled }, `${plans.length} plan(s).`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  if (canWrite) {
+    j(
+      server2,
+      "manage_investment_plans",
+      {
+        title: "Manage Investment Plans",
+        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price.",
+        inputSchema: external_exports.object({
+          action: external_exports.enum(["create", "update", "delete"]),
+          planId: external_exports.string().optional().describe("Required for update and delete"),
+          environment: environmentWithDefault,
+          label: external_exports.string().max(80).optional(),
+          legs: external_exports.array(external_exports.object({ ticker: external_exports.string().min(1), amount: external_exports.number().positive() })).min(1).max(MAX_PLAN_LEGS).optional(),
+          frequency: external_exports.enum(["weekly", "monthly"]).optional(),
+          dayOfMonth: external_exports.number().int().min(1).max(28).optional(),
+          weekday: external_exports.number().int().min(1).max(7).optional().describe("1 = Monday \u2026 7 = Sunday"),
+          hourUtc: external_exports.number().int().min(0).max(23).optional().describe("Hour (UTC) the plan becomes due. Default 15, inside the US and EU sessions."),
+          autoExecute: external_exports.boolean().optional().describe("Demo only: run unattended when due"),
+          paused: external_exports.boolean().optional()
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        _meta: {}
+      },
+      async (input2) => {
+        try {
+          if (input2.action === "create") {
+            if (!input2.legs || !input2.frequency) return toolError(new Error("legs and frequency are required to create a plan"));
+            const plan2 = await automation.createPlan({
+              environment: input2.environment,
+              label: input2.label ?? "DCA plan",
+              legs: input2.legs,
+              frequency: input2.frequency,
+              ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
+              ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
+              ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc },
+              ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
+            });
+            const unattended = plan2.autoExecute && !config3.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
+            return result({ kind: "investment_plan", plan: plan2 }, `Saved plan ${plan2.id}; next due ${plan2.nextRunAt}. No order was placed.${unattended}`);
+          }
+          if (!input2.planId) return toolError(new Error("planId is required"));
+          if (input2.action === "delete") {
+            await automation.deletePlan(input2.planId);
+            return result({ kind: "investment_plan", deleted: input2.planId }, `Deleted plan ${input2.planId}.`);
+          }
+          const plan = await automation.updatePlan(input2.planId, {
+            ...input2.label === void 0 ? {} : { label: input2.label },
+            ...input2.legs === void 0 ? {} : { legs: input2.legs },
+            ...input2.paused === void 0 ? {} : { paused: input2.paused },
+            ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
+          });
+          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_investment_plan",
+      {
+        title: "Review a Due Investment Plan",
+        description: "Open a standing plan's orders as one basket for the user to review and confirm, sized from current broker prices. This never places an order.",
+        inputSchema: external_exports.object({ planId: external_exports.string().min(1) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ planId }) => {
+        try {
+          const data = { ...await automation.reviewPlan(planId), credentials: credentialStatus(config3), writeEnabled: true };
+          return result(data, `Opened ${data.legs.length} order(s) from plan "${data.title}" for review. Nothing has been sent.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_protective_orders",
+      {
+        title: "Review Stop-Loss and Take-Profit Orders",
+        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. The two orders are not linked.",
+        inputSchema: external_exports.object({
+          environment: environmentWithDefault,
+          instrument: external_exports.string().min(1),
+          stopLossPrice: external_exports.number().positive().optional(),
+          takeProfitPrice: external_exports.number().positive().optional(),
+          quantity: external_exports.number().positive().optional().describe("Defaults to all tradable shares")
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, instrument, ...input2 }) => {
+        try {
+          const data = { ...await trading.protectiveBasket(environment, instrument, input2), credentials: credentialStatus(config3), writeEnabled: true };
+          return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_order_basket",
+      {
+        title: "Review an Order Basket",
+        description: `Open up to ${MAX_BASKET_LEGS} exact orders as one basket that the user confirms once. Sells are sent before buys; an uncertain result stops the rest. Review-only; never places an order. Prefer plan_portfolio_rebalance for target weights.`,
+        inputSchema: external_exports.object({
+          environment: environmentWithDefault,
+          title: external_exports.string().min(1).max(80).default("Order basket"),
+          orders: external_exports.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS)
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, title, orders }) => result(
+        { kind: "basket_draft", environment, purpose: "custom", title, legs: orders.map((order) => ({ draft: { ...order, environment } })), notes: [], credentials: credentialStatus(config3), writeEnabled: true },
+        `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
+      )
+    );
+  }
+  j(
+    server2,
     "app_get_dashboard",
     {
       title: "Refresh dashboard",
@@ -35688,7 +36572,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment }) => {
       try {
-        const data = { ...await trading2.getDashboard(environment), writeEnabled: canWrite };
+        const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
       } catch (error62) {
         return toolError(error62);
@@ -35707,7 +36591,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
     },
     async ({ environment, candidates }) => {
       try {
-        const data = { ...await trading2.getTradePlan(environment, candidates), writeEnabled: canWrite };
+        const data = { ...await trading.getTradePlan(environment, candidates), writeEnabled: canWrite };
         return result(data, "Trade plan refreshed.");
       } catch (error62) {
         return toolError(error62);
@@ -35727,7 +36611,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async (draft) => {
         try {
-          const data = await trading2.prepareOrder(draft);
+          const data = await trading.prepareOrder(draft);
           return result(data, "Order validated. Explicit user confirmation is still required.");
         } catch (error62) {
           return toolError(error62);
@@ -35746,7 +36630,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async ({ token }) => {
         try {
-          const data = await trading2.executeOrder(token);
+          const data = await trading.executeOrder(token);
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -35765,7 +36649,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async ({ verificationId }) => {
         try {
-          const data = await trading2.verifyExecution(verificationId);
+          const data = await trading.verifyExecution(verificationId);
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -35784,7 +36668,7 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async ({ environment, orderId }) => {
         try {
-          const data = await trading2.prepareCancel(environment, orderId);
+          const data = await trading.prepareCancel(environment, orderId);
           return result(data, "Cancellation validated. Explicit confirmation is still required.");
         } catch (error62) {
           return toolError(error62);
@@ -35803,7 +36687,60 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
       },
       async ({ token }) => {
         try {
-          const data = await trading2.executeCancel(token);
+          const data = await trading.executeCancel(token);
+          return result(data, data.message);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "app_prepare_basket",
+      {
+        title: "Prepare basket confirmation",
+        description: "App-only validation of every basket leg and the policy. Creates one short-lived confirmation token; places nothing.",
+        inputSchema: external_exports.object({
+          environment: environmentEnum,
+          purpose: external_exports.enum(["rebalance", "protective", "dca", "custom"]),
+          title: external_exports.string().min(1).max(80),
+          drafts: external_exports.array(orderDraftSchema).min(1).max(MAX_BASKET_LEGS),
+          planId: external_exports.string().optional(),
+          notes: external_exports.array(external_exports.string().max(500)).max(20).optional()
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async ({ environment, purpose, title, drafts, planId, notes }) => {
+        try {
+          const data = await trading.prepareBasket({
+            environment,
+            purpose,
+            title,
+            drafts,
+            independentSells: purpose === "protective",
+            ...planId ? { planId } : {},
+            ...notes ? { notes } : {}
+          });
+          return result(data, "Basket validated. Explicit user confirmation is still required.");
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "app_execute_basket",
+      {
+        title: "Execute confirmed basket",
+        description: "App-only destructive external write. Consumes a one-time basket token and sends the orders one by one. Never retry automatically.",
+        inputSchema: external_exports.object({ token: external_exports.string().min(20) }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async ({ token }) => {
+        try {
+          const data = await trading.executeBasket(token);
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -35816,9 +36753,14 @@ function createMcpServer(trading2, insights2, config3, widgetHtml2, scopes2 = /*
 
 // src/app/services.ts
 function createServices(deps) {
-  const trading2 = new TradingService({ ...deps, marketStatus: (environment, instrument) => insights2.tryMarketStatus(environment, instrument) });
-  const insights2 = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading2.instruments(environment) });
-  return { trading: trading2, insights: insights2 };
+  const trading = new TradingService({
+    ...deps,
+    marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
+    afterBasket: (planId, result2) => automation.recordRun(planId, result2)
+  });
+  const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
+  const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
+  return { trading, insights, automation };
 }
 
 // src/adapters/node/file-state-store.ts
@@ -35938,7 +36880,7 @@ var log = (...args) => console.error("[tradepilot212]", ...args);
 var dataDir = path2.resolve(process3.env.TRADEPILOT_DATA_DIR || path2.join(os.homedir(), ".tradepilot212"));
 var allowWrites = /^(1|true|yes)$/i.test(process3.env.TRADEPILOT_ALLOW_WRITES ?? "");
 for (const [key, value] of Object.entries(process3.env)) if (value?.startsWith("${user_config.")) process3.env[key] = "";
-var config2 = createConfig(process3.env);
+var config2 = { ...createConfig(process3.env), ...allowWrites ? {} : { demoAutomationEnabled: false } };
 var store = await FileStateStore.open(path2.join(dataDir, "state.json"));
 var audit = async (event, details) => {
   try {
@@ -35963,8 +36905,11 @@ async function widgetHtml() {
   }
   return "<!doctype html><meta charset=utf-8><p>TradePilot 212 UI is not built. Run <code>pnpm build</code>.</p>";
 }
-var { trading, insights } = createServices({ config: config2, store, audit });
+var services = createServices({ config: config2, store, audit });
 var scopes = new Set(allowWrites ? ["trade:read", "trade:write"] : ["trade:read"]);
-var server = createMcpServer(trading, insights, config2, widgetHtml, scopes);
+var server = createMcpServer(services, config2, widgetHtml, scopes);
 await server.connect(new StdioServerTransport());
+var tick = () => services.automation.runDuePlans().catch((error62) => log("Plan tick failed", error62));
+setInterval(tick, 15 * 6e4).unref();
+void tick();
 log(`ready (writes ${allowWrites ? "enabled" : "disabled"}, state in ${dataDir})`);

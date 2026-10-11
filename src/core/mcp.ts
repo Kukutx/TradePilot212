@@ -6,8 +6,10 @@ import {
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
-import type { TradingService } from "./trading-service.js";
-import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow, type InsightsService } from "./insights-service.js";
+import { MAX_BASKET_LEGS } from "./trading-service.js";
+import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
+import { MAX_PLAN_LEGS } from "./automation.js";
+import type { Services } from "../app/services.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
@@ -88,8 +90,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  trading: TradingService,
-  insights: InsightsService,
+  { trading, insights, automation }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -429,6 +430,209 @@ export function createMcpServer(
     );
   }
 
+  registerAppTool(
+    server,
+    "get_trading_policy",
+    {
+      title: "Trading Policy",
+      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment }) => {
+      try {
+        const usage = await trading.usageToday(environment);
+        const data = { kind: "trading_policy", environment, policy: config.policy[environment], maxOrderNotional: config.maxOrderNotional, maxOrderQuantity: config.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config.demoAutomationEnabled };
+        return result(data, `${environment.toUpperCase()} policy loaded; ${usage.orders} order(s) sent through TradePilot today.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "plan_portfolio_rebalance",
+    {
+      title: "Plan a Rebalance",
+      description:
+        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold need a referencePrice because Trading 212 has no quote endpoint.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        targets: z.array(z.object({
+          ticker: z.string().min(1).describe("Trading 212 ticker, symbol or name"),
+          weight: z.number().min(0).max(1),
+          referencePrice: z.number().positive().optional(),
+        })).min(1).max(MAX_BASKET_LEGS),
+        cashWeight: z.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
+        minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
+        sellUntargeted: z.boolean().default(false).describe("Sell holdings that have no target"),
+        wholeSharesOnly: z.boolean().default(false),
+        fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account"),
+      }),
+      annotations: readOnly,
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
+      try {
+        const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}) });
+        const data = { ...trading.rebalanceBasket(plan), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
+        const summary = plan.trades.map((trade) => `${trade.side} ${trade.quantity} ${trade.ticker}`).join(", ") || "no trades";
+        return result(data, `Rebalance plan: ${summary}. Cash ${plan.cashBefore} → ${plan.cashAfter} ${plan.accountCurrency}. Nothing has been sent${canWrite ? "; the user can review and confirm the basket in the widget" : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "list_investment_plans",
+    {
+      title: "Investment Plans",
+      description: "List standing dollar-cost-averaging plans with their schedule, legs, next due time, last outcome and whether Demo plans run unattended. Read-only.",
+      inputSchema: z.object({ environment: environmentEnum.optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {},
+    },
+    async ({ environment }) => {
+      try {
+        const plans = await automation.listPlans(environment);
+        return result({ kind: "investment_plans", plans, demoAutomationEnabled: config.demoAutomationEnabled }, `${plans.length} plan(s).`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  if (canWrite) {
+    registerAppTool(
+      server,
+      "manage_investment_plans",
+      {
+        title: "Manage Investment Plans",
+        description:
+          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price.",
+        inputSchema: z.object({
+          action: z.enum(["create", "update", "delete"]),
+          planId: z.string().optional().describe("Required for update and delete"),
+          environment: environmentWithDefault,
+          label: z.string().max(80).optional(),
+          legs: z.array(z.object({ ticker: z.string().min(1), amount: z.number().positive() })).min(1).max(MAX_PLAN_LEGS).optional(),
+          frequency: z.enum(["weekly", "monthly"]).optional(),
+          dayOfMonth: z.number().int().min(1).max(28).optional(),
+          weekday: z.number().int().min(1).max(7).optional().describe("1 = Monday … 7 = Sunday"),
+          hourUtc: z.number().int().min(0).max(23).optional().describe("Hour (UTC) the plan becomes due. Default 15, inside the US and EU sessions."),
+          autoExecute: z.boolean().optional().describe("Demo only: run unattended when due"),
+          paused: z.boolean().optional(),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        _meta: {},
+      },
+      async (input) => {
+        try {
+          if (input.action === "create") {
+            if (!input.legs || !input.frequency) return toolError(new Error("legs and frequency are required to create a plan"));
+            const plan = await automation.createPlan({
+              environment: input.environment,
+              label: input.label ?? "DCA plan",
+              legs: input.legs,
+              frequency: input.frequency,
+              ...(input.dayOfMonth === undefined ? {} : { dayOfMonth: input.dayOfMonth }),
+              ...(input.weekday === undefined ? {} : { weekday: input.weekday }),
+              ...(input.hourUtc === undefined ? {} : { hourUtc: input.hourUtc }),
+              ...(input.autoExecute === undefined ? {} : { autoExecute: input.autoExecute }),
+            });
+            const unattended = plan.autoExecute && !config.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
+            return result({ kind: "investment_plan", plan }, `Saved plan ${plan.id}; next due ${plan.nextRunAt}. No order was placed.${unattended}`);
+          }
+          if (!input.planId) return toolError(new Error("planId is required"));
+          if (input.action === "delete") {
+            await automation.deletePlan(input.planId);
+            return result({ kind: "investment_plan", deleted: input.planId }, `Deleted plan ${input.planId}.`);
+          }
+          const plan = await automation.updatePlan(input.planId, {
+            ...(input.label === undefined ? {} : { label: input.label }),
+            ...(input.legs === undefined ? {} : { legs: input.legs }),
+            ...(input.paused === undefined ? {} : { paused: input.paused }),
+            ...(input.autoExecute === undefined ? {} : { autoExecute: input.autoExecute }),
+          });
+          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "review_investment_plan",
+      {
+        title: "Review a Due Investment Plan",
+        description: "Open a standing plan's orders as one basket for the user to review and confirm, sized from current broker prices. This never places an order.",
+        inputSchema: z.object({ planId: z.string().min(1) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ planId }) => {
+        try {
+          const data = { ...(await automation.reviewPlan(planId)), credentials: credentialStatus(config), writeEnabled: true };
+          return result(data, `Opened ${data.legs.length} order(s) from plan "${data.title}" for review. Nothing has been sent.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "review_protective_orders",
+      {
+        title: "Review Stop-Loss and Take-Profit Orders",
+        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. The two orders are not linked.",
+        inputSchema: z.object({
+          environment: environmentWithDefault,
+          instrument: z.string().min(1),
+          stopLossPrice: z.number().positive().optional(),
+          takeProfitPrice: z.number().positive().optional(),
+          quantity: z.number().positive().optional().describe("Defaults to all tradable shares"),
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, instrument, ...input }) => {
+        try {
+          const data = { ...(await trading.protectiveBasket(environment, instrument, input)), credentials: credentialStatus(config), writeEnabled: true };
+          return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "review_order_basket",
+      {
+        title: "Review an Order Basket",
+        description: `Open up to ${MAX_BASKET_LEGS} exact orders as one basket that the user confirms once. Sells are sent before buys; an uncertain result stops the rest. Review-only; never places an order. Prefer plan_portfolio_rebalance for target weights.`,
+        inputSchema: z.object({
+          environment: environmentWithDefault,
+          title: z.string().min(1).max(80).default("Order basket"),
+          orders: z.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS),
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, title, orders }) =>
+        result(
+          { kind: "basket_draft", environment, purpose: "custom", title, legs: orders.map((order) => ({ draft: { ...order, environment } as OrderDraft })), notes: [], credentials: credentialStatus(config), writeEnabled: true },
+          `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`,
+        ),
+    );
+  }
+
   // App-only tools: hidden from the model. The widget invokes these only after explicit user actions.
   registerAppTool(
     server,
@@ -565,6 +769,59 @@ export function createMcpServer(
       async ({ token }) => {
         try {
           const data = await trading.executeCancel(token);
+          return result(data, data.message);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_prepare_basket",
+      {
+        title: "Prepare basket confirmation",
+        description: "App-only validation of every basket leg and the policy. Creates one short-lived confirmation token; places nothing.",
+        inputSchema: z.object({
+          environment: environmentEnum,
+          purpose: z.enum(["rebalance", "protective", "dca", "custom"]),
+          title: z.string().min(1).max(80),
+          drafts: z.array(orderDraftSchema).min(1).max(MAX_BASKET_LEGS),
+          planId: z.string().optional(),
+          notes: z.array(z.string().max(500)).max(20).optional(),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ environment, purpose, title, drafts, planId, notes }) => {
+        try {
+          const data = await trading.prepareBasket({
+            environment, purpose, title,
+            drafts: drafts as OrderDraft[],
+            independentSells: purpose === "protective",
+            ...(planId ? { planId } : {}),
+            ...(notes ? { notes } : {}),
+          });
+          return result(data, "Basket validated. Explicit user confirmation is still required.");
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_execute_basket",
+      {
+        title: "Execute confirmed basket",
+        description: "App-only destructive external write. Consumes a one-time basket token and sends the orders one by one. Never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20) }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ token }) => {
+        try {
+          const data = await trading.executeBasket(token);
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
