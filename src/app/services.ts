@@ -8,6 +8,7 @@ import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
 import { PiesService } from "../core/pies.js";
 import { createQuoteProvider } from "../core/quotes.js";
+import { createSampleBroker } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
 import type { StateStore } from "../core/state-store.js";
 import { TradingService, type InstrumentCache } from "../core/trading-service.js";
@@ -23,7 +24,13 @@ export interface ServiceDependencies {
 export type Services = ReturnType<typeof createServices>;
 
 /** Build the runtime-neutral services shared by the HTTP and stdio transports and the scheduler. */
-export function createServices(deps: ServiceDependencies) {
+// One simulated account per process, so the HTTP handlers and the scheduler see the same sample data.
+let processSampleBroker: typeof fetch | undefined;
+
+export function createServices(input: ServiceDependencies) {
+  // Sample mode answers Trading 212 requests from the simulated account; other requests pass through.
+  const sampleFetcher = () => (input.fetcher ? createSampleBroker(input.fetcher) : (processSampleBroker ??= createSampleBroker()));
+  const deps = input.config.sampleData ? { ...input, fetcher: sampleFetcher() } : input;
   // The closures only run after all three services exist.
   const notify = createNotifier(deps.config, deps.fetcher);
   const quotes = createQuoteProvider(deps.config, deps.fetcher);
@@ -51,6 +58,7 @@ export function createServices(deps: ServiceDependencies) {
     alerts: await alerts.list(environment),
     links: (await links.list()).filter((link) => link.environment === environment),
     usageToday: await trading.usageToday(environment),
+    ...await trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {})),
     policy: deps.config.policy[environment],
     settings: {
       demoAutomation: deps.config.demoAutomationEnabled,

@@ -169,7 +169,8 @@ export class PiesService {
     }
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
     const totals = pies.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
-    return { ...base, pies, totals: { value: round(totals.value), invested: round(totals.invested), result: round(totals.result), cash: round(totals.cash) }, notes };
+    const currency = await this.deps.trading.accountCurrency(environment);
+    return { ...base, pies, totals: { value: round(totals.value), invested: round(totals.invested), result: round(totals.result), cash: round(totals.cash) }, ...(currency ? { currency } : {}), notes };
   }
 
   async getPie(environment: TradingEnvironment, id: number): Promise<PieOverview> {

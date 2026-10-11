@@ -1,7 +1,7 @@
 import type { AlertCondition, AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
-import type { MessageKey, SupportedLocale } from "../i18n";
+import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { DetailRow } from "../components/common";
-import { dateTime, num } from "../lib/format";
+import { dateTime, money, num } from "../lib/format";
 import type { Translator } from "../lib/messages";
 
 const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
@@ -12,9 +12,15 @@ const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
   loss_percent: "alertLoss",
 };
 
-function schedule(plan: DcaPlan, t: Translator): string {
+/** Weekday 1 = Monday … 7 = Sunday, in the user's language. 2024-01-01 was a Monday. */
+function weekdayName(weekday: number | undefined, locale: SupportedLocale): string {
+  if (!weekday) return "";
+  return new Intl.DateTimeFormat(localeTag(locale), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, weekday)));
+}
+
+function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string {
   const hour = `${String(plan.hourUtc).padStart(2, "0")}:00 UTC`;
-  return plan.frequency === "monthly" ? `${t("planMonthly")} ${plan.dayOfMonth} · ${hour}` : `${t("planWeekly")} ${plan.weekday} · ${hour}`;
+  return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
 }
 
 function alertTarget(alert: PriceAlert, locale: SupportedLocale): string {
@@ -23,13 +29,14 @@ function alertTarget(alert: PriceAlert, locale: SupportedLocale): string {
 
 export function AutomationView({ data, locale, t }: { data: AutomationOverview; locale: SupportedLocale; t: Translator }) {
   const on = (value: boolean) => (value ? t("settingOn") : t("settingOff"));
+  const amount = (value: number | undefined) => (data.currency ? money(value, data.currency, locale) : num(value, locale, 2));
   return (
     <main className="contentStack">
       <section className="dataPanel" aria-label={t("automationTitle")}>
         <div className="pieHeader"><h2>{t("automationTitle")}</h2></div>
         <div className="confirmationRows">
           <DetailRow label={t("ordersToday")} value={`${data.usageToday.orders}${data.policy.dailyOrderLimit ? ` / ${data.policy.dailyOrderLimit}` : ""}`} />
-          <DetailRow label={t("valueToday")} value={`${num(data.usageToday.notional, locale, 2)}${data.policy.dailyNotionalLimit ? ` / ${num(data.policy.dailyNotionalLimit, locale, 2)}` : ""}`} />
+          <DetailRow label={t("valueToday")} value={`${amount(data.usageToday.notional)}${data.policy.dailyNotionalLimit ? ` / ${amount(data.policy.dailyNotionalLimit)}` : ""}`} />
           <DetailRow label={t("settingDemoAutomation")} value={on(data.settings.demoAutomation)} />
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
           <DetailRow label={t("settingWebhook")} value={on(data.settings.webhook)} />
@@ -48,8 +55,8 @@ export function AutomationView({ data, locale, t }: { data: AutomationOverview; 
                   <strong>{plan.label}</strong>
                   <span className={`statusPill ${plan.paused ? "muted" : plan.autoExecute ? "auto" : ""}`}>{plan.paused ? t("planPaused") : plan.autoExecute ? t("planAuto") : t("planConfirm")}</span>
                 </div>
-                <small>{plan.legs.map((leg) => `${leg.ticker} ${num(leg.amount, locale, 2)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent, locale, 2)}%)` : ""}`).join(" · ")}</small>
-                <small>{schedule(plan, t)} · {t("nextRun")} {dateTime(plan.nextRunAt, locale)}</small>
+                <small>{plan.legs.map((leg) => `${leg.ticker} ${amount(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent, locale, 2)}%)` : ""}`).join(" · ")}</small>
+                <small>{schedule(plan, t, locale)} · {t("nextRun")} {dateTime(plan.nextRunAt, locale)}</small>
                 {plan.lastOutcome && <small className="mutedInline">{plan.lastOutcome}</small>}
               </li>
             ))}

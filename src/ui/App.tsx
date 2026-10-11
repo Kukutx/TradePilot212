@@ -172,17 +172,19 @@ export default function App() {
 
   const t = useMemo(() => createTranslator(locale), [locale]);
 
+  const syncHostContext = (context: ReturnType<McpApp["getHostContext"]>) => {
+    if (!context) return;
+    if (context.displayMode) setDisplayMode(context.displayMode as DisplayMode);
+    if (context.availableDisplayModes) setAvailableDisplayModes(context.availableDisplayModes as DisplayMode[]);
+    if (context.locale && !readSavedLocale()) setLocale(resolveLocale(context.locale));
+  };
+
   const { app, error } = useApp({
     appInfo: { name: APP_META.name, version: APP_META.version },
     capabilities: {},
     onAppCreated: (createdApp: McpApp) => {
-      const syncHostContext = (context: ReturnType<McpApp["getHostContext"]>) => {
-        if (!context) return;
-        setDisplayMode((context.displayMode ?? "inline") as DisplayMode);
-        setAvailableDisplayModes((context.availableDisplayModes ?? ["inline"]) as DisplayMode[]);
-        if (!readSavedLocale()) setLocale(resolveLocale(context.locale));
-      };
-      syncHostContext(createdApp.getHostContext());
+      // Change notifications carry only the fields that changed; the full context arrives with the
+      // connection, so it is read once the app is connected (below).
       createdApp.onhostcontextchanged = syncHostContext;
       createdApp.ontoolresult = (toolResult) => {
         const payload = toolResult.structuredContent as unknown as BasePayload;
@@ -215,6 +217,10 @@ export default function App() {
   });
 
   useHostStyles(app, app?.getHostContext());
+  // The host's initial context (locale, display modes) is only available after connecting.
+  useEffect(() => {
+    if (app) syncHostContext(app.getHostContext());
+  }, [app]);
 
   const transactionActive = Boolean(draft || preview || cancelPreview);
   const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
@@ -614,8 +620,8 @@ export default function App() {
 
       <div className={`environmentBar ${environment}`}>
         <div>
-          <strong>{environment === "live" ? t("liveMoney") : t("demoAccount")}</strong>
-          <span>{environment === "live" ? t("liveDescription") : t("demoDescription")}</span>
+          <strong>{environment === "live" ? t("liveMoney") : credentials.sample ? t("sampleAccount") : t("demoAccount")}</strong>
+          <span>{environment === "live" ? t("liveDescription") : credentials.sample ? t("sampleDescription") : t("demoDescription")}</span>
         </div>
         <span className="connectionBadge"><span className="statusDot ready" />{t("connected")}</span>
       </div>

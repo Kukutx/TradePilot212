@@ -244,6 +244,22 @@ export class TradingService {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
 
+  private readonly currencies = new Map<TradingEnvironment, string>();
+
+  /** The account currency, for labelling amounts. It never changes, so it is fetched once; undefined when unavailable. */
+  async accountCurrency(environment: TradingEnvironment): Promise<string | undefined> {
+    const known = this.currencies.get(environment);
+    if (known) return known;
+    if (!credentialStatus(this.deps.config)[environment]) return undefined;
+    try {
+      const currency = (await this.client(environment).getAccountSummary()).currency;
+      if (currency) this.currencies.set(environment, currency);
+      return currency;
+    } catch {
+      return undefined;
+    }
+  }
+
   async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;
@@ -525,6 +541,7 @@ export class TradingService {
   private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
     const client = this.client(environment);
     const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    if (account.currency) this.currencies.set(environment, account.currency);
     return { instruments, positions, account };
   }
 

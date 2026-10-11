@@ -2,11 +2,11 @@ import { useState } from "react";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../../shared/pies";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { DetailRow, Icon } from "../components/common";
-import { num, pct, signedClass, time } from "../lib/format";
+import { money, num, pct, signedClass, time } from "../lib/format";
 import type { Translator } from "../lib/messages";
 import { LiveAcknowledgement } from "./OrderViews";
 
-const amount = (value: number | undefined, locale: SupportedLocale) => num(value, locale, 2);
+const amount = (value: number | undefined, locale: SupportedLocale, currency?: string) => (currency ? money(value, currency, locale) : num(value, locale, 2));
 
 const STATUS_KEY: Record<string, MessageKey> = { AHEAD: "pieAhead", ON_TRACK: "pieOnTrack", BEHIND: "pieBehind" };
 const ACTION_KEY: Record<PieChangePreview["action"], MessageKey> = {
@@ -16,7 +16,7 @@ const ACTION_KEY: Record<PieChangePreview["action"], MessageKey> = {
   duplicate: "pieActionDuplicate",
 };
 
-function PieCard({ pie, locale, t }: { pie: PieOverview; locale: SupportedLocale; t: Translator }) {
+function PieCard({ pie, currency, locale, t }: { pie: PieOverview; currency?: string; locale: SupportedLocale; t: Translator }) {
   return (
     <article className="pieCard">
       <header className="pieCardHeader">
@@ -24,14 +24,14 @@ function PieCard({ pie, locale, t }: { pie: PieOverview; locale: SupportedLocale
           <strong>{pie.name}</strong>
           <small>#{pie.id}{pie.status ? ` · ${t(STATUS_KEY[pie.status] ?? "pieOnTrack")}` : ""}</small>
         </div>
-        <span className={signedClass(pie.result)}>{amount(pie.result, locale)}{pie.resultPercent === null ? "" : ` (${num(pie.resultPercent, locale, 2)}%)`}</span>
+        <span className={signedClass(pie.result)}>{amount(pie.result, locale, currency)}{pie.resultPercent === null ? "" : ` (${num(pie.resultPercent, locale, 2)}%)`}</span>
       </header>
       <dl className="basketFacts">
-        <div><dt>{t("pieValue")}</dt><dd>{amount(pie.value, locale)}</dd></div>
-        <div><dt>{t("investedValue")}</dt><dd>{amount(pie.invested, locale)}</dd></div>
-        <div><dt>{t("pieCash")}</dt><dd>{amount(pie.cash, locale)}</dd></div>
-        <div><dt>{t("pieDividends")}</dt><dd>{amount(pie.dividends.gained, locale)}</dd></div>
-        {pie.goal !== undefined && <div><dt>{t("pieGoal")}</dt><dd>{amount(pie.goal, locale)}{pie.progress === null ? "" : ` · ${pct(pie.progress, locale)}`}</dd></div>}
+        <div><dt>{t("pieValue")}</dt><dd>{amount(pie.value, locale, currency)}</dd></div>
+        <div><dt>{t("investedValue")}</dt><dd>{amount(pie.invested, locale, currency)}</dd></div>
+        <div><dt>{t("pieCash")}</dt><dd>{amount(pie.cash, locale, currency)}</dd></div>
+        <div><dt>{t("pieDividends")}</dt><dd>{amount(pie.dividends.gained, locale, currency)}</dd></div>
+        {pie.goal !== undefined && <div><dt>{t("pieGoal")}</dt><dd>{amount(pie.goal, locale, currency)}{pie.progress === null ? "" : ` · ${pct(pie.progress, locale)}`}</dd></div>}
         {pie.drift !== undefined && <div><dt>{t("pieDrift")}</dt><dd>{pct(pie.drift, locale)}</dd></div>}
       </dl>
       {pie.instruments && pie.instruments.length > 0 && (
@@ -44,7 +44,7 @@ function PieCard({ pie, locale, t }: { pie: PieOverview; locale: SupportedLocale
                   <td>{slice.ticker}{slice.issues.length > 0 && <span className="pieIssue" title={slice.issues.map((issue) => `${issue.name} (${issue.severity})`).join(", ")}> !</span>}</td>
                   <td>{pct(slice.targetShare, locale)}</td>
                   <td>{pct(slice.currentShare, locale)}</td>
-                  <td className={signedClass(slice.driftShare)}>{pct(slice.driftShare, locale)}</td>
+                  <td>{slice.driftShare > 0 ? "+" : ""}{pct(slice.driftShare, locale)}</td>
                   <td>{num(slice.ownedQuantity, locale)}</td>
                 </tr>
               ))}
@@ -65,16 +65,22 @@ export function PiesView({ payload, locale, t }: { payload: PiesPayload; locale:
           <span className="mutedInline">{t("piesDeprecated")}</span>
         </div>
         <div className="confirmationRows">
-          <DetailRow label={t("pieValue")} value={amount(payload.totals.value, locale)} />
-          <DetailRow label={t("investedValue")} value={amount(payload.totals.invested, locale)} />
-          <DetailRow label={t("unrealizedPnL")} value={amount(payload.totals.result, locale)} />
-          <DetailRow label={t("pieCash")} value={amount(payload.totals.cash, locale)} />
+          <DetailRow label={t("pieValue")} value={amount(payload.totals.value, locale, payload.currency)} />
+          <DetailRow label={t("investedValue")} value={amount(payload.totals.invested, locale, payload.currency)} />
+          <DetailRow label={t("unrealizedPnL")} value={amount(payload.totals.result, locale, payload.currency)} />
+          <DetailRow label={t("pieCash")} value={amount(payload.totals.cash, locale, payload.currency)} />
         </div>
-        {payload.pies.length === 0 ? <div className="emptyState compact">{t("noPies")}</div> : payload.pies.map((pie) => <PieCard key={pie.id} pie={pie} locale={locale} t={t} />)}
-        {payload.notes.length > 0 && <ul className="basketNotes">{payload.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
+        {payload.pies.length === 0 ? <div className="emptyState compact">{t("noPies")}</div> : payload.pies.map((pie) => <PieCard key={pie.id} pie={pie} {...(payload.currency ? { currency: payload.currency } : {})} locale={locale} t={t} />)}
+        {payload.notes.length > 0 && <div className="basketNotes"><ul>{payload.notes.map((note) => <li key={note}>{note}</li>)}</ul></div>}
       </section>
     </main>
   );
+}
+
+/** Draft shares may be any positive numbers ({"VUSA": 70, "EIMI": 30}); the broker gets them normalised to 1. */
+function normalisedShares(shares: Record<string, number>): Array<[string, number]> {
+  const total = Object.values(shares).reduce((sum, value) => sum + value, 0);
+  return Object.entries(shares).map(([ticker, value]) => [ticker, total > 0 ? value / total : 0]);
 }
 
 export function PieChangeView({
@@ -144,7 +150,12 @@ export function PieChangeView({
             </table>
           </div>
         ) : shares && (
-          <ul className="basketNotes">{Object.entries(shares).map(([ticker, share]) => <li key={ticker}><strong>{ticker}</strong> · {preview ? pct(share, locale) : num(share, locale)}</li>)}</ul>
+          <div className="pieTableWrap">
+            <table className="positionsTable pieSlices">
+              <thead><tr><th>{t("symbol")}</th><th>{t("pieTarget")}</th></tr></thead>
+              <tbody>{normalisedShares(shares).map(([ticker, share]) => <tr key={ticker}><td>{ticker}</td><td>{pct(share, locale)}</td></tr>)}</tbody>
+            </table>
+          </div>
         )}
         {preview?.request && (
           <div className="confirmationRows">

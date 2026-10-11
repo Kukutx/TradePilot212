@@ -101,7 +101,7 @@ export function PerformanceView({ data, locale, t, period, onPeriod, busy }: {
 }) {
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined) => money(value, currency, locale);
-  const contributors = data.byTicker.filter((item) => item.realizedProfitLoss !== 0).slice(0, 10);
+  const contributors = data.byTicker.filter((item) => item.realizedProfitLoss !== 0).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)).slice(0, 10);
   return (
     <main className="contentStack">
       <div className="viewToolbar"><PeriodSwitch value={period} onChange={onPeriod} t={t} disabled={busy} /></div>

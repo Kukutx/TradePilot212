@@ -44,3 +44,7 @@ DIGEST_HOUR_UTC=
 QUOTE_PROVIDER=stooq
 QUOTE_API_KEY=
 QUOTE_SYMBOLS=
+
+# Try TradePilot without a Trading 212 key: a simulated EUR Demo account with holdings, history and
+# pies. Market orders fill at once against the sample data. Live is off and nothing reaches Trading 212.
+TRADEPILOT_SAMPLE_DATA=false

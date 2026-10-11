@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.11.0
+
+- Added sample data (`TRADEPILOT_SAMPLE_DATA`, plugin option "Try with sample data"): a simulated EUR Demo account with holdings in three currencies, two pies, a year of history and a pending order, so every tool can be tried without a Trading 212 key. Market orders fill at once against it. Live is off and nothing reaches Trading 212. See [docs/TRY_IT.md](./docs/TRY_IT.md).
+- Rebalancing now takes exchange rates from the broker's valuation of your holdings, so accounts holding instruments in other currencies are rebalanced without passing `fxRates`. Rates you pass still win.
+- Fixed: the widget ignored the host's language and display modes when it opened, so Chinese hosts showed English and the fullscreen button never appeared. A later theme change also reset fullscreen to inline.
+- Fixed: dark hosts that do not pass colour variables showed white panels and unreadable text; the widget now has its own dark palette, and primary buttons stay visible on dark backgrounds.
+- Fixed: at widths between 640 and 840 pixels the holdings table pushed every panel past the right edge. The table now drops the average-price and available columns there and gains a position-value column.
+- Pies show amounts in the account currency, drift is neutral (over- or under-weight is not a gain or loss), and a pie change shows the normalised target shares before review.
+- The automation page names the weekday of weekly plans and shows amounts in the account currency.
+- Rebalance legs show the instrument currency and estimated value, without repeating the weight change as a reason; skipped instruments are listed once.
+- Allocation labels say that the largest-holding and top-5 shares are of invested value; realized P/L by ticker is ordered by size.
+- The smallest text is larger (10px instead of 7 to 9px).
+
 ## 2.10.0
 
 - Added `get_automation_overview` and an Automation view in the widget: investment plans, price alerts, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on.

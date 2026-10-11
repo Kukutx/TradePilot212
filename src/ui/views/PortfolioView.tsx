@@ -45,7 +45,7 @@ export function PortfolioView({
           <>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th>{t("averagePrice")}</th><th>{t("pnl")}</th><th>{t("availableToSell")}</th></tr></thead>
+                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th></tr></thead>
                 <tbody>
                   {payload.positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
@@ -54,9 +54,10 @@ export function PortfolioView({
                         <td><AssetIdentity position={position} /></td>
                         <td>{num(position.quantity, locale)}</td>
                         <td>{money(position.currentPrice, position.instrument.currencyCode, locale)}</td>
-                        <td>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
+                        <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
+                        <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale)}</td>
-                        <td>{num(position.quantityAvailableForTrading, locale)}</td>
+                        <td className="optionalColumn">{num(position.quantityAvailableForTrading, locale)}</td>
                       </tr>
                     );
                   })}

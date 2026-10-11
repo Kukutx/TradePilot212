@@ -38,6 +38,32 @@ interface Line {
   priceAt?: string;
 }
 
+/**
+ * Instrument-currency units per 1 account-currency unit, implied by the broker's own valuation of
+ * each holding (its price and quantity against its value in the account currency). Holdings in the
+ * same currency give the same rate, so the median of them is used.
+ */
+export function impliedFxRates(positions: Position[], accountCurrency: string): Record<string, number> {
+  const samples = new Map<string, number[]>();
+  for (const position of positions) {
+    const currency = position.instrument.currencyCode?.toUpperCase();
+    const wallet = position.walletImpact as { currentValue?: unknown; currency?: unknown } | undefined;
+    if (!currency || currency === accountCurrency) continue;
+    if (typeof wallet?.currency === "string" && wallet.currency.toUpperCase() !== accountCurrency) continue;
+    const value = typeof wallet?.currentValue === "number" ? wallet.currentValue : 0;
+    const local = position.quantity * position.currentPrice;
+    if (!(value > 0) || !(local > 0)) continue;
+    samples.set(currency, [...(samples.get(currency) ?? []), local / value]);
+  }
+  const rates: Record<string, number> = {};
+  for (const [currency, values] of samples) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    rates[currency] = sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+  }
+  return rates;
+}
+
 export function planRebalance(
   environment: TradingEnvironment,
   account: AccountSummary,
@@ -78,14 +104,19 @@ export function planRebalance(
     if (untouched.length) notes.push(`${untouched.length} holding(s) without a target are left as they are.`);
   }
 
+  // Rates you pass win; otherwise they come from the broker's valuation of your holdings.
+  const implied = impliedFxRates(positions, accountCurrency);
+  const fxRates: Record<string, number> = { ...implied, ...options.fxRates };
+  const usedImplied = new Set<string>();
   const lines: Line[] = [];
   for (const [key, target] of wanted) {
     const position = byTicker.get(key);
     const currency = (position?.instrument.currencyCode ?? instrumentCurrency(target.ticker) ?? accountCurrency).toUpperCase();
-    const fx = currency === accountCurrency ? 1 : options.fxRates?.[currency];
+    const fx = currency === accountCurrency ? 1 : fxRates[currency];
+    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) usedImplied.add(currency);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
     if (!fx || fx <= 0) {
-      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency}; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
       continue;
     }
     if (!price || price <= 0) {
@@ -123,7 +154,7 @@ export function planRebalance(
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
 
   // Buys share whatever cash is left above the reserve, in proportion to their shortfall.
@@ -144,11 +175,12 @@ export function planRebalance(
     }
     cash -= value;
     valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
 
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
-  if (!trades.length) notes.push("The portfolio is already within the minimum trade value of every target.");
+  if (usedImplied.size) notes.push(`Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`);
+  if (!trades.length) notes.push(skipped.length && !lines.length ? "No trades could be planned: every target was skipped." : "The portfolio is already within the minimum trade value of every target.");
   notes.push("Prices are the broker's last position prices or the reference prices you supplied; Market orders can fill elsewhere.");
 
   return {

@@ -9,7 +9,7 @@ const bundle = path.resolve("plugin/server.mjs");
 const work = await fs.mkdtemp(path.join(os.tmpdir(), "tradepilot-stdio-"));
 const env = { PATH: process.env.PATH ?? "", TRADEPILOT_DATA_DIR: path.join(work, "data"), TRADEPILOT_ROOT: work };
 
-async function listTools(extraEnv) {
+async function session(extraEnv, calls = []) {
   const child = spawn(process.execPath, [bundle], { cwd: work, env: { ...env, ...extraEnv }, stdio: ["pipe", "pipe", "pipe"] });
   let buffer = "";
   const responses = new Map();
@@ -33,9 +33,15 @@ async function listTools(extraEnv) {
   send({ jsonrpc: "2.0", method: "notifications/initialized" });
   send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   const tools = (await wait(2)).result.tools.map((tool) => tool.name);
+  const results = [];
+  for (const [index, [name, args]] of calls.entries()) {
+    send({ jsonrpc: "2.0", id: 10 + index, method: "tools/call", params: { name, arguments: args } });
+    results.push((await wait(10 + index)).result);
+  }
   child.kill();
-  return tools;
+  return { tools, results };
 }
+const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
 for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "get_quote", "get_automation_overview"])
@@ -44,5 +50,10 @@ if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("a
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
 const writable = await listTools({ TRADEPILOT_ALLOW_WRITES: "true" });
 if (!["app_execute_order", "app_execute_basket", "app_execute_pie_change", "manage_investment_plans", "manage_price_alerts", "review_protective_orders", "review_pie_change"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
+// Sample data: the bundle serves a simulated account with no Trading 212 keys and no network.
+const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY: "x", T212_LIVE_API_SECRET: "x" }, [["get_portfolio_dashboard", {}], ["get_portfolio_dashboard", { environment: "live" }]]);
+const [dashboard, live] = sample.results;
+if (dashboard.isError || !dashboard.structuredContent?.credentials?.sample || !(dashboard.structuredContent.positions?.length > 0)) throw new Error(`Sample dashboard failed: ${JSON.stringify(dashboard).slice(0, 300)}`);
+if (!live.isError && live.structuredContent?.credentials?.live) throw new Error("Live must stay off in sample mode");
 await fs.rm(work, { recursive: true, force: true });
-console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled`);
+console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled, sample data serves ${dashboard.structuredContent.positions.length} holdings`);

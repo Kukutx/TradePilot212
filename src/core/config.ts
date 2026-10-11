@@ -1,3 +1,4 @@
+import { SAMPLE_BASE_URL } from "./sample-broker.js";
 import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.js";
 import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
@@ -30,6 +31,8 @@ export interface RuntimeConfig {
   quoteSymbols: Map<string, string>;
   /** UTC hour of the daily webhook digest; undefined turns it off. */
   digestHourUtc?: number;
+  /** Serve a simulated Demo account instead of Trading 212 (TRADEPILOT_SAMPLE_DATA). Live is off. */
+  sampleData: boolean;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -43,7 +46,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
-  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC",
+  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA",
   string
 >>;
 
@@ -133,6 +136,7 @@ function quoteProvider(env: RuntimeEnv): QuoteProviderName {
 export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeConfig {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   const policy = createPolicy(env);
+  const sampleData = flag(env, "TRADEPILOT_SAMPLE_DATA");
   return {
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
@@ -142,21 +146,28 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     confirmationTtlSeconds: Math.floor(positive(env, "CONFIRMATION_TTL_SECONDS", 90)),
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5000),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 100000),
-    defaultTradingEnvironment: tradingEnvironment(env),
+    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env),
     policy,
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
     notifyWebhookUrl: webhookUrl(env),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
-    quoteProvider: quoteProvider(env),
+    quoteProvider: sampleData ? "none" : quoteProvider(env),
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     ...(digestHour(env) === undefined ? {} : { digestHourUtc: digestHour(env)! }),
-    trading212: {
-      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
-      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },
-    },
+    sampleData,
+    // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
+    trading212: sampleData
+      ? {
+          demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
+          live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" },
+        }
+      : {
+          demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
+          live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },
+        },
   };
 }
 
@@ -164,6 +175,7 @@ export function credentialStatus(config: RuntimeConfig): CredentialStatus {
   return {
     demo: Boolean(config.trading212.demo.apiKey && config.trading212.demo.apiSecret),
     live: Boolean(config.trading212.live.apiKey && config.trading212.live.apiSecret),
+    ...(config.sampleData ? { sample: true } : {}),
   };
 }
 

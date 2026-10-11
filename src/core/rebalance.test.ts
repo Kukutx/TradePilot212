@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
-import { planRebalance } from "./rebalance.js";
+import { impliedFxRates, planRebalance } from "./rebalance.js";
 
 const etf = (ticker: string, currencyCode = "EUR"): Instrument => ({ ticker, name: ticker, shortName: ticker, currencyCode, type: "ETF" });
 const held = (ticker: string, quantity: number, price: number, currency = "EUR"): Position => ({
@@ -36,12 +36,25 @@ describe("rebalance planner", () => {
     expect(priced.trades[0]).toMatchObject({ ticker: "NEW", side: "buy", quantity: 40 });
   });
 
-  it("converts other currencies only with an explicit FX rate", () => {
+  it("needs an FX rate for a currency no holding values", () => {
     const usd = [held("SPY", 2, 500, "USD")];
     expect(planRebalance("demo", account, usd, [{ ticker: "SPY", weight: 0.2 }]).skipped[0]?.reason).toMatch(/fxRates/);
     const plan = planRebalance("demo", account, usd, [{ ticker: "SPY", weight: 0.2 }], { fxRates: { USD: 1.25 }, quantityDecimals: 0 });
     // Holding 2 × 500 USD = 800 EUR; target 2000 EUR → buy 1200 EUR = 1500 USD = 3 shares
     expect(plan.trades[0]).toMatchObject({ side: "buy", quantity: 3 });
+  });
+
+  it("takes FX rates from the broker's valuation of holdings", () => {
+    // 2 × 500 USD valued at 800 EUR by the broker → 1.25 USD per EUR.
+    const valued: Position[] = [{ ...held("SPY", 2, 500, "USD"), walletImpact: { currency: "EUR", currentValue: 800 } }];
+    expect(impliedFxRates(valued, "EUR")).toEqual({ USD: 1.25 });
+    const plan = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.2 }, { ticker: "QQQ", weight: 0.05, referencePrice: 250 }], { quantityDecimals: 0 }, (ticker) => (ticker === "QQQ" ? "USD" : undefined));
+    expect(plan.skipped).toEqual([]);
+    expect(plan.trades.map((trade) => [trade.ticker, trade.quantity])).toEqual([["SPY", 3], ["QQQ", 2]]);
+    expect(plan.notes.join(" ")).toMatch(/Exchange rates for USD/);
+    // A rate you pass wins.
+    const passed = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.2 }], { fxRates: { USD: 1 }, quantityDecimals: 0 });
+    expect(passed.notes.join(" ")).not.toMatch(/Exchange rates/);
   });
 
   it("sells untargeted holdings only when asked", () => {

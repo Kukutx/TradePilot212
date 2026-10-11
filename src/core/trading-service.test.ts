@@ -96,6 +96,7 @@ function config(): RuntimeConfig {
     quoteProvider: "none",
     quoteApiKey: "",
     quoteSymbols: new Map(),
+    sampleData: false,
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },

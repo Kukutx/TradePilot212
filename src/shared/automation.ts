@@ -100,6 +100,8 @@ export interface RebalanceTrade {
   side: "buy" | "sell";
   quantity: number;
   price: number;
+  /** Currency of price (the instrument's quote currency). */
+  currency?: string;
   /** When the price is from: now for broker prices, the quote time for external quotes. */
   priceAt?: string;
   value: number;
@@ -207,6 +209,8 @@ export interface AutomationOverview {
   alerts: PriceAlert[];
   links: ProtectiveLink[];
   usageToday: { orders: number; notional: number };
+  /** Account currency of plan amounts and daily value, when known. */
+  currency?: string;
   policy: TradingPolicy;
   settings: {
     demoAutomation: boolean;

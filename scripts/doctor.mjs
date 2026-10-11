@@ -79,7 +79,8 @@ for (const [name, credentials, url] of environments) {
   }
 }
 
-const atLeastOne = pair("DEMO").complete || pair("LIVE").complete;
-result("Trading environment", atLeastOne, atLeastOne ? "ready" : "configure Demo and/or Live credentials");
+const sample = /^(1|true|yes|on)$/i.test(process.env.TRADEPILOT_SAMPLE_DATA ?? "");
+const atLeastOne = sample || pair("DEMO").complete || pair("LIVE").complete;
+result("Trading environment", atLeastOne, sample ? "sample data (simulated Demo account; Trading 212 keys are ignored)" : atLeastOne ? "ready" : "configure Demo and/or Live credentials, or set TRADEPILOT_SAMPLE_DATA=true to try it first");
 
 if (checks.some((check) => !check.ok)) process.exitCode = 1;
