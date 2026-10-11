@@ -27,7 +27,6 @@ import { credentialStatus, requireCredentials, type RuntimeConfig } from "./conf
 import { asStructuredError, fail } from "./errors.js";
 import { crossRate, knownFxRates, toAccountCurrency, type FxRates } from "./fx.js";
 import { planRebalance, type RebalanceOptions } from "./rebalance.js";
-import { positionValue } from "./analytics.js";
 import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type DailyUsage } from "./policy.js";
 import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
@@ -1017,14 +1016,22 @@ export class TradingService {
     const drop = (input.dropPercent ?? SUGGESTED_STOP_DROP * 100) / 100;
     const [snapshot, orders] = await Promise.all([this.snapshot(environment), this.client(environment).getOrders()]);
     const only = input.tickers?.length ? new Set(input.tickers.map((query) => resolveInstrumentFromList(snapshot.instruments, query).ticker)) : undefined;
+    const accountCurrency = snapshot.account.currency ?? "";
+    const rates = knownFxRates(snapshot.positions, accountCurrency);
+    // The value at risk in the account currency, so a pence-quoted holding does not jump the queue. Without the
+    // broker's valuation, the quote-currency value is converted at a rate other holdings imply; unknown ones go last.
+    const exposure = (position: Position, quantity: number) => {
+      const wallet = (position.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
+      if (typeof wallet === "number" && Number.isFinite(wallet)) return wallet * (quantity / position.quantity);
+      return toAccountCurrency(quantity * position.currentPrice, position.instrument.currencyCode, accountCurrency, rates) ?? -1;
+    };
     const missing = [...(only ?? [])].filter((ticker) => !snapshot.positions.some((position) => position.instrument.ticker === ticker && position.quantity > 0));
     if (missing.length) fail("NO_AVAILABLE_POSITION", `There is no ${missing.join(", ")} position to protect`);
     const candidates = snapshot.positions.flatMap((position) => {
       if (only && !only.has(position.instrument.ticker)) return [];
       const guard = stopProtection(position, orders);
       const stop = suggestedStop(position, guard, drop);
-      // Ranked by the value at risk in the account currency, so a pence-quoted holding does not jump the queue.
-      return stop ? [{ position, stop, matched: guard !== undefined && stop.stopPrice === guard.stopPrice, exposure: positionValue(position) * (stop.quantity / position.quantity) }] : [];
+      return stop ? [{ position, stop, matched: guard !== undefined && stop.stopPrice === guard.stopPrice, exposure: exposure(position, stop.quantity) }] : [];
     }).sort((a, b) => b.exposure - a.exposure);
     if (!candidates.length) {
       // Shares a take-profit or another sell already reserves are not free to sell, so they cannot get a stop either.

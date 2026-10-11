@@ -14,7 +14,7 @@ const positions: Position[] = [
 ];
 
 /** A fake Trading 212: records every write, fails writes for tickers listed in `failures`, and lists `orders` as pending. */
-function broker(failures: Record<string, number> = {}, orders: unknown[] = []) {
+function broker(failures: Record<string, number> = {}, orders: unknown[] = [], held: Position[] = positions) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -25,8 +25,8 @@ function broker(failures: Record<string, number> = {}, orders: unknown[] = []) {
       const status = failures[String(body.ticker)];
       return status ? json({ code: "Rejected" }, status) : json({ id: writes.length, ...body });
     }
-    if (url.endsWith("/equity/metadata/instruments")) return json(instruments);
-    if (url.endsWith("/equity/positions")) return json(positions);
+    if (url.endsWith("/equity/metadata/instruments")) return json([...instruments, ...held.map((position) => position.instrument).filter((instrument) => !instruments.includes(instrument))]);
+    if (url.endsWith("/equity/positions")) return json(held);
     if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 5000, cash: { availableToTrade: 1500 } });
     if (url.endsWith("/equity/orders")) return json(orders);
     return json([]);
@@ -34,8 +34,8 @@ function broker(failures: Record<string, number> = {}, orders: unknown[] = []) {
   return { fetcher, writes };
 }
 
-function setup(env: RuntimeEnv = {}, failures: Record<string, number> = {}, orders: unknown[] = []) {
-  const fake = broker(failures, orders);
+function setup(env: RuntimeEnv = {}, failures: Record<string, number> = {}, orders: unknown[] = [], held: Position[] = positions) {
+  const fake = broker(failures, orders, held);
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", T212_LIVE_API_KEY: "k", T212_LIVE_API_SECRET: "s", ...env });
   const store = new MemoryStateStore();
   return { ...createServices({ config, store, fetcher: fake.fetcher }), writes: fake.writes, store };
@@ -161,6 +161,13 @@ describe("protective orders and rebalance drafts", () => {
       ["/api/v0/equity/orders/stop", "VUSA_EQ", -30, 92],
       ["/api/v0/equity/orders/stop", "AGGH_EQ", -100, 4.6],
     ]);
+  });
+
+  it("ranks holdings by account-currency value and puts one it cannot convert last", async () => {
+    // 1000 pence-quoted shares at 250 GBX: 250000 in the quote currency, but no valuation and no GBP rate to convert it.
+    const lgen: Position = { instrument: { ticker: "LGENl_EQ", name: "Legal & General", shortName: "LGEN", currencyCode: "GBX", type: "STOCK" }, quantity: 1000, quantityAvailableForTrading: 1000, quantityInPies: 0, averagePricePaid: 240, currentPrice: 250 };
+    const { trading } = setup({}, {}, [], [lgen, ...positions]);
+    expect((await trading.stopsBasket("demo")).legs.map((leg) => leg.draft.ticker)).toEqual(["VUSA_EQ", "AGGH_EQ", "LGENl_EQ"]);
   });
 
   it("covers only the shares an existing stop leaves, at that stop's price, and says when nothing is left", async () => {
