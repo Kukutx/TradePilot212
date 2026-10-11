@@ -465,6 +465,8 @@ export const zhCN: Record<MessageKey, string> = {
   stopCoversAll: "覆盖全部持仓",
   stopCovers: "覆盖 {covered} / {quantity}",
   noStopLoss: "没有止损单",
+  addStopLoss: "设置止损",
+  addStopForRest: "补足止损",
   takeProfit: "止盈",
   countCandidatesOne: "{count} 个候选",
   countCandidatesOther: "{count} 个候选",

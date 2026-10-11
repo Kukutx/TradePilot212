@@ -12,6 +12,7 @@ function setup(env: Record<string, string>) {
   const total = { value: 2000 };
   const outage = { on: false };
   const hookDown = { on: false };
+  const orders: { list: unknown[] } = { list: [] };
   const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -20,6 +21,7 @@ function setup(env: Record<string, string>) {
       hooks.push((JSON.parse(String(init?.body)) as { text: string }).text);
       return new Response("ok");
     }
+    if (url.endsWith("/equity/orders")) return json(orders.list);
     if (url.endsWith("/equity/positions")) return json([{ instrument, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100, walletImpact: { currentValue: 1000, unrealizedProfitLoss: 100 } }]);
     if (url.endsWith("/equity/account/summary") && outage.on) return new Response(JSON.stringify({ code: "Unauthorized" }), { status: 401 });
     if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: total.value, cash: { availableToTrade: 1000 }, investments: { unrealizedProfitLoss: 100 } });
@@ -27,7 +29,7 @@ function setup(env: Record<string, string>) {
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", NOTIFY_WEBHOOK_URL: "https://hooks.example/t", ...env });
   const store = new MemoryStateStore();
-  return { ...createServices({ config, store, fetcher }), store, hooks, total, outage, hookDown };
+  return { ...createServices({ config, store, fetcher }), store, hooks, total, outage, hookDown, orders };
 }
 
 describe("daily digest", () => {
@@ -36,6 +38,17 @@ describe("daily digest", () => {
       .toBe("Total 2010 EUR (+10 since the last digest) · cash 10 · unrealized -5 · top: A 5 (+1) · 1 pending order(s) · due plans: Monthly");
     expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, filledOrders: 2, maxDrift: 0.0712 }))
       .toBe("Total 2010 EUR · cash 10 · 2 order(s) filled in the last day · largest drift from targets 7.1 points");
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 10, cash: 0, positions: [], pendingOrders: 1, duePlans: [], triggeredAlerts: 0, uncovered: ["A", "B", "C", "D", "E", "F", "G"] }))
+      .toBe("Total 10 EUR · cash 0 · 1 pending order(s) · no full stop-loss: A, B, C, D, E +2");
+  });
+
+  it("names holdings a stop does not fully cover, once any stop is in place", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
+    expect(services.hooks[0]).not.toMatch(/stop-loss/);
+    services.orders.list = [{ id: 7, ticker: "VUSA_EQ", type: "STOP", side: "SELL", quantity: -4, stopPrice: 90, status: "NEW" }];
+    expect(await services.digest.run(new Date("2026-10-12T07:00:00Z"))).toEqual(["demo"]);
+    expect(services.hooks[1]).toMatch(/· no full stop-loss: VUSA_EQ$/);
   });
 
   it("counts the fills the order watch saw in the last day", async () => {

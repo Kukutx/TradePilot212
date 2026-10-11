@@ -3,6 +3,7 @@
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
 import type { TradingEnvironment } from "../shared/contracts.js";
+import { stopProtection } from "../shared/protection.js";
 import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import { analyzeAllocation, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
@@ -31,6 +32,11 @@ export interface DigestInput {
   filledOrders?: number;
   /** Largest drift from the saved targets, in weight points, when targets are saved. */
   maxDrift?: number;
+  /**
+   * Holdings that no sell stop fully covers, given only when some holding has a stop: someone who uses
+   * stops wants to see the gaps, someone who never does would read the same list every day.
+   */
+  uncovered?: string[];
 }
 
 /** Plain-text digest; kept short so it reads well in a chat notification. */
@@ -48,6 +54,7 @@ export function digestText(input: DigestInput): string {
     input.triggeredAlerts ? `${input.triggeredAlerts} alert(s) triggered in the last day` : undefined,
     input.filledOrders ? `${input.filledOrders} order(s) filled in the last day` : undefined,
     input.maxDrift === undefined ? undefined : `largest drift from targets ${(input.maxDrift * 100).toFixed(1)} points`,
+    input.uncovered?.length ? `no full stop-loss: ${input.uncovered.slice(0, 5).join(", ")}${input.uncovered.length > 5 ? ` +${input.uncovered.length - 5}` : ""}` : undefined,
   ].filter(Boolean).join(" · ");
 }
 
@@ -91,6 +98,8 @@ export class DailyDigest {
         // Drift from the same account read, so the digest costs no extra request.
         const saved = await this.deps.targets?.(environment);
         const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : undefined;
+        const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
+        const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -107,6 +116,7 @@ export class DailyDigest {
           triggeredAlerts: alerts.length,
           filledOrders,
           ...(maxDrift === undefined ? {} : { maxDrift }),
+          ...(uncovered.length ? { uncovered } : {}),
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };
         if (!(await this.deps.notify!(event, { force: true }))) {

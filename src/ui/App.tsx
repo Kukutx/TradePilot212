@@ -864,6 +864,12 @@ export default function App() {
                   setPreview(null);
                   setExecution(null);
                 }}
+                onProtect={({ quantity, stopPrice }) => {
+                  // A good-till-cancelled sell stop for the uncovered shares; the editor and review come before anything is sent.
+                  setDraft({ environment, ticker: base.ticker, side: "sell", type: "stop", quantity, stopPrice, timeValidity: "GOOD_TILL_CANCEL" });
+                  setPreview(null);
+                  setExecution(null);
+                }}
               />
             )}
             {base?.kind === "pies" && <PiesView payload={base} book={book} locale={locale} t={t} />}

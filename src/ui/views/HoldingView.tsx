@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { PriceAlert } from "../../shared/automation";
 import type { Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
-import { stopProtection } from "../../shared/protection";
+import { stopProtection, suggestedStop } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
@@ -76,6 +76,7 @@ export function HoldingView({
   busy,
   onBack,
   onTrade,
+  onProtect,
   onCancel,
   onSaveAlert,
   onDeleteAlert,
@@ -90,6 +91,8 @@ export function HoldingView({
   busy: boolean;
   onBack: () => void;
   onTrade: (side: "buy" | "sell") => void;
+  /** Opens the order editor with a sell stop for the uncovered shares; nothing is sent until reviewed and confirmed. */
+  onProtect?: (stop: { quantity: number; stopPrice: number }) => void;
   onCancel: (orderId: string) => void;
   /** Resolves true once the alert is saved, so the form can close. */
   onSaveAlert: (request: AlertRequest) => Promise<boolean>;
@@ -110,6 +113,10 @@ export function HoldingView({
   const guardNote = !position ? undefined : guard
     ? `${t("stopLoss")} ${stopGuardText(guard, position, locale, t)} · ${stopCoverageText(guard, position, locale, t)}`
     : t("noStopLoss");
+  const stop = position && writeEnabled && onProtect ? suggestedStop(position, guard) : undefined;
+  const protect = stop && onProtect
+    ? <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => onProtect(stop)}>{guard ? t("addStopForRest") : t("addStopLoss")}</button>
+    : undefined;
   const eyebrow = [data.instrument.type ? instrumentTypeLabel(data.instrument.type, t) : undefined, quote, marketText(data, t, locale)].filter(Boolean).join(" · ");
   const share = data.weight === undefined ? "—" : data.targetWeight === undefined ? pct(data.weight, locale) : `${pct(data.weight, locale)} / ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`;
   return (
@@ -149,7 +156,7 @@ export function HoldingView({
       </section>
 
       {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
-      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} />}
+      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} {...(protect ? { action: protect } : {})} />}
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={data.orders.length} />
@@ -212,11 +219,11 @@ export function HoldingView({
 }
 
 /** The price levels as a ladder, highest at the top, each with its distance from the last price. */
-function PriceLadder({ levels, last, currency, locale, t, guardNote, partial }: { levels: PriceLevel[]; last?: number; currency?: string; locale: SupportedLocale; t: Translator; guardNote?: string; partial?: boolean }) {
+function PriceLadder({ levels, last, currency, locale, t, guardNote, partial, action }: { levels: PriceLevel[]; last?: number; currency?: string; locale: SupportedLocale; t: Translator; guardNote?: string; partial?: boolean; action?: ReactNode }) {
   return (
     <section className="dataPanel">
       <div className="pieHeader"><h2>{t("priceLevels")}</h2></div>
-      {guardNote && <p className={`ladderGuard${partial ? " partial" : ""}`}><span className="positionGuardMark" aria-hidden="true" />{guardNote}</p>}
+      {guardNote && <div className={`ladderGuard${partial ? " partial" : ""}`}><span className="positionGuardMark" aria-hidden="true" /><span>{guardNote}</span>{action}</div>}
       {levels.length >= 2 && <ol className="levelLadder">
         {levels.map((level) => {
           const gap = last && level.kind !== "last" ? (level.price - last) / last : undefined;
