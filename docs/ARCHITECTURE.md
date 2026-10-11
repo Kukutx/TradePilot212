@@ -112,6 +112,8 @@ Owns application rules.
 
 `PriceAlerts` (`alerts.ts`) is checked on every scheduler tick after protective links and plans. It reads positions once per environment, evaluates each armed alert with the pure `evaluateAlert`, and writes one `price_alert_triggered` event. It never writes to the broker.
 
+`TargetAllocations` (`targets.ts`) keeps saved target weights per environment. It runs on the tick after alerts but reads the account at most once an hour per environment, compares weights with the pure `allocationDrift`, and writes an `allocation_drift` event at most once a day while the drift is over its threshold. The same drift is attached to `analyze_portfolio_allocation`. It never writes to the broker.
+
 `notify.ts` builds an optional webhook sender from `NOTIFY_WEBHOOK_URL`. `TradingService.recordActivity` passes every event to it; the sender filters by type, signs the body when a secret is set, and swallows delivery errors.
 
 ### `InsightsService` and `analytics`

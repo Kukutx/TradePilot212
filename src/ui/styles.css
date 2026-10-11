@@ -551,6 +551,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .columnLabel { position: absolute; bottom: -18px; color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
 .chartFigure:has(.columnChart) { padding-bottom: 20px; }
 
+.panelHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.panelHeading .panelTitle { margin: 0; }
+.panelNote { margin: 4px 0 12px; color: var(--tp-muted); font-size: 13px; line-height: 1.45; }
+.panelNote:last-child { margin-bottom: 0; }
+.compactButton { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.driftList { display: grid; gap: 12px; margin: 0 0 4px; padding: 0; list-style: none; }
+.driftList li { display: grid; gap: 6px; }
+.driftHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.driftValue { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-text); font-size: 13px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.driftValue.over { background: var(--tp-amber-soft); color: var(--tp-amber-text); }
+.driftTrack { position: relative; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--tp-border) 55%, transparent); }
+.driftFill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--tp-chart); }
+.driftList li.over .driftFill { background: var(--tp-amber); }
+.driftTarget { position: absolute; top: -4px; width: 2px; height: 16px; margin-left: -1px; border-radius: 1px; background: var(--tp-text); box-shadow: 0 0 0 2px var(--tp-surface); }
+.driftFacts { display: flex; justify-content: space-between; gap: 10px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
 .flagList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .flagList li { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 13px; }
 .flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #fff; font-size: 13px; font-weight: 800; }

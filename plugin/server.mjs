@@ -13550,9 +13550,9 @@ function generateChecks(doc, ctx, schema, accessor) {
         break;
       }
       case "length_equals": {
-        const exact = numericOperand(def.length, "length_equals");
-        const len = codePointLengthVar(doc, ctx, currentAccessor, `${currentAccessor}.length >= ${exact} && ${currentAccessor}.length <= ${def.length * 2}`);
-        doc.write(`if (${len} !== ${exact}) return INVALID;`);
+        const exact2 = numericOperand(def.length, "length_equals");
+        const len = codePointLengthVar(doc, ctx, currentAccessor, `${currentAccessor}.length >= ${exact2} && ${currentAccessor}.length <= ${def.length * 2}`);
+        doc.write(`if (${len} !== ${exact2}) return INVALID;`);
         break;
       }
       case "min_size":
@@ -34264,10 +34264,10 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     const pie = pies2.get(id);
     return {
       settings: { id, name: pie.name, icon: pie.icon, ...pie.goal ? { goal: pie.goal } : {}, instrumentShares: pie.shares, dividendCashAction: pie.dividendCashAction, creationDate: pie.createdAt, publicUrl: null },
-      instruments: Object.entries(pie.shares).map(([ticker, share2]) => ({
+      instruments: Object.entries(pie.shares).map(([ticker, share3]) => ({
         ticker,
-        expectedShare: share2,
-        currentShare: round(drift(id, ticker, share2), 4),
+        expectedShare: share3,
+        currentShare: round(drift(id, ticker, share3), 4),
         ownedQuantity: holdings.find((item) => item.ticker === ticker)?.inPies ?? 0,
         issues: []
       }))
@@ -35258,8 +35258,8 @@ function resolveInstrumentFromList(instruments, query) {
   const norm = (value) => value.trim().toUpperCase();
   const q = norm(query);
   if (!q) throw new Error("Ticker, symbol, or instrument name is required");
-  const exact = instruments.find((item) => norm(item.ticker) === q);
-  if (exact) return exact;
+  const exact2 = instruments.find((item) => norm(item.ticker) === q);
+  if (exact2) return exact2;
   if (/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(q)) {
     const listings = instruments.filter((item) => norm(item.isin ?? "") === q);
     if (listings.length === 1) return listings[0];
@@ -36918,25 +36918,25 @@ var InsightsService = class {
    * with totals per type. `types` takes DIVIDEND and Trading 212's transaction types; a ticker limits it to dividends.
    */
   async cashHistory(environment, window, options = {}) {
-    let exact;
+    let exact2;
     if (options.ticker?.trim()) {
       try {
-        exact = resolveInstrumentFromList(await this.deps.instruments(environment), options.ticker).ticker;
+        exact2 = resolveInstrumentFromList(await this.deps.instruments(environment), options.ticker).ticker;
       } catch {
-        exact = void 0;
+        exact2 = void 0;
       }
     }
     const types = new Set((options.types ?? []).map((type) => type.trim().toUpperCase()).filter(Boolean));
     const wantDividends = !types.size || types.has("DIVIDEND");
     const wantCash = !options.ticker?.trim() && (!types.size || [...types].some((type) => type !== "DIVIDEND"));
     const [dividends, transactions] = await Promise.all([
-      wantDividends ? this.collect(environment, "dividends", window, options.maxPages, exact) : void 0,
+      wantDividends ? this.collect(environment, "dividends", window, options.maxPages, exact2) : void 0,
       wantCash ? this.collect(environment, "transactions", window, options.maxPages) : void 0
     ]);
     const wanted = options.ticker?.trim().toUpperCase();
     const inWindow2 = (time3) => Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
     const items = [
-      ...(dividends?.items ?? []).filter((item) => !wanted || (exact ? (item.ticker ?? item.instrument?.ticker) === exact : (item.ticker ?? "").toUpperCase().startsWith(wanted))).filter((item) => inWindow2(itemTime("dividends", item))).map((item) => ({
+      ...(dividends?.items ?? []).filter((item) => !wanted || (exact2 ? (item.ticker ?? item.instrument?.ticker) === exact2 : (item.ticker ?? "").toUpperCase().startsWith(wanted))).filter((item) => inWindow2(itemTime("dividends", item))).map((item) => ({
         date: item.paidOn ?? "",
         type: "DIVIDEND",
         amount: item.amount ?? 0,
@@ -36970,17 +36970,17 @@ var InsightsService = class {
     };
   }
   async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false) {
-    let exact;
+    let exact2;
     if (ticker?.trim()) {
       try {
-        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker;
+        exact2 = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker;
       } catch {
-        exact = void 0;
+        exact2 = void 0;
       }
     }
-    const collected = await this.collect(environment, "orders", window, maxPages, exact);
+    const collected = await this.collect(environment, "orders", window, maxPages, exact2);
     const wanted = ticker?.trim().toUpperCase();
-    const matches = (value) => exact ? value === exact.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
+    const matches = (value) => exact2 ? value === exact2.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
     const inWindow2 = collected.items.filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => {
       const time3 = itemTime("orders", item);
       return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
@@ -37372,16 +37372,16 @@ var num = (value) => typeof value === "number" && Number.isFinite(value) ? value
 function normaliseShares(shares) {
   const entries = Object.entries(shares);
   if (!entries.length || entries.length > MAX_PIE_INSTRUMENTS) fail("INVALID_INPUT", `A pie needs 1 to ${MAX_PIE_INSTRUMENTS} instruments`, { field: "instrumentShares" });
-  for (const [ticker, share2] of entries)
-    if (!Number.isFinite(share2) || share2 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
-  const total = entries.reduce((sum, [, share2]) => sum + share2, 0);
-  const scaled = entries.map(([ticker, share2]) => [ticker, round5(share2 / total, SHARE_DIGITS)]);
-  const remainder = round5(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
+  for (const [ticker, share3] of entries)
+    if (!Number.isFinite(share3) || share3 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
+  const total = entries.reduce((sum, [, share3]) => sum + share3, 0);
+  const scaled = entries.map(([ticker, share3]) => [ticker, round5(share3 / total, SHARE_DIGITS)]);
+  const remainder = round5(1 - scaled.reduce((sum, [, share3]) => sum + share3, 0), SHARE_DIGITS);
   const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
   const result2 = Object.fromEntries(scaled);
   result2[scaled[largest][0]] = round5(scaled[largest][1] + remainder, SHARE_DIGITS);
-  for (const [ticker, share2] of Object.entries(result2))
-    if (share2 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
+  for (const [ticker, share3] of Object.entries(result2))
+    if (share3 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
   return result2;
 }
 function pieOverview(summary, detail, id) {
@@ -37504,9 +37504,9 @@ var PiesService = class {
     const instruments = await this.deps.trading.instruments(draft.environment);
     const sharesInput = draft.instrumentShares ?? Object.fromEntries((current?.instruments ?? []).map((item) => [item.ticker, item.targetShare]));
     const resolved = {};
-    for (const [query, share2] of Object.entries(sharesInput)) {
+    for (const [query, share3] of Object.entries(sharesInput)) {
       const ticker = resolveInstrumentFromList(instruments, query).ticker;
-      resolved[ticker] = (resolved[ticker] ?? 0) + share2;
+      resolved[ticker] = (resolved[ticker] ?? 0) + share3;
     }
     const name = (draft.name ?? current?.settings?.name ?? "").trim();
     if (!name || name.length > 100) fail("INVALID_INPUT", "A pie needs a name of 1 to 100 characters", { field: "name" });
@@ -37609,7 +37609,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.15.0"
+  version: "2.16.0"
 };
 
 // src/core/text-summary.ts
@@ -37700,7 +37700,23 @@ function allocation(data) {
     `Currency exposure (cash included): ${data.byCurrency.map((item) => `${item.currency} ${pct(item.weight)}`).join(", ") || "none"}.`,
     `Types: ${data.byType.map((item) => `${item.type} ${pct(item.weight)}`).join(", ") || "none"}.`,
     `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num2(data.concentration.effectiveHoldings, 1)}.`,
-    ...section("Flags", rows(data.flags, (flag2) => flag2.message))
+    ...section("Flags", rows(data.flags, (flag2) => flag2.message)),
+    ...data.drift ? driftLines(data.drift) : []
+  ];
+}
+var points = (value) => `${signed(value * 100, 1)} pts`;
+function driftLines(drift) {
+  return section(`Against targets (largest drift ${num2(drift.maxDrift * 100, 1)} points; notices above ${num2(drift.threshold * 100, 1)} points)`, [
+    ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
+    `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
+    ...drift.untargeted.length ? [`- No target: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []
+  ]);
+}
+function targetAllocation(data) {
+  if (!data.targets) return [data.cleared === void 0 ? `No ${env(data.environment)} targets are saved.` : data.cleared ? `${env(data.environment)} targets cleared.` : `No ${env(data.environment)} targets were saved.`];
+  return [
+    `${env(data.environment)} targets saved ${minute(data.targets.updatedAt)}: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}; cash ${pct(data.targets.cashWeight)}.`,
+    ...data.drift ? driftLines(data.drift) : []
   ];
 }
 function performance(data) {
@@ -37851,6 +37867,7 @@ function automation(data) {
     ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
+    ...data.targets ? [`Target weights: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}, cash ${pct(data.targets.cashWeight)}; drift notices above ${num2(data.targets.driftThreshold * 100, 1)} points.`] : [],
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num2(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`
   ];
 }
@@ -37873,11 +37890,11 @@ function pieChange(data) {
   if (data.kind === "pie_change_draft") {
     const draft = data.draft;
     const shares = Object.entries(draft.instrumentShares ?? {});
-    const total = shares.reduce((sum, [, share2]) => sum + share2, 0);
+    const total = shares.reduce((sum, [, share3]) => sum + share3, 0);
     return [
       ...credentialsLine(draft.environment, data.credentials),
       `${draft.action} pie${draft.pieId ? ` #${draft.pieId}` : ""}${draft.name ? ` "${draft.name}"` : ""}${draft.goal ? `, goal ${num2(draft.goal)}` : ""}${draft.dividendCashAction ? `, dividends ${draft.dividendCashAction}` : ""}.`,
-      ...shares.length && total > 0 ? [`Target slices: ${shares.map(([ticker, share2]) => `${ticker} ${pct(share2 / total)}`).join(", ")}.`] : [],
+      ...shares.length && total > 0 ? [`Target slices: ${shares.map(([ticker, share3]) => `${ticker} ${pct(share3 / total)}`).join(", ")}.`] : [],
       ...data.current ? [`Now: ${pieLine(data.current)}`] : []
     ];
   }
@@ -37923,6 +37940,9 @@ function describePayload(data) {
       break;
     case "tax_year":
       lines = taxYear(payload);
+      break;
+    case "target_allocation":
+      lines = targetAllocation(payload);
       break;
     case "trade_history":
       lines = tradeHistory(payload);
@@ -38093,7 +38113,7 @@ var windowSchema = {
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation: automation2, alerts, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation2, alerts, targets: targetAllocations, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -38168,7 +38188,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. Use this instead of estimating weights yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. Use this instead of estimating weights yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -38181,8 +38201,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = { ...await insights.allocation(environment, limits), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s).`);
+        const data = { ...await targetAllocations.withDrift(await insights.allocation(environment, limits)), credentials: credentialStatus(config3), writeEnabled: canWrite };
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -38514,7 +38534,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -38522,8 +38542,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
           weight: external_exports.number().min(0).max(1),
           referencePrice: external_exports.number().positive().optional(),
           referencePriceAt: external_exports.string().datetime().optional().describe("When referencePrice is from")
-        })).min(1).max(MAX_BASKET_LEGS),
-        cashWeight: external_exports.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
+        })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
+        cashWeight: external_exports.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
         sellUntargeted: external_exports.boolean().default(false).describe("Sell holdings that have no target"),
         wholeSharesOnly: external_exports.boolean().default(false),
@@ -38534,7 +38554,15 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     },
     async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
       try {
-        const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...fxRates ? { fxRates } : {} });
+        const saved = targets ? void 0 : await targetAllocations.get(environment);
+        if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
+        const plan = await trading.planRebalance(environment, targets ?? saved.targets, {
+          cashWeight: cashWeight ?? saved?.cashWeight ?? 0,
+          minTradeValue,
+          sellUntargeted,
+          quantityDecimals: wholeSharesOnly ? 0 : 4,
+          ...fxRates ? { fxRates } : {}
+        });
         const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan)), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
         return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
@@ -38649,6 +38677,42 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
         const lookup = await trading.lookupPrice(environment, instrument);
         const text = lookup.price === void 0 ? `${lookup.instrument.ticker}: no price. ${lookup.message ?? ""}`.trim() : `${lookup.instrument.ticker}: ${lookup.price} ${lookup.instrument.currencyCode} from ${lookup.source}${lookup.symbol ? ` (${lookup.symbol})` : ""} as of ${lookup.asOf}.`;
         return result({ kind: "quote", environment, ...lookup }, text);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "manage_target_allocation",
+    {
+      title: "Target Allocation",
+      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target. Never places orders.",
+      inputSchema: external_exports.object({
+        action: external_exports.enum(["get", "set", "clear"]),
+        environment: environmentWithDefault,
+        targets: external_exports.array(external_exports.object({ instrument: external_exports.string().min(1).describe("Trading 212 ticker, symbol or name"), weight: external_exports.number().gt(0).max(1) })).min(1).max(MAX_BASKET_LEGS).optional().describe("Required for set; replaces the saved targets"),
+        cashWeight: external_exports.number().min(0).max(1).optional(),
+        driftThreshold: external_exports.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points")
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      _meta: {}
+    },
+    async ({ action, environment, targets, cashWeight, driftThreshold }) => {
+      try {
+        if (action === "clear") {
+          const existed = await targetAllocations.clear(environment);
+          return result({ kind: "target_allocation", environment, cleared: existed }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
+        }
+        if (action === "set") {
+          if (!targets) return toolError(new Error("targets are required to save a target allocation"));
+          await targetAllocations.set(environment, { targets, ...cashWeight === void 0 ? {} : { cashWeight }, ...driftThreshold === void 0 ? {} : { driftThreshold } });
+        }
+        const saved = await targetAllocations.get(environment);
+        if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
+        const analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency };
+        return result(data, `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat."}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -39401,6 +39465,7 @@ var DEFAULT_NOTIFY_EVENTS = [
   "pie_submitted",
   "pie_status_unknown",
   "price_alert_triggered",
+  "allocation_drift",
   "daily_digest"
 ];
 var LABELS = {
@@ -39417,6 +39482,7 @@ var LABELS = {
   pie_submitted: "Pie changed",
   pie_status_unknown: "Pie change result unclear, check Trading 212",
   price_alert_triggered: "Price alert",
+  allocation_drift: "Allocation has drifted from your targets",
   daily_digest: "Daily digest"
 };
 function notificationText(event) {
@@ -39545,6 +39611,109 @@ var ProtectiveLinks = class {
   }
 };
 
+// src/core/targets.ts
+var DEFAULT_DRIFT_THRESHOLD = 0.05;
+var HOUR_MS = 36e5;
+var DAY_MS4 = 864e5;
+var targetKey = (environment) => `targets:${environment}`;
+var share2 = (value) => Math.round(value * 1e4) / 1e4;
+var exact = (value) => Math.round(value * 1e6) / 1e6;
+function allocationDrift(saved, analysis) {
+  const current = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.weight]));
+  const rows2 = saved.targets.map((target) => {
+    const weight2 = current.get(target.ticker) ?? 0;
+    return { ticker: target.ticker, target: target.weight, current: exact(weight2), drift: exact(weight2 - target.weight) };
+  }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+  const targeted = new Set(saved.targets.map((target) => target.ticker));
+  const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
+  const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)));
+  return {
+    threshold: saved.driftThreshold,
+    maxDrift: exact(maxDrift),
+    over: maxDrift > saved.driftThreshold + 1e-9,
+    rows: rows2,
+    cash,
+    untargeted: analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) })),
+    savedAt: saved.updatedAt
+  };
+}
+function driftSummary(drift) {
+  const points2 = (value) => `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)} points`;
+  const largest = drift.rows[0];
+  const lead = largest && Math.abs(largest.drift) >= Math.abs(drift.cash.drift) ? `${largest.ticker} is ${(largest.current * 100).toFixed(1)}% against a ${(largest.target * 100).toFixed(1)}% target (${points2(largest.drift)})` : `Cash is ${(drift.cash.current * 100).toFixed(1)}% against a ${(drift.cash.target * 100).toFixed(1)}% target (${points2(drift.cash.drift)})`;
+  return `${lead}; notices start above ${(drift.threshold * 100).toFixed(1)} points.`;
+}
+var TargetAllocations = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  get(environment) {
+    return this.deps.store.get(targetKey(environment));
+  }
+  async set(environment, input2, now = /* @__PURE__ */ new Date()) {
+    requireCredentials(this.deps.config, environment);
+    if (!input2.targets.length || input2.targets.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `Give between 1 and ${MAX_BASKET_LEGS} targets`, { field: "targets" });
+    const instruments = await this.deps.trading.instruments(environment);
+    const targets = [];
+    for (const target of input2.targets) {
+      if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
+      const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
+      if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
+      targets.push({ ticker, weight: share2(target.weight) });
+    }
+    const invested = targets.reduce((sum, target) => sum + target.weight, 0);
+    const cashWeight = share2(input2.cashWeight ?? Math.max(0, 1 - invested));
+    if (invested + cashWeight > 1.0001) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(1)}%) and cash (${(cashWeight * 100).toFixed(1)}%) add up to more than 100%`, { field: "targets" });
+    const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
+    if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
+    const saved = { environment, targets, cashWeight, driftThreshold, updatedAt: now.toISOString() };
+    await this.deps.store.put(targetKey(environment), saved);
+    return saved;
+  }
+  async clear(environment) {
+    const existed = !!await this.get(environment);
+    await this.deps.store.delete(targetKey(environment));
+    return existed;
+  }
+  /** The analysis with its drift and, when over the threshold, a flag. */
+  async withDrift(analysis) {
+    const saved = await this.get(analysis.environment);
+    if (!saved) return analysis;
+    const drift = allocationDrift(saved, analysis);
+    return {
+      ...analysis,
+      drift,
+      flags: drift.over ? [...analysis.flags, { code: "DRIFT_OVER_THRESHOLD", message: driftSummary(drift) }] : analysis.flags
+    };
+  }
+  /**
+   * One scheduler tick: about once an hour per environment, compare the account with its targets and,
+   * while the drift is over the threshold, record an allocation_drift event at most once a day.
+   */
+  async check(now = /* @__PURE__ */ new Date()) {
+    const credentials = credentialStatus(this.deps.config);
+    const reports = [];
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const saved = await this.get(environment);
+      if (!saved) continue;
+      const slot = await this.deps.store.increment(`drift-check:${environment}`, HOUR_MS, now.getTime());
+      if (slot.count > 1) continue;
+      const drift = allocationDrift(saved, await this.deps.allocation(environment));
+      const due = drift.over && (!saved.lastNotifiedAt || now.getTime() - Date.parse(saved.lastNotifiedAt) >= DAY_MS4);
+      if (due) {
+        const current = await this.get(environment);
+        if (!current || current.updatedAt !== saved.updatedAt) continue;
+        await this.deps.store.put(targetKey(environment), { ...current, lastNotifiedAt: now.toISOString() });
+        await this.deps.trading.recordActivity("allocation_drift", environment, { outcome: driftSummary(drift).slice(0, 200) });
+      }
+      reports.push({ environment, maxDrift: drift.maxDrift, notified: due });
+    }
+    return reports;
+  }
+};
+
 // src/app/services.ts
 var processSampleBroker;
 function createServices(input2) {
@@ -39564,6 +39733,7 @@ function createServices(input2) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
+  const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...notify ? { notify } : {} });
   const stage = async (name, run) => {
     try {
@@ -39577,6 +39747,7 @@ function createServices(input2) {
     links: await stage("protective links", () => links.reconcile()),
     plans: await stage("plans", () => automation2.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
+    targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run())
   });
   let running;
@@ -39593,7 +39764,13 @@ function createServices(input2) {
     const plans = await automation2.listPlans(environment);
     const priceAlerts = await alerts.list(environment);
     const pairs = (await links.list()).filter((link) => link.environment === environment);
-    const instruments = await namedInstruments(environment, [...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)), ...priceAlerts.map((alert) => alert.ticker), ...pairs.map((link) => link.ticker)]);
+    const saved = await targets.get(environment);
+    const instruments = await namedInstruments(environment, [
+      ...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)),
+      ...priceAlerts.map((alert) => alert.ticker),
+      ...pairs.map((link) => link.ticker),
+      ...saved?.targets.map((target) => target.ticker) ?? []
+    ]);
     return {
       kind: "automation",
       environment,
@@ -39601,6 +39778,7 @@ function createServices(input2) {
       plans,
       alerts: priceAlerts,
       links: pairs,
+      ...saved ? { targets: saved } : {},
       ...instruments.length ? { instruments } : {},
       usageToday: await trading.usageToday(environment),
       ...await trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}),
@@ -39615,7 +39793,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation2, links, alerts, pies: pies2, digest, runScheduled, automationOverview };
+  return { trading, insights, automation: automation2, links, alerts, targets, pies: pies2, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

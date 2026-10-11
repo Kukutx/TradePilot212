@@ -122,8 +122,28 @@ export interface AllocationAnalysis {
     herfindahl: number;
     effectiveHoldings: number;
   };
-  flags: Array<{ code: "SINGLE_HOLDING_OVER_LIMIT" | "TOP5_OVER_LIMIT" | "CASH_HIGH" | "CASH_LOW" | "CURRENCY_CONCENTRATED"; message: string }>;
+  flags: Array<{ code: "SINGLE_HOLDING_OVER_LIMIT" | "TOP5_OVER_LIMIT" | "CASH_HIGH" | "CASH_LOW" | "CURRENCY_CONCENTRATED" | "DRIFT_OVER_THRESHOLD"; message: string }>;
+  /** How far the account is from the saved target weights; present when targets are saved. */
+  drift?: AllocationDrift;
   timestamp: string;
+}
+
+/** Current against target weight, as shares of total account value; drift is current minus target. */
+export interface AllocationDriftRow { ticker: string; target: number; current: number; drift: number }
+
+export interface AllocationDrift {
+  /** Drift in weight points above which the scheduler notifies. */
+  threshold: number;
+  /** Largest absolute drift among the targets and cash. */
+  maxDrift: number;
+  over: boolean;
+  /** One row per target, largest drift first. */
+  rows: AllocationDriftRow[];
+  cash: { target: number; current: number; drift: number };
+  /** Holdings without a target, with their current weight; they do not count toward maxDrift. */
+  untargeted: Array<{ ticker: string; current: number }>;
+  /** When the targets were saved. */
+  savedAt: string;
 }
 
 export interface MoneyBucket { key: string; amount: number }

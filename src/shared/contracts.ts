@@ -142,6 +142,7 @@ export type ActivityType =
   | "pie_rejected"
   | "pie_status_unknown"
   | "price_alert_triggered"
+  | "allocation_drift"
   | "daily_digest";
 
 export interface ActivityEvent {

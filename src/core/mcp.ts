@@ -113,7 +113,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, pies, automationOverview }: Services,
+  { trading, insights, automation, alerts, targets: targetAllocations, pies, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -202,7 +202,7 @@ export function createMcpServer(
     {
       title: "Portfolio Allocation Analysis",
       description:
-        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. Use this instead of estimating weights yourself. Read-only.",
+        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. Use this instead of estimating weights yourself. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         maxSingleWeight: z.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -215,8 +215,8 @@ export function createMcpServer(
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = { ...(await insights.allocation(environment, limits)), credentials: credentialStatus(config), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s).`);
+        const data = { ...(await targetAllocations.withDrift(await insights.allocation(environment, limits))), credentials: credentialStatus(config), writeEnabled: canWrite };
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -570,7 +570,7 @@ export function createMcpServer(
     {
       title: "Plan a Rebalance",
       description:
-        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
+        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         targets: z.array(z.object({
@@ -578,8 +578,8 @@ export function createMcpServer(
           weight: z.number().min(0).max(1),
           referencePrice: z.number().positive().optional(),
           referencePriceAt: z.string().datetime().optional().describe("When referencePrice is from"),
-        })).min(1).max(MAX_BASKET_LEGS),
-        cashWeight: z.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
+        })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
+        cashWeight: z.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
         sellUntargeted: z.boolean().default(false).describe("Sell holdings that have no target"),
         wholeSharesOnly: z.boolean().default(false),
@@ -590,7 +590,11 @@ export function createMcpServer(
     },
     async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
       try {
-        const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}) });
+        const saved = targets ? undefined : await targetAllocations.get(environment);
+        if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
+        const plan = await trading.planRebalance(environment, targets ?? saved!.targets, {
+          cashWeight: cashWeight ?? saved?.cashWeight ?? 0, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}),
+        });
         const data = { ...(await trading.withInstruments(trading.rebalanceBasket(plan))), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
         return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error) {
@@ -715,6 +719,44 @@ export function createMcpServer(
           ? `${lookup.instrument.ticker}: no price. ${lookup.message ?? ""}`.trim()
           : `${lookup.instrument.ticker}: ${lookup.price} ${lookup.instrument.currencyCode} from ${lookup.source}${lookup.symbol ? ` (${lookup.symbol})` : ""} as of ${lookup.asOf}.`;
         return result({ kind: "quote", environment, ...lookup }, text);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // Targets only inform; they never place orders, so they work without order tools.
+  registerAppTool(
+    server,
+    "manage_target_allocation",
+    {
+      title: "Target Allocation",
+      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target. Never places orders.",
+      inputSchema: z.object({
+        action: z.enum(["get", "set", "clear"]),
+        environment: environmentWithDefault,
+        targets: z.array(z.object({ instrument: z.string().min(1).describe("Trading 212 ticker, symbol or name"), weight: z.number().gt(0).max(1) })).min(1).max(MAX_BASKET_LEGS).optional().describe("Required for set; replaces the saved targets"),
+        cashWeight: z.number().min(0).max(1).optional(),
+        driftThreshold: z.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      _meta: {},
+    },
+    async ({ action, environment, targets, cashWeight, driftThreshold }) => {
+      try {
+        if (action === "clear") {
+          const existed = await targetAllocations.clear(environment);
+          return result({ kind: "target_allocation", environment, cleared: existed }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
+        }
+        if (action === "set") {
+          if (!targets) return toolError(new Error("targets are required to save a target allocation"));
+          await targetAllocations.set(environment, { targets, ...(cashWeight === undefined ? {} : { cashWeight }), ...(driftThreshold === undefined ? {} : { driftThreshold }) });
+        }
+        const saved = await targetAllocations.get(environment);
+        if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
+        const analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+        const data = { kind: "target_allocation", environment, targets: saved, ...(analysis.drift ? { drift: analysis.drift } : {}), accountCurrency: analysis.accountCurrency };
+        return result(data, `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat."}`);
       } catch (error) {
         return toolError(error);
       }

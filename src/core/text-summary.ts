@@ -3,8 +3,8 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
-import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
+import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -118,6 +118,25 @@ function allocation(data: AllocationAnalysis): string[] {
     `Types: ${data.byType.map((item) => `${item.type} ${pct(item.weight)}`).join(", ") || "none"}.`,
     `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num(data.concentration.effectiveHoldings, 1)}.`,
     ...section("Flags", rows(data.flags, (flag) => flag.message)),
+    ...(data.drift ? driftLines(data.drift) : []),
+  ];
+}
+
+const points = (value: number) => `${signed(value * 100, 1)} pts`;
+
+function driftLines(drift: AllocationDrift): string[] {
+  return section(`Against targets (largest drift ${num(drift.maxDrift * 100, 1)} points; notices above ${num(drift.threshold * 100, 1)} points)`, [
+    ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
+    `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
+    ...(drift.untargeted.length ? [`- No target: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
+  ]);
+}
+
+function targetAllocation(data: { environment: TradingEnvironment; targets?: TargetAllocation; drift?: AllocationDrift; cleared?: boolean }): string[] {
+  if (!data.targets) return [data.cleared === undefined ? `No ${env(data.environment)} targets are saved.` : data.cleared ? `${env(data.environment)} targets cleared.` : `No ${env(data.environment)} targets were saved.`];
+  return [
+    `${env(data.environment)} targets saved ${minute(data.targets.updatedAt)}: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}; cash ${pct(data.targets.cashWeight)}.`,
+    ...(data.drift ? driftLines(data.drift) : []),
   ];
 }
 
@@ -309,6 +328,7 @@ function automation(data: AutomationOverview): string[] {
     ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
+    ...(data.targets ? [`Target weights: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}, cash ${pct(data.targets.cashWeight)}; drift notices above ${num(data.targets.driftThreshold * 100, 1)} points.`] : []),
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`,
   ];
 }
@@ -381,6 +401,7 @@ export function describePayload(data: unknown): string {
     case "performance": lines = performance(payload as unknown as PerformanceSummary); break;
     case "income": lines = income(payload as unknown as IncomeSummary); break;
     case "tax_year": lines = taxYear(payload as unknown as TaxYearSummary); break;
+    case "target_allocation": lines = targetAllocation(payload as unknown as Parameters<typeof targetAllocation>[0]); break;
     case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;
     case "basket_preview": lines = basketPreview(payload as unknown as BasketPreview); break;

@@ -66,6 +66,16 @@ Protective baskets are the exception to cumulative checks. A stop-loss and a tak
 
 The math is pure and tested (`src/core/rebalance.ts`), so the model never computes order sizes in its head.
 
+### Saved targets and drift notices
+
+`manage_target_allocation` saves target weights for an environment (`set`), shows them with today's drift (`get`) and removes them (`clear`). Weights are shares of total account value; `cashWeight` is the share meant to stay in cash and defaults to whatever the targets leave over. Once targets are saved:
+
+- `analyze_portfolio_allocation` and the widget's Allocation tab show each target and cash against today's weight, with the drift in percentage points. Holdings without a target are listed but do not count.
+- `plan_portfolio_rebalance` without `targets` uses the saved ones and their cash weight. In the widget, **Rebalance to targets** opens that plan as a basket to review; nothing is sent until you confirm it.
+- The scheduler compares the account with the targets about once an hour. While any target or cash is more than `driftThreshold` (default `0.05`, 5 points) away, it writes an `allocation_drift` activity event and sends it to the webhook, at most once a day.
+
+Targets only inform; they never place orders, so they work without order tools.
+
 ## Protective orders (L1)
 
 `review_protective_orders` drafts a **Stop** sell below the current price, a **Limit** sell above it, or both, as Good-Till-Cancel orders. After you confirm, they live at Trading 212, which triggers them without TradePilot.
@@ -144,7 +154,7 @@ An external price only sizes an order; the order still goes through the usual re
 
 ## Notifications
 
-Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
 
 ### Daily digest
 
@@ -152,7 +162,7 @@ Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive on
 
 ## Seeing what runs
 
-`get_automation_overview` opens the widget on everything the scheduler acts on for an environment: plans with their next due time and last outcome, alerts with the last price seen, linked stop-loss / take-profit pairs, today's orders and value against the policy budgets, and which automation settings are on.
+`get_automation_overview` opens the widget on everything the scheduler acts on for an environment: plans with their next due time and last outcome, alerts with the last price seen, linked stop-loss / take-profit pairs, saved target weights, today's orders and value against the policy budgets, and which automation settings are on.
 
 ## Scheduled research (L0)
 

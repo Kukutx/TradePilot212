@@ -5,7 +5,7 @@
 //   pnpm preview          sample account, nothing leaves this machine
 //   pnpm preview --demo   your Trading 212 Demo account from .env.local; Live keys are ignored
 //
-// Plans and alerts live in memory and the scheduler does not run, so nothing happens unattended.
+// Plans, alerts and targets live in memory and the scheduler does not run, so nothing happens unattended.
 
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -108,6 +108,10 @@ async function scenarios(): Promise<Scenario[]> {
       prompt: { en: `Set a stop-loss 10% below and a take-profit 15% above on ${name}.`, zh: `给 ${name} 设置低于现价 10% 的止损和高于 15% 的止盈。` },
     });
     const targets = holdings.slice(0, 4);
+    // The sample account starts with saved targets, so the allocation view shows its drift panel.
+    if (!demo && !(await services.targets.get("demo"))) {
+      await services.targets.set("demo", { targets: targets.map((position) => ({ instrument: position.instrument.ticker, weight: round(0.95 / targets.length, 4) })), cashWeight: 0.05 });
+    }
     list.push({
       id: "rebalance", group: "orders", tool: "plan_portfolio_rebalance",
       args: { targets: targets.map((position) => ({ ticker: position.instrument.ticker, weight: round(0.95 / targets.length, 4) })), cashWeight: 0.05, minTradeValue: 10 },
