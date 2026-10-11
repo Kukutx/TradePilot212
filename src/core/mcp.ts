@@ -702,13 +702,13 @@ export function createMcpServer(
         title: "Execute confirmed order",
         description:
           "App-only destructive external write. Consumes a one-time token created by app_prepare_order. Never retry automatically.",
-        inputSchema: z.object({ token: z.string().min(20) }),
+        inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token }) => {
+      async ({ token, liveAcknowledged }) => {
         try {
-          const data = await trading.executeOrder(token);
+          const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -815,13 +815,13 @@ export function createMcpServer(
       {
         title: "Execute confirmed basket",
         description: "App-only destructive external write. Consumes a one-time basket token and sends the orders one by one. Never retry automatically.",
-        inputSchema: z.object({ token: z.string().min(20) }),
+        inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token }) => {
+      async ({ token, liveAcknowledged }) => {
         try {
-          const data = await trading.executeBasket(token);
+          const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

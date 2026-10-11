@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   BasketDraftPayload,
   BasketExecutionResult,
@@ -12,7 +13,7 @@ import type { MessageKey, SupportedLocale } from "../i18n";
 import { DetailRow, Icon } from "../components/common";
 import { dateTime, money, num, pct, time } from "../lib/format";
 import { formatProblem, noticeText, verificationText, type Translator } from "../lib/messages";
-import { PolicyList } from "./OrderViews";
+import { LiveAcknowledgement, PolicyList } from "./OrderViews";
 
 export type BasketDraftView = BasketDraftPayload & { rebalance?: RebalancePlan };
 
@@ -159,7 +160,7 @@ export function BasketView({
   onRemoveLeg: (index: number) => void;
   onReview: () => void;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (liveAcknowledged: boolean) => void;
   onClose: () => void;
   onVerify: (verificationId: string) => void;
 }) {
@@ -215,9 +216,10 @@ function BasketConfirmation({
   locale: SupportedLocale;
   t: Translator;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (liveAcknowledged: boolean) => void;
 }) {
   const live = preview.environment === "live";
+  const [acknowledged, setAcknowledged] = useState(false);
   // A LIVE_FUNDS notice applies to the whole basket; show it once instead of on every leg.
   const liveFunds = preview.legs.flatMap((leg) => leg.notices).find((notice) => notice.code === "LIVE_FUNDS");
   const legNotices = (notices: OrderNotice[]) => notices.filter((notice) => notice.code !== "LIVE_FUNDS");
@@ -247,9 +249,10 @@ function BasketConfirmation({
         <Notes notes={preview.notes} t={t} />
         {preview.legs.length > 1 && <p className="basketHint">{t("basketOrderNote")}</p>}
         <div className="expiryLine">{t("snapshotAsOf")} · {dateTime(preview.snapshotAt, locale)} · {t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
+        {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}
         <div className="transactionFooter">
           <button className="secondaryButton" type="button" onClick={onBack}>{t("backToEdit")}</button>
-          <button className={live ? "dangerButton" : "primaryButton"} type="button" disabled={busy || blocked} onClick={onConfirm}>
+          <button className={live ? "dangerButton" : "primaryButton"} type="button" disabled={busy || blocked || (live && !acknowledged)} onClick={() => onConfirm(live && acknowledged)}>
             {busy ? t("submitting") : live ? t("confirmLiveBasket") : t("confirmDemoBasket")}
           </button>
         </div>

@@ -1,6 +1,7 @@
 import { AutomationService } from "../core/automation.js";
 import type { RuntimeConfig } from "../core/config.js";
 import { InsightsService } from "../core/insights-service.js";
+import { ProtectiveLinks } from "../core/protective-links.js";
 import type { StateStore } from "../core/state-store.js";
 import { TradingService, type InstrumentCache } from "../core/trading-service.js";
 
@@ -24,5 +25,8 @@ export function createServices(deps: ServiceDependencies) {
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
-  return { trading, insights, automation };
+  const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
+  /** One scheduler tick: settle protective pairs first, then due plans. */
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans() });
+  return { trading, insights, automation, links, runScheduled };
 }

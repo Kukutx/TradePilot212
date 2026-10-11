@@ -19,7 +19,7 @@ import type {
   TradePlanPayload,
   TradingEnvironment,
 } from "../shared/contracts.js";
-import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
+import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, ProtectiveLink, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
@@ -82,6 +82,12 @@ const ACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const REFERENCE_STALE_SECONDS = 300;
 const USAGE_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+const LINK_TTL_MS = 400 * 24 * 60 * 60 * 1000;
+
+function orderIdOf(order: unknown): string | undefined {
+  const id = order && typeof order === "object" ? (order as { id?: unknown }).id : undefined;
+  return typeof id === "number" || (typeof id === "string" && id) ? String(id) : undefined;
+}
 
 function dateAgeSeconds(value?: string, now = Date.now()): number | undefined {
   if (!value) return undefined;
@@ -584,9 +590,23 @@ export class TradingService {
     };
   }
 
-  async executeOrder(confirmationId: string): Promise<OrderExecutionResult> {
-    const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
-    if (!pending || pending.kind !== "order") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+  /**
+   * Consume a confirmation token. A Live order or basket also needs the second, explicit
+   * acknowledgement from the UI; without it the token is left untouched so the user can still confirm.
+   */
+  private async takePending<K extends "order" | "basket">(confirmationId: string, kind: K, liveAcknowledged: boolean): Promise<Extract<Pending, { kind: K }>> {
+    const key = `confirm:${confirmationId}`;
+    const peeked = await this.deps.store.get<Pending>(key);
+    if (!peeked || peeked.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const environment = peeked.kind === "order" ? peeked.draft.environment : peeked.environment;
+    if (environment === "live" && !liveAcknowledged) fail("LIVE_ACK_REQUIRED", "Live orders need the second confirmation that real money will be used");
+    const pending = await this.deps.store.consume<Pending>(key);
+    if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    return pending as Extract<Pending, { kind: K }>;
+  }
+
+  async executeOrder(confirmationId: string, options: { liveAcknowledged?: boolean } = {}): Promise<OrderExecutionResult> {
+    const pending = await this.takePending(confirmationId, "order", !!options.liveAcknowledged);
     const draft = pending.draft;
     let current: Awaited<ReturnType<TradingService["current"]>>;
     try {
@@ -652,7 +672,11 @@ export class TradingService {
       legs,
       notes: [
         "Both orders stay at Trading 212 until they fill or you cancel them.",
-        ...(legs.length === 2 ? ["They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."] : []),
+        ...(legs.length === 2
+          ? [this.deps.config.protectiveLinking
+            ? "TradePilot links the two orders: about a minute after one fills, it cancels the other. Trading 212 may reject the second if the first already reserves the shares; then only the first is placed."
+            : "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."]
+          : []),
         "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
       ],
     };
@@ -769,9 +793,8 @@ export class TradingService {
   }
 
   /** Send a confirmed basket. Writes are never retried; an uncertain result stops the rest. */
-  async executeBasket(confirmationId: string): Promise<BasketExecutionResult> {
-    const pending = await this.deps.store.consume<Pending>(`confirm:${confirmationId}`);
-    if (!pending || pending.kind !== "basket") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+  async executeBasket(confirmationId: string, options: { liveAcknowledged?: boolean } = {}): Promise<BasketExecutionResult> {
+    const pending = await this.takePending(confirmationId, "basket", !!options.liveAcknowledged);
     const results: BasketExecutionResult["legs"] = [];
     let stopReason: string | undefined;
 
@@ -811,6 +834,7 @@ export class TradingService {
       message: `${submitted} of ${results.length} order(s) submitted to Trading 212 ${pending.environment.toUpperCase()}.${stopReason ? ` ${stopReason}` : ""}`,
     };
     await this.recordActivity("basket_submitted", pending.environment, { legs: results.length, outcome: status, ...(pending.planId ? { planId: pending.planId } : {}) });
+    if (pending.purpose === "protective") await this.linkProtectiveOrders(pending.environment, results);
     if (pending.planId && this.deps.afterBasket) {
       try {
         await this.deps.afterBasket(pending.planId, outcome);
@@ -819,6 +843,66 @@ export class TradingService {
       }
     }
     return outcome;
+  }
+
+  /**
+   * Trading 212 has no one-cancels-other order. When both a stop-loss and a take-profit were
+   * accepted, remember the pair so the scheduler can cancel the survivor once the other fills.
+   */
+  private async linkProtectiveOrders(environment: TradingEnvironment, legs: BasketExecutionResult["legs"]) {
+    if (!this.deps.config.protectiveLinking) return;
+    const orders = legs.flatMap((leg) => {
+      const id = orderIdOf(leg.result?.order);
+      if (!leg.result?.ok || !id) return [];
+      return [{ orderId: id, role: leg.draft.type === "stop" || leg.draft.type === "stop_limit" ? "stop_loss" as const : "take_profit" as const }];
+    });
+    if (orders.length !== 2 || orders[0]!.role === orders[1]!.role) return;
+    const link: ProtectiveLink = { id: randomToken(12), environment, ticker: legs[0]!.draft.ticker, orders: [orders[0]!, orders[1]!], createdAt: new Date().toISOString() };
+    try {
+      await this.deps.store.put(`link:${link.id}`, link, Date.now() + LINK_TTL_MS);
+      await this.recordActivity("protective_linked", environment, { ticker: link.ticker, orderId: `${orders[0]!.orderId},${orders[1]!.orderId}` });
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot protective link persistence failed", error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+
+  /** Ids of the orders currently pending at the broker. */
+  async pendingOrderIds(environment: TradingEnvironment): Promise<Set<string>> {
+    const orders = await this.client(environment).getOrders();
+    return new Set(orders.map((order) => order.id).filter((id) => id !== undefined && id !== null).map(String));
+  }
+
+  /** Final state of recent orders from the newest history pages, keyed by order id. */
+  async recentOrderOutcomes(environment: TradingEnvironment, pages = 2): Promise<Map<string, { status: string; filledQuantity: number }>> {
+    const client = this.client(environment);
+    const outcomes = new Map<string, { status: string; filledQuantity: number }>();
+    let path: string | undefined;
+    for (let page = 0; page < pages; page++) {
+      const result = await client.getHistoryPage("orders", path);
+      for (const item of result.items) {
+        const id = item.order?.id;
+        if (id === undefined || id === null) continue;
+        const filled = Math.max(item.order?.filledQuantity ?? 0, item.fill?.quantity ?? 0);
+        const previous = outcomes.get(String(id));
+        outcomes.set(String(id), { status: (item.order?.status ?? previous?.status ?? "").toUpperCase(), filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0) });
+      }
+      if (!result.nextPagePath) break;
+      path = result.nextPagePath;
+    }
+    return outcomes;
+  }
+
+  /** Cancel the surviving order of a protective pair. Sent once; an unclear result is reported, not retried. */
+  async cancelLinkedOrder(environment: TradingEnvironment, orderId: string, reason: string): Promise<"cancelled" | "unknown" | "rejected"> {
+    try {
+      await this.client(environment).cancelOrder(orderId);
+      await this.recordActivity("protective_sibling_cancelled", environment, { orderId, outcome: reason.slice(0, 200) });
+      return "cancelled";
+    } catch (error) {
+      const unknown = error instanceof ExecutionStatusUnknownError;
+      await this.recordActivity(unknown ? "cancel_status_unknown" : "cancel_rejected", environment, { orderId, outcome: reason.slice(0, 200) });
+      return unknown ? "unknown" : "rejected";
+    }
   }
 
   async prepareCancel(environment: TradingEnvironment, orderId: string): Promise<CancelPreview> {

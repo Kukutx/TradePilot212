@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PolicyCheck } from "../../shared/automation";
 import type { Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
@@ -93,6 +94,16 @@ export function OrderEditor({
   );
 }
 
+/** Second, explicit step for Live writes: the confirm button stays disabled until this is ticked. */
+export function LiveAcknowledgement({ checked, onChange, t }: { checked: boolean; onChange: (value: boolean) => void; t: Translator }) {
+  return (
+    <label className="liveAck">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{t("liveAckLabel")}</span>
+    </label>
+  );
+}
+
 export function OrderConfirmation({
   preview,
   locale,
@@ -106,9 +117,11 @@ export function OrderConfirmation({
   t: Translator;
   busy: boolean;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (liveAcknowledged: boolean) => void;
 }) {
   const draft = preview.draft;
+  const live = draft.environment === "live";
+  const [acknowledged, setAcknowledged] = useState(false);
   const amountCurrency = preview.estimatedNotionalCurrency || preview.instrument.currencyCode;
   return (
     <main className="transactionStage">
@@ -133,7 +146,8 @@ export function OrderConfirmation({
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <PolicyList checks={preview.policy} t={t} />
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy || (preview.policy ?? []).some((check) => check.status === "block")} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
   );

@@ -23,3 +23,6 @@ POLICY_MAX_REFERENCE_AGE_SECONDS=0
 
 # Let due Demo plans marked autoExecute run without confirmation. Live plans never do.
 AUTOMATION_DEMO_ENABLED=false
+
+# After one half of a stop-loss / take-profit pair fills, cancel the other (default true).
+PROTECTIVE_OCO=true
