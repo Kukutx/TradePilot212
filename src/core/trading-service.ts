@@ -1248,7 +1248,8 @@ export class TradingService {
       const result = await client.getHistoryPage("orders", path);
       let oldest = Infinity;
       for (const item of result.items) {
-        const created = Date.parse(item.order?.createdAt ?? "");
+        // An old order can fill recently, so a fill's time counts over the order's creation.
+        const created = Date.parse(item.fill?.filledAt ?? item.order?.createdAt ?? "");
         if (Number.isFinite(created)) oldest = Math.min(oldest, created);
         const id = item.order?.id;
         if (id === undefined || id === null) continue;
@@ -1270,7 +1271,8 @@ export class TradingService {
         const ticker = item.order?.ticker ?? item.order?.instrument?.ticker ?? previous?.ticker;
         outcomes.set(String(id), {
           status: (item.order?.status ?? previous?.status ?? "").toUpperCase(),
-          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0),
+          // Several fill rows add up when the order row does not give the filled total.
+          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0, totals.quantity),
           quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0),
           ...(ticker ? { ticker } : {}),
           // The average is only given when every filled share has a price.

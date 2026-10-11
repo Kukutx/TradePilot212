@@ -2,7 +2,8 @@
 
 ## 2.18.0
 
-- Fill notices for open orders. About every 5 minutes the scheduler compares the open orders with the previous check. For each order that has left the book, it writes `order_filled` (with the shares, average fill price and value in the account currency), `order_partly_filled` or `order_closed`. This covers orders placed in the Trading 212 app too, and it only reads. Fills go to the webhook by default, and the daily digest counts the fills of the last day. `ORDER_WATCH=false` turns it off.
+- Fill notices for open orders. About every 5 minutes the scheduler compares the open orders with the previous check. For each order that has left the book, it writes `order_filled` (with the shares, average fill price and value in the account currency), `order_partly_filled`, `order_closed` or, when the history never shows how the order ended, `order_outcome_unknown`. This covers orders placed in the Trading 212 app too, and it only reads. Fills and unclear outcomes go to the webhook by default, the widget's activity list shows each fill's shares, price and value, and the daily digest counts the fills of the last day. `ORDER_WATCH=false` turns it off.
+- Order history lookups add up fill rows when the order row lacks the filled total, and page by fill time, so an old order's recent fill no longer ends the search early. Linked stop-loss / take-profit pairs use the same lookup.
 - The automation page and overview text say whether open orders are watched, and the activity log names the new events in English and Chinese.
 
 ## 2.17.0

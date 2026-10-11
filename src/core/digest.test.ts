@@ -40,12 +40,9 @@ describe("daily digest", () => {
 
   it("counts the fills the order watch saw in the last day", async () => {
     const services = setup({ DIGEST_HOUR_UTC: "7" });
-    const event = (id: string, type: string, timestamp: string, environment = "demo") => services.store.put(`activity:${timestamp}:${id}`, { id, type, timestamp, environment });
-    await event("a", "order_filled", "2026-10-11T01:00:00Z");
-    await event("b", "order_partly_filled", "2026-10-10T08:00:00Z");
-    await event("c", "order_filled", "2026-10-10T06:00:00Z");
-    await event("d", "order_closed", "2026-10-11T02:00:00Z");
-    await event("e", "order_filled", "2026-10-11T03:00:00Z", "live");
+    // Kept apart from the activity log, which keeps only its newest events.
+    await services.store.put("order-fills:demo", ["2026-10-10T06:00:00Z", "2026-10-10T08:00:00Z", "2026-10-11T01:00:00Z"]);
+    await services.store.put("order-fills:live", ["2026-10-11T03:00:00Z"]);
     expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
     expect(services.hooks[0]).toMatch(/· 2 order\(s\) filled in the last day/);
   });

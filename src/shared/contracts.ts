@@ -127,6 +127,7 @@ export type ActivityType =
   | "order_filled"
   | "order_partly_filled"
   | "order_closed"
+  | "order_outcome_unknown"
   | "cancel_prepared"
   | "cancel_submitted"
   | "cancel_rejected"
@@ -163,7 +164,13 @@ export interface ActivityEvent {
   legs?: number;
   pieId?: number;
   alertId?: string;
+  /** A price: the alert's, or an order's average fill price in the instrument's currency. */
   price?: number;
+  /** Shares filled, when an order filled fully or partly. */
+  filledQuantity?: number;
+  /** Value of the fills in the account currency. */
+  value?: number;
+  valueCurrency?: string;
 }
 
 export interface PortfolioSnapshot {

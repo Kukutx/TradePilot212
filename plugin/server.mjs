@@ -36216,7 +36216,7 @@ var TradingService = class {
       const result2 = await client.getHistoryPage("orders", path3);
       let oldest = Infinity;
       for (const item of result2.items) {
-        const created = Date.parse(item.order?.createdAt ?? "");
+        const created = Date.parse(item.fill?.filledAt ?? item.order?.createdAt ?? "");
         if (Number.isFinite(created)) oldest = Math.min(oldest, created);
         const id = item.order?.id;
         if (id === void 0 || id === null) continue;
@@ -36243,7 +36243,8 @@ var TradingService = class {
         const ticker = item.order?.ticker ?? item.order?.instrument?.ticker ?? previous?.ticker;
         outcomes.set(String(id), {
           status: (item.order?.status ?? previous?.status ?? "").toUpperCase(),
-          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0),
+          // Several fill rows add up when the order row does not give the filled total.
+          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0, totals.quantity),
           quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0),
           ...ticker ? { ticker } : {},
           // The average is only given when every filled share has a price.
@@ -39560,8 +39561,131 @@ var PriceAlerts = class {
   }
 };
 
-// src/core/digest.ts
+// src/core/order-watch.ts
+var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
+var MAX_MISSING_CHECKS = 3;
 var DAY_MS4 = 864e5;
+var watchKey = (environment) => `order-watch:${environment}`;
+var fillsKey = (environment) => `order-fills:${environment}`;
+var MAX_FILL_TIMES = 2e3;
+async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
+  const times = await store2.get(fillsKey(environment)) ?? [];
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS4).length;
+}
+var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
+var amount = (value) => String(Math.round(value * 1e8) / 1e8);
+function watchedOrder(order) {
+  if (order.id === void 0 || order.id === null || !order.ticker) return void 0;
+  const quantity = typeof order.quantity === "number" && Number.isFinite(order.quantity) ? order.quantity : void 0;
+  const value = typeof order.value === "number" && Number.isFinite(order.value) ? order.value : void 0;
+  const side = order.side ? /SELL/i.test(String(order.side)) ? "sell" : "buy" : (quantity ?? value ?? 0) < 0 ? "sell" : "buy";
+  return {
+    id: String(order.id),
+    ticker: order.ticker,
+    side,
+    ...order.type ? { type: String(order.type).toUpperCase() } : {},
+    ...quantity ? { quantity: Math.abs(quantity) } : {},
+    ...value ? { value: Math.abs(value) } : {},
+    ...typeof order.limitPrice === "number" ? { limitPrice: order.limitPrice } : {},
+    ...typeof order.stopPrice === "number" ? { stopPrice: order.stopPrice } : {},
+    ...order.createdAt ? { createdAt: order.createdAt } : {}
+  };
+}
+var fullyFilled = (outcome) => outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6);
+function isFinal(outcome) {
+  if (fullyFilled(outcome)) return true;
+  const status = outcome.status;
+  return /FILLED|CANCEL|REJECT|EXPIRE|REPLACED/.test(status) && !/PARTIAL|CANCELLING|REPLACING/.test(status);
+}
+function describeOutcome(order, outcome) {
+  const status = outcome.status;
+  const filled = outcome.filledQuantity;
+  const ordered = outcome.quantity || order.quantity || 0;
+  const price = outcome.averagePrice === void 0 ? "" : ` at ${amount(outcome.averagePrice)}`;
+  const value = outcome.filledValue === void 0 ? "" : ` (${outcome.filledValue.toFixed(2)}${outcome.filledValueCurrency ? ` ${outcome.filledValueCurrency}` : ""})`;
+  const closedEarly = /CANCEL|REJECT|EXPIRE/.test(status);
+  if (filled > 0 && ordered > 0 && filled < ordered * (1 - 1e-6))
+    return { result: "partly_filled", message: `Filled ${amount(filled)} of ${amount(ordered)}${price}${value}; the rest closed${status ? ` (${status})` : ""}.` };
+  if (filled > 0 && ordered === 0 && closedEarly)
+    return { result: "partly_filled", message: `Filled ${amount(filled)}${price}${value} before the rest closed (${status}).` };
+  if (filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL|REJECT/.test(status))
+    return { result: "filled", message: `Filled${filled > 0 ? ` ${amount(filled)}` : ""}${price}${value}.` };
+  return { result: "closed", message: `Closed without a fill${status ? ` (${status})` : ""}.` };
+}
+var OrderWatch = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /**
+   * One scheduler tick: about every 5 minutes per environment, compare the open orders with the last
+   * check and report each order that left the book. The first check only records what is open.
+   */
+  async check(now = /* @__PURE__ */ new Date()) {
+    if (!this.deps.config.orderWatch) return [];
+    const credentials = credentialStatus(this.deps.config);
+    const reports = [];
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const slot = await this.deps.store.increment(`order-watch-slot:${environment}`, ORDER_WATCH_INTERVAL_MS, now.getTime());
+      if (slot.count > 1) continue;
+      const open2 = (await this.deps.trading.pendingOrders(environment)).flatMap((order) => watchedOrder(order) ?? []);
+      const previous = await this.deps.store.get(watchKey(environment));
+      const openIds = new Set(open2.map((order) => order.id));
+      const gone = (previous?.orders ?? []).filter((order) => !openIds.has(order.id));
+      const kept = [];
+      if (gone.length) {
+        let outcomes;
+        try {
+          outcomes = await this.deps.trading.recentOrderOutcomes(environment, { wanted: gone.map((order) => order.id) });
+        } catch {
+          kept.push(...gone);
+        }
+        for (const order of outcomes ? gone : []) {
+          const outcome = outcomes.get(order.id);
+          if (outcome && isFinal(outcome)) {
+            reports.push(await this.report(environment, order, { ...describeOutcome(order, outcome), outcome }, now));
+            continue;
+          }
+          if ((order.missing ?? 0) + 1 < MAX_MISSING_CHECKS) {
+            kept.push({ ...order, missing: (order.missing ?? 0) + 1 });
+            continue;
+          }
+          const seen = outcome ? `the order history still shows it as ${outcome.status || "open"}${outcome.filledQuantity > 0 ? ` with ${amount(outcome.filledQuantity)} filled` : ""}` : "the order history does not show how it ended";
+          reports.push(await this.report(environment, order, { result: "unclear", message: `Left the order book, but ${seen}. Check it in Trading 212.`, ...outcome ? { outcome } : {} }, now));
+        }
+      }
+      await this.deps.store.put(watchKey(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
+    }
+    return reports;
+  }
+  async report(environment, order, found, now) {
+    const type = { filled: "order_filled", partly_filled: "order_partly_filled", closed: "order_closed", unclear: "order_outcome_unknown" }[found.result];
+    const orderType = order.type ? ORDER_TYPES[order.type] : void 0;
+    const outcome = found.outcome;
+    const filled = found.result === "filled" || found.result === "partly_filled";
+    await this.deps.trading.recordActivity(type, environment, {
+      ticker: order.ticker,
+      orderId: order.id,
+      side: order.side,
+      ...orderType ? { orderType } : {},
+      ...order.quantity ? { quantity: order.quantity } : {},
+      // The fill facts, so the widget can show them in its own language.
+      ...filled && outcome && outcome.filledQuantity > 0 ? { filledQuantity: outcome.filledQuantity } : {},
+      ...filled && outcome?.averagePrice !== void 0 ? { price: outcome.averagePrice } : {},
+      ...filled && outcome?.filledValue !== void 0 ? { value: outcome.filledValue, ...outcome.filledValueCurrency ? { valueCurrency: outcome.filledValueCurrency } : {} } : {},
+      outcome: found.message.slice(0, 200)
+    });
+    if (filled) {
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS4);
+      await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
+    }
+    return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
+  }
+};
+
+// src/core/digest.ts
+var DAY_MS5 = 864e5;
 var round6 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round6(value)}`;
 function digestText(input2) {
@@ -39597,7 +39721,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS4, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS5, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
@@ -39608,8 +39732,8 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS4);
-        const filledOrders = (await this.deps.store.list("activity:")).filter((entry) => entry.value.environment === environment && (entry.value.type === "order_filled" || entry.value.type === "order_partly_filled") && Date.parse(entry.value.timestamp) > now.getTime() - DAY_MS4).length;
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS5);
+        const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
         const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : void 0;
@@ -39654,6 +39778,7 @@ var DEFAULT_NOTIFY_EVENTS = [
   "order_status_unknown",
   "order_filled",
   "order_partly_filled",
+  "order_outcome_unknown",
   "cancel_status_unknown",
   "basket_submitted",
   "plan_due",
@@ -39674,6 +39799,7 @@ var LABELS = {
   order_filled: "Order filled",
   order_partly_filled: "Order partly filled",
   order_closed: "Order closed",
+  order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
   cancel_status_unknown: "Cancellation result unclear, check Trading 212",
   basket_submitted: "Basket sent",
   plan_due: "Investment plan is due and waits for your confirmation",
@@ -39724,108 +39850,11 @@ function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(in
   };
 }
 
-// src/core/order-watch.ts
-var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
-var MAX_MISSING_CHECKS = 3;
-var watchKey = (environment) => `order-watch:${environment}`;
-var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
-var amount = (value) => String(Math.round(value * 1e8) / 1e8);
-function watchedOrder(order) {
-  if (order.id === void 0 || order.id === null || !order.ticker) return void 0;
-  const quantity = typeof order.quantity === "number" && Number.isFinite(order.quantity) ? order.quantity : void 0;
-  const value = typeof order.value === "number" && Number.isFinite(order.value) ? order.value : void 0;
-  const side = order.side ? /SELL/i.test(String(order.side)) ? "sell" : "buy" : (quantity ?? value ?? 0) < 0 ? "sell" : "buy";
-  return {
-    id: String(order.id),
-    ticker: order.ticker,
-    side,
-    ...order.type ? { type: String(order.type).toUpperCase() } : {},
-    ...quantity ? { quantity: Math.abs(quantity) } : {},
-    ...value ? { value: Math.abs(value) } : {},
-    ...typeof order.limitPrice === "number" ? { limitPrice: order.limitPrice } : {},
-    ...typeof order.stopPrice === "number" ? { stopPrice: order.stopPrice } : {},
-    ...order.createdAt ? { createdAt: order.createdAt } : {}
-  };
-}
-function describeOutcome(order, outcome) {
-  const status = outcome.status;
-  const filled = outcome.filledQuantity;
-  const ordered = outcome.quantity || order.quantity || 0;
-  const price = outcome.averagePrice === void 0 ? "" : ` at ${amount(outcome.averagePrice)}`;
-  const value = outcome.filledValue === void 0 ? "" : ` (${outcome.filledValue.toFixed(2)}${outcome.filledValueCurrency ? ` ${outcome.filledValueCurrency}` : ""})`;
-  if (filled > 0 && ordered > 0 && filled < ordered * (1 - 1e-6))
-    return { result: "partly_filled", message: `Filled ${amount(filled)} of ${amount(ordered)}${price}${value}; the rest closed${status ? ` (${status})` : ""}.` };
-  if (filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL|REJECT/.test(status))
-    return { result: "filled", message: `Filled${filled > 0 ? ` ${amount(filled)}` : ""}${price}${value}.` };
-  return { result: "closed", message: `Closed without a fill${status ? ` (${status})` : ""}.` };
-}
-var OrderWatch = class {
-  constructor(deps) {
-    this.deps = deps;
-  }
-  deps;
-  /**
-   * One scheduler tick: about every 5 minutes per environment, compare the open orders with the last
-   * check and report each order that left the book. The first check only records what is open.
-   */
-  async check(now = /* @__PURE__ */ new Date()) {
-    if (!this.deps.config.orderWatch) return [];
-    const credentials = credentialStatus(this.deps.config);
-    const reports = [];
-    for (const environment of ["demo", "live"]) {
-      if (!credentials[environment]) continue;
-      const slot = await this.deps.store.increment(`order-watch-slot:${environment}`, ORDER_WATCH_INTERVAL_MS, now.getTime());
-      if (slot.count > 1) continue;
-      const open2 = (await this.deps.trading.pendingOrders(environment)).flatMap((order) => watchedOrder(order) ?? []);
-      const previous = await this.deps.store.get(watchKey(environment));
-      const openIds = new Set(open2.map((order) => order.id));
-      const gone = (previous?.orders ?? []).filter((order) => !openIds.has(order.id));
-      const kept = [];
-      if (gone.length) {
-        let outcomes;
-        try {
-          const since = gone.map((order) => order.createdAt ?? "").filter(Boolean).sort()[0];
-          outcomes = await this.deps.trading.recentOrderOutcomes(environment, { wanted: gone.map((order) => order.id), ...since ? { since } : {} });
-        } catch {
-          kept.push(...gone);
-        }
-        for (const order of outcomes ? gone : []) {
-          const outcome = outcomes.get(order.id);
-          if (!outcome) {
-            if ((order.missing ?? 0) + 1 < MAX_MISSING_CHECKS) {
-              kept.push({ ...order, missing: (order.missing ?? 0) + 1 });
-              continue;
-            }
-            reports.push(await this.report(environment, order, { result: "unclear", message: "Left the order book, but the order history does not show how it ended. Check it in Trading 212." }));
-            continue;
-          }
-          reports.push(await this.report(environment, order, describeOutcome(order, outcome)));
-        }
-      }
-      await this.deps.store.put(watchKey(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
-    }
-    return reports;
-  }
-  async report(environment, order, outcome) {
-    const type = outcome.result === "filled" ? "order_filled" : outcome.result === "partly_filled" ? "order_partly_filled" : "order_closed";
-    const orderType = order.type ? ORDER_TYPES[order.type] : void 0;
-    await this.deps.trading.recordActivity(type, environment, {
-      ticker: order.ticker,
-      orderId: order.id,
-      side: order.side,
-      ...orderType ? { orderType } : {},
-      ...order.quantity ? { quantity: order.quantity } : {},
-      outcome: outcome.message.slice(0, 200)
-    });
-    return { environment, orderId: order.id, ticker: order.ticker, ...outcome };
-  }
-};
-
 // src/core/protective-links.ts
 var LINK_TTL_MS2 = 400 * 24 * 60 * 60 * 1e3;
-var fullyFilled = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
-var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled(outcome);
-var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+var fullyFilled2 = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
+var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled2(outcome);
+var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled2(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
 var MAX_CANCEL_ATTEMPTS = 5;
 var ProtectiveLinks = class {
   constructor(deps) {
@@ -39871,7 +39900,7 @@ var ProtectiveLinks = class {
         }
         const outcome = historyByEnv.get(link.environment).get(gone.orderId);
         const label = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId}`;
-        if (fullyFilled(outcome)) {
+        if (fullyFilled2(outcome)) {
           const reason = `${label} filled`;
           const attempts = link.cancelAttempts ?? 0;
           const result2 = await this.deps.trading.cancelLinkedOrder(link.environment, survivor.orderId, reason, { quiet: attempts > 0 });

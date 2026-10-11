@@ -2,11 +2,12 @@
 // follow the account without opening a chat. It only reads; it never trades. It is sent whatever
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
-import type { ActivityEvent, TradingEnvironment } from "../shared/contracts.js";
+import type { TradingEnvironment } from "../shared/contracts.js";
 import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import { analyzeAllocation, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { Notifier } from "./notify.js";
+import { recentFillCount } from "./order-watch.js";
 import type { StateStore } from "./state-store.js";
 import { allocationDrift } from "./targets.js";
 import type { TradingService } from "./trading-service.js";
@@ -85,8 +86,7 @@ export class DailyDigest {
           .filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
         const alerts = (await this.deps.store.list<PriceAlert>("alert:")).map((entry) => entry.value)
           .filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS);
-        const filledOrders = (await this.deps.store.list<ActivityEvent>("activity:")).filter((entry) => entry.value.environment === environment
-          && (entry.value.type === "order_filled" || entry.value.type === "order_partly_filled") && Date.parse(entry.value.timestamp) > now.getTime() - DAY_MS).length;
+        const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         // Drift from the same account read, so the digest costs no extra request.
         const saved = await this.deps.targets?.(environment);

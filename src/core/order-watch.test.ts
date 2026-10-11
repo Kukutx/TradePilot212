@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ActivityEvent } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
-import { describeOutcome, MAX_MISSING_CHECKS, ORDER_WATCH_INTERVAL_MS } from "./order-watch.js";
+import { describeOutcome, isFinal, MAX_MISSING_CHECKS, ORDER_WATCH_INTERVAL_MS, recentFillCount } from "./order-watch.js";
 import { MemoryStateStore } from "./state-store.js";
 
 type HistoryItem = { order: Record<string, unknown>; fill?: Record<string, unknown> };
@@ -39,7 +39,7 @@ describe("order watch", () => {
   });
 
   it("reports a fill with its average price and value once the order leaves the book", async () => {
-    const { services, state, events } = setup();
+    const { services, state, store, events } = setup();
     state.pending.set("501", limitBuy);
     await services.orders.check(at(0));
     state.pending.delete("501");
@@ -52,6 +52,33 @@ describe("order watch", () => {
     expect(report!.message).toBe("Filled 5 at 179.8 (826.90 EUR).");
     const [event] = await events();
     expect(event).toMatchObject({ type: "order_filled", ticker: "AAPL_US_EQ", orderId: "501", side: "buy", orderType: "limit", quantity: 5, outcome: "Filled 5 at 179.8 (826.90 EUR)." });
+    // The facts behind the sentence, for the widget.
+    expect(event).toMatchObject({ filledQuantity: 5, price: 179.8, value: 826.9, valueCurrency: "EUR" });
+    expect(await recentFillCount(store, "demo", at(6))).toBe(1);
+    expect(await recentFillCount(store, "demo", at(6 + 24 * 60))).toBe(0);
+  });
+
+  it("adds up fill rows when the order row does not give the filled total", async () => {
+    const { services, state } = setup();
+    state.pending.set("501", limitBuy);
+    await services.orders.check(at(0));
+    state.pending.delete("501");
+    const order = { id: 501, ticker: "AAPL_US_EQ", status: "FILLED", quantity: 5 };
+    state.history.push({ order, fill: { quantity: 2, price: 179 } }, { order, fill: { quantity: 3, price: 180 } });
+    const [report] = await services.orders.check(at(5));
+    expect(report).toMatchObject({ result: "filled", message: "Filled 5 at 179.6." });
+  });
+
+  it("waits while the history still shows an earlier state of the order", async () => {
+    const { services, state, events } = setup();
+    state.pending.set("501", limitBuy);
+    await services.orders.check(at(0));
+    state.pending.delete("501");
+    state.history.push({ order: { ...limitBuy, status: "PARTIALLY_FILLED", filledQuantity: 2 }, fill: { quantity: 2, price: 179 } });
+    expect(await services.orders.check(at(5))).toEqual([]);
+    state.history = [{ order: { ...limitBuy, status: "FILLED", filledQuantity: 5 }, fill: { quantity: 5, price: 179 } }];
+    expect((await services.orders.check(at(10)))[0]?.result).toBe("filled");
+    expect((await events()).map((event) => event.type)).toEqual(["order_filled"]);
   });
 
   it("tells a partial fill and a cancellation apart, and reads sells from negative quantities", async () => {
@@ -96,7 +123,19 @@ describe("order watch", () => {
     for (let check = 1; check < MAX_MISSING_CHECKS; check++) expect(await services.orders.check(at(check * 5))).toEqual([]);
     const [report] = await services.orders.check(at(MAX_MISSING_CHECKS * 5));
     expect(report?.result).toBe("unclear");
-    expect((await events())[0]?.type).toBe("order_closed");
+    // Its own type: it reaches the webhook by default and is flagged for a look, unlike a cancellation.
+    expect((await events())[0]?.type).toBe("order_outcome_unknown");
+  });
+
+  it("reports an order whose history never shows an end as unclear, with what it does show", async () => {
+    const { services, state } = setup();
+    state.pending.set("501", limitBuy);
+    await services.orders.check(at(0));
+    state.pending.delete("501");
+    state.history.push({ order: { ...limitBuy, status: "NEW", filledQuantity: 0 } });
+    for (let check = 1; check < MAX_MISSING_CHECKS; check++) expect(await services.orders.check(at(check * 5))).toEqual([]);
+    const [report] = await services.orders.check(at(MAX_MISSING_CHECKS * 5));
+    expect(report).toMatchObject({ result: "unclear", message: "Left the order book, but the order history still shows it as NEW. Check it in Trading 212." });
   });
 
   it("keeps watching when the history cannot be read", async () => {
@@ -119,6 +158,15 @@ describe("order watch", () => {
   });
 
   it("describes fills of orders placed by value", () => {
-    expect(describeOutcome({ id: "1", ticker: "VUSA_EQ", side: "buy", value: 100 }, { status: "FILLED", filledQuantity: 1.23, quantity: 0 })).toEqual({ result: "filled", message: "Filled 1.23." });
+    const byValue = { id: "1", ticker: "VUSA_EQ", side: "buy" as const, value: 100 };
+    expect(describeOutcome(byValue, { status: "FILLED", filledQuantity: 1.23, quantity: 0 })).toEqual({ result: "filled", message: "Filled 1.23." });
+    // No share count to compare with: a cancellation after a fill means the rest did not fill.
+    expect(describeOutcome(byValue, { status: "CANCELLED", filledQuantity: 0.5, quantity: 0 })).toEqual({ result: "partly_filled", message: "Filled 0.5 before the rest closed (CANCELLED)." });
+  });
+
+  it("knows which history states are final", () => {
+    expect(["FILLED", "CANCELLED", "REJECTED", "EXPIRED", "REPLACED"].map((status) => isFinal({ status, filledQuantity: 0, quantity: 1 }))).toEqual([true, true, true, true, true]);
+    expect(["NEW", "PARTIALLY_FILLED", "CANCELLING", "REPLACING", ""].map((status) => isFinal({ status, filledQuantity: 0, quantity: 1 }))).toEqual([false, false, false, false, false]);
+    expect(isFinal({ status: "", filledQuantity: 1, quantity: 1 })).toBe(true);
   });
 });

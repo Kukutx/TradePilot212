@@ -1,9 +1,9 @@
 import type { ActivityEvent, DashboardPayload, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
-import { money, qty, signedClass, time, walletNumber } from "../lib/format";
+import { amount, money, num, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { activityLabel, activityNeedsAttention, countText, envLabel, type Translator } from "../lib/messages";
+import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
 import { summarizeOrder } from "../lib/orders";
 
 export function PortfolioView({
@@ -107,6 +107,17 @@ export function PortfolioView({
   );
 }
 
+/** Shares, average price and value of a fill event, in the widget's language. */
+function fillFacts(event: ActivityEvent, locale: SupportedLocale, t: Translator): string | undefined {
+  if (event.filledQuantity === undefined) return undefined;
+  const filled = qty(event.filledQuantity, locale);
+  return [
+    event.type === "order_partly_filled" && event.quantity ? fill(t("activityFilledOf"), { filled, ordered: qty(event.quantity, locale) }) : fill(t("activityFilled"), { filled }),
+    event.price === undefined ? undefined : fill(t("activityAveragePrice"), { price: num(event.price, locale, 6) }),
+    event.value === undefined ? undefined : amount(event.value, event.valueCurrency, locale),
+  ].filter(Boolean).join(" · ");
+}
+
 export function ActivityPanel({ activity, book, locale, t }: { activity: ActivityEvent[]; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
   return (
     <section className="dataPanel activityPanel">
@@ -114,16 +125,20 @@ export function ActivityPanel({ activity, book, locale, t }: { activity: Activit
         <summary><span>{t("recentActivity")}</span><b>{activity.length}</b></summary>
         {activity.length === 0 ? <div className="emptyState compact">{t("noActivity")}</div> : (
           <div className="activityList">
-            {activity.map((event) => (
-              <div className="activityRow" key={event.id}>
-                <span className={`activityDot ${activityNeedsAttention(event) ? "warning" : ""}`} aria-hidden="true" />
-                <div>
-                  <strong>{activityLabel(event, t)}</strong>
-                  <small>{[event.ticker ? instrumentLabel(event.ticker, book).name : undefined, event.orderId, event.legs ? countText("orders", event.legs, t, locale) : undefined, event.planId].filter(Boolean).join(" · ") || envLabel(event.environment, t)}</small>
+            {activity.map((event) => {
+              const facts = fillFacts(event, locale, t);
+              return (
+                <div className="activityRow" key={event.id}>
+                  <span className={`activityDot ${activityNeedsAttention(event) ? "warning" : ""}`} aria-hidden="true" />
+                  <div>
+                    <strong>{activityLabel(event, t)}</strong>
+                    <small>{[event.ticker ? instrumentLabel(event.ticker, book).name : undefined, event.orderId, event.legs ? countText("orders", event.legs, t, locale) : undefined, event.planId].filter(Boolean).join(" · ") || envLabel(event.environment, t)}</small>
+                    {facts && <small>{facts}</small>}
+                  </div>
+                  <time dateTime={event.timestamp}>{time(event.timestamp, locale)}</time>
                 </div>
-                <time dateTime={event.timestamp}>{time(event.timestamp, locale)}</time>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </details>
