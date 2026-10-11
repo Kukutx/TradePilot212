@@ -240,6 +240,7 @@ export const zhCN: Record<MessageKey, string> = {
   activityProtectiveLinked: "止损和止盈已联动",
   activityProtectiveCancelled: "另一张已成交，联动的保护单已撤销",
   activityProtectiveUnlinked: "保护单已解除联动",
+  activityProtectiveAttention: "保护单需要你处理",
   errorLiveAckRequired: "请先勾选确认这笔 Live 订单会使用真实资金，再点确认。",
   liveAckLabel: "我明白这会向 Trading 212 LIVE 发送使用真实资金的真实订单。",
   activityPlanSkipped: "定投计划已跳过",

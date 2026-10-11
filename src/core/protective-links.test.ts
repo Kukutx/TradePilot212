@@ -12,8 +12,10 @@ function broker() {
   const state = {
     nextId: 100,
     pending: new Map<string, Record<string, unknown>>(),
-    history: [] as Array<{ order: { id: number; status: string; filledQuantity?: number } }>,
+    history: [] as Array<{ order: { id: number; status: string; filledQuantity?: number; quantity?: number } }>,
     cancels: [] as string[],
+    /** HTTP status the next cancels answer with (200 cancels the order). */
+    cancelStatus: 200,
     posts: [] as Array<Record<string, unknown>>,
   };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -29,6 +31,7 @@ function broker() {
     if (init?.method === "DELETE") {
       const id = url.pathname.split("/").pop()!;
       state.cancels.push(id);
+      if (state.cancelStatus !== 200) return json({ code: "Failed" }, state.cancelStatus);
       state.pending.delete(id);
       return json(null);
     }
@@ -86,6 +89,46 @@ describe("linked protective orders", () => {
     expect((await services.links.reconcile())[0]?.action).toBe("waiting");
     expect(services.broker.cancels).toEqual([]);
     expect(await services.links.list()).toHaveLength(1);
+  });
+
+  it("leaves the other order for you when one filled only partly", async () => {
+    const services = setup();
+    await placePair(services);
+    services.broker.pending.delete("100");
+    services.broker.history.push({ order: { id: 100, status: "CANCELLED", filledQuantity: -4, quantity: -10 } });
+    expect((await services.links.reconcile())[0]?.action).toBe("unlinked");
+    expect(services.broker.cancels).toEqual([]);
+    expect(services.broker.pending.has("101")).toBe(true);
+    const attention = (await services.trading.getActivity("demo")).filter((event) => event.type === "protective_attention");
+    expect(attention[0]?.outcome).toMatch(/filled 4 of 10/);
+  });
+
+  it("tries a failed cancel again on later ticks, then reports it", async () => {
+    const services = setup();
+    await placePair(services);
+    services.broker.pending.delete("100");
+    services.broker.history.push({ order: { id: 100, status: "FILLED", filledQuantity: 10 } });
+    services.broker.cancelStatus = 400;
+    for (let tick = 1; tick < 5; tick++) {
+      expect((await services.links.reconcile())[0]?.action).toBe("cancel_unclear");
+      expect(await services.links.list()).toHaveLength(1);
+    }
+    expect((await services.links.reconcile())[0]?.message).toMatch(/kept failing/);
+    expect(services.broker.cancels).toHaveLength(5);
+    expect(await services.links.list()).toHaveLength(0);
+    expect((await services.trading.getActivity("demo")).some((event) => event.type === "protective_attention")).toBe(true);
+  });
+
+  it("treats a sibling that is already gone as done", async () => {
+    const services = setup();
+    await placePair(services);
+    services.broker.pending.delete("100");
+    services.broker.history.push({ order: { id: 100, status: "FILLED", filledQuantity: 10 } });
+    services.broker.cancelStatus = 404;
+    const [report] = await services.links.reconcile();
+    expect(report).toMatchObject({ action: "cancelled_sibling" });
+    expect(report?.message).toMatch(/no longer pending/);
+    expect(await services.links.list()).toHaveLength(0);
   });
 
   it("does not link when PROTECTIVE_OCO=false", async () => {

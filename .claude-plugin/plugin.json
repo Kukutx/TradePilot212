@@ -1,7 +1,7 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.12.1",
+  "version": "2.13.0",
   "description": "Trading 212 portfolio analytics, pies, rebalancing, protective orders, investment plans, price alerts, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",

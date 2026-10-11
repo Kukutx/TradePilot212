@@ -31,3 +31,22 @@ describe("file state shared between processes", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("file state recovery", () => {
+  it("sets an unreadable file aside and continues from the last good copy", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "tp-state-"));
+    const file = path.join(dir, "state.json");
+    const store = await FileStateStore.open(file);
+    await store.put("plan:1", { label: "A" });
+    await store.put("plan:2", { label: "B" });
+    await fs.writeFile(file, "{ not json", "utf8");
+
+    const reopened = await FileStateStore.open(file);
+    expect((await reopened.list("plan:")).map((entry) => entry.key)).toEqual(["plan:1"]);
+    expect((await fs.readdir(dir)).some((name) => name.startsWith("state.json.corrupt-"))).toBe(true);
+    // Writing again works and the restored file parses.
+    await reopened.put("plan:3", { label: "C" });
+    expect(Object.keys(JSON.parse(await fs.readFile(file, "utf8")) as object).sort()).toEqual(["plan:1", "plan:3"]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});

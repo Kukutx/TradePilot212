@@ -125,8 +125,16 @@ export class PriceAlerts {
       let position: Pick<Position, "currentPrice" | "averagePricePaid"> | undefined = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
       if (!position?.currentPrice) {
         // Not held: fall back to the external quote provider (price alerts only; cost-based alerts need a holding).
-        const instrument = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
-        const quote = instrument && (alert.condition !== "gain_percent" && alert.condition !== "loss_percent") ? await this.deps.trading.externalQuote(instrument) : undefined;
+        let quote: Awaited<ReturnType<TradingService["externalQuote"]>>;
+        try {
+          const instrument = alert.condition === "gain_percent" || alert.condition === "loss_percent"
+            ? undefined
+            : (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+          quote = instrument ? await this.deps.trading.externalQuote(instrument) : undefined;
+        } catch (error) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error).message });
+          continue;
+        }
         if (!quote) {
           reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
           continue;

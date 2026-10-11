@@ -3,6 +3,7 @@ import { createServices } from "../app/services.js";
 import { createConfig, credentialStatus } from "./config.js";
 import { SAMPLE_BASE_URL } from "./sample-broker.js";
 import { MemoryStateStore } from "./state-store.js";
+import { describePayload } from "./text-summary.js";
 
 describe("sample data mode", () => {
   it("never uses Trading 212 or Live keys", () => {
@@ -54,5 +55,35 @@ describe("sample data mode", () => {
     const cancelled = (await services.trading.getDashboard("demo")).account!;
     expect(cancelled.cash!.availableToTrade).toBeCloseTo(before.cash!.availableToTrade!, 2);
     expect(cancelled.totalValue).toBeCloseTo(before.totalValue!, 2);
+
+    // The cancelled order shows in the history for that instrument, without a fill.
+    const history = await services.insights.tradeHistory("demo", { to: new Date() }, "Microsoft", 50, undefined, true);
+    expect(history.unfilled).toEqual([expect.objectContaining({ ticker: "MSFT_US_EQ", status: "CANCELLED", limitPrice: 400 })]);
+    expect(history.fills.every((fill) => fill.ticker === "MSFT_US_EQ")).toBe(true);
+    expect((await services.insights.tradeHistory("demo", { to: new Date() }, "MSFT")).unfilled).toBeUndefined();
+  });
+
+  it("reports one order's state and lists dividends and cash movements", async () => {
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
+    const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
+    const { trading, insights } = services;
+    expect((await trading.orderStatus("demo", "81234")).state).toBe("open");
+    const bought = await trading.executeOrder((await trading.prepareOrder({ environment: "demo", ticker: "KO", side: "buy", type: "market", quantity: 2, referencePrice: 62 })).token);
+    const filledId = String((bought.order as { id: number }).id);
+    const filled = await trading.orderStatus("demo", filledId);
+    expect(filled).toMatchObject({ state: "filled", orderId: filledId });
+    expect(describePayload(filled)).toMatch(/Filled 2 at an average/);
+    await trading.executeCancel((await trading.prepareCancel("demo", "81234")).token);
+    expect((await trading.orderStatus("demo", "81234")).state).toBe("cancelled");
+    expect((await trading.orderStatus("demo", "999999")).state).toBe("not_found");
+    await expect(trading.orderStatus("demo", "abc")).rejects.toThrow(/numeric/);
+
+    const year = { from: new Date(Date.now() - 365 * 86_400_000), to: new Date() };
+    const coke = await insights.cashHistory("demo", year, { ticker: "Coca-Cola" });
+    expect(coke.items.length).toBeGreaterThan(0);
+    expect(coke.items.every((item) => item.type === "DIVIDEND" && item.ticker === "KO_US_EQ")).toBe(true);
+    const deposits = await insights.cashHistory("demo", { to: new Date() }, { types: ["deposit"] });
+    expect(deposits.totals).toEqual({ DEPOSIT: 14_000 });
+    expect(describePayload(deposits)).toContain("deposit +14000");
   });
 });

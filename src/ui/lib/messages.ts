@@ -104,6 +104,7 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "protective_linked": return t("activityProtectiveLinked");
     case "protective_sibling_cancelled": return t("activityProtectiveCancelled");
     case "protective_unlinked": return t("activityProtectiveUnlinked");
+    case "protective_attention": return t("activityProtectiveAttention");
     case "pie_prepared": return t("activityPiePrepared");
     case "pie_submitted": return t("activityPieSubmitted");
     case "pie_rejected": return t("activityPieRejected");

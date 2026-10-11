@@ -5,7 +5,7 @@ description: Review recent Trading 212 trades with fills, realized P/L, fees and
 
 # Trade journal
 
-1. Call `get_trade_history` for the requested window (default `1m`), filtered by ticker if the user names one.
+1. Call `get_trade_history` for the requested window (default `1m`), filtered by ticker if the user names one. Set `includeUnfilled` when the user asks about orders that did not fill.
 2. Call `get_portfolio_performance` for the same window to get totals and costs.
 3. Group the fills by ticker and present each round trip or position change with:
    - date, side, quantity and price;

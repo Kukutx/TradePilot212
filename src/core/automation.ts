@@ -76,6 +76,19 @@ export function nextRunAt(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "week
   return candidate;
 }
 
+/** The occurrence before `next` on the same schedule. */
+function previousRunAt(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "weekday" | "hourUtc">, next: Date): Date {
+  if (plan.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan.dayOfMonth ?? 1, plan.hourUtc));
+  return new Date(next.getTime() - 7 * DAY_MS);
+}
+
+/** The next due date from `now`, skipping the coming one when this period already ran. */
+export function scheduleFrom(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "weekday" | "hourUtc" | "lastRunAt">, now: Date): Date {
+  const next = nextRunAt(plan, now);
+  const lastRun = plan.lastRunAt ? Date.parse(plan.lastRunAt) : NaN;
+  return Number.isFinite(lastRun) && lastRun > previousRunAt(plan, next).getTime() ? nextRunAt(plan, next) : next;
+}
+
 function validateSchedule(input: Pick<PlanInput, "frequency" | "dayOfMonth" | "weekday" | "hourUtc">) {
   if (input.frequency === "monthly" && (input.dayOfMonth === undefined || !Number.isInteger(input.dayOfMonth) || input.dayOfMonth < 1 || input.dayOfMonth > 28))
     fail("INVALID_INPUT", "Monthly plans need dayOfMonth between 1 and 28", { field: "dayOfMonth" });
@@ -157,17 +170,28 @@ export class AutomationService {
         hourUtc: patch.hourUtc ?? plan.hourUtc,
       };
       validateSchedule(schedule);
-      // A new schedule starts from now; the old due date no longer applies.
+      // A new schedule starts from now; the old due date no longer applies. A period that already
+      // ran is not run again just because its hour or day moved.
       const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
-      base = { ...rest, ...schedule, nextRunAt: nextRunAt(schedule, now).toISOString() };
+      base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...(plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {}) }, now).toISOString() };
     }
+    const legs = patch.legs === undefined ? undefined : await this.resolveLegs(plan.environment, patch.legs);
+    // Unpausing schedules from now instead of firing a due date that passed while paused.
+    const resumed = patch.paused === false && plan.paused && Date.parse(base.nextRunAt) <= now.getTime();
+    // Re-read after the awaits above, so a run recorded meanwhile is not overwritten.
+    const latest = (await this.deps.store.get<DcaPlan>(planKey(id))) ?? plan;
+    const changed = base !== plan;
     const updated: DcaPlan = {
-      ...base,
+      ...latest,
+      ...(changed ? { frequency: base.frequency, hourUtc: base.hourUtc, nextRunAt: base.nextRunAt } : {}),
+      ...(changed ? (base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth! } : { weekday: base.weekday! }) : {}),
       ...(patch.label === undefined ? {} : { label: patch.label.trim().slice(0, 80) || plan.label }),
-      ...(patch.legs === undefined ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) }),
+      ...(legs === undefined ? {} : { legs }),
       ...(patch.paused === undefined ? {} : { paused: patch.paused }),
       ...(patch.autoExecute === undefined ? {} : { autoExecute: patch.autoExecute }),
     };
+    if (changed) { if (updated.frequency === "monthly") delete updated.weekday; else delete updated.dayOfMonth; }
+    if (resumed) updated.nextRunAt = scheduleFrom(updated, now).toISOString();
     await this.deps.store.put(planKey(id), updated);
     return updated;
   }
@@ -256,8 +280,9 @@ export class AutomationService {
     // before the due date counts as that period's run, so the next one is the date after it.
     const attempted = result.legs.some((leg) => leg.result);
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
+    const { inFlightDueAt: _inFlight, ...rest } = plan;
     await this.deps.store.put(planKey(planId), {
-      ...plan,
+      ...rest,
       lastRunAt: now.toISOString(),
       lastOutcome: result.message,
       ...(attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}),
@@ -284,22 +309,51 @@ export class AutomationService {
       // A short lock stops overlapping ticks from sending the same plan twice.
       const lock = await this.deps.store.increment(`plan-lock:${plan.id}:${plan.nextRunAt}`, RUN_LOCK_MS, now.getTime());
       if (lock.count > 1) continue;
+      // Re-read under the lock: a slower tick may have run it, or you may have paused or changed it.
+      const latest = await this.deps.store.get<DcaPlan>(planKey(plan.id));
+      if (!latest || latest.paused || latest.nextRunAt !== plan.nextRunAt) continue;
+      if (latest.inFlightDueAt === latest.nextRunAt) {
+        // An earlier tick began sending this due date and never recorded the result.
+        const notice = await this.deps.store.increment(`plan-unclear:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
+        const message = `"${plan.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
+        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
+        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message });
+        continue;
+      }
+      let marked = false;
       try {
-        const basket = await this.buildBasket(plan, now);
+        // Built from the plan as read under the lock, and sent only if it has not changed since.
+        const basket = await this.buildBasket(latest, now);
         if (!basket.drafts.length) {
           await this.skip(plan, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
           reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
           continue;
         }
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
-        // Unattended Market orders must not queue for a gap fill at the next open, whatever the policy says.
-        const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED"));
-        if (closed.length) throw new Error(`Market closed for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until the next tick inside the session.`);
+        // Unattended Market orders must not queue for a gap fill at the next open, whatever the policy
+        // says; when the hours could not be read this tick, they wait for the next one too.
+        const closed = preview.legs.filter((leg) => leg.notices.some((notice) =>
+          notice.code === "MARKET_CLOSED_QUEUED" || (notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable")));
+        if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
+        // Mark the due date before sending: if the result is never recorded, it is not sent again.
+        // Read once more, so a change made while the basket was being priced is kept and respected.
+        const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
+        if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        // Legs edited while the basket was being priced: the next run lock window rebuilds it.
+        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || !current.autoExecute) continue;
+        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
+        marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result.legs.length, outcome: result.status });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result.message, result });
       } catch (error) {
-        const message = asStructuredError(error).message;
+        const { code, message } = asStructuredError(error);
+        // These are refused before anything is sent, so the mark can go; after any other error the
+        // orders may have reached the broker and the plan waits for the user.
+        if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
+          const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
+          if (current?.inFlightDueAt) { const { inFlightDueAt: _f, ...rest } = current; await this.deps.store.put(planKey(plan.id), rest); }
+        }
         await this.skip(plan, now, message, false);
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message });
       }

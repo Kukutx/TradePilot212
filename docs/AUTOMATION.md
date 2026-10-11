@@ -71,7 +71,8 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 `review_protective_orders` drafts a **Stop** sell below the current price, a **Limit** sell above it, or both, as Good-Till-Cancel orders. After you confirm, they live at Trading 212, which triggers them without TradePilot.
 
 - Trading 212 has no one-cancels-other order, so TradePilot **links the pair** itself (`src/core/protective-links.ts`). Every scheduler tick (once a minute) reads the order book. When one half has left it, the tick reads recent order history:
-  - **filled** (fully or partly): the other half is cancelled, once. An unclear cancel result is logged, never retried;
+  - **filled completely:** the other half is cancelled. A cancel that fails or ends unclear is tried again on the next ticks (cancelling twice is harmless), up to five times; then the link is dropped and a `protective_attention` event asks you to cancel it in Trading 212. An order that is already gone counts as cancelled;
+  - **filled partly**, then closed: the other half still covers the original quantity, so it is left open, the link is dropped and a `protective_attention` event asks you to adjust it to what you hold;
   - **cancelled, rejected or expired without a fill:** the link is dropped and the other half stays;
   - **not in history yet:** the tick waits for the next one.
 - Between a fill and the next tick (up to about a minute) both orders exist. A fast market can fill the second in that window. If Trading 212 already reserved the shares for the first order, it rejects the second order when the pair is placed, and only the first one is placed.
@@ -82,12 +83,15 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 `manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency. It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
-A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due:
+A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due. Each step runs even when an earlier one fails, and a tick that is still running when the next one starts is joined rather than run twice:
 
 - **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run reaches the broker, whether the orders were accepted, rejected or unclear, so nothing is sent twice for one due date.
-- **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.
-- **A due plan blocked before anything is sent**, by the policy or because the market is closed: the plan stays due and is tried again about every 10 minutes, when its run lock expires. The reason is logged once per due date.
+- **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice, and the plan is read again under the lock, so a plan you paused or changed meanwhile is not sent.
+- **A due plan blocked before anything is sent**, by the policy, because the market is closed, or because the market hours could not be read this tick: the plan stays due and is tried again about every 10 minutes, when its run lock expires. The reason is logged once per due date.
 - **An unattended run that reached the broker**, even with a rejected or unclear result: the plan moves to its next date and is never re-sent automatically. Check `lastOutcome` and the activity log.
+- **An unattended run cut off before its result was recorded** (a crash or restart mid-send): the plan marks its due date before sending, so the next tick sees the mark, logs one `plan_due` event asking you to check Trading 212, and waits for you instead of sending again.
+
+Changing a plan's day, weekday or hour schedules it from now, but a period that already ran is not run again because its time moved. Unpausing a plan whose due date passed while it was paused schedules the next date from now instead of running at once.
 
 Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1), else at the quote source's rate, and skipped with a note when no rate is known.
 
@@ -134,17 +138,17 @@ The same source supplies exchange rates for currencies none of your holdings is 
 | `alphavantage` | free key | Small daily limit; latest trading day's price. |
 | `none` | | External quotes off. |
 
-US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. Check one with `get_quote` before relying on it. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
+US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. When the provider quotes in a different unit from Trading 212, add a factor: `VUSAl_EQ=VUSA.L*100` turns a price in pounds into pence. Check one with `get_quote` before relying on it: a quote off by a factor of 100 would size an order 100 times too large or too small. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
 
 An external price only sizes an order; the order still goes through the usual review, policy and broker checks, and Live orders still wait for your confirmation.
 
 ## Notifications
 
-Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `pie_submitted`, `pie_status_unknown` and `price_alert_triggered`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
 
 ### Daily digest
 
-Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, and alerts that triggered in the last day. It only reads.
+Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, and alerts that triggered in the last day. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
 
 ## Seeing what runs
 

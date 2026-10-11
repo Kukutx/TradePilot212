@@ -47,15 +47,28 @@ export function usSymbol(ticker: string): string | undefined {
   return match?.[1];
 }
 
-/** Parse QUOTE_SYMBOLS, e.g. "VUSAl_EQ=VUSA.UK, SAPd_EQ=SAP.DE". Keys are exact Trading 212 tickers. */
+/**
+ * Parse QUOTE_SYMBOLS, e.g. "VUSAl_EQ=VUSA.UK, SAPd_EQ=SAP.DE". Keys are exact Trading 212 tickers.
+ * A "*factor" suffix scales the provider's price into the instrument's unit, e.g. "VUSAl_EQ=VUSA.L*100"
+ * when the provider quotes in pounds and Trading 212 in pence.
+ */
 export function parseSymbolMap(raw: string): Map<string, string> {
   const map = new Map<string, string>();
   for (const entry of raw.split(/[\s,]+/).filter(Boolean)) {
     const [ticker, symbol] = entry.split("=");
     if (!ticker || !symbol) throw new Error(`QUOTE_SYMBOLS entry "${entry}" must look like TICKER=SYMBOL`);
+    if (symbol.includes("*") && !symbolScale(symbol.trim())) throw new Error(`QUOTE_SYMBOLS entry "${entry}": the factor after * must be a positive number`);
     map.set(ticker.trim().toUpperCase(), symbol.trim());
   }
   return map;
+}
+
+/** A mapped symbol and the factor its prices are multiplied by. */
+function symbolScale(mapped: string): { symbol: string; factor: number } | undefined {
+  const [symbol, factor] = mapped.split("*");
+  if (factor === undefined) return symbol ? { symbol, factor: 1 } : undefined;
+  const value = Number(factor);
+  return symbol && Number.isFinite(value) && value > 0 ? { symbol, factor: value } : undefined;
 }
 
 const positive = (value: unknown): number | undefined => {
@@ -159,9 +172,13 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
     return rate;
   };
 
-  const symbolFor = (instrument: Instrument) => {
+  const mapping = (instrument: Instrument) => {
     const mapped = config.quoteSymbols.get(instrument.ticker.toUpperCase());
-    if (mapped) return mapped;
+    return mapped ? symbolScale(mapped) : undefined;
+  };
+  const symbolFor = (instrument: Instrument) => {
+    const mapped = mapping(instrument);
+    if (mapped) return mapped.symbol;
     const us = usSymbol(instrument.ticker);
     if (!us) return undefined;
     return name === "stooq" ? `${us}.US` : us;
@@ -173,16 +190,18 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
     async quote(instrument) {
       const symbol = symbolFor(instrument);
       if (!symbol) return undefined;
-      const cached = cache.get(symbol);
+      const factor = mapping(instrument)?.factor ?? 1;
+      const key = `${symbol}*${factor}`;
+      const cached = cache.get(key);
       if (cached && cached.expiresAt > Date.now()) return cached.quote;
       let quote: ExternalQuote | undefined;
       try {
         const result = await fetchQuote(symbol);
-        if (result) quote = { ticker: instrument.ticker, symbol, price: result.price, asOf: result.asOf ?? new Date().toISOString(), source: name };
+        if (result) quote = { ticker: instrument.ticker, symbol, price: Math.round(result.price * factor * 1e6) / 1e6, asOf: result.asOf ?? new Date().toISOString(), source: name };
       } catch (error) {
         console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol, error: error instanceof Error ? error.message : String(error) }));
       }
-      cache.set(symbol, { expiresAt: Date.now() + CACHE_MS, quote });
+      cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
     },
     async fxRate(from, to) {

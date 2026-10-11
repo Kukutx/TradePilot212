@@ -170,6 +170,11 @@ export interface DcaPlan {
   nextRunAt: string;
   lastRunAt?: string;
   lastOutcome?: string;
+  /**
+   * Set while an unattended run of this due date is being sent. If it is still set on a later tick,
+   * that run may have reached the broker, so the plan waits for you instead of sending again.
+   */
+  inFlightDueAt?: string;
   createdAt: string;
 }
 
@@ -189,6 +194,8 @@ export interface ProtectiveLink {
   ticker: string;
   orders: [{ orderId: string; role: "stop_loss" | "take_profit" }, { orderId: string; role: "stop_loss" | "take_profit" }];
   createdAt: string;
+  /** Failed attempts to cancel the surviving order after the other one filled. */
+  cancelAttempts?: number;
 }
 
 /**

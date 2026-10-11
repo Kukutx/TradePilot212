@@ -19,6 +19,7 @@ export type TradePilotErrorCode =
   | "ORDER_NOTIONAL_LIMIT"
   | "ORDER_QUANTITY_LIMIT"
   | "FX_RATE_REQUIRED"
+  | "PRICE_OUT_OF_RANGE"
   | "REFERENCE_PRICE_REQUIRED"
   | "UNSUPPORTED_EXTENDED_HOURS"
   | "CONFIRMATION_EXPIRED"
@@ -31,6 +32,7 @@ export type TradePilotErrorCode =
   | "BROKER_RATE_LIMITED"
   | "BROKER_REQUEST_FAILED"
   | "EXECUTION_STATUS_UNKNOWN"
+  | "EXECUTION_BUSY"
   | "INTERNAL_ERROR";
 
 export interface StructuredError {
@@ -100,7 +102,14 @@ export interface AccountSummary {
 export interface PendingOrder {
   id?: number | string;
   ticker?: string;
+  /** Negative for sells. */
   quantity?: number;
+  filledQuantity?: number;
+  /** "QUANTITY", or "VALUE" for orders placed by amount in the Trading 212 app. */
+  strategy?: string;
+  /** Order amount for VALUE orders. */
+  value?: number;
+  side?: string;
   status?: string;
   type?: string;
   limitPrice?: number;
@@ -127,6 +136,7 @@ export type ActivityType =
   | "protective_linked"
   | "protective_sibling_cancelled"
   | "protective_unlinked"
+  | "protective_attention"
   | "pie_prepared"
   | "pie_submitted"
   | "pie_rejected"
@@ -289,7 +299,11 @@ export type OrderNoticeCode =
   | "CROSS_CURRENCY_FUNDS_CHECK"
   | "NOTIONAL_ESTIMATE_UNAVAILABLE"
   | "MARKET_CLOSED"
-  | "MARKET_CLOSED_QUEUED";
+  | "MARKET_CLOSED_QUEUED"
+  | "MARKET_HOURS_UNKNOWN"
+  | "STOP_ALREADY_TRIGGERED"
+  | "LIMIT_FILLS_AT_ONCE"
+  | "PRICE_FAR_FROM_LAST";
 
 export interface OrderNotice {
   code: OrderNoticeCode;

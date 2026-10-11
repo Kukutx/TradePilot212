@@ -284,12 +284,14 @@ export function installOAuth(app: Hono<{ Variables: OAuthVariables }>, config: R
       }
       await store.delete("rate:login");
       const code = randomToken();
+      // trade:write is granted only when the consent page's checkbox was ticked.
+      const scope = string(body, "allow_write") === "on" ? p.scope : splitScope(p.scope).filter((item) => item !== "trade:write").join(" ");
       const record: AuthorizationCode = {
         clientId: p.clientId,
         redirectUri: p.redirectUri,
         codeChallenge: p.codeChallenge,
         resource: p.resource,
-        scope: p.scope,
+        scope,
         expiresAt: Date.now() + CODE_TTL_MS,
       };
       await store.put("code:" + code, record, record.expiresAt);

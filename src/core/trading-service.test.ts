@@ -34,6 +34,12 @@ describe("instrument resolution", () => {
     expect(resolveInstrumentFromList([derivative, europeanListing, stock], "Apple Inc.").ticker).toBe("AAPL_US_EQ");
     expect(resolveInstrumentFromList([derivative, stock], "Apple").ticker).toBe("AAPL_US_EQ");
   });
+
+  it("resolves an ISIN and lists the listings when it trades on several exchanges", () => {
+    const listing = (ticker: string, currencyCode: string): Instrument => ({ ticker, name: "Vanguard S&P 500", shortName: "VUSA", currencyCode, type: "ETF", isin: "IE00B3XXRP09" });
+    expect(resolveInstrumentFromList([listing("VUSAl_EQ", "GBP")], "ie00b3xxrp09").ticker).toBe("VUSAl_EQ");
+    expect(() => resolveInstrumentFromList([listing("VUSAl_EQ", "GBP"), listing("VUSAa_EQ", "EUR")], "IE00B3XXRP09")).toThrow(/VUSAl_EQ \(GBP\), VUSAa_EQ \(EUR\)/);
+  });
 });
 
 describe("trade safety", () => {

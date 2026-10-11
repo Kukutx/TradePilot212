@@ -3,7 +3,8 @@ import path from "node:path";
 import { MemoryStateStore, type StoredValue } from "../../core/state-store.js";
 
 const LOCK_STALE_MS = 10_000;
-const LOCK_WAIT_MS = 5_000;
+// Longer than the stale threshold, so a waiter outlives a lock left by a crashed process and takes it over.
+const LOCK_WAIT_MS = 15_000;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -11,6 +12,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * running the stdio server on one data directory. Every operation takes an exclusive lock file,
  * reloads the file when another process changed it, and writes atomically, so plan locks and
  * confirmation tokens hold across processes and one process never overwrites another's changes.
+ * The previous good file is kept as `.bak`; an unreadable file is set aside and the backup loaded.
  */
 export class FileStateStore extends MemoryStateStore {
   private loadedVersion = "";
@@ -38,10 +40,45 @@ export class FileStateStore extends MemoryStateStore {
     if (version === this.loadedVersion) return;
     this.values.clear();
     if (version) {
-      const parsed = JSON.parse(await fs.readFile(this.file, "utf8")) as Record<string, StoredValue<unknown>>;
+      const parsed = await this.read(this.file) ?? await this.recover();
       for (const [key, value] of Object.entries(parsed)) this.values.set(key, value);
     }
-    this.loadedVersion = version;
+    this.loadedVersion = await this.version();
+  }
+
+  private async read(file: string): Promise<Record<string, StoredValue<unknown>> | undefined> {
+    try {
+      const parsed = JSON.parse(await fs.readFile(file, "utf8")) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, StoredValue<unknown>> : undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      if (error instanceof SyntaxError) return undefined;
+      throw error;
+    }
+  }
+
+  /** The state file cannot be parsed: keep it for inspection and continue from the last good copy. */
+  private async recover(): Promise<Record<string, StoredValue<unknown>>> {
+    const aside = `${this.file}.corrupt-${Date.now()}`;
+    await fs.rename(this.file, aside);
+    const backup = await this.read(`${this.file}.bak`);
+    console.error(JSON.stringify({ message: "TradePilot state file was unreadable", movedTo: aside, restored: backup ? "backup" : "empty" }));
+    if (backup) await this.write(backup);
+    return backup ?? {};
+  }
+
+  private async write(values: Record<string, StoredValue<unknown>>): Promise<void> {
+    const temp = `${this.file}.${process.pid}.tmp`;
+    const handle = await fs.open(temp, "w");
+    try {
+      await handle.writeFile(JSON.stringify(values), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    // The file being replaced was read successfully, so it is the backup for the next failure.
+    if (this.loadedVersion) await fs.copyFile(this.file, `${this.file}.bak`).catch(() => {});
+    await fs.rename(temp, this.file);
   }
 
   private async withFileLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -75,9 +112,7 @@ export class FileStateStore extends MemoryStateStore {
   }
 
   protected override async changed(): Promise<void> {
-    const temp = `${this.file}.${process.pid}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(Object.fromEntries(this.values)), "utf8");
-    await fs.rename(temp, this.file);
+    await this.write(Object.fromEntries(this.values));
     this.loadedVersion = await this.version();
   }
 }

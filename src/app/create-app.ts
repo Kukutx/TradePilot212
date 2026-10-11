@@ -2,24 +2,27 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
-import { credentialStatus, type RuntimeConfig } from "../core/config.js";
+import type { RuntimeConfig } from "../core/config.js";
 import { bearer, installOAuth, type OAuthVariables } from "../core/oauth.js";
 import type { StateStore } from "../core/state-store.js";
 import type { InstrumentCache } from "../core/trading-service.js";
 import { createMcpServer } from "../core/mcp.js";
-import { createServices } from "./services.js";
+import { createServices, type Services } from "./services.js";
 import { APP_META } from "../shared/meta.js";
 
-export interface AppDependencies { config: RuntimeConfig; store: StateStore; widgetHtml: () => Promise<string>; audit?: (event: string, details: Record<string, unknown>) => Promise<void>; fetcher?: typeof fetch; instrumentCache?: InstrumentCache }
+export interface AppDependencies { config: RuntimeConfig; store: StateStore; widgetHtml: () => Promise<string>; audit?: (event: string, details: Record<string, unknown>) => Promise<void>; fetcher?: typeof fetch; instrumentCache?: InstrumentCache;
+  /** Services to share with the scheduler in the same process; created when omitted. */
+  services?: Services }
 
 export function createApp(deps: AppDependencies) {
   const app = new Hono<{ Variables: OAuthVariables }>();
-  const services = createServices(deps);
+  const services = deps.services ?? createServices(deps);
   app.use("*", secureHeaders({ referrerPolicy: "no-referrer", xFrameOptions: false }));
   app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type", "MCP-Protocol-Version", "MCP-Session-Id", "Last-Event-ID"], exposeHeaders: ["MCP-Protocol-Version", "MCP-Session-Id", "WWW-Authenticate"] }));
   app.use("*", async (c, next) => { if (c.req.path !== "/health") c.header("Cache-Control", "no-store"); await next(); });
   installOAuth(app, deps.config, deps.store);
-  app.get("/health", (c) => c.json({ ok: true, service: APP_META.name, version: APP_META.version, mcp: `${deps.config.publicBaseUrl}/mcp`, credentials: credentialStatus(deps.config) }));
+  // Unauthenticated, so it says the server is up but not which trading accounts are configured.
+  app.get("/health", (c) => c.json({ ok: true, service: APP_META.name, version: APP_META.version, mcp: `${deps.config.publicBaseUrl}/mcp` }));
   app.use("/mcp", (c, next) => bearer(c, deps.config, next));
   app.all("/mcp", async (c) => {
     const length = Number(c.req.header("content-length") ?? 0);

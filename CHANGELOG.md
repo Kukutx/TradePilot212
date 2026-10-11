@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.13.0
+
+Order safety
+- A Stop buy is valued at its stop price when that is above the market, so the order cap, the cash check and the policy see what it can cost once triggered. Before, it was valued at the lower market price.
+- A Limit or Stop price ten times above or below the last price is blocked (`PRICE_OUT_OF_RANGE`), which catches pounds typed for a fund quoted in pence. Reviews also say when a stop triggers at once, a limit fills at once, or a price is more than 30% from the last one.
+- Several buys of one instrument in a basket count together against the cash and the position-weight cap; before, each leg was checked as if it were the only one.
+- Confirmations on one environment are sent one at a time, so two orders confirmed together can no longer both pass the daily order or value limit.
+- A write Trading 212 refused with 429 (rate limited) is sent once more after the delay it asks for. Broker errors are classified by HTTP status, so a 429 no longer reads as "order limit" because of a word in the request path.
+
+Protective orders and plans
+- After one half of a stop-loss / take-profit pair fills completely, a cancel of the other half that fails is tried again on later ticks, then reported. A partial fill no longer cancels the other half, which still covers the original quantity; you are told to adjust it.
+- An unattended Demo plan marks its due date before sending. If a crash cuts the run off before the result is recorded, the next tick asks you to check instead of sending again. The plan is also read again before sending, so one you paused or changed meanwhile is not sent.
+- Moving a plan's day or hour no longer runs a period that already ran, and unpausing schedules from now instead of firing a date that passed while paused.
+- Unattended Market legs wait when the market hours could not be read, instead of risking a queued order.
+- Each scheduler step (protective pairs, plans, alerts, digest) runs even when another fails, one failing alert no longer stops the others, and a tick still running is joined rather than overlapped.
+- The daily digest counts as sent only once the webhook accepts it, and is sent whatever `NOTIFY_EVENTS` lists. `protective_attention`, `cancel_rejected` and `daily_digest` are in the default notification list.
+
+New tools
+- `get_order_status`: one order by id, open or how it ended, with its fills.
+- `get_cash_history`: dividends, deposits, withdrawals, interest and fees one by one, with totals per type.
+- `get_trade_history` filters by ticker at Trading 212, so older trades of one instrument are found, and lists cancelled, rejected and expired orders with `includeUnfilled`.
+- Instruments can be named by ISIN; one listed on several exchanges returns its listings to choose from.
+
+Sign-in and hosting
+- The consent page grants order and pie preparation only when its checkbox is ticked. It starts unticked when the client is not ChatGPT or Claude, so an unknown client gets read-only access unless you choose otherwise.
+- `/health` no longer says which Trading 212 accounts are configured.
+- The Cloudflare Worker builds the app once per isolate, so instrument, exchange, FX and quote caches survive between requests; the Node server shares one set of services with its scheduler.
+- The local state file is flushed to disk before it replaces the old one, the previous version is kept as `.bak`, and an unreadable file is set aside and the backup loaded instead of stopping every request. A process waiting for the file lock now outlasts a lock left by a crashed process.
+
+Quotes
+- A `QUOTE_SYMBOLS` entry can carry a factor, such as `VUSAl_EQ=VUSA.L*100`, for a provider that quotes in pounds an instrument Trading 212 prices in pence.
+
+Hosts that show text
+- Orders placed by amount in the Trading 212 app show their value instead of "0 shares"; the policy text gives the quantity cap; market hours include the next close.
+- Tool annotations: deleting plans and alerts is marked destructive, and the review tools that read the broker are marked as reaching it.
+
 ## 2.12.1
 
 - Dependencies refreshed within their ranges. Wrangler 4.149 brings Miniflare builds with patched undici and sharp, which clears twelve advisories in the development tools. Production dependencies had none.

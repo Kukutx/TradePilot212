@@ -37,13 +37,14 @@ describe("OAuth endpoints", () => {
     const authorizeQuery = (clientId: string, redirect = "https://client.test/cb", scope = "trade:read") =>
       new URLSearchParams({ client_id: clientId, redirect_uri: redirect, response_type: "code", code_challenge: challenge.value, code_challenge_method: "S256", scope });
     /** Signs in and exchanges the code; returns the token response. */
-    const signIn = async (clientId: string, scope: string) => {
+    const signIn = async (clientId: string, scope: string, allowWrite = true) => {
       const form = authorizeQuery(clientId, "https://client.test/cb", scope);
       form.set("password", config.loginPassword);
+      if (allowWrite) form.set("allow_write", "on");
       const authorized = await app.request("/oauth/authorize", { method: "POST", body: form });
       const code = new URL(authorized.headers.get("location")!).searchParams.get("code")!;
       const token = await app.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: challenge.verifier, client_id: clientId, redirect_uri: "https://client.test/cb" }) });
-      return await token.json() as { access_token?: string; refresh_token?: string };
+      return await token.json() as { access_token?: string; refresh_token?: string; scope?: string };
     };
     const refresh = async (clientId: string, token: string) =>
       app.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token, client_id: clientId }) });
@@ -78,12 +79,22 @@ describe("OAuth endpoints", () => {
     const clientId = await register("https://evil.example/cb", "ChatGPT");
     const page = await (await app.request(`/oauth/authorize?${authorizeQuery(clientId, "https://evil.example/cb", "trade:read trade:write offline_access")}`)).text();
     expect(page).toContain("evil.example");
-    expect(page).toContain("Prepare orders");
+    expect(page).toContain("prepare orders");
+    // Write access is opt-in for a host that is not a known chat app.
+    expect(page).toMatch(/name="allow_write" value="on">/);
     expect(page).toContain("is not ChatGPT or Claude");
 
     const known = await register("https://chatgpt.com/connector_platform_oauth_redirect");
-    const knownPage = await (await app.request(`/oauth/authorize?${authorizeQuery(known, "https://chatgpt.com/connector_platform_oauth_redirect")}`)).text();
+    const knownPage = await (await app.request(`/oauth/authorize?${authorizeQuery(known, "https://chatgpt.com/connector_platform_oauth_redirect", "trade:read trade:write")}`)).text();
     expect(knownPage).not.toContain("is not ChatGPT or Claude");
+    expect(knownPage).toMatch(/name="allow_write" value="on" checked>/);
+  });
+
+  it("grants trade:write only when the consent checkbox is ticked", async () => {
+    const { register, signIn } = await setup();
+    const clientId = await register();
+    expect((await signIn(clientId, "trade:read trade:write", false)).scope).toBe("trade:read");
+    expect((await signIn(clientId, "trade:read trade:write")).scope).toBe("trade:read trade:write");
   });
 
   it("limits redirect hosts when OAUTH_REDIRECT_HOSTS is set, and accepts IPv6 loopback", async () => {
