@@ -113,10 +113,11 @@ export function HoldingView({
   const guardNote = !position ? undefined : guard
     ? `${t("stopLoss")} ${stopGuardText(guard, position, locale, t)} · ${stopCoverageText(guard, position, locale, t)}`
     : t("noStopLoss");
-  // What reaching the stop would cost from here, at the price the stop names; a gap can fill it lower.
+  // What reaching the stops would cost from here, each at the price it names; a gap can fill one lower.
   const outcome = position && guard ? stopOutcome(position, guard) : undefined;
+  const several = (guard?.levels.length ?? 0) > 1;
   const guardDetail = outcome
-    ? fill(t(outcome.pnlAtStop === undefined ? "stopOutcomeShort" : "stopOutcome"), { change: money(-outcome.drop, currency, locale, { signed: true }), pnl: money(outcome.pnlAtStop, currency, locale, { signed: true }) })
+    ? fill(t(several ? (outcome.pnlAtStop === undefined ? "stopsOutcomeShort" : "stopsOutcome") : (outcome.pnlAtStop === undefined ? "stopOutcomeShort" : "stopOutcome")), { change: money(-outcome.drop, currency, locale, { signed: true }), pnl: money(outcome.pnlAtStop, currency, locale, { signed: true }) })
     : undefined;
   const stop = position && writeEnabled && onProtect ? suggestedStop(position, guard) : undefined;
   const protect = stop && onProtect

@@ -13,6 +13,16 @@ export interface StopProtection {
   /** covered as a share of the holding (0 to 1). */
   coverage: number;
   orders: number;
+  /**
+   * The covered shares by stop price, highest first: a fall reaches the higher stops first, so when the
+   * stops add up to more than the holding, the lowest go without. The quantities add up to covered.
+   */
+  levels: StopLevel[];
+}
+
+export interface StopLevel {
+  stopPrice: number;
+  quantity: number;
 }
 
 export interface StopOutcome {
@@ -23,16 +33,17 @@ export interface StopOutcome {
 }
 
 /**
- * What a stop means if it triggers at its price, converted at the rate the broker's valuation of the
- * holding implies. Undefined without that valuation, or when the stop is not below the last price (it
- * would trigger at once). A gap can fill a triggered stop lower, so this is the best case.
+ * What the stops mean once the price has fallen through every one, each selling its shares at its own
+ * price, converted at the rate the broker's valuation of the holding implies. Undefined without that
+ * valuation, or when the highest stop is not below the last price (it would trigger at once). A gap can
+ * fill a triggered stop lower, so this is the best case.
  */
 export function stopOutcome(position: Position, guard: StopProtection): StopOutcome | undefined {
   const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown } | undefined;
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : undefined;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
   const rate = value / (position.quantity * position.currentPrice);
-  const drop = (position.currentPrice - guard.stopPrice) * guard.covered * rate;
+  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - level.stopPrice) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : undefined;
   return { drop, ...(pnl === undefined ? {} : { pnlAtStop: pnl * guard.coverage - drop }) };
 }
@@ -52,6 +63,15 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
   // Trading 212 quantities have at most 8 decimals; rounding the sum keeps 0.1 + 0.7 equal to 0.8.
   const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice as number));
+  const byPrice = new Map<number, number>();
+  for (const order of stops) byPrice.set(order.stopPrice as number, (byPrice.get(order.stopPrice as number) ?? 0) + remaining(order));
+  const levels: StopLevel[] = [];
+  let left = covered;
+  for (const [price, quantity] of [...byPrice].sort((a, b) => b[0] - a[0])) {
+    const take = Number(Math.min(quantity, left).toFixed(8));
+    if (take > 0) levels.push({ stopPrice: price, quantity: take });
+    left = Number((left - take).toFixed(8));
+  }
   const last = position.currentPrice;
   return {
     ticker,
@@ -60,6 +80,7 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
     covered,
     coverage: covered >= position.quantity ? 1 : covered / position.quantity,
     orders: stops.length,
+    levels,
   };
 }
 

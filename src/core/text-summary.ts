@@ -104,12 +104,17 @@ function activityLine(event: ActivityEvent): string {
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
 
-/** "NVDA_US_EQ 5 of 20 (25%) from 118, 8.3% below the last price", plus what reaching the stop costs when the broker values the holding. */
+/**
+ * "NVDA_US_EQ 5 of 20 (25%) from 118, 8.3% below the last price", "… from 118 down to 100 …" for stops at
+ * several prices, plus what reaching them costs when the broker values the holding.
+ */
 function stopText(position: Position, guard: StopProtection, currency: string | undefined): string {
   const gap = guard.gap === undefined ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const lowest = guard.levels.at(-1);
+  const range = guard.levels.length > 1 && lowest ? ` down to ${num(lowest.stopPrice, 6)}` : "";
   const outcome = stopOutcome(position, guard);
-  const cost = outcome ? `; at the stop ${money(-outcome.drop, currency)} from now${outcome.pnlAtStop === undefined ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
-  return `${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${gap}${cost}`;
+  const cost = outcome ? `; at ${range ? "the lowest stop" : "the stop"} ${money(-outcome.drop, currency)} from now${outcome.pnlAtStop === undefined ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${range}${gap}${cost}`;
 }
 
 /** Which holdings a pending sell stop covers, how much of each and how far below the last price; and every holding without one. */

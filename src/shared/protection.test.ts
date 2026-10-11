@@ -27,15 +27,17 @@ describe("stop-loss protection", () => {
       { ticker: "NVDA_US_EQ", type: "LIMIT", side: "SELL", quantity: -5, limitPrice: 150 },
       { ticker: "AAPL_US_EQ", type: "STOP", side: "SELL", quantity: -3, stopPrice: 200 },
     ];
-    expect(stopProtection(position(), orders)).toEqual({ ticker: "NVDA_US_EQ", stopPrice: 115, gap: -0.08, covered: 11, coverage: 0.55, orders: 2 });
-    expect(stopProtection(position({ quantity: 6 }), orders)?.coverage).toBe(1);
+    expect(stopProtection(position(), orders)).toEqual({ ticker: "NVDA_US_EQ", stopPrice: 115, gap: -0.08, covered: 11, coverage: 0.55, orders: 2, levels: [{ stopPrice: 115, quantity: 6 }, { stopPrice: 110, quantity: 5 }] });
+    // Stops for more than the holding: the price reaches the higher one first, so the lower one goes without.
+    expect(stopProtection(position({ quantity: 6 }), orders)).toMatchObject({ coverage: 1, levels: [{ stopPrice: 115, quantity: 6 }] });
+    expect(stopProtection(position({ quantity: 8 }), orders)?.levels).toEqual([{ stopPrice: 115, quantity: 6 }, { stopPrice: 110, quantity: 2 }]);
     expect(stopProtection(position(), orders.slice(2))).toBeUndefined();
     // Fractional stops that add up to the holding cover all of it, despite binary floating point.
     const fractional = stopProtection(position({ quantity: 0.8 }), [
       { ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.1, stopPrice: 110 },
       { ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.7, stopPrice: 110 },
     ]);
-    expect(fractional).toMatchObject({ covered: 0.8, coverage: 1 });
+    expect(fractional).toMatchObject({ covered: 0.8, coverage: 1, levels: [{ stopPrice: 110, quantity: 0.8 }] });
   });
 
   it("suggests a stop for the shares no stop covers, up to what is free to sell, at the existing stop or 8% below the last price", () => {
@@ -69,6 +71,12 @@ describe("stop-loss protection", () => {
     expect(stopOutcome(position(), guard)).toBeUndefined();
     const above = stopProtection(held, [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -10, stopPrice: 130 }])!;
     expect(stopOutcome(held, above)).toBeUndefined();
+    // Each stop sells at its own price: 5 shares from 125 to 110 and 5 to 100 lose (75 + 125) x 0.8 = 160 EUR, not 120.
+    const ladder = stopProtection(held, [
+      { ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110 },
+      { ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 100 },
+    ])!;
+    expect(stopOutcome(held, ladder)).toEqual({ drop: 160, pnlAtStop: -10 });
   });
 
   it("sums coverage across the portfolio in the account currency", () => {
@@ -89,7 +97,11 @@ describe("stop-loss protection", () => {
     // The sample account has one sell stop: 5 of 20 NVIDIA at 118.
     // 10.75 USD a share to the stop on 5 shares, at the 0.92 EUR the valuation implies; a quarter of the 597.08 P/L stays.
     expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; at the stop -49\.45 EUR from now, P\/L \+99\.82\. No stop on [A-Za-z_, ]+\.$/m);
-    const bare = describePayload({ ...(await services.trading.getDashboard("demo")), orders: [] });
+    const dashboard = await services.trading.getDashboard("demo");
+    // A second stop lower down widens the range, and its 5 shares cost from the last price down to 100.
+    const ladder = describePayload({ ...dashboard, orders: [...dashboard.orders, { id: 99, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -5, stopPrice: 100, status: "NEW" }] });
+    expect(ladder).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 down to 100, 8\.3% below the last price; at the lowest stop -/m);
+    const bare = describePayload({ ...dashboard, orders: [] });
     // With no stop anywhere, the line still names every holding without one.
     expect(bare).toMatch(/^Stop-loss orders: none\. No stop on (?=.*NVDA_US_EQ)(?=.*AAPL_US_EQ)[A-Za-z_, ]+\.$/m);
   });

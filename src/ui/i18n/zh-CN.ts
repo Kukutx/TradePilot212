@@ -470,6 +470,8 @@ export const zhCN: Record<MessageKey, string> = {
   addStopForRest: "补足止损",
   stopOutcome: "触发时：较现在 {change} · 届时盈亏 {pnl}",
   stopOutcomeShort: "触发时：较现在 {change}",
+  stopsOutcome: "全部触发时：较现在 {change} · 届时盈亏 {pnl}",
+  stopsOutcomeShort: "全部触发时：较现在 {change}",
   protectionAll: "所有持仓都有完整止损",
   protectionSummary: "{holdings} 只持仓中 {covered} 只有完整止损",
   protectionUnprotected: "未保护 {value}（占持仓 {share}）",

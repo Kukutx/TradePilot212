@@ -34948,7 +34948,7 @@ function stopOutcome(position, guard) {
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
   const rate = value / (position.quantity * position.currentPrice);
-  const drop = (position.currentPrice - guard.stopPrice) * guard.covered * rate;
+  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - level.stopPrice) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : void 0;
   return { drop, ...pnl === void 0 ? {} : { pnlAtStop: pnl * guard.coverage - drop } };
 }
@@ -34963,6 +34963,15 @@ function stopProtection(position, orders) {
   const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
   const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
+  const byPrice = /* @__PURE__ */ new Map();
+  for (const order of stops) byPrice.set(order.stopPrice, (byPrice.get(order.stopPrice) ?? 0) + remaining(order));
+  const levels = [];
+  let left = covered;
+  for (const [price, quantity] of [...byPrice].sort((a, b) => b[0] - a[0])) {
+    const take = Number(Math.min(quantity, left).toFixed(8));
+    if (take > 0) levels.push({ stopPrice: price, quantity: take });
+    left = Number((left - take).toFixed(8));
+  }
   const last = position.currentPrice;
   return {
     ticker,
@@ -34970,7 +34979,8 @@ function stopProtection(position, orders) {
     ...last > 0 ? { gap: (stopPrice - last) / last } : {},
     covered,
     coverage: covered >= position.quantity ? 1 : covered / position.quantity,
-    orders: stops.length
+    orders: stops.length,
+    levels
   };
 }
 var SUGGESTED_STOP_DROP = 0.08;
@@ -37973,9 +37983,11 @@ function activityLine(event) {
 }
 function stopText(position, guard, currency) {
   const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const lowest = guard.levels.at(-1);
+  const range = guard.levels.length > 1 && lowest ? ` down to ${num2(lowest.stopPrice, 6)}` : "";
   const outcome = stopOutcome(position, guard);
-  const cost = outcome ? `; at the stop ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
-  return `${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}${cost}`;
+  const cost = outcome ? `; at ${range ? "the lowest stop" : "the stop"} ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${range}${gap}${cost}`;
 }
 function protectionLines(positions, orders, currency) {
   if (!positions.length) return [];
