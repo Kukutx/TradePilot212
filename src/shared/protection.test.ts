@@ -51,6 +51,12 @@ describe("stop-loss protection", () => {
     expect(suggestedStop(position({ quantity: 0.3, quantityAvailableForTrading: 0.3, currentPrice: 9175 }), stopProtection(position({ quantity: 0.3 }), [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.1, stopPrice: 8000 }]))).toEqual({ quantity: 0.2, stopPrice: 8000 });
   });
 
+  it("keeps a suggested stop under 1 positive and below the price instead of rounding it to cents", () => {
+    expect(suggestedStop(position({ currentPrice: 0.05 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.046 });
+    expect(suggestedStop(position({ currentPrice: 0.004 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.00368 });
+    expect(suggestedStop(position({ currentPrice: 1 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.92 });
+  });
+
   it("lists covered and uncovered holdings in the dashboard summary", async () => {
     const services = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
     const text = describePayload(await services.trading.getDashboard("demo"));
