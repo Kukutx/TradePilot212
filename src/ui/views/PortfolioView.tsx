@@ -106,8 +106,8 @@ export function ActivityPanel({ activity, locale, t }: { activity: ActivityEvent
           <div className="activityList">
             {activity.map((event) => (
               <div className="activityRow" key={event.id}>
-                <span className={`activityDot ${event.type.includes("unknown") || event.type.includes("rejected") ? "warning" : ""}`} />
-                <div><strong>{activityLabel(event, t)}</strong><small>{[event.ticker, event.orderId].filter(Boolean).join(" · ") || event.environment.toUpperCase()}</small></div>
+                <span className={`activityDot ${event.type.includes("unknown") || event.type.includes("rejected") || event.type === "plan_skipped" ? "warning" : ""}`} />
+                <div><strong>{activityLabel(event, t)}</strong><small>{[event.ticker, event.orderId, event.legs ? `${event.legs} ${t("activityLegs")}` : undefined, event.planId].filter(Boolean).join(" · ") || event.environment.toUpperCase()}</small></div>
                 <time>{time(event.timestamp, locale)}</time>
               </div>
             ))}

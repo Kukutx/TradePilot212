@@ -1,8 +1,40 @@
+import type { PolicyCheck } from "../../shared/automation";
 import type { Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon } from "../components/common";
 import { dateTime, num, money, time } from "../lib/format";
-import { noticeText, sizingText, type Translator } from "../lib/messages";
+import { noticeText, policyRuleLabel, policyStatusLabel, sizingText, type Translator } from "../lib/messages";
+
+const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
+
+/** Policy results with an icon and a status word, so the outcome never depends on color alone. */
+export function PolicyList({ checks, t }: { checks?: PolicyCheck[]; t: Translator }) {
+  if (!checks?.length) return null;
+  const order: PolicyCheck["status"][] = ["block", "warn", "skip"];
+  const flagged = checks.filter((check) => check.status !== "pass").sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+  const passed = checks.filter((check) => check.status === "pass");
+  const row = (check: PolicyCheck, index: number) => (
+    <li className={`policyCheck ${check.status}`} key={`${check.rule}-${index}`}>
+      <span className="policyGlyph" aria-hidden="true">{POLICY_GLYPH[check.status] ?? "?"}</span>
+      <span className="policyCopy">
+        <strong>{policyStatusLabel(check.status, t)} · {policyRuleLabel(check.rule, t)}</strong>
+        {check.message && <span>{check.message}</span>}
+      </span>
+    </li>
+  );
+  return (
+    <div className="policyBlock" aria-label={t("policyChecks")}>
+      <span className="policyTitle">{t("policyChecks")}</span>
+      {flagged.length > 0 && <ul className="policyList">{flagged.map(row)}</ul>}
+      {passed.length > 0 && (
+        <details className="policyPassed">
+          <summary><span className="policyGlyph" aria-hidden="true">✓</span>{passed.length} {t("policyPassedCount")}</summary>
+          <ul className="policyList">{passed.map(row)}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
 
 export function OrderEditor({
   draft,
@@ -99,8 +131,9 @@ export function OrderConfirmation({
           <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
+        <PolicyList checks={preview.policy} t={t} />
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={draft.environment === "live" ? "dangerButton" : "primaryButton"} disabled={busy || (preview.policy ?? []).some((check) => check.status === "block")} onClick={onConfirm}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
   );
