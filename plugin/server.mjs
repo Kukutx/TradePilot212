@@ -37052,14 +37052,134 @@ var InsightsService = class {
   }
 };
 
+// src/core/targets.ts
+var DEFAULT_DRIFT_THRESHOLD = 0.05;
+var HOUR_MS = 36e5;
+var DAY_MS2 = 864e5;
+var targetKey = (environment) => `targets:${environment}`;
+var share2 = (value) => Math.round(value * 1e4) / 1e4;
+var exact = (value) => Math.round(value * 1e6) / 1e6;
+function allocationDrift(saved, analysis) {
+  const current = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.weight]));
+  const rows2 = saved.targets.map((target) => {
+    const weight2 = current.get(target.ticker) ?? 0;
+    return { ticker: target.ticker, target: target.weight, current: exact(weight2), drift: exact(weight2 - target.weight) };
+  }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+  const targeted = new Set(saved.targets.map((target) => target.ticker));
+  const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
+  const untargeted = analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) }));
+  const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)), ...saved.sellUntargeted ? untargeted.map((item) => item.current) : []);
+  return {
+    threshold: saved.driftThreshold,
+    maxDrift: exact(maxDrift),
+    over: maxDrift > saved.driftThreshold + 1e-9,
+    rows: rows2,
+    cash,
+    untargeted,
+    ...saved.sellUntargeted ? { sellUntargeted: true } : {},
+    savedAt: saved.updatedAt
+  };
+}
+function contributionSplit(targets, values, amount) {
+  const totalWeight = targets.reduce((sum, target) => sum + target.weight, 0);
+  if (!(totalWeight > 0) || !(amount > 0)) return [];
+  const after = targets.reduce((sum, target) => sum + Math.max(0, values.get(target.ticker) ?? 0), 0) + amount;
+  const gaps = targets.map((target) => ({ ticker: target.ticker, gap: Math.max(0, target.weight / totalWeight * after - Math.max(0, values.get(target.ticker) ?? 0)) }));
+  const totalGap = gaps.reduce((sum, item) => sum + item.gap, 0);
+  if (!(totalGap > 0)) return [];
+  return gaps.map((item) => ({ ticker: item.ticker, amount: Math.floor(amount * item.gap / totalGap * 100 + 1e-6) / 100 })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount);
+}
+function driftSummary(drift) {
+  const points2 = (value) => `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)} points`;
+  const largest = drift.rows[0];
+  const lead = largest && Math.abs(largest.drift) >= Math.abs(drift.cash.drift) ? `${largest.ticker} is ${(largest.current * 100).toFixed(1)}% against a ${(largest.target * 100).toFixed(1)}% target (${points2(largest.drift)})` : `Cash is ${(drift.cash.current * 100).toFixed(1)}% against a ${(drift.cash.target * 100).toFixed(1)}% target (${points2(drift.cash.drift)})`;
+  return `${lead}; notices start above ${(drift.threshold * 100).toFixed(1)} points.`;
+}
+var TargetAllocations = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  get(environment) {
+    return this.deps.store.get(targetKey(environment));
+  }
+  async set(environment, input2, now = /* @__PURE__ */ new Date()) {
+    requireCredentials(this.deps.config, environment);
+    if (!input2.targets.length || input2.targets.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `Give between 1 and ${MAX_BASKET_LEGS} targets`, { field: "targets" });
+    const instruments = await this.deps.trading.instruments(environment);
+    const targets = [];
+    for (const target of input2.targets) {
+      if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
+      const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
+      if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
+      const weight2 = share2(target.weight);
+      if (!(weight2 > 0)) fail("INVALID_INPUT", "Each target weight must be at least 0.0001 (0.01%)", { field: "weight", instrument: target.instrument });
+      targets.push({ ticker, weight: weight2 });
+    }
+    const invested = share2(targets.reduce((sum, target) => sum + target.weight, 0));
+    const cashWeight = share2(input2.cashWeight ?? Math.max(0, 1 - invested));
+    if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
+    const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
+    if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
+    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString() };
+    await this.deps.store.put(targetKey(environment), saved);
+    return saved;
+  }
+  async clear(environment) {
+    const existed = !!await this.get(environment);
+    await this.deps.store.delete(targetKey(environment));
+    return existed;
+  }
+  /** The analysis with its drift and, when over the threshold, a flag. */
+  async withDrift(analysis) {
+    const saved = await this.get(analysis.environment);
+    if (!saved) return analysis;
+    const drift = allocationDrift(saved, analysis);
+    return {
+      ...analysis,
+      drift,
+      flags: drift.over ? [...analysis.flags, { code: "DRIFT_OVER_THRESHOLD", message: driftSummary(drift) }] : analysis.flags
+    };
+  }
+  /**
+   * One scheduler tick: about once an hour per environment, compare the account with its targets and,
+   * while the drift is over the threshold, record an allocation_drift event at most once a day.
+   */
+  async check(now = /* @__PURE__ */ new Date()) {
+    const credentials = credentialStatus(this.deps.config);
+    const reports = [];
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const saved = await this.get(environment);
+      if (!saved) continue;
+      const slot = await this.deps.store.increment(`drift-check:${environment}`, HOUR_MS, now.getTime());
+      if (slot.count > 1) continue;
+      const drift = allocationDrift(saved, await this.deps.allocation(environment));
+      const due = drift.over && (!saved.lastNotifiedAt || now.getTime() - Date.parse(saved.lastNotifiedAt) >= DAY_MS2);
+      if (due) {
+        const current = await this.get(environment);
+        if (!current || current.updatedAt !== saved.updatedAt) continue;
+        await this.deps.store.put(targetKey(environment), { ...current, lastNotifiedAt: now.toISOString() });
+        await this.deps.trading.recordActivity("allocation_drift", environment, { outcome: driftSummary(drift).slice(0, 200) });
+      }
+      reports.push({ environment, maxDrift: drift.maxDrift, notified: due });
+    }
+    return reports;
+  }
+};
+
 // src/core/automation.ts
 var MAX_PLANS = 20;
 var MAX_PLAN_LEGS = 10;
 var DEFAULT_HOUR_UTC = 15;
 var RUN_LOCK_MS = 10 * 6e4;
-var DAY_MS2 = 864e5;
+var DAY_MS3 = 864e5;
 var planKey = (id) => `plan:${id}`;
 var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
+var MIN_TARGET_LEG = 1;
+function validateTargetAmount(amount) {
+  if (!Number.isFinite(amount) || amount <= 0) fail("INVALID_INPUT", "targetAmount must be a positive amount in the account currency", { field: "targetAmount" });
+}
 var DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
 var MAX_LIMIT_OFFSET_PERCENT = 10;
 function planLimitPrice(price, offsetPercent) {
@@ -37076,13 +37196,13 @@ function nextRunAt(plan, after) {
   const weekday = plan.weekday ?? 1;
   const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan.hourUtc));
   const isoToday = today.getUTCDay() || 7;
-  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS2);
-  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS2);
+  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS3);
+  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS3);
   return candidate;
 }
 function previousRunAt(plan, next) {
   if (plan.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan.dayOfMonth ?? 1, plan.hourUtc));
-  return new Date(next.getTime() - 7 * DAY_MS2);
+  return new Date(next.getTime() - 7 * DAY_MS3);
 }
 function scheduleFrom(plan, now) {
   const next = nextRunAt(plan, now);
@@ -37132,6 +37252,9 @@ var AutomationService = class {
     assertAutoExecuteAllowed(input2.environment, input2.autoExecute);
     requireCredentials(this.deps.config, input2.environment);
     if ((await this.listPlans()).length >= MAX_PLANS) fail("INVALID_INPUT", `At most ${MAX_PLANS} plans can be stored`);
+    const byTargets = input2.targetAmount !== void 0;
+    if (byTargets && input2.legs.length) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
+    if (byTargets) validateTargetAmount(input2.targetAmount);
     const schedule = {
       frequency: input2.frequency,
       ...input2.frequency === "monthly" ? { dayOfMonth: input2.dayOfMonth } : { weekday: input2.weekday },
@@ -37141,7 +37264,8 @@ var AutomationService = class {
       id: `dca_${randomToken(12)}`,
       environment: input2.environment,
       label: input2.label.trim().slice(0, 80) || "DCA plan",
-      legs: await this.resolveLegs(input2.environment, input2.legs),
+      legs: byTargets ? [] : await this.resolveLegs(input2.environment, input2.legs),
+      ...byTargets ? { targetAmount: input2.targetAmount } : {},
       ...schedule,
       autoExecute: !!input2.autoExecute,
       paused: false,
@@ -37166,6 +37290,8 @@ var AutomationService = class {
       const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
       base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {} }, now).toISOString() };
     }
+    if (patch.legs !== void 0 && patch.targetAmount !== void 0) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
+    if (patch.targetAmount !== void 0) validateTargetAmount(patch.targetAmount);
     const legs = patch.legs === void 0 ? void 0 : await this.resolveLegs(plan.environment, patch.legs);
     const resumed = patch.paused === false && plan.paused && Date.parse(base.nextRunAt) <= now.getTime();
     const latest = await this.deps.store.get(planKey(id)) ?? plan;
@@ -37176,6 +37302,7 @@ var AutomationService = class {
       ...changed ? base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth } : { weekday: base.weekday } : {},
       ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
       ...legs === void 0 ? {} : { legs },
+      ...patch.targetAmount === void 0 ? {} : { legs: [], targetAmount: patch.targetAmount },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
       ...patch.autoExecute === void 0 ? {} : { autoExecute: patch.autoExecute }
     };
@@ -37183,6 +37310,7 @@ var AutomationService = class {
       if (updated.frequency === "monthly") delete updated.weekday;
       else delete updated.dayOfMonth;
     }
+    if (legs !== void 0) delete updated.targetAmount;
     if (resumed) updated.nextRunAt = scheduleFrom(updated, now).toISOString();
     await this.deps.store.put(planKey(id), updated);
     return updated;
@@ -37207,8 +37335,17 @@ var AutomationService = class {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
       return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
     };
-    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, plan.legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
-    for (const leg of plan.legs) {
+    let legs = plan.legs;
+    if (plan.targetAmount !== void 0) {
+      const saved = await this.deps.targets?.(plan.environment);
+      if (!saved) skipped.push(`No target weights are saved for ${plan.environment.toUpperCase()}; save them with manage_target_allocation.`);
+      const values = new Map(dashboard.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
+      const split = saved ? contributionSplit(saved.targets, values, plan.targetAmount) : [];
+      for (const item of split.filter((leg) => leg.amount < MIN_TARGET_LEG)) skipped.push(`${item.ticker}: ${item.amount} ${accountCurrency} is too small to send; it stays in cash.`);
+      legs = split.filter((leg) => leg.amount >= MIN_TARGET_LEG);
+    }
+    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
+    for (const leg of legs) {
       const { position, instrument } = find(leg.ticker);
       if (!instrument) {
         skipped.push(`${leg.ticker}: no longer listed by Trading 212.`);
@@ -37252,7 +37389,8 @@ var AutomationService = class {
       drafts,
       planId: plan.id,
       notes: [
-        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
+        ...plan.targetAmount === void 0 ? [] : [`${plan.targetAmount} ${accountCurrency} split across the saved targets, most to the ones furthest below their weight; nothing is sold.`],
+        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
         ...converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0].source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : [],
         ...skipped
       ],
@@ -37298,7 +37436,7 @@ var AutomationService = class {
       if (plan.paused || Date.parse(plan.nextRunAt) > now.getTime()) continue;
       const unattended = plan.autoExecute && plan.environment === "demo" && this.deps.config.demoAutomationEnabled;
       if (!unattended) {
-        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
+        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS3, now.getTime());
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message: `"${plan.label}" is due and waits for your confirmation.` });
         continue;
@@ -37308,7 +37446,7 @@ var AutomationService = class {
       const latest = await this.deps.store.get(planKey(plan.id));
       if (!latest || latest.paused || latest.nextRunAt !== plan.nextRunAt) continue;
       if (latest.inFlightDueAt === latest.nextRunAt) {
-        const notice = await this.deps.store.increment(`plan-unclear:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
+        const notice = await this.deps.store.increment(`plan-unclear:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS3, now.getTime());
         const message = `"${plan.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message });
@@ -37327,7 +37465,7 @@ var AutomationService = class {
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
         const current = await this.deps.store.get(planKey(plan.id));
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
-        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || !current.autoExecute) continue;
+        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
@@ -37356,7 +37494,7 @@ var AutomationService = class {
       lastOutcome: message,
       ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
-    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
+    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS3, now.getTime());
     if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
   }
 };
@@ -37609,7 +37747,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.16.0"
+  version: "2.17.0"
 };
 
 // src/core/text-summary.ts
@@ -37849,7 +37987,7 @@ function candidates(data) {
 var WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 function planLine(plan) {
   const schedule = plan.frequency === "monthly" ? `monthly on day ${plan.dayOfMonth}` : `weekly on ${WEEKDAYS[plan.weekday ?? 1]}`;
-  const legs = plan.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
+  const legs = plan.targetAmount !== void 0 ? `${num2(plan.targetAmount)} across the saved targets, most to the furthest below` : plan.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
   return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
 }
 function alertLine(alert, instrument) {
@@ -38825,7 +38963,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
       "manage_investment_plans",
       {
         title: "Manage Investment Plans",
-        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
+        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent. Instead of legs, targetAmount invests that amount each run across the target weights saved with manage_target_allocation, most to the targets furthest below their weight, as Market buys; nothing is sold.",
         inputSchema: external_exports.object({
           action: external_exports.enum(["create", "update", "delete"]),
           planId: external_exports.string().optional().describe("Required for update and delete"),
@@ -38837,6 +38975,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
             orderType: external_exports.enum(["market", "limit"]).optional().describe("limit = Day Limit buy at the last price plus limitOffsetPercent, so a gap cannot fill it higher. Limit legs can also be placed while the market is closed."),
             limitOffsetPercent: external_exports.number().min(0).max(MAX_LIMIT_OFFSET_PERCENT).optional().describe("Limit legs: percent above the last broker price (default 0.5)")
           })).min(1).max(MAX_PLAN_LEGS).optional(),
+          targetAmount: external_exports.number().positive().optional().describe("Instead of legs: amount in the account currency to invest each run across the saved target weights"),
           frequency: external_exports.enum(["weekly", "monthly"]).optional(),
           dayOfMonth: external_exports.number().int().min(1).max(28).optional(),
           weekday: external_exports.number().int().min(1).max(7).optional().describe("1 = Monday \u2026 7 = Sunday"),
@@ -38850,11 +38989,12 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
       async (input2) => {
         try {
           if (input2.action === "create") {
-            if (!input2.legs || !input2.frequency) return toolError(new Error("legs and frequency are required to create a plan"));
+            if (!input2.legs && input2.targetAmount === void 0 || !input2.frequency) return toolError(new Error("frequency and either legs or targetAmount are required to create a plan"));
             const plan2 = await automation2.createPlan({
               environment: input2.environment,
-              label: input2.label ?? "DCA plan",
-              legs: input2.legs,
+              label: input2.label ?? (input2.targetAmount === void 0 ? "DCA plan" : "Invest by targets"),
+              legs: input2.legs ?? [],
+              ...input2.targetAmount === void 0 ? {} : { targetAmount: input2.targetAmount },
               frequency: input2.frequency,
               ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
               ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
@@ -38862,7 +39002,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
               ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
             });
             const unattended = plan2.autoExecute && !config3.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
-            return result({ kind: "investment_plan", plan: plan2 }, `Saved plan ${plan2.id}; next due ${plan2.nextRunAt}. No order was placed.${unattended}`);
+            const noTargets = plan2.targetAmount !== void 0 && !await targetAllocations.get(plan2.environment) ? " No target weights are saved yet; save them with manage_target_allocation before it is due." : "";
+            return result({ kind: "investment_plan", plan: plan2 }, `Saved plan ${plan2.id}; next due ${plan2.nextRunAt}. No order was placed.${unattended}${noTargets}`);
           }
           if (!input2.planId) return toolError(new Error("planId is required"));
           if (input2.action === "delete") {
@@ -38872,6 +39013,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
           const plan = await automation2.updatePlan(input2.planId, {
             ...input2.label === void 0 ? {} : { label: input2.label },
             ...input2.legs === void 0 ? {} : { legs: input2.legs },
+            ...input2.targetAmount === void 0 ? {} : { targetAmount: input2.targetAmount },
             ...input2.paused === void 0 ? {} : { paused: input2.paused },
             ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute },
             ...input2.frequency === void 0 ? {} : { frequency: input2.frequency },
@@ -39384,7 +39526,7 @@ var PriceAlerts = class {
 };
 
 // src/core/digest.ts
-var DAY_MS3 = 864e5;
+var DAY_MS4 = 864e5;
 var round6 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round6(value)}`;
 function digestText(input2) {
@@ -39397,7 +39539,8 @@ function digestText(input2) {
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
-    input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0
+    input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
+    input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`
   ].filter(Boolean).join(" \xB7 ");
 }
 var RETRY_MS = 15 * 6e4;
@@ -39418,7 +39561,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS3, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS4, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
@@ -39429,8 +39572,10 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS3);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS4);
         const totalValue = account.totalValue ?? 0;
+        const saved = await this.deps.targets?.(environment);
+        const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : void 0;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -39444,7 +39589,8 @@ var DailyDigest = class {
           }),
           pendingOrders: dashboard.orders.length,
           duePlans: plans.map((plan) => plan.label),
-          triggeredAlerts: alerts.length
+          triggeredAlerts: alerts.length,
+          ...maxDrift === void 0 ? {} : { maxDrift }
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {
@@ -39625,113 +39771,6 @@ var ProtectiveLinks = class {
   }
 };
 
-// src/core/targets.ts
-var DEFAULT_DRIFT_THRESHOLD = 0.05;
-var HOUR_MS = 36e5;
-var DAY_MS4 = 864e5;
-var targetKey = (environment) => `targets:${environment}`;
-var share2 = (value) => Math.round(value * 1e4) / 1e4;
-var exact = (value) => Math.round(value * 1e6) / 1e6;
-function allocationDrift(saved, analysis) {
-  const current = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.weight]));
-  const rows2 = saved.targets.map((target) => {
-    const weight2 = current.get(target.ticker) ?? 0;
-    return { ticker: target.ticker, target: target.weight, current: exact(weight2), drift: exact(weight2 - target.weight) };
-  }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
-  const targeted = new Set(saved.targets.map((target) => target.ticker));
-  const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
-  const untargeted = analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) }));
-  const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)), ...saved.sellUntargeted ? untargeted.map((item) => item.current) : []);
-  return {
-    threshold: saved.driftThreshold,
-    maxDrift: exact(maxDrift),
-    over: maxDrift > saved.driftThreshold + 1e-9,
-    rows: rows2,
-    cash,
-    untargeted,
-    ...saved.sellUntargeted ? { sellUntargeted: true } : {},
-    savedAt: saved.updatedAt
-  };
-}
-function driftSummary(drift) {
-  const points2 = (value) => `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)} points`;
-  const largest = drift.rows[0];
-  const lead = largest && Math.abs(largest.drift) >= Math.abs(drift.cash.drift) ? `${largest.ticker} is ${(largest.current * 100).toFixed(1)}% against a ${(largest.target * 100).toFixed(1)}% target (${points2(largest.drift)})` : `Cash is ${(drift.cash.current * 100).toFixed(1)}% against a ${(drift.cash.target * 100).toFixed(1)}% target (${points2(drift.cash.drift)})`;
-  return `${lead}; notices start above ${(drift.threshold * 100).toFixed(1)} points.`;
-}
-var TargetAllocations = class {
-  constructor(deps) {
-    this.deps = deps;
-  }
-  deps;
-  get(environment) {
-    return this.deps.store.get(targetKey(environment));
-  }
-  async set(environment, input2, now = /* @__PURE__ */ new Date()) {
-    requireCredentials(this.deps.config, environment);
-    if (!input2.targets.length || input2.targets.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `Give between 1 and ${MAX_BASKET_LEGS} targets`, { field: "targets" });
-    const instruments = await this.deps.trading.instruments(environment);
-    const targets = [];
-    for (const target of input2.targets) {
-      if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
-      const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
-      if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
-      const weight2 = share2(target.weight);
-      if (!(weight2 > 0)) fail("INVALID_INPUT", "Each target weight must be at least 0.0001 (0.01%)", { field: "weight", instrument: target.instrument });
-      targets.push({ ticker, weight: weight2 });
-    }
-    const invested = share2(targets.reduce((sum, target) => sum + target.weight, 0));
-    const cashWeight = share2(input2.cashWeight ?? Math.max(0, 1 - invested));
-    if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
-    const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
-    if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString() };
-    await this.deps.store.put(targetKey(environment), saved);
-    return saved;
-  }
-  async clear(environment) {
-    const existed = !!await this.get(environment);
-    await this.deps.store.delete(targetKey(environment));
-    return existed;
-  }
-  /** The analysis with its drift and, when over the threshold, a flag. */
-  async withDrift(analysis) {
-    const saved = await this.get(analysis.environment);
-    if (!saved) return analysis;
-    const drift = allocationDrift(saved, analysis);
-    return {
-      ...analysis,
-      drift,
-      flags: drift.over ? [...analysis.flags, { code: "DRIFT_OVER_THRESHOLD", message: driftSummary(drift) }] : analysis.flags
-    };
-  }
-  /**
-   * One scheduler tick: about once an hour per environment, compare the account with its targets and,
-   * while the drift is over the threshold, record an allocation_drift event at most once a day.
-   */
-  async check(now = /* @__PURE__ */ new Date()) {
-    const credentials = credentialStatus(this.deps.config);
-    const reports = [];
-    for (const environment of ["demo", "live"]) {
-      if (!credentials[environment]) continue;
-      const saved = await this.get(environment);
-      if (!saved) continue;
-      const slot = await this.deps.store.increment(`drift-check:${environment}`, HOUR_MS, now.getTime());
-      if (slot.count > 1) continue;
-      const drift = allocationDrift(saved, await this.deps.allocation(environment));
-      const due = drift.over && (!saved.lastNotifiedAt || now.getTime() - Date.parse(saved.lastNotifiedAt) >= DAY_MS4);
-      if (due) {
-        const current = await this.get(environment);
-        if (!current || current.updatedAt !== saved.updatedAt) continue;
-        await this.deps.store.put(targetKey(environment), { ...current, lastNotifiedAt: now.toISOString() });
-        await this.deps.trading.recordActivity("allocation_drift", environment, { outcome: driftSummary(drift).slice(0, 200) });
-      }
-      reports.push({ environment, maxDrift: drift.maxDrift, notified: due });
-    }
-    return reports;
-  }
-};
-
 // src/app/services.ts
 var processSampleBroker;
 function createServices(input2) {
@@ -39747,12 +39786,12 @@ function createServices(input2) {
     afterBasket: (planId, result2) => automation2.recordRun(planId, result2)
   });
   const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
-  const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading });
+  const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...notify ? { notify } : {} });
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...notify ? { notify } : {} });
   const stage = async (name, run) => {
     try {
       return await run();
