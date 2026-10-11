@@ -190,7 +190,7 @@ function ValueHistoryPanel({ points, currency, locale, t }: { points: ValuePoint
   return (
     <section className="dataPanel">
       <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={(value) => compact.format(value)}
-        data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale) }))} />
+        data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale), time: Date.parse(`${point.date}T00:00:00Z`) }))} />
       <p className="panelNote">
         <strong className={signedClass(change)}>{money(change, currency, locale, { signed: true })}{first.totalValue ? ` (${pct(change / first.totalValue, locale, 1, { signed: true })})` : ""}</strong>
         {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}

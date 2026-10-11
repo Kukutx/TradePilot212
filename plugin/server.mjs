@@ -39975,47 +39975,67 @@ var ProtectiveLinks = class {
 // src/core/value-history.ts
 var HOUR_MS2 = 36e5;
 var KEEP_MS = 6 * 366 * 864e5;
-var monthKey = (environment, date5) => `value-history:${environment}:${date5.slice(0, 7)}`;
+var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
 var round7 = (value) => Math.round(value * 100) / 100;
+var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
+function within(point, bound, side) {
+  if (!bound) return true;
+  const time3 = Date.parse(bound);
+  if (DATE_ONLY2.test(bound) || Number.isNaN(time3)) return side === "from" ? point.date >= bound.slice(0, 10) : point.date <= bound.slice(0, 10);
+  const read = Date.parse(point.at);
+  return side === "from" ? read >= time3 : read <= time3;
+}
 var ValueHistory = class {
   constructor(deps) {
     this.deps = deps;
   }
   deps;
+  /** The simulated account keeps its own days, so switching to a real Demo account starts a clean record. */
+  series(environment) {
+    return this.deps.config.sampleData && environment === "demo" ? "sample" : environment;
+  }
   /** One scheduler tick: about once an hour per environment, record today's value. */
   async snapshot(now = /* @__PURE__ */ new Date()) {
     const credentials = credentialStatus(this.deps.config);
     const recorded = [];
+    const started = Date.now();
     for (const environment of ["demo", "live"]) {
       if (!credentials[environment]) continue;
       const slot = await this.deps.store.increment(`value-snapshot:${environment}`, HOUR_MS2, now.getTime());
       if (slot.count > 1) continue;
       const account = await this.deps.trading.accountSummary(environment);
       if (typeof account.totalValue !== "number" || !Number.isFinite(account.totalValue)) continue;
+      const read = new Date(now.getTime() + Date.now() - started);
       const point = {
-        date: now.toISOString().slice(0, 10),
+        date: read.toISOString().slice(0, 10),
         totalValue: round7(account.totalValue),
         ...typeof account.cash?.availableToTrade === "number" ? { cash: round7(account.cash.availableToTrade) } : {},
         ...typeof account.investments?.currentValue === "number" ? { invested: round7(account.investments.currentValue) } : {},
-        at: now.toISOString()
+        at: read.toISOString(),
+        ...typeof account.id === "number" ? { account: account.id } : {}
       };
       await this.record(environment, point);
-      recorded.push({ environment, point });
+      const { account: _account, ...shown } = point;
+      recorded.push({ environment, point: shown });
     }
     return recorded;
   }
   /** Store a point, replacing any earlier one for the same day. */
   async record(environment, point) {
-    const key = monthKey(environment, point.date);
+    const key = monthKey(this.series(environment), point.date);
     const month = (await this.deps.store.get(key) ?? []).filter((item) => item.date !== point.date);
     const points2 = [...month, point].sort((a, b) => a.date.localeCompare(b.date));
     await this.deps.store.put(key, points2, Date.parse(point.at) + KEEP_MS);
   }
-  /** Recorded days from `from` (a date or time; inclusive) to `to`, oldest first. */
+  /**
+   * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
+   * date-time bound compares when each value was read. After a switch to another Trading 212 account,
+   * only the current account's days are returned.
+   */
   async points(environment, range = {}) {
-    const from = range.from?.slice(0, 10);
-    const to = range.to?.slice(0, 10);
-    return (await this.deps.store.list(`value-history:${environment}:`)).flatMap((entry) => entry.value).filter((point) => (!from || point.date >= from) && (!to || point.date <= to)).sort((a, b) => a.date.localeCompare(b.date));
+    const stored = (await this.deps.store.list(`value-history:${this.series(environment)}:`)).flatMap((entry) => entry.value).sort((a, b) => a.date.localeCompare(b.date));
+    const current = stored[stored.length - 1]?.account;
+    return stored.filter((point) => point.account === current && within(point, range.from, "from") && within(point, range.to, "to")).map(({ account: _account, ...point }) => point);
   }
 };
 

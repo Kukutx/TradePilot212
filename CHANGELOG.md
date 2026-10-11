@@ -2,7 +2,7 @@
 
 ## 2.20.0
 
-- An account value chart. Trading 212's API reports only today's value, so the scheduler now reads the account summary about once an hour and keeps the last value of each UTC day (with cash and holdings), for about six years. `get_portfolio_performance` returns the recorded days in its window as `valueHistory`, and the Performance tab draws them as a line with a crosshair readout (pointer or arrow keys) and a table view. The value includes deposits and withdrawals; days the server was not running have no point.
+- An account value chart. Trading 212's API reports only today's value, so the scheduler now reads the account summary about once an hour and keeps the last value of each UTC day (with cash and holdings), for about six years. `get_portfolio_performance` returns the recorded days in its window as `valueHistory`, and the Performance tab draws them as a line with a crosshair readout (pointer or arrow keys) and a table view. The value includes deposits and withdrawals; days the server was not running have no point, and the chart spaces points by date so such gaps stay visible. The sample account keeps its own record, and after a switch to another Trading 212 account only the current account's days are shown.
 - A dependency-free line chart joins the widget's bar and column charts.
 
 ## 2.19.0

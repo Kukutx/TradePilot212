@@ -178,7 +178,7 @@ async function seedValueHistory(): Promise<void> {
     const wobble = index === days - 1 ? 0 : 0.018 * Math.sin(index / 6) + 0.01 * Math.sin(index / 1.7) - 0.05 * Math.exp(-(((progress - 0.66) / 0.05) ** 2));
     const value = round(total * (0.8 + 0.2 * progress + wobble));
     const at = new Date(today - (days - 1 - index) * 86_400_000);
-    await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString() });
+    await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
   }
 }
 
