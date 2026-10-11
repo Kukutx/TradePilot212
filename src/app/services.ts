@@ -48,7 +48,24 @@ export function createServices(input: ServiceDependencies) {
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
   /** One scheduler tick: settle protective pairs first, then due plans, price alerts and the daily digest. */
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
+  const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
+    try {
+      return await run();
+    } catch (error) {
+      console.error(JSON.stringify({ message: `TradePilot scheduler stage failed: ${name}`, error: error instanceof Error ? error.message : String(error) }));
+      return [];
+    }
+  };
+  const tick = async () => ({
+    links: await stage("protective links", () => links.reconcile()),
+    plans: await stage("plans", () => automation.runDuePlans()),
+    alerts: await stage("alerts", () => alerts.check()),
+    digest: await stage("digest", () => digest.run()),
+  });
+  // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
+  let running: ReturnType<typeof tick> | undefined;
+  const runScheduled = () => (running ??= tick().finally(() => { running = undefined; }));
   /** Plans, alerts, linked pairs, today's usage and the automation settings for one environment. */
   const automationOverview = async (environment: TradingEnvironment): Promise<AutomationOverview> => ({
     kind: "automation",

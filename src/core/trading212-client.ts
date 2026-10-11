@@ -13,6 +13,8 @@ export class ExecutionStatusUnknownError extends Error {
   constructor(message: string, readonly causeValue?: unknown) { super(message); this.name = "ExecutionStatusUnknownError"; }
 }
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const WRITE_RETRY_MIN_MS = 2100;
+const WRITE_RETRY_MAX_MS = 15_000;
 function basic(value: string): string {
   const bytes = new TextEncoder().encode(value); let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -62,7 +64,8 @@ export class Trading212Client {
     if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
   }
   private async request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
-    const attempts = method === "GET" ? 4 : 1;
+    // A rate-limited write was refused before it was processed, so it is the one write sent again.
+    const attempts = method === "GET" ? 4 : 2;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       let response: Response;
       try {
@@ -89,6 +92,11 @@ export class Trading212Client {
         throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
       if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500) && attempt < attempts) {
         await sleep(retryDelayMs(response, attempt)); continue;
+      }
+      if (method !== "GET" && response.status === 429 && attempt < attempts) {
+        const wait = retryDelayMs(response, attempt);
+        // Limit, Stop and Stop-Limit orders allow one request per 2 seconds; a longer wait is reported instead.
+        if (wait <= WRITE_RETRY_MAX_MS) { await sleep(Math.max(wait, WRITE_RETRY_MIN_MS)); continue; }
       }
       const detail = parsed == null || parsed === "" ? "" : typeof parsed === "string" ? parsed : JSON.stringify(parsed);
       throw new Trading212ApiError(`Trading 212 ${method} ${path} failed (${response.status})${detail ? `: ${detail}` : ""}`, response.status, parsed);

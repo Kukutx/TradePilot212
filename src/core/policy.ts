@@ -20,6 +20,8 @@ export interface PolicyInput {
   market?: MarketStatus;
   /** Already submitted today, plus earlier legs of the same basket. */
   usage: DailyUsage;
+  /** Value (account currency) of buys of the same instrument earlier in the same basket. */
+  pendingBuyValue?: number;
   now?: Date;
 }
 
@@ -63,7 +65,7 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
     if (heldValue === undefined || !totalValue || input.estimatedNotional === undefined) {
       checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed: the order's value in the account currency or the account value is unknown." });
     } else {
-      const resulting = (heldValue + input.estimatedNotional) / totalValue;
+      const resulting = (heldValue + (input.pendingBuyValue ?? 0) + input.estimatedNotional) / totalValue;
       const over = resulting > policy.maxPositionWeight + 1e-9;
       checks.push({
         rule: "max_position_weight",

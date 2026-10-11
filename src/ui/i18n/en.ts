@@ -238,6 +238,7 @@ export const en = {
   activityProtectiveLinked: "Stop-loss and take-profit linked",
   activityProtectiveCancelled: "Linked protective order cancelled after the other filled",
   activityProtectiveUnlinked: "Protective orders unlinked",
+  activityProtectiveAttention: "Protective orders need attention",
   errorLiveAckRequired: "Tick the box confirming that this Live order uses real money, then confirm again.",
   liveAckLabel: "I understand this sends a real order with real money to Trading 212 LIVE.",
   activityPlanSkipped: "Investment plan skipped",
