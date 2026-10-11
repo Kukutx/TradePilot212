@@ -46,7 +46,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送；还可以每天推一条账户摘要
 - 界面里的“自动化”页：定投计划、价格提醒、联动的止损止盈、今日额度使用和各项设置一目了然
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入
-- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志和再平衡五个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进和再平衡六个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片

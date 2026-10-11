@@ -280,9 +280,10 @@ function planLine(plan: DcaPlan): string {
     + `${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
 }
 
-function alertLine(alert: PriceAlert): string {
-  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num(alert.price, 6)}` : `${alert.condition.replace("_", " ")} ${num(alert.percent)}%`;
-  return `${alert.ticker} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` — ${alert.note}` : ""}`;
+function alertLine(alert: PriceAlert, instrument?: { name?: string; currencyCode?: string }): string {
+  const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
+  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num(alert.percent)}%`;
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}${unit}` : ", armed"}${alert.note ? ` — ${alert.note}` : ""}`;
 }
 
 function linkLine(link: ProtectiveLink): string {
@@ -290,10 +291,11 @@ function linkLine(link: ProtectiveLink): string {
 }
 
 function automation(data: AutomationOverview): string[] {
+  const instruments = new Map((data.instruments ?? []).map((instrument) => [instrument.ticker, instrument]));
   return [
     ...credentialsLine(data.environment, data.credentials),
     ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
-    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, alertLine)),
+    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`,
   ];
@@ -398,7 +400,7 @@ export function describePayload(data: unknown): string {
     case "pie_change_draft":
     case "pie_change_preview":
     case "pie_change_result": lines = pieChange(payload as unknown as PieChangeDraftPayload | PieChangePreview | PieChangeResult); break;
-    case "price_alerts": lines = rows((payload.alerts as PriceAlert[]) ?? [], alertLine); break;
+    case "price_alerts": lines = rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)); break;
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
     case "trading_policy": lines = policy(payload as unknown as Parameters<typeof policy>[0]); break;
     case "history_export": lines = exports(payload as Parameters<typeof exports>[0]); break;

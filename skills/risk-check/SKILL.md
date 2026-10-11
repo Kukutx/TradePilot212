@@ -14,8 +14,10 @@ Report:
 - the largest holding, the top-5 share and the effective number of holdings;
 - the currency split, noting that FX moves affect returns in the account currency;
 - the cash share;
-- pending orders that look stale, are far from the last known price, or will queue at the next open.
+- pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.
 
 If a large holding has no stop-loss and no price alert, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop.
+
+If the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.
 
 Do not compute weights yourself; quote the tool output. Do not prepare orders unless the user asks. Reply in the user's language.
