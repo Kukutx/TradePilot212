@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.14.1
+
+- New `order-followup` skill: whether an order filled, what is still pending, and cancelling one through `review_order_cancel`, which the user confirms in the widget.
+- The risk-check, portfolio-review and trade-journal skills use `get_order_status`, `get_cash_history` and `review_order_cancel` where they help.
+- Price alerts in the automation text name the instrument and the price's currency (for example `below 8500 GBX`).
+- The plugin's "Max order value" option says the cap is in your account currency, as it has been since 2.12.
+- Unused widget messages removed.
+
 ## 2.14.0
 
 Cancelling from the chat

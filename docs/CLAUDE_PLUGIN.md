@@ -23,7 +23,7 @@ When the plugin is enabled, Claude Code asks for its options:
 | Trading 212 Demo / Live API key and secret | Stored in the system credential store (marked sensitive). Leave unused environments empty. |
 | Default environment | `demo` unless you choose otherwise. |
 | Enable order tools | **Off by default.** See below. |
-| Max order value | Per-order value cap; `0` disables it. |
+| Max order value | Per-order value cap in your account currency; `0` disables it. |
 | Run Demo plans unattended | **Off by default.** Lets due Demo investment plans marked `autoExecute` place orders on their own while Claude Code is running. Needs order tools enabled. Live plans always wait for you. |
 | Notification webhook | Optional HTTPS webhook (Slack, Discord or your own) for due plans, fills and price alerts. Only sent while Claude Code runs the server. |
 | Quote source / Quote API key | Prices for instruments you do not hold. `stooq` (default) is free with no key; `finnhub`, `twelvedata` and `alphavantage` need a free key. |
@@ -42,6 +42,7 @@ The plugin ignores `.env` files in the folder you open Claude Code in, so anothe
 | `/tradepilot212:daily-brief` | Read-only pre-market brief with short, medium, and long ideas |
 | `/tradepilot212:risk-check` | Concentration, currency exposure, cash, and risky pending orders |
 | `/tradepilot212:trade-journal` | Reviewing recent fills, fees, and FX |
+| `/tradepilot212:order-followup` | Whether an order filled, what is still pending, and cancelling one after your confirmation |
 | `/tradepilot212:rebalance` | Moving the portfolio toward target weights as one reviewed basket |
 
 Claude also picks these skills up automatically when your request matches.

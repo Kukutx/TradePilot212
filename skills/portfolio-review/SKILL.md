@@ -14,6 +14,7 @@ Produce a factual review of the user's Trading 212 account. Every number must co
 3. Call `get_income_summary` for the same window.
 4. Call `analyze_portfolio_allocation`.
 5. Optionally call `get_portfolio_dashboard` to show the interactive view.
+6. If the user asks which dividends, deposits or fees made up a total, call `get_cash_history` for the same window, filtered by `types` or `ticker`, and list the items.
 
 ## Report shape
 

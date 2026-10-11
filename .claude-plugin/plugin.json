@@ -1,7 +1,7 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.14.0",
+  "version": "2.14.1",
   "description": "Trading 212 portfolio analytics, pies, rebalancing, protective orders, investment plans, price alerts, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",
@@ -70,7 +70,7 @@
     "max_order_notional": {
       "type": "number",
       "title": "Max order value",
-      "description": "Per-order value cap in the instrument currency. 0 disables it.",
+      "description": "Per-order value cap in your account currency. 0 disables it.",
       "default": 5000,
       "min": 0
     },

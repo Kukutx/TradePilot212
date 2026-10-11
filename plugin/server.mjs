@@ -37424,7 +37424,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.14.0"
+  version: "2.14.1"
 };
 
 // src/core/text-summary.ts
@@ -37640,18 +37640,20 @@ function planLine(plan) {
   const legs = plan.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
   return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
 }
-function alertLine(alert) {
-  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
-  return `${alert.ticker} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
+function alertLine(alert, instrument) {
+  const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
+  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
 }
 function linkLine(link) {
   return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;
 }
 function automation(data) {
+  const instruments = new Map((data.instruments ?? []).map((instrument) => [instrument.ticker, instrument]));
   return [
     ...credentialsLine(data.environment, data.credentials),
     ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
-    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, alertLine)),
+    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num2(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`
   ];
@@ -37786,7 +37788,7 @@ function describePayload(data) {
       lines = pieChange(payload);
       break;
     case "price_alerts":
-      lines = rows(payload.alerts ?? [], alertLine);
+      lines = rows(payload.alerts ?? [], (alert) => alertLine(alert));
       break;
     case "price_alert":
       lines = payload.alert ? [alertLine(payload.alert)] : [];

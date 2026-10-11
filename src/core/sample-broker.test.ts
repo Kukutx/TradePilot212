@@ -93,6 +93,7 @@ describe("sample data mode", () => {
     await services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "below", price: 8_500 });
     const overview = await services.automationOverview("demo");
     expect(overview.instruments).toEqual([{ ticker: "VUSAl_EQ", name: "Vanguard S&P 500 UCITS ETF (Dist)", shortName: "VUSA", currencyCode: "GBX", type: "ETF" }]);
+    expect(describePayload(overview)).toContain("VUSAl_EQ (Vanguard S&P 500 UCITS ETF (Dist)) below 8500 GBX");
     expect((await services.automationOverview("live")).instruments).toBeUndefined();
 
     const missing = await services.insights.allocation("live").catch((error: unknown) => error);
