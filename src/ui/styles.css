@@ -261,6 +261,39 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .positionFacts strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 
 .orderList { display: grid; }
+.holdingOpen { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 44px; margin: -6px 0; padding: 6px 4px 6px 0; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.holdingOpen:hover .assetIdentity strong { text-decoration: underline; text-underline-offset: 3px; }
+.holdingOpen:focus-visible { outline: 2px solid var(--tp-chart); outline-offset: 2px; }
+.holdingOpen .assetIdentity { flex: 1 1 auto; }
+.holdingOpenChevron { flex: none; color: var(--tp-muted); font-size: 18px; line-height: 1; }
+.positionCardHeader .holdingOpen { flex: 1 1 auto; width: auto; }
+.holdingNav { display: flex; }
+.holdingNav .linkButton { padding-left: 0; text-decoration: none; font-size: 14px; }
+.holdingName { margin: 0; font-size: 22px; line-height: 1.2; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.holdingMeta { display: block; margin: 4px 0 14px; color: var(--tp-muted); font-size: 12px; overflow-wrap: anywhere; }
+.holdingActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.holdingActions button { min-width: 96px; }
+.levelLadder { position: relative; list-style: none; margin: 0 0 8px; padding: 0; }
+.levelLadder::before { content: ""; position: absolute; left: 6px; top: 18px; bottom: 18px; width: 2px; background: var(--tp-border); }
+.levelRow { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 64px; align-items: center; gap: 10px; min-height: 40px; padding: 6px 4px 6px 0; border-radius: 10px; font-size: 13px; }
+.levelRow.last { background: var(--tp-bg-soft); font-weight: 720; }
+.levelLabel { min-width: 0; overflow-wrap: anywhere; }
+.levelPrice, .levelGap { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.levelGap { color: var(--tp-muted); font-size: 12px; }
+.levelMark { justify-self: center; width: 10px; height: 10px; box-shadow: 0 0 0 3px var(--tp-bg); }
+.levelRow.last .levelMark { width: 12px; height: 12px; border-radius: 50%; background: var(--tp-chart); box-shadow: 0 0 0 3px var(--tp-bg-soft); }
+.levelRow.average .levelMark { border: 2px solid var(--tp-muted); border-radius: 50%; background: var(--tp-bg); }
+.levelRow.stop .levelMark { border-radius: 2px; background: var(--tp-red); }
+.levelRow.limit .levelMark { width: 9px; height: 9px; transform: rotate(45deg); background: var(--tp-green); }
+.levelRow.alert .levelMark { width: 12px; height: 11px; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: var(--tp-amber); box-shadow: none; }
+.historyList { list-style: none; margin: 0; padding: 0; display: grid; }
+.historyList li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--tp-border); }
+.historyList li:last-child { border-bottom: 0; }
+.historyList li > div { min-width: 0; }
+.historyList strong { display: block; font-size: 13px; font-variant-numeric: tabular-nums; }
+.historyList small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
+.historyList .historyAmount { text-align: right; }
+.panelTotal { color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .orderRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--tp-border); }
 .orderRow:last-child { border-bottom: 0; }
 .orderIdentity strong, .orderIdentity span { display: block; }

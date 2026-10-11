@@ -1,4 +1,4 @@
-import type { ActivityEvent, DashboardPayload, Position } from "../../shared/contracts";
+import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
@@ -15,6 +15,7 @@ export function PortfolioView({
   t,
   writeEnabled,
   onCancel,
+  onOpen,
 }: {
   payload: DashboardPayload;
   book?: InstrumentBook;
@@ -22,6 +23,8 @@ export function PortfolioView({
   t: Translator;
   writeEnabled: boolean;
   onCancel: (orderId: string) => void;
+  /** Opens one holding's detail. */
+  onOpen?: (ticker: string) => void;
 }) {
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
@@ -58,7 +61,7 @@ export function PortfolioView({
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
                     return (
                       <tr key={position.instrument.ticker}>
-                        <td><AssetIdentity position={position} book={book} /></td>
+                        <td>{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}</td>
                         <td>{qty(position.quantity, locale)}</td>
                         <td>{money(position.currentPrice, position.instrument.currencyCode, locale)}</td>
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
@@ -73,7 +76,7 @@ export function PortfolioView({
             </div>
             <div className="mobilePositionList">
               {payload.positions.map((position) => (
-                <PositionCard key={position.instrument.ticker} position={position} accountCurrency={currency} book={book} locale={locale} t={t} />
+                <PositionCard key={position.instrument.ticker} position={position} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})} />
               ))}
             </div>
           </>
@@ -82,32 +85,55 @@ export function PortfolioView({
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={payload.orders.length} />
-        {payload.orders.length === 0 ? (
-          <div className="emptyState compact">{t("noOrders")}</div>
-        ) : (
-          <div className="orderList">
-            {payload.orders.map((order, index) => {
-              const id = String(order.id ?? "");
-              const row = summarizeOrder(order, t, locale, payload.positions, book);
-              const detail = [row.type, ...row.prices, row.detail, row.status].filter(Boolean).join(" · ");
-              return (
-                <div className="orderRow" key={id || index}>
-                  <div className="orderIdentity" title={row.ticker}>
-                    <strong>{row.name}</strong>
-                    <span><b className={`orderSide ${row.side}`}>{row.side === "sell" ? t("sell") : t("buy")}</b> · {detail}</span>
-                    {row.distance && <span className="orderDistance">{row.distance}</span>}
-                  </div>
-                  <div className="orderQuantity">{qty(row.quantity, locale)}</div>
-                  {writeEnabled && <button className="secondaryButton danger" type="button" data-focus-id={`cancel-${id}`} disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <PendingOrderList orders={payload.orders} positions={payload.positions} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} />
       </section>
 
       <ActivityPanel activity={payload.activity ?? []} book={book} locale={locale} t={t} />
     </main>
+  );
+}
+
+/** Pending orders with their prices, status and distance from the last price, each with a cancel button when writes are on. */
+export function PendingOrderList({ orders, positions, book, locale, t, writeEnabled, onCancel }: {
+  orders: PendingOrder[];
+  positions: Position[];
+  book?: InstrumentBook;
+  locale: SupportedLocale;
+  t: Translator;
+  writeEnabled: boolean;
+  onCancel: (orderId: string) => void;
+}) {
+  if (orders.length === 0) return <div className="emptyState compact">{t("noOrders")}</div>;
+  return (
+    <div className="orderList">
+      {orders.map((order, index) => {
+        const id = String(order.id ?? "");
+        const row = summarizeOrder(order, t, locale, positions, book);
+        const detail = [row.type, ...row.prices, row.detail, row.status].filter(Boolean).join(" · ");
+        return (
+          <div className="orderRow" key={id || index}>
+            <div className="orderIdentity" title={row.ticker}>
+              <strong>{row.name}</strong>
+              <span><b className={`orderSide ${row.side}`}>{row.side === "sell" ? t("sell") : t("buy")}</b> · {detail}</span>
+              {row.distance && <span className="orderDistance">{row.distance}</span>}
+            </div>
+            <div className="orderQuantity">{qty(row.quantity, locale)}</div>
+            {writeEnabled && <button className="secondaryButton danger" type="button" data-focus-id={`cancel-${id}`} disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A holding's name as a button that opens its detail. */
+function OpenHolding({ position, book, t, onOpen }: { position: Position; book?: InstrumentBook; t: Translator; onOpen: (ticker: string) => void }) {
+  const label = instrumentLabel(position.instrument.ticker, book, position.instrument);
+  return (
+    <button type="button" className="holdingOpen" aria-label={fill(t("openHolding"), { name: label.name })} onClick={() => onOpen(position.instrument.ticker)}>
+      <AssetIdentity position={position} book={book} />
+      <span className="holdingOpenChevron" aria-hidden="true">›</span>
+    </button>
   );
 }
 
@@ -156,18 +182,20 @@ export function PositionCard({
   book,
   locale,
   t,
+  onOpen,
 }: {
   position: Position;
   accountCurrency: string;
   book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
+  onOpen?: (ticker: string) => void;
 }) {
   const positionPnl = walletNumber(position, "unrealizedProfitLoss");
   const positionValue = walletNumber(position, "currentValue");
   return (
     <article className="positionCard">
-      <div className="positionCardHeader"><AssetIdentity position={position} book={book} /><span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span></div>
+      <div className="positionCardHeader">{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}<span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span></div>
       <div className="positionFacts">
         <div><span>{t("positionValue")}</span><strong>{money(positionValue, accountCurrency, locale)}</strong></div>
         <div><span>{t("currentPrice")}</span><strong>{money(position.currentPrice, position.instrument.currencyCode, locale)}</strong></div>

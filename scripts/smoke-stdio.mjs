@@ -45,15 +45,18 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview"])
+for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
 const writable = await listTools({ TRADEPILOT_ALLOW_WRITES: "true" });
 if (!["app_execute_order", "app_execute_basket", "app_execute_pie_change", "manage_investment_plans", "manage_price_alerts", "review_protective_orders", "review_pie_change"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
 // Sample data: the bundle serves a simulated account with no Trading 212 keys and no network.
-const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY: "x", T212_LIVE_API_SECRET: "x" }, [["get_portfolio_dashboard", {}], ["get_portfolio_dashboard", { environment: "live" }]]);
-const [dashboard, live] = sample.results;
+const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY: "x", T212_LIVE_API_SECRET: "x" }, [["get_portfolio_dashboard", {}], ["get_portfolio_dashboard", { environment: "live" }], ["get_holding_detail", { instrument: "NVDA" }]]);
+const [dashboard, live, holding] = sample.results;
+// One holding: its position, the sample stop-loss and a year of fills.
+const detail = holding.structuredContent;
+if (holding.isError || detail?.kind !== "holding" || detail.ticker !== "NVDA_US_EQ" || !detail.position || detail.orders?.length !== 1 || !detail.history?.fills?.length) throw new Error(`Holding detail failed: ${JSON.stringify(holding).slice(0, 300)}`);
 if (dashboard.isError || !dashboard.structuredContent?.credentials?.sample || !(dashboard.structuredContent.positions?.length > 0)) throw new Error(`Sample dashboard failed: ${JSON.stringify(dashboard).slice(0, 300)}`);
 if (!live.isError && live.structuredContent?.credentials?.live) throw new Error("Live must stay off in sample mode");
 // Hosts that show only text get the holdings in the tool text too.

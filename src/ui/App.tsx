@@ -20,6 +20,7 @@ import type {
   TradingEnvironment,
 } from "../shared/contracts";
 import type { AutomationOverview, BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
+import type { HoldingDetail } from "../shared/holding";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
@@ -33,6 +34,7 @@ import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
 import { AutomationView } from "./views/AutomationView";
+import { HoldingView } from "./views/HoldingView";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
 type BasePayload =
@@ -52,6 +54,7 @@ type BasePayload =
   | AutomationOverview
   | PieChangeDraftPayload
   | CancelDraftPayload
+  | HoldingDetail
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
@@ -224,6 +227,8 @@ function ViewTabs({ tab, busy, t, onSelect }: { tab: PortfolioTab; busy: boolean
 
 export default function App() {
   const [base, setBase] = useState<BasePayload | null>(null);
+  // The dashboard a holding was opened from, so Back returns to it without a new read.
+  const [holdingFrom, setHoldingFrom] = useState<DashboardPayload | null>(null);
   const [tab, setTab] = useState<PortfolioTab>("holdings");
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
@@ -290,6 +295,8 @@ export default function App() {
   function showPayload(payload: BasePayload): void {
     learn(payload);
     setBase(payload);
+    // A page the host hands over starts fresh: Back from a holding then reads the dashboard again.
+    setHoldingFrom(null);
     setProblem(null);
     setInsightError(null);
     const env = initialEnvironment(payload);
@@ -433,9 +440,11 @@ export default function App() {
   }
 
   async function refresh(env = environment, target: PortfolioTab = tab): Promise<void> {
-    if (target !== "holdings" && base?.kind !== "trade_plan" && base?.kind !== "automation" && base?.kind !== "pies") return loadInsight(target, env);
+    if (target !== "holdings" && base?.kind !== "trade_plan" && base?.kind !== "automation" && base?.kind !== "pies" && base?.kind !== "holding") return loadInsight(target, env);
     await run("errorTitleRefresh", async () => {
-      if (base?.kind === "automation") {
+      if (base?.kind === "holding") {
+        setBase(await callTool<HoldingDetail>("app_get_holding", { environment: env, instrument: base.ticker }));
+      } else if (base?.kind === "automation") {
         setBase(await callTool<AutomationOverview>("app_get_automation", { environment: env }));
       } else if (base?.kind === "pies") {
         setBase(await callTool<PiesPayload>("app_list_pies", { environment: env }));
@@ -449,6 +458,29 @@ export default function App() {
         setTab("holdings");
       }
     }, () => void refresh(env, target));
+  }
+
+  /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
+  async function openHolding(ticker: string): Promise<void> {
+    await run("errorTitleLoad", async () => {
+      const detail = await callTool<HoldingDetail>("app_get_holding", { environment, instrument: ticker });
+      setHoldingFrom(base?.kind === "portfolio" ? base : null);
+      setBase(detail);
+    }, () => void openHolding(ticker));
+  }
+
+  async function backFromHolding(): Promise<void> {
+    if (holdingFrom && holdingFrom.environment === environment) {
+      setBase(holdingFrom);
+      setHoldingFrom(null);
+      setTab("holdings");
+      return;
+    }
+    setHoldingFrom(null);
+    await run("errorTitleRefresh", async () => {
+      setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment }));
+      setTab("holdings");
+    }, () => void backFromHolding());
   }
 
   async function switchEnvironment(next: TradingEnvironment): Promise<void> {
@@ -506,6 +538,8 @@ export default function App() {
       setVerification(null);
       setPreview(null);
       setDraft(null);
+      // The saved dashboard no longer matches the account; Back from a holding reads it again.
+      setHoldingFrom(null);
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -632,6 +666,7 @@ export default function App() {
       setVerification(null);
       setCancelPreview(null);
       if (base?.kind === "cancel_draft") setCancelDraftClosed(true);
+      setHoldingFrom(null);
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -641,6 +676,7 @@ export default function App() {
     const verificationId = execution.verificationId;
     const checked = await run("errorTitleVerify", async () => {
       setVerification(await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId }));
+      setHoldingFrom(null);
     });
     if (checked) await refresh(environment, "holdings");
   }
@@ -666,7 +702,7 @@ export default function App() {
   const loading = status === "loading";
   const portfolioLike = base?.kind === "portfolio" || isInsight(base);
   // Views that read an account: without its API key they would only show an empty account.
-  const accountView = portfolioLike || base?.kind === "trade_plan" || base?.kind === "pies" || base?.kind === "automation";
+  const accountView = portfolioLike || base?.kind === "trade_plan" || base?.kind === "pies" || base?.kind === "automation" || base?.kind === "holding";
   const missingCredentials = (accountView && !credentials[environment])
     || (base?.kind === "error" && base.error.code === "CREDENTIALS_NOT_CONFIGURED")
     || (tab !== "holdings" && insightError?.kind === tab && insightError.problem.code === "CREDENTIALS_NOT_CONFIGURED");
@@ -763,7 +799,7 @@ export default function App() {
             {base?.kind === "error" && <ErrorCard title={t("errorTitleLoad")} message={formatProblem(base.error, t, locale)} retryLabel={t("retry")} busy={loading} onRetry={() => void refresh(environment, "holdings")} />}
             {portfolioLike && <ViewTabs tab={tab} busy={loading} t={t} onSelect={(next) => void selectTab(next)} />}
             {base?.kind === "portfolio" && tab === "holdings" && (
-              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} />
+              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />
@@ -794,6 +830,25 @@ export default function App() {
                   const next = defaultDraft(environment, candidate);
                   if (!next) return;
                   setDraft(next);
+                  setPreview(null);
+                  setExecution(null);
+                }}
+              />
+            )}
+            {base?.kind === "holding" && (
+              <HoldingView
+                data={base}
+                book={book}
+                locale={locale}
+                t={t}
+                writeEnabled={writeEnabled}
+                busy={loading}
+                onBack={() => void backFromHolding()}
+                onCancel={(id) => void startCancel(id)}
+                onTrade={(side) => {
+                  // One share to start; the editor changes the size and type before anything is reviewed.
+                  const available = base.position?.quantityAvailableForTrading ?? 0;
+                  setDraft({ environment, ticker: base.ticker, side, type: "market", quantity: side === "sell" ? Math.min(1, available) || available : 1 });
                   setPreview(null);
                   setExecution(null);
                 }}

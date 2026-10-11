@@ -2,6 +2,7 @@
 // terminals) show the model only a tool's text, so every result carries the facts needed to answer
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
+import type { HoldingDetail } from "../shared/holding.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
@@ -174,6 +175,27 @@ function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[]
   const high = points.reduce((max, point) => (point.totalValue > max.totalValue ? point : max));
   return [
     `Account value recorded on ${points.length} day(s): ${num(first.totalValue)} on ${first.date} to ${num(last.totalValue)} on ${last.date} (${signed(change)}${first.totalValue ? `, ${signed((change / first.totalValue) * 100, 1)}%` : ""}; includes deposits and withdrawals). Low ${num(low.totalValue)} on ${low.date}, high ${num(high.totalValue)} on ${high.date}.`,
+  ];
+}
+
+function holding(data: HoldingDetail): string[] {
+  const c = data.accountCurrency;
+  const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
+  const market = data.market ? `; market ${data.market.session.replaceAll("_", " ")}${data.market.isOpen && data.market.nextClose ? `, closes ${minute(data.market.nextClose)}` : !data.market.isOpen && data.market.nextOpen ? `, opens ${minute(data.market.nextOpen)}` : ""}` : "";
+  const weight = data.weight === undefined ? "" : `, ${pct(data.weight)} of the account${data.targetWeight === undefined ? "" : ` (target ${pct(data.targetWeight)})`}`;
+  const history = data.history;
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
+    data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
+    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
+    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
+    ...(history
+      ? [
+          ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+          `Dividends since ${history.from.slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
+        ]
+      : [`History not read: ${data.historyProblem ?? "unknown error"}.`]),
   ];
 }
 
@@ -426,6 +448,7 @@ export function describePayload(data: unknown): string {
     case "performance": lines = performance(payload as unknown as PerformanceSummary); break;
     case "income": lines = income(payload as unknown as IncomeSummary); break;
     case "tax_year": lines = taxYear(payload as unknown as TaxYearSummary); break;
+    case "holding": lines = holding(payload as unknown as HoldingDetail); break;
     case "target_allocation": lines = targetAllocation(payload as unknown as Parameters<typeof targetAllocation>[0]); break;
     case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;

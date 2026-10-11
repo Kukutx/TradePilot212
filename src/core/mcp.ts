@@ -16,6 +16,7 @@ import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate, Tradi
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
+import { holdingDetail } from "./holding.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -125,6 +126,7 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const holdingDeps = { trading, insights, alerts, targets: targetAllocations };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);
@@ -389,6 +391,27 @@ export function createMcpServer(
       try {
         const data = await insights.marketHours(environment, instrument);
         return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}${data.nextClose ? `, next close ${data.nextClose}` : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_holding_detail",
+    {
+      title: "Trading 212 Holding Detail",
+      description:
+        "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, and the last 12 months of fills and dividends. Works for instruments not held too. Renders the holding view; read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, instrument: z.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
+      annotations: readOnly,
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const data = { ...(await holdingDetail(holdingDeps, environment, instrument)), writeEnabled: canWrite };
+        return result(data, `Rendered ${data.ticker} on ${environment.toUpperCase()}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -1066,6 +1089,26 @@ export function createMcpServer(
       try {
         const data = await dashboard(environment);
         return result(data, "Dashboard refreshed.");
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "app_get_holding",
+    {
+      title: "Open holding",
+      description: "App-only holding detail.",
+      inputSchema: z.object({ environment: environmentEnum, instrument: z.string().min(1) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const data = { ...(await holdingDetail(holdingDeps, environment, instrument)), writeEnabled: canWrite };
+        return result(data, `Opened ${data.ticker}.`);
       } catch (error) {
         return toolError(error);
       }

@@ -1,4 +1,4 @@
-import type { BasketDraftPayload, BasketExecutionResult, BasketLeg, BasketPurpose, PolicyCheck, RebalanceNote, RebalancePlan } from "../../shared/automation";
+import type { AlertCondition, BasketDraftPayload, BasketExecutionResult, BasketLeg, BasketPurpose, PolicyCheck, RebalanceNote, RebalancePlan } from "../../shared/automation";
 import type { ActivityEvent, ExecutionVerificationResult, Instrument, OrderNotice, OrderSizing, OrderType, StructuredError, TimeValidity, TradingEnvironment } from "../../shared/contracts";
 import type { PieChangePreview, PieChangeResult, PieInstrumentIssue } from "../../shared/pies";
 import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
@@ -26,6 +26,19 @@ const COUNT_KEYS = {
 export function countText(kind: keyof typeof COUNT_KEYS, count: number, t: Translator, locale: SupportedLocale): string {
   const [one, other] = COUNT_KEYS[kind];
   return plural(count, locale, t(one), t(other));
+}
+
+const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
+  above: "alertAbove",
+  below: "alertBelow",
+  trailing_drop: "alertTrailing",
+  gain_percent: "alertGain",
+  loss_percent: "alertLoss",
+};
+
+/** "At or above", "Drop from high of" …, followed in the UI by the price or percent. */
+export function alertConditionLabel(condition: AlertCondition, t: Translator): string {
+  return t(CONDITION_KEY[condition]);
 }
 
 export function envLabel(environment: TradingEnvironment, t: Translator): string {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.22.0
+
+- A holding page. `get_holding_detail` shows one instrument in one account, held or not:
+  - the position, with its share of the account and any saved target weight;
+  - the market session;
+  - pending orders, with how far each stop or limit is from the last price, and price alerts;
+  - the last 12 months of fills and dividends, with the dividend total.
+
+  A failed history read (for example Trading 212's rate limit) leaves the rest on the page and says why.
+- In the widget, each holding on the dashboard opens its page. A price ladder lists, highest first, the last price, the average cost, open stops and limits, and the levels where armed alerts fire, each with its distance from the last price. Buy and Sell open the order editor for that instrument, a pending order can be cancelled from the page, and Back returns to the dashboard without reading it again.
+- The text for text-only hosts covers the same facts. The order-followup and portfolio-review skills point to the holding page for one instrument.
+
 ## 2.21.0
 
 - Pending orders on held instruments say how far their trigger is from the last price, e.g. "8.3% below the last price ($128.75)". A stop or stop-limit is measured from its stop price, a limit from its limit price. Trading 212 has no quote endpoint, so orders on instruments you do not hold have no distance. The text that text-only hosts read carries the same distance, and reads "limit 215" instead of "limit limit 215".

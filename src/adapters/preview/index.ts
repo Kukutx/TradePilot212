@@ -80,6 +80,7 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "allocation", group: "portfolio", tool: "analyze_portfolio_allocation", args: {}, prompt: { en: "Check my allocation for concentration risk.", zh: "检查一下我的持仓是否过于集中。" } },
     { id: "performance", group: "portfolio", tool: "get_portfolio_performance", args: {}, prompt: { en: "How has my portfolio performed this year?", zh: "我今年的收益怎么样？" } },
     { id: "income", group: "portfolio", tool: "get_income_summary", args: {}, prompt: { en: "What income did my portfolio pay?", zh: "我的组合派了多少股息和利息？" } },
+    { id: "holding", group: "portfolio", tool: "get_holding_detail", args: { instrument: "NVDA" }, prompt: { en: "Show me everything about my NVIDIA position.", zh: "看看我的英伟达持仓详情。" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",
       args: { candidates: [
