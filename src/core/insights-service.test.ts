@@ -93,3 +93,33 @@ describe("window parsing", () => {
     expect(parseWindow({ from: "2024-02-29", to: "2024-03-01T08:00:00Z" }, now).from?.toISOString()).toBe("2024-02-29T00:00:00.000Z");
   });
 });
+
+describe("tax year summary", () => {
+  const service = (calls: string[]) => new InsightsService({
+    config,
+    instruments: async () => [],
+    fetcher: fetcherFor({
+      "https://demo.test/api/v0/equity/account/summary": { currency: "GBP", totalValue: 1000 },
+      "https://demo.test/api/v0/equity/history/orders?limit=50": { items: [
+        { order: { ticker: "VUSAl_EQ", side: "SELL" }, fill: { filledAt: "2026-05-01T10:00:00Z", quantity: -2, walletImpact: { netValue: 180, realisedProfitLoss: -12 } } },
+        { order: { ticker: "VUSAl_EQ", side: "SELL" }, fill: { filledAt: "2026-04-01T10:00:00Z", quantity: -1, walletImpact: { netValue: 95, realisedProfitLoss: 7 } } },
+      ] },
+      "https://demo.test/api/v0/equity/history/dividends?limit=50": { items: [] },
+      "https://demo.test/api/v0/equity/history/transactions?limit=50": { items: [] },
+    }, calls),
+  });
+
+  it("defaults to the latest tax year that has started", async () => {
+    const calls: string[] = [];
+    const result = await service(calls).taxYear("demo", { yearStart: "04-06" }, new Date("2026-10-01T00:00:00Z"));
+    expect(result.year).toBe(2026);
+    expect(result.disposals).toEqual({ count: 1, proceeds: 180, gains: 0, losses: -12, net: -12 });
+    expect(result.byTicker).toEqual([{ ticker: "VUSAl_EQ", disposals: 1, proceeds: 180, realizedProfitLoss: -12 }]);
+    expect(calls.some((url) => url.includes("/equity/history/orders"))).toBe(true);
+  });
+
+  it("rejects a start day that does not exist and a year that has not started", async () => {
+    await expect(service([]).taxYear("demo", { yearStart: "02-30" })).rejects.toThrow(/yearStart must be a real month and day/);
+    await expect(service([]).taxYear("demo", { year: 2027 }, new Date("2026-10-01T00:00:00Z"))).rejects.toThrow(/has not started yet/);
+  });
+});

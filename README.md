@@ -35,7 +35,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments
-- a Claude Code plugin with a local stdio server and review, brief, risk, journal, order follow-up and rebalance skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
+- a Claude Code plugin with a local stdio server and review, brief, risk, journal, order follow-up, rebalance and tax-year skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - a local preview of the widget on the sample account (`pnpm preview`), with language, theme and screen-width switches ([docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards

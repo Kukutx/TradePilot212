@@ -201,6 +201,8 @@ export const en = {
   interest: "Interest",
   costs: "Costs",
   costBreakdown: "Costs by type",
+  annualizedReturn: "Annualized return (money-weighted)",
+  annualizedSince: "since {date}",
   simpleReturn: "Return on contributions",
   tradesCount: "Trades",
   buys: "Buys",

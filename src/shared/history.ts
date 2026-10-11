@@ -142,8 +142,36 @@ export interface PerformanceSummary {
   currentValue?: number;
   /** Simple gain on net contributions: (currentValue - netContributions) / netContributions. Only for all-time windows. */
   simpleReturn?: number;
+  /**
+   * Money-weighted annual return (XIRR) on deposits and withdrawals, with today's value as the last flow.
+   * Only for all-time windows with complete history and at least a year since the first deposit.
+   */
+  annualizedReturn?: number;
+  /** Date of the first deposit the annual return counts from. */
+  annualizedSince?: string;
   trades: { buys: number; sells: number; turnover: number };
   byTicker: Array<{ ticker: string; realizedProfitLoss: number; dividends: number; costs: number }>;
+  notes: string[];
+  timestamp: string;
+}
+
+/** One tax year's sales, income and costs, for preparing a tax return. Not a tax calculation. */
+export interface TaxYearSummary {
+  kind: "tax_year";
+  environment: TradingEnvironment;
+  accountCurrency: string;
+  /** Calendar year the tax year starts in, and the month-day it starts on ("01-01", or "04-06" in the UK). */
+  year: number;
+  yearStart: string;
+  /** From the first moment of the tax year to the last; `ended` is false while it is still running. */
+  period: { from: string; to: string };
+  ended: boolean;
+  /** Sales: Trading 212's realised P/L per sale, gains and losses kept apart. */
+  disposals: { count: number; proceeds: number; gains: number; losses: number; net: number };
+  byTicker: Array<{ ticker: string; disposals: number; proceeds: number; realizedProfitLoss: number }>;
+  income: { dividends: number; interest: number };
+  costs: { total: number; byType: MoneyBucket[] };
+  truncated: boolean;
   notes: string[];
   timestamp: string;
 }

@@ -36439,7 +36439,29 @@ var DEPOSIT = /* @__PURE__ */ new Set(["DEPOSIT"]);
 var WITHDRAW = /* @__PURE__ */ new Set(["WITHDRAW", "WITHDRAWAL"]);
 var INTEREST = /* @__PURE__ */ new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
 function fillTicker(item) {
-  return (item.order?.ticker ?? item.order?.instrument?.ticker ?? "?").toUpperCase();
+  return item.order?.ticker ?? item.order?.instrument?.ticker ?? "?";
+}
+var YEAR_MS = 365.25 * 864e5;
+function moneyWeightedReturn(flows) {
+  const usable = flows.filter((flow) => Number.isFinite(flow.at) && Number.isFinite(flow.amount) && flow.amount !== 0);
+  if (!usable.some((flow) => flow.amount < 0) || !usable.some((flow) => flow.amount > 0)) return void 0;
+  const start = Math.min(...usable.map((flow) => flow.at));
+  const value = (rate) => usable.reduce((sum, flow) => sum + flow.amount / (1 + rate) ** ((flow.at - start) / YEAR_MS), 0);
+  let low = -0.9999, high = 100;
+  let atLow = value(low), atHigh = value(high);
+  if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return void 0;
+  for (let step = 0; step < 200 && high - low > 1e-10; step++) {
+    const middle = (low + high) / 2;
+    const atMiddle = value(middle);
+    if (Math.sign(atMiddle) === Math.sign(atLow)) {
+      low = middle;
+      atLow = atMiddle;
+    } else {
+      high = middle;
+      atHigh = atMiddle;
+    }
+  }
+  return (low + high) / 2;
 }
 function summarizePerformance(input2) {
   const { window } = input2;
@@ -36485,7 +36507,7 @@ function summarizePerformance(input2) {
   for (const item of dividends) {
     const amount = item.amount ?? 0;
     dividendTotal += amount;
-    tickerRow((item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase()).dividends += amount;
+    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount;
   }
   const costs = [...taxes, ...transactionCosts];
   const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
@@ -36497,6 +36519,25 @@ function summarizePerformance(input2) {
   ];
   if (input2.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
   if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
+  const endsNow = Math.abs((input2.now ?? /* @__PURE__ */ new Date()).getTime() - window.to.getTime()) <= 864e5;
+  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before today, because only today's account value is available.");
+  const measurable = !window.from && endsNow && !input2.truncated && currentValue !== void 0;
+  let annualized;
+  if (measurable) {
+    const flows = transactions.flatMap((item) => {
+      const type = (item.type ?? "").toUpperCase();
+      const at = Date.parse(item.dateTime ?? "");
+      const amount = Math.abs(item.amount ?? 0);
+      return DEPOSIT.has(type) ? [{ at, amount: -amount }] : WITHDRAW.has(type) ? [{ at, amount }] : [];
+    }).filter((flow) => Number.isFinite(flow.at));
+    const first = flows.length ? Math.min(...flows.map((flow) => flow.at)) : void 0;
+    if (first !== void 0 && window.to.getTime() - first >= 365 * 864e5) {
+      const rate = moneyWeightedReturn([...flows, { at: window.to.getTime(), amount: currentValue }]);
+      if (rate !== void 0) annualized = { rate, since: new Date(first).toISOString() };
+    } else if (first !== void 0) {
+      notes.push("annualizedReturn needs at least a year of deposits; it is omitted until then.");
+    }
+  }
   return {
     kind: "performance",
     environment: input2.environment,
@@ -36509,7 +36550,8 @@ function summarizePerformance(input2) {
     realizedProfitLoss: round4(realized),
     ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
     ...currentValue === void 0 ? {} : { currentValue },
-    ...!window.from && !input2.truncated && currentValue !== void 0 && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
+    ...measurable && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
+    ...annualized ? { annualizedReturn: Math.round(annualized.rate * 1e4) / 1e4, annualizedSince: annualized.since } : {},
     trades: { buys, sells, turnover: round4(turnover) },
     byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round4(row.realizedProfitLoss), dividends: round4(row.dividends), costs: round4(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
     notes,
@@ -36520,7 +36562,7 @@ function forwardDividends(dividends, positions, to) {
   const yearAgo = new Date(to.getTime() - 365 * 864e5);
   const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
-    const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
+    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
     payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
   }
@@ -36536,7 +36578,7 @@ function forwardDividends(dividends, positions, to) {
   const byTicker = [];
   let value = 0;
   for (const position of positions) {
-    const ticker = position.instrument?.ticker?.toUpperCase();
+    const ticker = position.instrument?.ticker;
     value += positionValue(position);
     const rate = ticker ? perShare.get(ticker) : void 0;
     if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round4(rate * position.quantity) });
@@ -36547,7 +36589,7 @@ function forwardDividends(dividends, positions, to) {
 }
 function summarizeIncome(input2) {
   const events = [
-    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
+    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
     ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
   ];
   const windowed = events.filter((item) => inWindow(item.at, input2.window));
@@ -36605,6 +36647,77 @@ function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
     ...nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {},
     ...nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {},
     checkedAt
+  };
+}
+function parseYearStart(value) {
+  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
+  const month = Number(match?.[1]), day2 = Number(match?.[2]);
+  const valid = match && month >= 1 && month <= 12 && day2 >= 1 && day2 <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
+  return valid ? { month, day: day2, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
+}
+function taxYearWindow(year, start) {
+  return { from: new Date(Date.UTC(year, start.month - 1, start.day)), to: new Date(Date.UTC(year + 1, start.month - 1, start.day) - 1) };
+}
+function currentTaxYear(start, now = /* @__PURE__ */ new Date()) {
+  const year = now.getUTCFullYear();
+  return now.getTime() >= Date.UTC(year, start.month - 1, start.day) ? year : year - 1;
+}
+function summarizeTaxYear(input2) {
+  const now = input2.now ?? /* @__PURE__ */ new Date();
+  const window = taxYearWindow(input2.year, input2.yearStart);
+  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
+  let count = 0, proceeds = 0, gains = 0, losses = 0;
+  const perTicker = /* @__PURE__ */ new Map();
+  const costs = [];
+  for (const item of fills) {
+    const wallet = item.fill?.walletImpact;
+    for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
+    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
+    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
+    const pnl = wallet?.realisedProfitLoss ?? 0;
+    const value = Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * quantity);
+    count++;
+    proceeds += value;
+    if (pnl > 0) gains += pnl;
+    else losses += pnl;
+    const ticker = fillTicker(item);
+    const row = perTicker.get(ticker) ?? { disposals: 0, proceeds: 0, realizedProfitLoss: 0 };
+    row.disposals++;
+    row.proceeds += value;
+    row.realizedProfitLoss += pnl;
+    perTicker.set(ticker, row);
+  }
+  let dividends = 0, interest = 0;
+  for (const item of input2.dividends) if (inWindow(item.paidOn, window)) dividends += item.amount ?? 0;
+  for (const item of input2.transactions) {
+    if (!inWindow(item.dateTime, window)) continue;
+    const type = (item.type ?? "").toUpperCase();
+    if (INTEREST.has(type)) interest += item.amount ?? 0;
+    else if (type === "FEE") costs.push({ key: "ACCOUNT_FEE", amount: Math.abs(item.amount ?? 0) });
+  }
+  const ended = now.getTime() > window.to.getTime();
+  const notes = [
+    "Amounts are in the account currency as reported by Trading 212.",
+    "Gains and losses are Trading 212's realised P/L per sale, worked out against your average purchase price at the exchange rate of the sale. Countries match purchases to sales in their own way (for example the UK's same-day and 30-day rules), so use these figures to prepare and check a return, not as the tax due.",
+    "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need."
+  ];
+  if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
+  if (input2.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
+  return {
+    kind: "tax_year",
+    environment: input2.environment,
+    accountCurrency: input2.accountCurrency,
+    year: input2.year,
+    yearStart: input2.yearStart.text,
+    period: { from: window.from.toISOString(), to: window.to.toISOString() },
+    ended,
+    disposals: { count, proceeds: round4(proceeds), gains: round4(gains), losses: round4(losses), net: round4(gains + losses) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round4(row.proceeds), realizedProfitLoss: round4(row.realizedProfitLoss) })).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
+    income: { dividends: round4(dividends), interest: round4(interest) },
+    costs: { total: round4(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    truncated: input2.truncated,
+    notes,
+    timestamp: now.toISOString()
   };
 }
 
@@ -36726,6 +36839,34 @@ var InsightsService = class {
       transactions: transactions.items,
       positions,
       truncated: dividends.truncated || transactions.truncated
+    });
+  }
+  /**
+   * One tax year's sales, dividends, interest and costs. `year` is the calendar year the tax year starts in
+   * (the latest one that has started by default); `yearStart` is its first day as MM-DD (UK: 04-06).
+   */
+  async taxYear(environment, options = {}, now = /* @__PURE__ */ new Date()) {
+    const start = parseYearStart(options.yearStart);
+    if (options.yearStart?.trim() && start.text !== options.yearStart.trim()) fail("INVALID_INPUT", "yearStart must be a real month and day as MM-DD, such as 04-06", { field: "yearStart" });
+    const year = options.year ?? currentTaxYear(start, now);
+    const window = taxYearWindow(year, start);
+    if (window.from.getTime() > now.getTime()) fail("INVALID_INPUT", `The tax year starting ${window.from.toISOString().slice(0, 10)} has not started yet`, { field: "year", year });
+    const client = this.client(environment);
+    const account = await client.getAccountSummary();
+    const fetchWindow = { from: window.from, to: window.to.getTime() > now.getTime() ? now : window.to };
+    const orders = await this.collect(environment, "orders", fetchWindow, options.maxPages);
+    const dividends = await this.collect(environment, "dividends", fetchWindow, options.maxPages);
+    const transactions = await this.collect(environment, "transactions", fetchWindow, options.maxPages);
+    return summarizeTaxYear({
+      environment,
+      accountCurrency: account.currency ?? "",
+      year,
+      yearStart: start,
+      now,
+      orders: orders.items,
+      dividends: dividends.items,
+      transactions: transactions.items,
+      truncated: orders.truncated || dividends.truncated || transactions.truncated
     });
   }
   /**
@@ -37424,7 +37565,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.14.1"
+  version: "2.15.0"
 };
 
 // src/core/text-summary.ts
@@ -37525,9 +37666,20 @@ function performance(data) {
     `Realized P/L ${signed(data.realizedProfitLoss)}; dividends ${num2(data.income.dividends)}; interest ${num2(data.income.interest)}; costs ${num2(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num2(item.amount)}`).join(", ")})` : ""}.`,
     `Deposits ${num2(data.contributions.deposits)}, withdrawals ${num2(data.contributions.withdrawals)}, net ${num2(data.contributions.net)}.`,
     ...data.currentValue === void 0 ? [] : [`Current value ${num2(data.currentValue)}${data.unrealizedProfitLoss === void 0 ? "" : `, unrealized P/L ${signed(data.unrealizedProfitLoss)}`}${data.simpleReturn === void 0 ? "" : `, simple return on net deposits ${signed(data.simpleReturn * 100, 1)}%`}.`],
+    ...data.annualizedReturn === void 0 ? [] : [`Annualized return (money-weighted, since ${day(data.annualizedSince)}) ${signed(data.annualizedReturn * 100, 1)}% a year.`],
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num2(data.trades.turnover)}.`,
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
+    ...data.notes
+  ];
+}
+function taxYear(data) {
+  const c = data.accountCurrency;
+  return [
+    `Tax year ${day(data.period.from)} to ${day(data.period.to)}${data.ended ? "" : " (still running)"}, amounts in ${c}.`,
+    `Sales: ${data.disposals.count}, proceeds ${num2(data.disposals.proceeds)}; gains ${num2(data.disposals.gains)}, losses ${num2(data.disposals.losses)}, net ${signed(data.disposals.net)}.`,
+    `Dividends ${num2(data.income.dividends)}; interest ${num2(data.income.interest)}; costs ${num2(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num2(item.amount)}`).join(", ")})` : ""}.`,
+    ...section("Sales by instrument", rows(data.byTicker, (item) => `${item.ticker}: ${item.disposals} sale(s), proceeds ${num2(item.proceeds)}, realized ${signed(item.realizedProfitLoss)}`)),
     ...data.notes
   ];
 }
@@ -37724,6 +37876,9 @@ function describePayload(data) {
       break;
     case "income":
       lines = income(payload);
+      break;
+    case "tax_year":
+      lines = taxYear(payload);
       break;
     case "trade_history":
       lines = tradeHistory(payload);
@@ -38022,6 +38177,30 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
         return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_tax_year_summary",
+    {
+      title: "Tax Year Summary",
+      description: "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 01-01 unless yearStart says otherwise (UK: 04-06). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        year: external_exports.number().int().min(2e3).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
+        yearStart: external_exports.string().regex(/^\d{2}-\d{2}$/).default("01-01").describe("First day of the tax year as MM-DD, such as 04-06 for the UK"),
+        maxPages: windowSchema.maxPages
+      }),
+      annotations: readOnly,
+      _meta: {}
+    },
+    async ({ environment, year, yearStart, maxPages }) => {
+      try {
+        const data = await insights.taxYear(environment, { ...year === void 0 ? {} : { year }, yearStart, maxPages });
+        return result(data, `Tax year ${data.period.from.slice(0, 10)} to ${data.period.to.slice(0, 10)}${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num2(data.disposals.gains)}, losses ${num2(data.disposals.losses)}, net ${num2(data.disposals.net)} ${data.accountCurrency}; dividends ${num2(data.income.dividends)}, interest ${num2(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

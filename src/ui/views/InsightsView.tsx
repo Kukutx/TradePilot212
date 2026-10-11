@@ -5,9 +5,14 @@ import { Metric, SectionHeader } from "../components/common";
 import { BarList, ColumnChart, type ChartLabels } from "../components/charts";
 import { money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { instrumentTypeLabel, type Translator } from "../lib/messages";
+import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
 
 export type InsightPeriod = "ytd" | "1y" | "all";
+
+function dayLabel(value: string, locale: SupportedLocale): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : new Intl.DateTimeFormat(localeTag(locale), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
 
 const COST_KEYS: Record<string, MessageKey> = {
   CURRENCY_CONVERSION_FEE: "costCurrencyConversionFee",
@@ -125,6 +130,12 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, busy 
           <span className="sectionEyebrow">{t("realizedPnL")}</span>
           <strong className={`heroValue ${signedClass(data.realizedProfitLoss)}`}>{signed(data.realizedProfitLoss)}</strong>
           <div className={`pnlBadge ${signedClass(data.unrealizedProfitLoss)}`}>{t("unrealizedPnL")} · {signed(data.unrealizedProfitLoss)}</div>
+          {data.annualizedReturn !== undefined && (
+            <span className="overviewSubline">
+              {t("annualizedReturn")} · <strong className={signedClass(data.annualizedReturn)}>{pct(data.annualizedReturn, locale, 1, { signed: true })}</strong>
+              {data.annualizedSince && <> · <span className="noWrap">{fill(t("annualizedSince"), { date: dayLabel(data.annualizedSince, locale) })}</span></>}
+            </span>
+          )}
         </div>
         <div className="metricGrid">
           <Metric label={t("incomeTotal")} value={m(data.income.dividends + data.income.interest)} />

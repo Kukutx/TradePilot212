@@ -214,6 +214,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .pnlBadge.positive { background: var(--tp-green-soft); color: var(--tp-green); }
 .pnlBadge.negative { background: var(--tp-red-soft); color: var(--tp-red); }
 .overviewSubline { margin-top: 10px; color: var(--tp-muted); font-size: 13px; }
+.noWrap { white-space: nowrap; }
 .metricGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .metric { min-width: 0; padding: 13px 14px; border-radius: 13px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
 .metric span { display: block; margin-bottom: 7px; color: var(--tp-muted); font-size: 12px; }
