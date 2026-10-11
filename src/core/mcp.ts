@@ -269,20 +269,67 @@ export function createMcpServer(
     "get_trade_history",
     {
       title: "Trade History",
-      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker or symbol. Read-only.",
+      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         ticker: z.string().min(1).optional(),
+        includeUnfilled: z.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
         limit: z.number().int().min(1).max(200).default(50),
         ...windowSchema,
       }),
       annotations: readOnly,
       _meta: {},
     },
-    async ({ environment, ticker, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages);
-        return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled);
+        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_cash_history",
+    {
+      title: "Dividends and Cash Movements",
+      description: "List dividends, deposits, withdrawals, interest and fees one by one, newest first, with totals per type, from Trading 212 history. Filter by type (DIVIDEND, DEPOSIT, WITHDRAW, INTEREST, FEE …) or by an instrument for its dividends. Use get_income_summary for monthly totals and yields. Read-only.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        ticker: z.string().min(1).optional().describe("Only dividends of this ticker, symbol, name or ISIN"),
+        types: z.array(z.string().min(1).max(30)).max(10).optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+        ...windowSchema,
+      }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
+      try {
+        const data = await insights.cashHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), { ...(ticker ? { ticker } : {}), ...(types ? { types } : {}), limit, ...(maxPages ? { maxPages } : {}) });
+        return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_order_status",
+    {
+      title: "Order Status",
+      description: "Look up one Trading 212 order by id: still open (and how much filled), or how it ended (filled, partly filled, cancelled, rejected) with its fills and prices. Reads open orders, then recent history. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, orderId: z.string().min(1).max(24) }),
+      annotations: readOnly,
+      _meta: {},
+    },
+    async ({ environment, orderId }) => {
+      try {
+        const data = await trading.orderStatus(environment, orderId);
+        return result(data, `Order ${data.orderId}: ${data.state.replace("_", " ")}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -302,7 +349,7 @@ export function createMcpServer(
     async ({ environment, instrument }) => {
       try {
         const data = await insights.marketHours(environment, instrument);
-        return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}.`);
+        return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}${data.nextClose ? `, next close ${data.nextClose}` : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -452,7 +499,7 @@ export function createMcpServer(
         description:
           "Advanced exact-order entry. Open an editable order draft when the exact Trading 212 ticker and quantity are already known. This is review-only and never places an order. Prefer review_trading212_order_intent for natural-language sizing such as money amounts, half, percentages, or all shares.",
         inputSchema: orderDraftSchema.extend({ environment: environmentWithDefault }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
       async (draft) => {
@@ -611,7 +658,7 @@ export function createMcpServer(
       title: "Automation Overview",
       description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault }),
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment }) => {
@@ -708,7 +755,7 @@ export function createMcpServer(
         percent: z.number().positive().optional(),
         note: z.string().max(200).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       _meta: {},
     },
     async (input) => {
@@ -764,7 +811,7 @@ export function createMcpServer(
           autoExecute: z.boolean().optional().describe("Demo only: run unattended when due"),
           paused: z.boolean().optional(),
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: {},
       },
       async (input) => {
@@ -863,15 +910,42 @@ export function createMcpServer(
           title: z.string().min(1).max(80).default("Order basket"),
           orders: z.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS),
         }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
       async ({ environment, title, orders }) => {
-        const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } as OrderDraft })) });
-        return result(
-          { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config), writeEnabled: true },
-          `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`,
-        );
+        try {
+          const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } as OrderDraft })) });
+          return result(
+            { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config), writeEnabled: true },
+            `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`,
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "review_order_cancel",
+      {
+        title: "Review an Order Cancellation",
+        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
+        inputSchema: z.object({ environment: environmentWithDefault, orderId: z.string().min(1).max(24) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, orderId }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          return result(
+            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...(order ? { order } : {}), credentials: credentialStatus(config), writeEnabled: true },
+            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`,
+          );
+        } catch (error) {
+          return toolError(error);
+        }
       },
     );
   }
@@ -904,7 +978,7 @@ export function createMcpServer(
       title: "Refresh automation",
       description: "App-only automation overview refresh.",
       inputSchema: z.object({ environment: environmentEnum }),
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { visibility: ["app"] } },
     },
     async ({ environment }) => {

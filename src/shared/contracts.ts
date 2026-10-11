@@ -102,7 +102,14 @@ export interface AccountSummary {
 export interface PendingOrder {
   id?: number | string;
   ticker?: string;
+  /** Negative for sells. */
   quantity?: number;
+  filledQuantity?: number;
+  /** "QUANTITY", or "VALUE" for orders placed by amount in the Trading 212 app. */
+  strategy?: string;
+  /** Order amount for VALUE orders. */
+  value?: number;
+  side?: string;
   status?: string;
   type?: string;
   limitPrice?: number;

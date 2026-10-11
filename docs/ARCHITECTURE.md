@@ -140,7 +140,7 @@ These rules are deliberate and should remain true when extending the project:
 1. No scheduled or unattended path may submit a Live order. The only unattended Live write is cancelling the surviving half of a linked protective pair after the other half filled. The one unattended path, due Demo plans with `autoExecute` and `AUTOMATION_DEMO_ENABLED=true`, uses the same validation, policy and no-retry rules as a confirmed basket.
 2. Preparing an order must not submit it.
 3. Every order, basket, cancellation and pie write consumes a one-time confirmation.
-4. A Trading 212 write request is never retried automatically.
+4. A Trading 212 write request is never retried automatically, except once after a 429, which Trading 212 did not carry out.
 5. An unknown write result stays unknown until a read-back check provides evidence.
 6. Read-back verification never resubmits the original write.
 7. Demo and Live credentials remain separate.

@@ -6,6 +6,7 @@ import type { AccountSummary, ActivityEvent, CancelPreview, CredentialStatus, En
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, ExportReport, IncomeSummary, PerformanceSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
+import type { OrderStatusReport } from "./trading-service.js";
 
 const MAX_ROWS = 30;
 
@@ -52,10 +53,16 @@ function policyLines(checks: PolicyCheck[] | undefined): string[] {
 
 function orderLine(order: PendingOrder): string {
   const quantity = order.quantity ?? 0;
-  const side = String(order.side ?? "").toUpperCase() || (quantity < 0 ? "SELL" : "BUY");
+  const value = typeof order.value === "number" ? order.value : undefined;
+  const side = String(order.side ?? "").toUpperCase() || (quantity < 0 || (value ?? 0) < 0 ? "SELL" : "BUY");
   const name = (order.instrument as { name?: unknown } | undefined)?.name;
+  const currency = typeof order.currency === "string" ? ` ${order.currency}` : "";
+  // Orders placed by amount in the Trading 212 app carry a value instead of a share count.
+  const size = order.strategy === "VALUE" && value !== undefined ? `value ${num(Math.abs(value))}${currency} of` : num(Math.abs(quantity), 8);
   const prices = [order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`, order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`].join("");
-  return `#${order.id ?? "?"} ${side} ${num(Math.abs(quantity), 8)} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${order.status ? ` (${order.status})` : ""}`;
+  const validity = order.timeInForce ?? order.timeValidity;
+  const filled = typeof order.filledQuantity === "number" && order.filledQuantity > 0 ? `, filled ${num(Math.abs(order.filledQuantity), 8)}` : "";
+  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 
 function positionLine(position: Position): string {
@@ -154,7 +161,9 @@ interface TradeFill {
   costItems?: Array<{ name: string; amount: number; currency?: string }>;
 }
 
-function tradeHistory(data: { fills: TradeFill[]; truncated?: boolean }): string[] {
+interface UnfilledOrder { ticker?: string; name?: string; side?: string; type?: string; status?: string; createdAt?: string; quantity?: number; value?: number; limitPrice?: number; stopPrice?: number; priceCurrency?: string }
+
+function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; truncated?: boolean }): string[] {
   const fills = data.fills;
   const sum = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
   const count = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
@@ -166,7 +175,31 @@ function tradeHistory(data: { fills: TradeFill[]; truncated?: boolean }): string
     ...(fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num(sum("BUY"))}, ${count("SELL")} sells ${num(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."]),
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}`
       + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}`, 50),
+    ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`
+      + `${order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`}${order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== undefined || order.stopPrice !== undefined) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : []),
     ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []),
+  ];
+}
+
+function orderStatus(data: OrderStatusReport): string[] {
+  const filled = data.fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0);
+  const value = data.fills.reduce((sum, fill) => sum + Math.abs(fill.netValue ?? 0), 0);
+  const average = filled > 0 ? data.fills.reduce((sum, fill) => sum + (fill.price ?? 0) * (fill.quantity ?? 0), 0) / filled : undefined;
+  return [
+    `Order ${data.orderId} on ${env(data.environment)}: ${data.state.replace("_", " ")}.`,
+    ...(data.order ? [orderLine(data.order)] : []),
+    ...(data.fills.length ? [`Filled ${num(filled, 8)}${average === undefined ? "" : ` at an average ${num(average, 6)}`}${value ? `, ${num(value)} ${data.fills.find((fill) => fill.currency)?.currency ?? ""}`.trimEnd() : ""} in ${data.fills.length} fill(s).`] : []),
+    ...(data.state === "not_found" ? ["Not among the open orders or the recent history pages."] : []),
+  ];
+}
+
+function cashHistory(data: { items: Array<{ date: string; type: string; amount: number; currency: string; ticker?: string; name?: string; quantity?: number; grossPerShare?: number; perShareCurrency?: string }>; count: number; totals: Record<string, number>; currency: string; truncated?: boolean }): string[] {
+  return [
+    Object.keys(data.totals).length ? `Totals${data.currency ? ` (${data.currency})` : ""}: ${Object.entries(data.totals).map(([type, total]) => `${type.toLowerCase()} ${signed(total)}`).join(", ")}.` : "No entries in this window.",
+    ...rows(data.items, (item) => `${day(item.date)} ${item.type}${item.ticker ? ` ${item.ticker}` : ""}${item.name ? ` (${item.name})` : ""} ${signed(item.amount)} ${item.currency}`.trimEnd()
+      + `${item.quantity === undefined ? "" : `, ${num(item.quantity, 8)} shares`}${item.grossPerShare === undefined ? "" : ` × ${num(item.grossPerShare, 6)} ${item.perShareCurrency ?? ""} gross`.trimEnd()}`, 60),
+    ...(data.count > data.items.length ? [`${data.count - data.items.length} more not shown; raise limit or narrow the window.`] : []),
+    ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older entries."] : []),
   ];
 }
 
@@ -304,11 +337,11 @@ function pieChange(data: PieChangeDraftPayload | PieChangePreview | PieChangeRes
   ];
 }
 
-function policy(data: { environment: TradingEnvironment; policy: TradingPolicy; maxOrderNotional: number; usageToday: { orders: number; notional: number } }): string[] {
+function policy(data: { environment: TradingEnvironment; policy: TradingPolicy; maxOrderNotional: number; maxOrderQuantity?: number; usageToday: { orders: number; notional: number } }): string[] {
   const p = data.policy;
   const off = "off";
   return [
-    `Per-order caps: value ${data.maxOrderNotional || off} (account currency), quantity in MAX_ORDER_QUANTITY.`,
+    `Per-order caps: value ${data.maxOrderNotional || off} (account currency), quantity ${data.maxOrderQuantity === undefined ? "?" : data.maxOrderQuantity || off} shares.`,
     `Max position weight ${p.maxPositionWeight ? pct(p.maxPositionWeight) : off}; daily orders ${p.dailyOrderLimit || off} (used ${data.usageToday.orders}); daily value ${p.dailyNotionalLimit || off} (used ${num(data.usageToday.notional)}).`,
     `Allowed tickers ${p.allowedTickers.join(", ") || "any"}; blocked ${p.blockedTickers.join(", ") || "none"}; allowed types to buy ${p.allowedTypes.join(", ") || "any"}.`,
     `Market orders while closed ${p.marketOrdersWhenClosed ? "allowed" : "blocked"}; reference price older than ${p.maxReferenceAgeSeconds ? `${p.maxReferenceAgeSeconds}s blocks` : "any age only warns"}.`,
@@ -332,7 +365,7 @@ export function describePayload(data: unknown): string {
     case "allocation": lines = allocation(payload as unknown as AllocationAnalysis); break;
     case "performance": lines = performance(payload as unknown as PerformanceSummary); break;
     case "income": lines = income(payload as unknown as IncomeSummary); break;
-    case "trade_history": lines = tradeHistory(payload as unknown as { fills: TradeFill[]; truncated?: boolean }); break;
+    case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;
     case "basket_preview": lines = basketPreview(payload as unknown as BasketPreview); break;
     case "basket_execution": lines = basketExecution(payload as unknown as BasketExecutionResult); break;
@@ -344,6 +377,13 @@ export function describePayload(data: unknown): string {
     case "order_preview": lines = orderPreview(payload as unknown as OrderPreview); break;
     case "order_execution": lines = orderExecution(payload as unknown as OrderExecutionResult); break;
     case "cancel_preview": lines = cancelPreview(payload as unknown as CancelPreview); break;
+    case "cancel_draft": {
+      const draft = payload as { environment: TradingEnvironment; orderId: string; order?: PendingOrder; credentials?: CredentialStatus };
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
+    case "order_status": lines = orderStatus(payload as unknown as OrderStatusReport); break;
+    case "cash_history": lines = cashHistory(payload as unknown as Parameters<typeof cashHistory>[0]); break;
     case "execution_verification": {
       const verification = payload as unknown as ExecutionVerificationResult;
       lines = [`Status: ${verification.status.replaceAll("_", " ")}${verification.positionDelta === undefined ? "" : `; position changed by ${num(verification.positionDelta, 8)}`}.`];

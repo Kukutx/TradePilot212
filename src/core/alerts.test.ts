@@ -26,7 +26,8 @@ function setup(env: RuntimeEnv = {}) {
     return json([]);
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", ...env });
-  return { ...createServices({ config, store: new MemoryStateStore(), fetcher }), price, webhooks };
+  const store = new MemoryStateStore();
+  return { ...createServices({ config, store, fetcher }), store, price, webhooks };
 }
 
 describe("price alert rules", () => {
@@ -51,6 +52,29 @@ describe("price alert rules", () => {
 });
 
 describe("price alert scheduler", () => {
+  it("keeps checking other alerts and stages when one lookup fails", async () => {
+    const services = setup();
+    await services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "above", price: 90 });
+    const failing = await services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "above", price: 500 });
+    // An alert on an instrument that is not held needs the instrument list, which now fails.
+    await services.store.put(`alert:${failing.id}`, { ...failing, ticker: "GONE_EQ" });
+    services.trading.instruments = async () => { throw new Error("instrument list unavailable"); };
+    services.automation.runDuePlans = async () => { throw new Error("plans broke"); };
+    const tick = await services.runScheduled();
+    expect(tick.plans).toEqual([]);
+    expect(tick.alerts.map((report) => report.action).sort()).toEqual(["triggered", "waiting"]);
+  });
+
+  it("joins a tick that is still running instead of starting another", async () => {
+    const services = setup();
+    let calls = 0;
+    services.links.reconcile = async () => { calls += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return []; };
+    await Promise.all([services.runScheduled(), services.runScheduled()]);
+    expect(calls).toBe(1);
+    await services.runScheduled();
+    expect(calls).toBe(2);
+  });
+
   it("triggers once, notifies the webhook with a signature, and can be re-armed", async () => {
     const services = setup({ NOTIFY_WEBHOOK_URL: "https://hooks.example/t", NOTIFY_WEBHOOK_SECRET: "shh" });
     const saved = await services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "trailing_drop", percent: 5 });

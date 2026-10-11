@@ -245,6 +245,41 @@ describe("standing plans", () => {
     await expect(automation.updatePlan(plan.id, { frequency: "monthly" }, now)).rejects.toThrow(/dayOfMonth/);
   });
 
+  it("does not run a period again when its schedule moves after a run, and resumes from now", async () => {
+    const { automation, store } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 }, new Date("2026-09-15T00:00:00Z"));
+    await store.put(`plan:${plan.id}`, { ...plan, lastRunAt: "2026-10-01T15:01:00.000Z", nextRunAt: "2026-11-01T15:00:00.000Z" });
+    const moved = await automation.updatePlan(plan.id, { hourUtc: 18 }, new Date("2026-10-01T16:00:00Z"));
+    expect(moved.nextRunAt).toBe("2026-11-01T18:00:00.000Z");
+    expect(moved.lastRunAt).toBe("2026-10-01T15:01:00.000Z");
+
+    await automation.updatePlan(plan.id, { paused: true }, new Date("2026-10-02T00:00:00Z"));
+    const resumed = await automation.updatePlan(plan.id, { paused: false }, new Date("2026-12-10T00:00:00Z"));
+    expect(resumed.nextRunAt).toBe("2027-01-01T18:00:00.000Z");
+  });
+
+  it("waits for the user when an unattended run may already have been sent", async () => {
+    const { automation, store, writes, trading } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    await store.put(`plan:${plan.id}`, { ...plan, inFlightDueAt: plan.nextRunAt });
+    const due = new Date(Date.parse(plan.nextRunAt) + 60_000);
+    expect((await automation.runDuePlans(due))[0]?.mode).toBe("awaiting_confirmation");
+    await automation.runDuePlans(new Date(due.getTime() + 15 * 60_000));
+    expect(writes).toHaveLength(0);
+    expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
+  });
+
+  it("keeps an unattended Market leg due while the market hours cannot be read", async () => {
+    const { automation, insights, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    insights.tryMarketStatus = async () => undefined;
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    const [report] = await automation.runDuePlans(new Date(Date.parse(plan.nextRunAt) + 60_000));
+    expect(report).toMatchObject({ mode: "skipped" });
+    expect(report?.message).toMatch(/hours unknown/);
+    expect(writes).toHaveLength(0);
+    expect((await automation.getPlan(plan.id)).nextRunAt).toBe(plan.nextRunAt);
+  });
+
   it("counts a plan run early as the upcoming run instead of buying twice", async () => {
     const { automation, trading } = setup();
     const plan = await automation.createPlan({ environment: "demo", label: "Monthly", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 });

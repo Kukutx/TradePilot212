@@ -20,7 +20,8 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 ## What is included
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
-- performance, dividend/interest income, trading costs, trade history, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
+- performance, dividend/interest income, trading costs, trade history (including cancelled and rejected orders), itemised dividends and cash movements, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
+- order follow-up from the chat: one order's status and fills, and a cancellation opened in the widget for you to confirm
 - market-hours awareness, including a warning when a Market order would queue until the next open
 - a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
@@ -39,7 +40,8 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
 - expandable thesis, catalysts, risks, counter-case, sources, and data timestamps
-- ticker, symbol, company-name, and partial-name resolution
+- ticker, symbol, ISIN, company-name, and partial-name resolution
+- price sanity checks: a Limit or Stop price ten times off the last price (a pence/pounds slip) is blocked, and a stop that triggers at once or a limit that fills at once is called out
 - order sizing by:
   - exact quantity
   - target monetary amount
@@ -50,7 +52,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - transparent intent-to-quantity conversion with manual-edit indication
 - reference-price freshness notices
 - structured errors rendered in the selected UI language
-- one-time confirmation state and no automatic write retries
+- one-time confirmation state and no automatic write retries (only a write Trading 212 refused with 429 is sent once more)
 - read-back verification after an uncertain order/cancellation response
 - OAuth + PKCE for the MCP connection
 - Cloudflare Durable Objects or local file-backed state through the same `StateStore` contract

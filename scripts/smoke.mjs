@@ -88,7 +88,7 @@ try {
     method: "POST",
     redirect: "manual",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ ...Object.fromEntries(authorizeParams), password }),
+    body: new URLSearchParams({ ...Object.fromEntries(authorizeParams), password, allow_write: "on" }),
   });
   assert(authorization.status === 302, `Authorization failed: ${authorization.status}`);
   const location = authorization.headers.get("location");

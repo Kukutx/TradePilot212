@@ -72,8 +72,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   /** Cash held back for a pending buy, in EUR; released when the order is cancelled. */
   const reservation = (order: Json) => (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0);
   const history: Json[] = [];
-  const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0) => {
-    const id = nextId++;
+  const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0, id: number = nextId++) => {
     history.unshift({
       order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } },
@@ -149,7 +148,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     };
   };
 
-  const fill = (ticker: string, quantity: number): Json => {
+  const fill = (ticker: string, quantity: number, orderId?: number): Json => {
     const instrument = instrumentOf(ticker)!;
     const value = eur(ticker, Math.abs(quantity) * instrument.price);
     let holding = holdings.find((item) => item.ticker === ticker);
@@ -165,7 +164,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       holding.quantity = round(holding.quantity + quantity, 6);
       if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
     }
-    addHistory(ticker, quantity, instrument.price, new Date().toISOString());
+    addHistory(ticker, quantity, instrument.price, new Date().toISOString(), 0, orderId);
     return {};
   };
 
@@ -213,7 +212,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       if (!Number.isFinite(quantity) || quantity === 0) return json({ code: "InvalidQuantity" }, 400);
       const order: Json = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: new Date().toISOString(), ...(body.limitPrice ? { limitPrice: body.limitPrice } : {}), ...(body.stopPrice ? { stopPrice: body.stopPrice } : {}), ...(body.timeValidity ? { timeValidity: body.timeValidity } : {}) };
       if (type === "MARKET") {
-        const result = fill(ticker, quantity);
+        const result = fill(ticker, quantity, Number(order.id));
         if (result.error) return result.error as Response;
         return json({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker)!.price) });
       }
@@ -226,8 +225,11 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     if (method === "DELETE" && path.startsWith("/equity/orders/")) {
       const index = pending.findIndex((item) => String(item.id) === path.split("/").pop());
       if (index < 0) return json({ code: "OrderNotFound" }, 404);
-      cash += reservation(pending[index]!);
+      const order = pending[index]!;
+      cash += reservation(order);
       pending.splice(index, 1);
+      // A cancelled order stays in the history without a fill, as on Trading 212.
+      history.unshift({ order: { ...order, side: Number(order.quantity) < 0 ? "SELL" : "BUY", status: "CANCELLED", currency: instrumentOf(String(order.ticker))?.currencyCode, instrument: { ticker: order.ticker, name: instrumentOf(String(order.ticker))?.name } } });
       return new Response(null, { status: 200 });
     }
     if (method === "GET" && path === "/equity/pies") return json([...pies.keys()].map(pieSummary));

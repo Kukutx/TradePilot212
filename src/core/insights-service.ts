@@ -42,6 +42,23 @@ function itemTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendIte
   return Number.isFinite(time) ? time : NaN;
 }
 
+/** One dividend or cash movement; amounts are in `currency`, the account currency for Trading 212. */
+export interface CashHistoryItem {
+  date: string;
+  /** DIVIDEND, or Trading 212's transaction type (DEPOSIT, WITHDRAW, INTEREST, FEE …). */
+  type: string;
+  amount: number;
+  currency: string;
+  ticker?: string;
+  name?: string;
+  quantity?: number;
+  grossPerShare?: number;
+  perShareCurrency?: string;
+  /** The dividend's own type, such as ORDINARY. */
+  subtype?: string;
+  reference?: string;
+}
+
 export type HistoryPeriod = "1w" | "1m" | "3m" | "ytd" | "1y" | "all";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -92,12 +109,12 @@ export class InsightsService {
   }
 
   /** Walk newest-first history pages until the window start or the page budget is reached. */
-  async collect<K extends HistoryKind>(environment: TradingEnvironment, kind: K, window: HistoryWindow, maxPages = DEFAULT_HISTORY_PAGES): Promise<Collected<HistoryItemOf<K>>> {
+  async collect<K extends HistoryKind>(environment: TradingEnvironment, kind: K, window: HistoryWindow, maxPages = DEFAULT_HISTORY_PAGES, ticker?: string): Promise<Collected<HistoryItemOf<K>>> {
     const pages = Math.max(1, Math.min(MAX_HISTORY_PAGES, Math.floor(maxPages)));
     // Rolling periods start at a different millisecond on every call; walking back to the start of that
     // UTC day lets one read serve every call made that day.
     const start = window.from ? new Date(Math.floor(window.from.getTime() / 86_400_000) * 86_400_000) : undefined;
-    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}`;
+    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached = this.historyCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as Collected<HistoryItemOf<K>>;
 
@@ -106,7 +123,7 @@ export class InsightsService {
     let next: string | undefined;
     let truncated = false;
     for (let page = 0; page < pages; page++) {
-      const result = await client.getHistoryPage(kind, next);
+      const result = await client.getHistoryPage(kind, next, ticker);
       items.push(...(result.items as HistoryItemOf<K>[]));
       const oldest = result.items.length ? itemTime(kind, result.items[result.items.length - 1]!) : NaN;
       const reachedStart = start !== undefined && Number.isFinite(oldest) && oldest < start.getTime();
@@ -153,27 +170,110 @@ export class InsightsService {
     });
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number) {
-    const collected = await this.collect(environment, "orders", window, maxPages);
-    // A name or symbol resolves to the exact ticker; one Trading 212 no longer lists falls back to a prefix match.
+  /**
+   * Dividends and cash movements (deposits, withdrawals, interest, fees) one by one, newest first,
+   * with totals per type. `types` takes DIVIDEND and Trading 212's transaction types; a ticker limits it to dividends.
+   */
+  async cashHistory(environment: TradingEnvironment, window: HistoryWindow, options: { ticker?: string; types?: string[]; limit?: number; maxPages?: number } = {}) {
     let exact: string | undefined;
-    if (ticker?.trim()) {
+    if (options.ticker?.trim()) {
       try {
-        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker.toUpperCase();
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), options.ticker).ticker;
       } catch {
         exact = undefined;
       }
     }
+    const types = new Set((options.types ?? []).map((type) => type.trim().toUpperCase()).filter(Boolean));
+    const wantDividends = !types.size || types.has("DIVIDEND");
+    const wantCash = !options.ticker?.trim() && (!types.size || [...types].some((type) => type !== "DIVIDEND"));
+    const [dividends, transactions] = await Promise.all([
+      wantDividends ? this.collect(environment, "dividends", window, options.maxPages, exact) : undefined,
+      wantCash ? this.collect(environment, "transactions", window, options.maxPages) : undefined,
+    ]);
+    const wanted = options.ticker?.trim().toUpperCase();
+    const inWindow = (time: number) => Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());
+    const items: CashHistoryItem[] = [
+      ...(dividends?.items ?? [])
+        .filter((item) => !wanted || (exact ? (item.ticker ?? item.instrument?.ticker) === exact : (item.ticker ?? "").toUpperCase().startsWith(wanted)))
+        .filter((item) => inWindow(itemTime("dividends", item)))
+        .map((item) => ({
+          date: item.paidOn ?? "",
+          type: "DIVIDEND",
+          amount: item.amount ?? 0,
+          currency: item.currency ?? "",
+          ...(item.ticker ?? item.instrument?.ticker ? { ticker: item.ticker ?? item.instrument?.ticker } : {}),
+          ...(item.instrument?.name ? { name: item.instrument.name } : {}),
+          ...(item.quantity === undefined ? {} : { quantity: item.quantity }),
+          ...(item.grossAmountPerShare === undefined ? {} : { grossPerShare: item.grossAmountPerShare, perShareCurrency: item.tickerCurrency ?? "" }),
+          ...(item.type ? { subtype: item.type } : {}),
+          ...(item.reference ? { reference: item.reference } : {}),
+        })),
+      ...(transactions?.items ?? [])
+        .filter((item) => !types.size || types.has(String(item.type ?? "").toUpperCase()))
+        .filter((item) => inWindow(itemTime("transactions", item)))
+        .map((item) => ({
+          date: item.dateTime ?? "",
+          type: String(item.type ?? "OTHER").toUpperCase(),
+          amount: item.amount ?? 0,
+          currency: item.currency ?? "",
+          ...(item.reference ? { reference: item.reference } : {}),
+        })),
+    ].sort((a, b) => b.date.localeCompare(a.date));
+    const totals: Record<string, number> = {};
+    for (const item of items) totals[item.type] = Math.round(((totals[item.type] ?? 0) + item.amount) * 100) / 100;
+    return {
+      kind: "cash_history" as const,
+      environment,
+      items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
+      count: items.length,
+      totals,
+      currency: items.find((item) => item.currency)?.currency ?? "",
+      truncated: !!(dividends?.truncated || transactions?.truncated),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false) {
+    // A name or symbol resolves to the exact ticker, which Trading 212 filters on its side, so a rarely
+    // traded instrument is not lost past the page limit. One it no longer lists falls back to a prefix match.
+    let exact: string | undefined;
+    if (ticker?.trim()) {
+      try {
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker;
+      } catch {
+        exact = undefined;
+      }
+    }
+    const collected = await this.collect(environment, "orders", window, maxPages, exact);
     const wanted = ticker?.trim().toUpperCase();
-    const matches = (value: string) => exact ? value === exact : value === wanted || value.startsWith(`${wanted}_`);
-    const fills = collected.items
-      .filter((item) => item.fill)
+    const matches = (value: string) => exact ? value === exact.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
+    const inWindow = collected.items
       .filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase()))
       .filter((item) => {
         const time = itemTime("orders", item);
         return Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());
-      })
-      .slice(0, Math.max(1, Math.min(200, limit)))
+      });
+    const max = Math.max(1, Math.min(200, limit));
+    // Orders that closed without a fill: cancelled, rejected or expired.
+    const unfilled = includeUnfilled
+      ? inWindow.filter((item) => !item.fill).slice(0, max).map((item) => ({
+          ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
+          ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
+          side: item.order?.side,
+          type: item.order?.type,
+          status: item.order?.status,
+          createdAt: item.order?.createdAt,
+          quantity: item.order?.quantity,
+          ...(item.order?.value === undefined ? {} : { value: item.order.value }),
+          ...(item.order?.limitPrice === undefined ? {} : { limitPrice: item.order.limitPrice }),
+          ...(item.order?.stopPrice === undefined ? {} : { stopPrice: item.order.stopPrice }),
+          priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
+          initiatedFrom: item.order?.initiatedFrom,
+        }))
+      : undefined;
+    const fills = inWindow
+      .filter((item) => item.fill)
+      .slice(0, max)
       .map((item) => ({
         ticker: item.order?.ticker,
         ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
@@ -192,7 +292,7 @@ export class InsightsService {
         costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
         ...(item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...(tax.currency ? { currency: tax.currency } : {}) })) } : {}),
       }));
-    return { kind: "trade_history" as const, environment, fills, truncated: collected.truncated, timestamp: new Date().toISOString() };
+    return { kind: "trade_history" as const, environment, fills, ...(unfilled ? { unfilled } : {}), truncated: collected.truncated, timestamp: new Date().toISOString() };
   }
 
   private async exchanges(environment: TradingEnvironment) {

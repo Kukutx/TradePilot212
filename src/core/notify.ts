@@ -1,6 +1,7 @@
 // Optional webhook notifications for automation events, so a due plan, a filled stop or a price
 // alert reaches you without opening the chat. The body carries `text` (Slack, Mattermost, ntfy-style
-// relays) and `content` (Discord) plus the raw event. Delivery is best effort and never retried.
+// relays) and `content` (Discord) plus the raw event. Delivery is best effort and never retried, except
+// for the daily digest, which is sent again later in the day until the webhook accepts it.
 
 import type { ActivityEvent, ActivityType } from "../shared/contracts.js";
 import type { RuntimeConfig } from "./config.js";
@@ -57,13 +58,14 @@ async function signature(secret: string, body: string): Promise<string> {
   return [...mac].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export type Notifier = (event: ActivityEvent) => Promise<void>;
+/** Resolves true when the webhook accepted the event. `force` sends it even when NOTIFY_EVENTS leaves its type out. */
+export type Notifier = (event: ActivityEvent, options?: { force?: boolean }) => Promise<boolean>;
 
 export function createNotifier(config: RuntimeConfig, fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init)): Notifier | undefined {
   if (!config.notifyWebhookUrl) return undefined;
   const wanted = new Set<string>(config.notifyEvents.length ? config.notifyEvents : DEFAULT_NOTIFY_EVENTS);
-  return async (event) => {
-    if (!wanted.has(event.type)) return;
+  return async (event, options) => {
+    if (!options?.force && !wanted.has(event.type)) return false;
     const text = notificationText(event);
     const body = JSON.stringify({ text, content: text, event });
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -71,8 +73,10 @@ export function createNotifier(config: RuntimeConfig, fetcher: typeof fetch = (i
     try {
       const response = await fetcher(config.notifyWebhookUrl, { method: "POST", headers, body, signal: AbortSignal.timeout(5000) });
       if (!response.ok) console.error(JSON.stringify({ message: "TradePilot webhook rejected", status: response.status }));
+      return response.ok;
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot webhook failed", error: error instanceof Error ? error.message : String(error) }));
+      return false;
     }
   };
 }

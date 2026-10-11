@@ -121,8 +121,10 @@ export class Trading212Client {
   async getExchanges() { return unwrapArray<Exchange>(await this.request("GET", "/equity/metadata/exchanges")); }
 
   /** One page of history. `pagePath` is the broker's `nextPagePath` from the previous page. */
-  async getHistoryPage<K extends HistoryKind>(kind: K, pagePath?: string): Promise<Page<HistoryItem<K>>> {
-    const path = pagePath ? relativeApiPath(pagePath) : `/equity/history/${kind}?limit=50`;
+  /** `ticker` narrows orders and dividends on the broker side; later pages keep it through nextPagePath. */
+  async getHistoryPage<K extends HistoryKind>(kind: K, pagePath?: string, ticker?: string): Promise<Page<HistoryItem<K>>> {
+    const filter = ticker && kind !== "transactions" ? `&ticker=${encodeURIComponent(ticker)}` : "";
+    const path = pagePath ? relativeApiPath(pagePath) : `/equity/history/${kind}?limit=50${filter}`;
     const page = await this.request<Page<HistoryItem<K>> | HistoryItem<K>[]>("GET", path);
     return Array.isArray(page) ? { items: page, nextPagePath: null } : { items: page?.items ?? [], nextPagePath: page?.nextPagePath ?? null };
   }

@@ -38,7 +38,8 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 - A policy engine (`POLICY_*`, binding Live by default) can cap position weight, daily orders and daily value, restrict tickers and instrument types, and block Market orders while a market is closed. It runs at review and again before every write, including each leg of a basket.
 - Baskets are confirmed once with a one-time token; an uncertain leg stops the remaining legs.
 - Live orders and baskets need a second, explicit acknowledgement that real money is used; the server rejects a Live execution without it and keeps the token unused.
-- Linked stop-loss / take-profit pairs: after one half fills, the scheduler cancels the other. This cancellation is the only unattended Live write, it is sent once and never retried, and `PROTECTIVE_OCO=false` disables it.
+- Linked stop-loss / take-profit pairs: after one half fills completely, the scheduler cancels the other. This cancellation is the only unattended Live write. Cancelling twice is harmless, so a failed or unclear cancel is tried again on later ticks, up to five times, and then reported. A partial fill is reported and the other order left for you. `PROTECTIVE_OCO=false` disables linking.
+- The OAuth consent page grants order and pie preparation (`trade:write`) only when its checkbox is ticked; it starts unticked for a client that is not ChatGPT or Claude. `/health` does not say which accounts are configured.
 - Pie changes (create, update, duplicate, delete) use the same one-time token and, on Live, the same second confirmation as orders. Reads are cached for 30 to 60 seconds.
 - External quotes (`QUOTE_PROVIDER`) send the symbols you ask about to that provider. `QUOTE_API_KEY` stays on the server. An external price only sizes orders; review, policy and Live confirmation are unchanged.
 - Price alerts only read positions and write activity events. They never place or cancel orders.

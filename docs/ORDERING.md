@@ -4,7 +4,7 @@ TradePilot accepts flexible order intent but always converts it to an explicit T
 
 ## Supported inputs
 
-The instrument may be supplied as a Trading 212 ticker, a market symbol, a company name, or a partial name. TradePilot resolves the broker instrument and rejects genuinely ambiguous matches.
+The instrument may be supplied as a Trading 212 ticker, a market symbol, an ISIN, a company name, or a partial name. TradePilot resolves the broker instrument and rejects genuinely ambiguous matches; an ISIN listed on several exchanges returns its listings with their currencies to choose from.
 
 Typical requests:
 
@@ -70,6 +70,20 @@ Trading 212 write
 
 The order editor shows both the original sizing rule and the calculated quantity. If the quantity is edited manually, the UI marks it as changed and offers a restore action for the calculated value.
 
+## Price checks
+
+A Limit or Stop price ten times above or below the last price is blocked (`PRICE_OUT_OF_RANGE`), because that is almost always a unit slip, such as pounds typed for an instrument quoted in pence. Smaller surprises are notes on the review:
+
+- `STOP_ALREADY_TRIGGERED`: the stop is already at or past the last price, so the order triggers at once;
+- `LIMIT_FILLS_AT_ONCE`: a buy limit more than 2% above the last price (or a sell limit 2% below) fills at once near the market price;
+- `PRICE_FAR_FROM_LAST`: the price is more than 30% away from the last one.
+
+A Stop buy is valued at its stop price when that is above the market, so `MAX_ORDER_NOTIONAL`, the cash check and the policy see what it can cost once triggered.
+
+## Following up an order
+
+`get_order_status` looks up one order by id: still open (and how much filled), or how it ended, with its fills. `review_order_cancel` opens a pending order's cancellation in the widget for you to confirm; the model cannot cancel by itself. `get_trade_history` with `includeUnfilled` also lists orders that were cancelled, rejected or expired.
+
 ## Price and FX timestamps
 
 Amount-based sizing should provide a current reference price and, when applicable, a current FX rate. The optional timestamp fields are:
@@ -83,7 +97,9 @@ A timestamp is context, not a price guarantee. Market orders can still execute a
 
 ## Unknown write results
 
-Trading 212 writes are sent once. A network timeout or ambiguous server response does not trigger an automatic retry.
+Trading 212 writes are sent once. A network timeout or ambiguous server response does not trigger an automatic retry. The one exception is a write Trading 212 refused with 429 (rate limited), which it did not carry out: it is sent once more after the delay Trading 212 asks for (at least 2.1 seconds, because Limit and Stop orders allow one request per 2 seconds), and reported when that delay is longer than 15 seconds.
+
+Confirmations on one environment are sent one at a time, so two orders confirmed together cannot both pass the daily limits.
 
 When a write result is unknown, TradePilot creates a short-lived verification record. The UI can then perform a **read-only** check:
 

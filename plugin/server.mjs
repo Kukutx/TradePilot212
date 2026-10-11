@@ -34199,8 +34199,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   ];
   const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
   const history = [];
-  const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0) => {
-    const id = nextId++;
+  const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
     history.unshift({
       order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
@@ -34274,7 +34273,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       }))
     };
   };
-  const fill = (ticker, quantity) => {
+  const fill = (ticker, quantity, orderId) => {
     const instrument = instrumentOf(ticker);
     const value = eur(ticker, Math.abs(quantity) * instrument.price);
     let holding = holdings.find((item) => item.ticker === ticker);
@@ -34290,7 +34289,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       holding.quantity = round(holding.quantity + quantity, 6);
       if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
     }
-    addHistory(ticker, quantity, instrument.price, (/* @__PURE__ */ new Date()).toISOString());
+    addHistory(ticker, quantity, instrument.price, (/* @__PURE__ */ new Date()).toISOString(), 0, orderId);
     return {};
   };
   const handle = async (method, path3, query, body) => {
@@ -34337,7 +34336,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       if (!Number.isFinite(quantity) || quantity === 0) return json2({ code: "InvalidQuantity" }, 400);
       const order = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: (/* @__PURE__ */ new Date()).toISOString(), ...body.limitPrice ? { limitPrice: body.limitPrice } : {}, ...body.stopPrice ? { stopPrice: body.stopPrice } : {}, ...body.timeValidity ? { timeValidity: body.timeValidity } : {} };
       if (type === "MARKET") {
-        const result2 = fill(ticker, quantity);
+        const result2 = fill(ticker, quantity, Number(order.id));
         if (result2.error) return result2.error;
         return json2({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker).price) });
       }
@@ -34350,8 +34349,10 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     if (method === "DELETE" && path3.startsWith("/equity/orders/")) {
       const index = pending.findIndex((item) => String(item.id) === path3.split("/").pop());
       if (index < 0) return json2({ code: "OrderNotFound" }, 404);
-      cash += reservation(pending[index]);
+      const order = pending[index];
+      cash += reservation(order);
       pending.splice(index, 1);
+      history.unshift({ order: { ...order, side: Number(order.quantity) < 0 ? "SELL" : "BUY", status: "CANCELLED", currency: instrumentOf(String(order.ticker))?.currencyCode, instrument: { ticker: order.ticker, name: instrumentOf(String(order.ticker))?.name } } });
       return new Response(null, { status: 200 });
     }
     if (method === "GET" && path3 === "/equity/pies") return json2([...pies2.keys()].map(pieSummary));
@@ -34673,6 +34674,195 @@ var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
+// src/core/trading212-client.ts
+var Trading212ApiError = class extends Error {
+  constructor(message, status, responseBody) {
+    super(message);
+    this.status = status;
+    this.responseBody = responseBody;
+    this.name = "Trading212ApiError";
+  }
+  status;
+  responseBody;
+};
+var ExecutionStatusUnknownError = class extends Error {
+  constructor(message, causeValue) {
+    super(message);
+    this.causeValue = causeValue;
+    this.name = "ExecutionStatusUnknownError";
+  }
+  causeValue;
+};
+var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var WRITE_RETRY_MIN_MS = 2100;
+var WRITE_RETRY_MAX_MS = 15e3;
+function basic(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+function unwrapArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    for (const key of ["items", "data", "orders", "positions", "instruments"])
+      if (Array.isArray(value[key])) return value[key];
+  }
+  return [];
+}
+async function readBody(response) {
+  if (response.status === 204) return null;
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+function normalizePosition(position) {
+  const instrument = position.instrument;
+  if (!instrument || instrument.currencyCode || typeof instrument.currency !== "string") return position;
+  return { ...position, instrument: { ...instrument, currencyCode: instrument.currency } };
+}
+function relativeApiPath(pagePath) {
+  const path3 = pagePath.startsWith("http") ? new URL(pagePath).pathname + new URL(pagePath).search : pagePath;
+  if (!path3.startsWith("/")) throw new Error("Unexpected Trading 212 page path");
+  return path3.replace(/^\/api\/v0(?=\/)/, "");
+}
+function retryDelayMs(response, attempt, now = Date.now()) {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1e3 + 100, 6e4);
+    const date5 = Date.parse(retryAfter);
+    if (Number.isFinite(date5)) return Math.min(Math.max(0, date5 - now) + 100, 6e4);
+  }
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  if (Number.isFinite(reset) && reset > 0) return Math.min(Math.max(0, (reset > 1e10 ? reset : reset * 1e3) - now) + 100, 6e4);
+  return Math.min(300 * 2 ** Math.max(0, attempt - 1), 5e3);
+}
+var Trading212Client = class {
+  constructor(environment, config3, fetcher) {
+    this.environment = environment;
+    this.target = config3.trading212[environment];
+    this.fetcher = fetcher ?? ((input2, init) => globalThis.fetch(input2, init));
+    if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
+  }
+  environment;
+  target;
+  fetcher;
+  async request(method, path3, body) {
+    const attempts = method === "GET" ? 4 : 2;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      let response;
+      try {
+        response = await this.fetcher(`${this.target.baseUrl}${path3}`, { method, headers: {
+          Authorization: `Basic ${basic(`${this.target.apiKey}:${this.target.apiSecret}`)}`,
+          Accept: "application/json",
+          ...body === void 0 ? {} : { "Content-Type": "application/json" }
+        }, ...body === void 0 ? {} : { body: JSON.stringify(body) }, signal: AbortSignal.timeout(2e4) });
+      } catch (error62) {
+        if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error62);
+        if (attempt === attempts) throw error62;
+        await sleep2(Math.min(300 * 2 ** (attempt - 1), 5e3));
+        continue;
+      }
+      let parsed;
+      try {
+        parsed = await readBody(response);
+      } catch (error62) {
+        if (method !== "GET" && (response.ok || response.status === 408 || response.status >= 500))
+          throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} but the response could not be read. The order/cancel status is unknown; verify the order list before trying again.`, error62);
+        if (method === "GET" && attempt < attempts) {
+          await sleep2(retryDelayMs(response, attempt));
+          continue;
+        }
+        throw new Trading212ApiError(`Trading 212 ${method} ${path3} failed (${response.status}) and the response could not be read`, response.status, null);
+      }
+      if (response.ok) return parsed;
+      if (method !== "GET" && (response.status === 408 || response.status >= 500))
+        throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
+      if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500) && attempt < attempts) {
+        await sleep2(retryDelayMs(response, attempt));
+        continue;
+      }
+      if (method !== "GET" && response.status === 429 && attempt < attempts) {
+        const wait = retryDelayMs(response, attempt);
+        if (wait <= WRITE_RETRY_MAX_MS) {
+          await sleep2(Math.max(wait, WRITE_RETRY_MIN_MS));
+          continue;
+        }
+      }
+      const detail = parsed == null || parsed === "" ? "" : typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+      throw new Trading212ApiError(`Trading 212 ${method} ${path3} failed (${response.status})${detail ? `: ${detail}` : ""}`, response.status, parsed);
+    }
+    throw new Error("Unreachable Trading 212 request state");
+  }
+  getAccountSummary() {
+    return this.request("GET", "/equity/account/summary");
+  }
+  async getPositions() {
+    return unwrapArray(await this.request("GET", "/equity/positions")).map(normalizePosition);
+  }
+  async getOrders() {
+    return unwrapArray(await this.request("GET", "/equity/orders"));
+  }
+  getOrder(id) {
+    return this.request("GET", `/equity/orders/${encodeURIComponent(id)}`);
+  }
+  async getInstruments() {
+    return unwrapArray(await this.request("GET", "/equity/metadata/instruments"));
+  }
+  placeOrder(draft) {
+    const quantity = draft.side === "buy" ? draft.quantity : -draft.quantity;
+    if (draft.type === "market") return this.request("POST", "/equity/orders/market", { ticker: draft.ticker, quantity, ...draft.extendedHours === void 0 ? {} : { extendedHours: draft.extendedHours } });
+    const timeValidity = draft.timeValidity ?? "DAY";
+    if (draft.type === "limit") return this.request("POST", "/equity/orders/limit", { ticker: draft.ticker, quantity, limitPrice: draft.limitPrice, timeValidity });
+    if (draft.type === "stop") return this.request("POST", "/equity/orders/stop", { ticker: draft.ticker, quantity, stopPrice: draft.stopPrice, timeValidity });
+    return this.request("POST", "/equity/orders/stop_limit", { ticker: draft.ticker, quantity, limitPrice: draft.limitPrice, stopPrice: draft.stopPrice, timeValidity });
+  }
+  cancelOrder(id) {
+    return this.request("DELETE", `/equity/orders/${encodeURIComponent(id)}`);
+  }
+  async getExchanges() {
+    return unwrapArray(await this.request("GET", "/equity/metadata/exchanges"));
+  }
+  /** One page of history. `pagePath` is the broker's `nextPagePath` from the previous page. */
+  /** `ticker` narrows orders and dividends on the broker side; later pages keep it through nextPagePath. */
+  async getHistoryPage(kind, pagePath, ticker) {
+    const filter = ticker && kind !== "transactions" ? `&ticker=${encodeURIComponent(ticker)}` : "";
+    const path3 = pagePath ? relativeApiPath(pagePath) : `/equity/history/${kind}?limit=50${filter}`;
+    const page = await this.request("GET", path3);
+    return Array.isArray(page) ? { items: page, nextPagePath: null } : { items: page?.items ?? [], nextPagePath: page?.nextPagePath ?? null };
+  }
+  listExports() {
+    return this.request("GET", "/equity/history/exports");
+  }
+  requestExport(body) {
+    return this.request("POST", "/equity/history/exports", body);
+  }
+  // Pies. Trading 212 marks these endpoints deprecated but still serves them; they need the pies scopes.
+  async getPies() {
+    return unwrapArray(await this.request("GET", "/equity/pies"));
+  }
+  getPie(id) {
+    return this.request("GET", `/equity/pies/${id}`);
+  }
+  createPie(body) {
+    return this.request("POST", "/equity/pies", body);
+  }
+  updatePie(id, body) {
+    return this.request("POST", `/equity/pies/${id}`, body);
+  }
+  deletePie(id) {
+    return this.request("DELETE", `/equity/pies/${id}`);
+  }
+  duplicatePie(id, body) {
+    return this.request("POST", `/equity/pies/${id}/duplicate`, body);
+  }
+};
+
 // src/core/errors.ts
 var TradePilotError = class extends Error {
   constructor(code, message, details) {
@@ -34692,17 +34882,21 @@ function inferredCode(message) {
   if (/no available cash/i.test(message)) return "NO_AVAILABLE_CASH";
   if (/exceeds available quantity|currently tradable/i.test(message)) return "INSUFFICIENT_SELLABLE_QUANTITY";
   if (/exceeds available cash/i.test(message)) return "INSUFFICIENT_CASH";
+  if (/referencePrice is required|reference price is required/i.test(message)) return "REFERENCE_PRICE_REQUIRED";
   if (/MAX_ORDER_NOTIONAL|notional .* exceeds/i.test(message)) return "ORDER_NOTIONAL_LIMIT";
   if (/MAX_ORDER_QUANTITY|maxOpenQuantity/i.test(message)) return "ORDER_QUANTITY_LIMIT";
-  if (/referencePrice is required|reference price is required/i.test(message)) return "REFERENCE_PRICE_REQUIRED";
   if (/extendedHours|extended-hours/i.test(message)) return "UNSUPPORTED_EXTENDED_HOURS";
   if (/confirmation .* invalid or expired|confirmation token is invalid or expired/i.test(message)) return "CONFIRMATION_EXPIRED";
   if (/verification .* missing or expired/i.test(message)) return "VERIFICATION_NOT_FOUND";
-  if (/429|rate limit/i.test(message)) return "BROKER_RATE_LIMITED";
+  if (/\b429\b|rate limit/i.test(message)) return "BROKER_RATE_LIMITED";
   if (/Trading 212 .* failed/i.test(message)) return "BROKER_REQUEST_FAILED";
   if (/status is unknown|execution status is unknown|write status is unknown/i.test(message)) return "EXECUTION_STATUS_UNKNOWN";
   if (/required|must be|only valid|cannot exceed|too small/i.test(message)) return "INVALID_INPUT";
   return "INTERNAL_ERROR";
+}
+function inferredBrokerCode(message) {
+  const code = inferredCode(message.replace(/\/equity\/[^\s)]*/g, ""));
+  return code === "INTERNAL_ERROR" || code === "INVALID_INPUT" || code === "BROKER_RATE_LIMITED" ? "BROKER_REQUEST_FAILED" : code;
 }
 function asStructuredError(error62) {
   if (error62 instanceof TradePilotError) {
@@ -34713,6 +34907,11 @@ function asStructuredError(error62) {
     };
   }
   const message = error62 instanceof Error ? error62.message : String(error62);
+  if (error62 instanceof ExecutionStatusUnknownError) return { code: "EXECUTION_STATUS_UNKNOWN", message };
+  if (error62 instanceof Trading212ApiError) {
+    const code = error62.status === 429 ? "BROKER_RATE_LIMITED" : error62.status === 401 || error62.status === 403 ? "BROKER_REQUEST_FAILED" : inferredBrokerCode(message);
+    return { code, message, details: { status: error62.status } };
+  }
   return { code: inferredCode(message), message };
 }
 function fail(code, message, details) {
@@ -34937,7 +35136,7 @@ function evaluatePolicy(policy2, input2) {
     if (heldValue === void 0 || !totalValue || input2.estimatedNotional === void 0) {
       checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed: the order's value in the account currency or the account value is unknown." });
     } else {
-      const resulting = (heldValue + input2.estimatedNotional) / totalValue;
+      const resulting = (heldValue + (input2.pendingBuyValue ?? 0) + input2.estimatedNotional) / totalValue;
       const over = resulting > policy2.maxPositionWeight + 1e-9;
       checks.push({
         rule: "max_position_weight",
@@ -34989,184 +35188,6 @@ function addUsage(usage, accountNotional) {
   return { orders: usage.orders + 1, notional: usage.notional + (accountNotional && accountNotional > 0 ? accountNotional : 0) };
 }
 
-// src/core/trading212-client.ts
-var Trading212ApiError = class extends Error {
-  constructor(message, status, responseBody) {
-    super(message);
-    this.status = status;
-    this.responseBody = responseBody;
-    this.name = "Trading212ApiError";
-  }
-  status;
-  responseBody;
-};
-var ExecutionStatusUnknownError = class extends Error {
-  constructor(message, causeValue) {
-    super(message);
-    this.causeValue = causeValue;
-    this.name = "ExecutionStatusUnknownError";
-  }
-  causeValue;
-};
-var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-function basic(value) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-function unwrapArray(value) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") {
-    for (const key of ["items", "data", "orders", "positions", "instruments"])
-      if (Array.isArray(value[key])) return value[key];
-  }
-  return [];
-}
-async function readBody(response) {
-  if (response.status === 204) return null;
-  const text = await response.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-function normalizePosition(position) {
-  const instrument = position.instrument;
-  if (!instrument || instrument.currencyCode || typeof instrument.currency !== "string") return position;
-  return { ...position, instrument: { ...instrument, currencyCode: instrument.currency } };
-}
-function relativeApiPath(pagePath) {
-  const path3 = pagePath.startsWith("http") ? new URL(pagePath).pathname + new URL(pagePath).search : pagePath;
-  if (!path3.startsWith("/")) throw new Error("Unexpected Trading 212 page path");
-  return path3.replace(/^\/api\/v0(?=\/)/, "");
-}
-function retryDelayMs(response, attempt, now = Date.now()) {
-  const retryAfter = response.headers.get("retry-after");
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1e3 + 100, 6e4);
-    const date5 = Date.parse(retryAfter);
-    if (Number.isFinite(date5)) return Math.min(Math.max(0, date5 - now) + 100, 6e4);
-  }
-  const reset = Number(response.headers.get("x-ratelimit-reset"));
-  if (Number.isFinite(reset) && reset > 0) return Math.min(Math.max(0, (reset > 1e10 ? reset : reset * 1e3) - now) + 100, 6e4);
-  return Math.min(300 * 2 ** Math.max(0, attempt - 1), 5e3);
-}
-var Trading212Client = class {
-  constructor(environment, config3, fetcher) {
-    this.environment = environment;
-    this.target = config3.trading212[environment];
-    this.fetcher = fetcher ?? ((input2, init) => globalThis.fetch(input2, init));
-    if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
-  }
-  environment;
-  target;
-  fetcher;
-  async request(method, path3, body) {
-    const attempts = method === "GET" ? 4 : 1;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      let response;
-      try {
-        response = await this.fetcher(`${this.target.baseUrl}${path3}`, { method, headers: {
-          Authorization: `Basic ${basic(`${this.target.apiKey}:${this.target.apiSecret}`)}`,
-          Accept: "application/json",
-          ...body === void 0 ? {} : { "Content-Type": "application/json" }
-        }, ...body === void 0 ? {} : { body: JSON.stringify(body) }, signal: AbortSignal.timeout(2e4) });
-      } catch (error62) {
-        if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error62);
-        if (attempt === attempts) throw error62;
-        await sleep2(Math.min(300 * 2 ** (attempt - 1), 5e3));
-        continue;
-      }
-      let parsed;
-      try {
-        parsed = await readBody(response);
-      } catch (error62) {
-        if (method !== "GET" && (response.ok || response.status === 408 || response.status >= 500))
-          throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} but the response could not be read. The order/cancel status is unknown; verify the order list before trying again.`, error62);
-        if (method === "GET" && attempt < attempts) {
-          await sleep2(retryDelayMs(response, attempt));
-          continue;
-        }
-        throw new Trading212ApiError(`Trading 212 ${method} ${path3} failed (${response.status}) and the response could not be read`, response.status, null);
-      }
-      if (response.ok) return parsed;
-      if (method !== "GET" && (response.status === 408 || response.status >= 500))
-        throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
-      if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500) && attempt < attempts) {
-        await sleep2(retryDelayMs(response, attempt));
-        continue;
-      }
-      const detail = parsed == null || parsed === "" ? "" : typeof parsed === "string" ? parsed : JSON.stringify(parsed);
-      throw new Trading212ApiError(`Trading 212 ${method} ${path3} failed (${response.status})${detail ? `: ${detail}` : ""}`, response.status, parsed);
-    }
-    throw new Error("Unreachable Trading 212 request state");
-  }
-  getAccountSummary() {
-    return this.request("GET", "/equity/account/summary");
-  }
-  async getPositions() {
-    return unwrapArray(await this.request("GET", "/equity/positions")).map(normalizePosition);
-  }
-  async getOrders() {
-    return unwrapArray(await this.request("GET", "/equity/orders"));
-  }
-  getOrder(id) {
-    return this.request("GET", `/equity/orders/${encodeURIComponent(id)}`);
-  }
-  async getInstruments() {
-    return unwrapArray(await this.request("GET", "/equity/metadata/instruments"));
-  }
-  placeOrder(draft) {
-    const quantity = draft.side === "buy" ? draft.quantity : -draft.quantity;
-    if (draft.type === "market") return this.request("POST", "/equity/orders/market", { ticker: draft.ticker, quantity, ...draft.extendedHours === void 0 ? {} : { extendedHours: draft.extendedHours } });
-    const timeValidity = draft.timeValidity ?? "DAY";
-    if (draft.type === "limit") return this.request("POST", "/equity/orders/limit", { ticker: draft.ticker, quantity, limitPrice: draft.limitPrice, timeValidity });
-    if (draft.type === "stop") return this.request("POST", "/equity/orders/stop", { ticker: draft.ticker, quantity, stopPrice: draft.stopPrice, timeValidity });
-    return this.request("POST", "/equity/orders/stop_limit", { ticker: draft.ticker, quantity, limitPrice: draft.limitPrice, stopPrice: draft.stopPrice, timeValidity });
-  }
-  cancelOrder(id) {
-    return this.request("DELETE", `/equity/orders/${encodeURIComponent(id)}`);
-  }
-  async getExchanges() {
-    return unwrapArray(await this.request("GET", "/equity/metadata/exchanges"));
-  }
-  /** One page of history. `pagePath` is the broker's `nextPagePath` from the previous page. */
-  async getHistoryPage(kind, pagePath) {
-    const path3 = pagePath ? relativeApiPath(pagePath) : `/equity/history/${kind}?limit=50`;
-    const page = await this.request("GET", path3);
-    return Array.isArray(page) ? { items: page, nextPagePath: null } : { items: page?.items ?? [], nextPagePath: page?.nextPagePath ?? null };
-  }
-  listExports() {
-    return this.request("GET", "/equity/history/exports");
-  }
-  requestExport(body) {
-    return this.request("POST", "/equity/history/exports", body);
-  }
-  // Pies. Trading 212 marks these endpoints deprecated but still serves them; they need the pies scopes.
-  async getPies() {
-    return unwrapArray(await this.request("GET", "/equity/pies"));
-  }
-  getPie(id) {
-    return this.request("GET", `/equity/pies/${id}`);
-  }
-  createPie(body) {
-    return this.request("POST", "/equity/pies", body);
-  }
-  updatePie(id, body) {
-    return this.request("POST", `/equity/pies/${id}`, body);
-  }
-  deletePie(id) {
-    return this.request("DELETE", `/equity/pies/${id}`);
-  }
-  duplicatePie(id, body) {
-    return this.request("POST", `/equity/pies/${id}/duplicate`, body);
-  }
-};
-
 // src/core/web-utils.ts
 function randomToken(bytes = 32) {
   const data = crypto.getRandomValues(new Uint8Array(bytes));
@@ -35190,6 +35211,9 @@ var VERIFICATION_TTL_MS = 24 * 60 * 60 * 1e3;
 var REFERENCE_STALE_SECONDS = 300;
 var USAGE_TTL_MS = 2 * 24 * 60 * 60 * 1e3;
 var LINK_TTL_MS = 400 * 24 * 60 * 60 * 1e3;
+var SEND_LOCK_TTL_MS = 5 * 60 * 1e3;
+var SEND_LOCK_WAIT_MS = 45e3;
+var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function orderIdOf(order) {
   const id = order && typeof order === "object" ? order.id : void 0;
   return typeof id === "number" || typeof id === "string" && id ? String(id) : void 0;
@@ -35219,6 +35243,11 @@ function resolveInstrumentFromList(instruments, query) {
   if (!q) throw new Error("Ticker, symbol, or instrument name is required");
   const exact = instruments.find((item) => norm(item.ticker) === q);
   if (exact) return exact;
+  if (/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(q)) {
+    const listings = instruments.filter((item) => norm(item.isin ?? "") === q);
+    if (listings.length === 1) return listings[0];
+    if (listings.length > 1) throw new Error(`ISIN ${q} is listed ${listings.length} times. Use an exact Trading 212 ticker: ${listings.slice(0, 8).map((item) => `${item.ticker} (${item.currencyCode})`).join(", ")}`);
+  }
   const symbols = instruments.filter((item) => {
     const ticker = norm(item.ticker);
     return norm(item.shortName ?? "") === q || ticker.startsWith(`${q}_`) || ticker.startsWith(`${q}-`);
@@ -35266,10 +35295,21 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     throw new Error(`${instrument.ticker} does not support extended-hours execution`);
   if (draft.side === "buy" && instrument.maxOpenQuantity && Math.max(0, position?.quantity ?? 0) + draft.quantity > instrument.maxOpenQuantity + Number.EPSILON)
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
+  const last = position?.currentPrice || draft.referencePrice;
+  for (const [name, value] of [["limitPrice", draft.limitPrice], ["stopPrice", draft.stopPrice]]) {
+    if (!last || !value || draft.type === "market") continue;
+    const ratio2 = value / last;
+    if (ratio2 >= 10 || ratio2 <= 0.1)
+      fail(
+        "PRICE_OUT_OF_RANGE",
+        `${name} ${value} is ${ratio2 >= 10 ? `${round3(ratio2, 1)} times` : `${round3(1 / ratio2, 1)} times below`} the last price ${last} ${instrument.currencyCode}. Check the unit (${instrument.currencyCode === "GBX" ? "this instrument is quoted in pence" : "the instrument's quote currency"}).`,
+        { field: name, price: value, last, currency: instrument.currencyCode }
+      );
+  }
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
     fail("INSUFFICIENT_SELLABLE_QUANTITY", `Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`, { requested: draft.quantity, available: position?.quantityAvailableForTrading ?? 0 });
   const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value) => value !== void 0 && value > 0);
-  const price = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : marketPrices.length ? Math.max(...marketPrices) : void 0;
+  const price = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? Math.max(draft.stopPrice, ...marketPrices) : marketPrices.length ? Math.max(...marketPrices) : void 0;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : void 0;
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const instrumentCurrency = instrument.currencyCode.toUpperCase();
@@ -35279,7 +35319,7 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
   const accountNotional = estimatedNotional === void 0 ? void 0 : sameCurrency ? estimatedNotional : toAccountCurrency(estimatedNotional, instrumentCurrency, accountCurrency, known);
   if (config3.maxOrderNotional > 0) {
     if (!estimatedNotional)
-      throw new Error("A current referencePrice is required for this Market order while MAX_ORDER_NOTIONAL is enabled. Set MAX_ORDER_NOTIONAL=0 to disable the app-level notional cap.");
+      fail("REFERENCE_PRICE_REQUIRED", "A current referencePrice is required for this Market order while MAX_ORDER_NOTIONAL is enabled. Set MAX_ORDER_NOTIONAL=0 to disable the app-level notional cap.");
     if (!Number.isFinite(estimatedNotional) || estimatedNotional <= 0) throw new Error("Estimated order notional is invalid");
     if (accountNotional === void 0 && accountCurrency)
       fail(
@@ -35304,8 +35344,24 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     estimatedNotionalCurrency: instrument.currencyCode,
     cashCheckApplied,
     ...availableCash === void 0 ? {} : { availableCash },
-    ...account.currency ? { accountCurrency: account.currency } : {}
+    ...account.currency ? { accountCurrency: account.currency } : {},
+    ...last ? { lastPrice: last } : {}
   };
+}
+function priceNotices(draft, last, currency) {
+  if (!last || draft.type === "market") return [];
+  const notices = [];
+  const buy = draft.side === "buy";
+  const stop = draft.stopPrice;
+  if ((draft.type === "stop" || draft.type === "stop_limit") && stop && (buy ? stop <= last : stop >= last))
+    notices.push({ code: "STOP_ALREADY_TRIGGERED", message: `The stop ${stop} is already ${buy ? "at or below" : "at or above"} the last price ${last} ${currency}, so the order triggers at once.`, details: { stopPrice: stop, last, currency } });
+  const limit = draft.limitPrice;
+  if (draft.type === "limit" && limit && (buy ? limit > last * 1.02 : limit < last * 0.98))
+    notices.push({ code: "LIMIT_FILLS_AT_ONCE", message: `The limit ${limit} is ${buy ? "above" : "below"} the last price ${last} ${currency}, so the order can fill at once near the market price.`, details: { limitPrice: limit, last, currency } });
+  const far = [limit, stop].filter((value) => !!value).map((value) => value / last - 1).find((change) => Math.abs(change) > 0.3);
+  if (far !== void 0)
+    notices.push({ code: "PRICE_FAR_FROM_LAST", message: `The order price is ${Math.round(Math.abs(far) * 100)}% ${far > 0 ? "above" : "below"} the last price ${last} ${currency}.`, details: { percent: Math.round(far * 100), last, currency } });
+  return notices;
 }
 var TradingService = class {
   constructor(deps) {
@@ -35351,6 +35407,14 @@ var TradingService = class {
       return instrument ? { ...order, instrument: { ticker: instrument.ticker, name: instrument.name, shortName: instrument.shortName, currencyCode: instrument.currencyCode } } : order;
     });
   }
+  /** One open order with its instrument name, or undefined when it is no longer pending. */
+  async openOrder(environment, orderId) {
+    const client = this.client(environment);
+    const order = (await client.getOrders()).find((item) => String(item.id) === orderId.trim());
+    if (!order) return void 0;
+    const instrument = (await this.instruments(environment).catch(() => [])).find((item) => item.ticker === order.ticker);
+    return this.namedOrders(environment, [order], instrument ? [{ instrument }] : [])[0];
+  }
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
   externalQuote(instrument) {
     return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
@@ -35395,7 +35459,7 @@ var TradingService = class {
   positionFor(positions, ticker) {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
-  async recordActivity(type, environment, details = {}) {
+  async recordActivity(type, environment, details = {}, options = {}) {
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const event = { id: crypto.randomUUID(), timestamp, environment, type, ...details };
     try {
@@ -35413,7 +35477,7 @@ var TradingService = class {
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error62 instanceof Error ? error62.message : String(error62) }));
     }
-    await this.deps.notify?.(event);
+    if (options.notify !== false) await this.deps.notify?.(event);
     return event;
   }
   async getActivity(environment, limit = 12) {
@@ -35520,7 +35584,7 @@ var TradingService = class {
         return { rate: given, source: "" };
       }
       const rate = crossRate(rates, from, instrument.currencyCode);
-      if (!rate) throw new Error(`Converting ${from} to ${instrument.currencyCode} needs fxRateToInstrumentCurrency (${instrument.currencyCode} per 1 ${from}); no holding in ${instrument.currencyCode} gives an exchange rate and the quote source has none.`);
+      if (!rate) fail("FX_RATE_REQUIRED", `Converting ${from} to ${instrument.currencyCode} needs fxRateToInstrumentCurrency (${instrument.currencyCode} per 1 ${from}); no holding in ${instrument.currencyCode} gives an exchange rate and the quote source has none.`, { from: from.toUpperCase(), to: instrument.currencyCode.toUpperCase() });
       fxRateAt ??= external?.asOf ?? fetchedAt;
       return { rate, source: rateSource };
     };
@@ -35663,7 +35727,7 @@ var TradingService = class {
     }
   }
   orderNotices(draft, current, market) {
-    const notices = [];
+    const notices = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === void 0) {
       notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
@@ -35677,6 +35741,13 @@ var TradingService = class {
       if (fxAgeSeconds !== void 0 && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))
+      notices.push({
+        code: "MARKET_HOURS_UNKNOWN",
+        message: market ? "Trading 212 publishes no trading hours for this instrument, so this Market order may queue until the next open." : "The market hours could not be read, so this Market order may queue until the next open.",
+        // "unavailable" is a failed read and worth retrying; "no_schedule" will not change.
+        details: { reason: market ? "no_schedule" : "unavailable" }
+      });
     if (market && market.session !== "unknown" && !market.isOpen) {
       const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
       notices.push({
@@ -35692,12 +35763,13 @@ var TradingService = class {
     }
     return notices;
   }
-  policyFor(draft, instrument, position, account, accountNotional, market, usage) {
+  policyFor(draft, instrument, position, account, accountNotional, market, usage, pendingBuyValue) {
     return evaluatePolicy(this.deps.config.policy[draft.environment], {
       draft,
       instrument,
       account,
       usage,
+      ...pendingBuyValue ? { pendingBuyValue } : {},
       ...position ? { position } : {},
       ...accountNotional === void 0 ? {} : { estimatedNotional: accountNotional },
       ...market ? { market } : {}
@@ -35765,7 +35837,33 @@ var TradingService = class {
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     return pending;
   }
+  /** The environment a confirmation token belongs to, so its send can take that environment's lock. */
+  async pendingEnvironment(confirmationId) {
+    const pending = await this.deps.store.get(`confirm:${confirmationId}`);
+    if (!pending) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    return pending.kind === "order" ? pending.draft.environment : pending.environment;
+  }
+  /**
+   * Run one send at a time per environment. The daily limits are checked and counted inside, so two
+   * confirmations sent together cannot both slip under them. A crashed holder's lock expires.
+   */
+  async exclusive(environment, run) {
+    const key = `send-lock:${environment}`;
+    const deadline = Date.now() + SEND_LOCK_WAIT_MS;
+    while ((await this.deps.store.increment(key, SEND_LOCK_TTL_MS)).count > 1) {
+      if (Date.now() > deadline) fail("EXECUTION_BUSY", `Another ${environment.toUpperCase()} order is still being sent. Try again in a moment; this confirmation is still valid.`);
+      await sleep3(200);
+    }
+    try {
+      return await run();
+    } finally {
+      await this.deps.store.delete(key).catch(() => void 0);
+    }
+  }
   async executeOrder(confirmationId, options = {}) {
+    return this.exclusive(await this.pendingEnvironment(confirmationId), () => this.sendOrder(confirmationId, options));
+  }
+  async sendOrder(confirmationId, options) {
     const pending = await this.takePending(confirmationId, "order", !!options.liveAcknowledged);
     const draft = pending.draft;
     let current;
@@ -35869,6 +35967,7 @@ var TradingService = class {
   assessBasket(request, snapshot, usageBefore, markets, rates) {
     const ordered = [...request.drafts].sort((a, b) => a.side === b.side ? 0 : a.side === "sell" ? -1 : 1);
     const sold = /* @__PURE__ */ new Map();
+    const bought = /* @__PURE__ */ new Map();
     let cashDelta = 0;
     let usage = usageBefore;
     return ordered.map((raw, index) => {
@@ -35878,13 +35977,16 @@ var TradingService = class {
         const draft = { ...raw, ticker: instrument.ticker };
         const held = this.positionFor(snapshot.positions, instrument.ticker);
         const alreadySold = request.independentSells ? 0 : sold.get(instrument.ticker) ?? 0;
-        const position = held ? { ...held, quantityAvailableForTrading: held.quantityAvailableForTrading - alreadySold } : void 0;
+        const earlier = bought.get(instrument.ticker);
+        const base = held ?? (earlier ? { instrument, quantity: 0, quantityAvailableForTrading: 0, quantityInPies: 0, averagePricePaid: 0, currentPrice: 0 } : void 0);
+        const position = base ? { ...base, quantity: base.quantity + (earlier?.quantity ?? 0), quantityAvailableForTrading: base.quantityAvailableForTrading - alreadySold } : void 0;
         const cash = snapshot.account.cash?.availableToTrade;
         const account = cash === void 0 ? snapshot.account : { ...snapshot.account, cash: { ...snapshot.account.cash, availableToTrade: cash + cashDelta } };
         const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
         const market = markets.get(instrument.ticker);
-        const policy2 = this.policyFor(draft, instrument, held, snapshot.account, checked.accountNotional, market, usage);
+        const policy2 = this.policyFor(draft, instrument, held, snapshot.account, checked.accountNotional, market, usage, earlier?.value);
         if (draft.side === "sell") sold.set(instrument.ticker, alreadySold + draft.quantity);
+        else bought.set(instrument.ticker, { quantity: (earlier?.quantity ?? 0) + draft.quantity, value: (earlier?.value ?? 0) + (checked.accountNotional ?? 0) });
         if (checked.accountNotional !== void 0) cashDelta += draft.side === "sell" ? checked.accountNotional : -checked.accountNotional;
         usage = addUsage(usage, checked.accountNotional);
         return { draft, instrument, position: held, checked, market, policy: policy2 };
@@ -35964,15 +36066,20 @@ var TradingService = class {
   }
   /** `accountNotional` is the order's estimated value in the account currency, when known. */
   async submit(draft, baselineQuantity, accountNotional) {
+    let order;
     try {
-      const order = await this.client(draft.environment).placeOrder(draft);
-      await this.recordUsage(draft.environment, accountNotional);
-      await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
-      return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
+      order = await this.client(draft.environment).placeOrder(draft);
     } catch (error62) {
       if (error62 instanceof ExecutionStatusUnknownError) await this.recordUsage(draft.environment, accountNotional);
       return this.failedSubmission(draft, baselineQuantity, error62);
     }
+    await this.recordUsage(draft.environment, accountNotional);
+    try {
+      await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+    } catch (error62) {
+      console.error(JSON.stringify({ message: "TradePilot activity log failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+    }
+    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
   }
   async failedSubmission(draft, baselineQuantity, error62) {
     if (error62 instanceof ExecutionStatusUnknownError) {
@@ -35983,8 +36090,11 @@ var TradingService = class {
     await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
   }
-  /** Send a confirmed basket. Writes are never retried; an uncertain result stops the rest. */
+  /** Send a confirmed basket. An uncertain result stops the rest; only a rate-limited write is sent again. */
   async executeBasket(confirmationId, options = {}) {
+    return this.exclusive(await this.pendingEnvironment(confirmationId), () => this.sendBasket(confirmationId, options));
+  }
+  async sendBasket(confirmationId, options) {
     const pending = await this.takePending(confirmationId, "basket", !!options.liveAcknowledged);
     const results = [];
     let stopReason;
@@ -36069,34 +36179,80 @@ var TradingService = class {
     const orders = await this.client(environment).getOrders();
     return new Set(orders.map((order) => order.id).filter((id) => id !== void 0 && id !== null).map(String));
   }
-  /** Final state of recent orders from the newest history pages, keyed by order id. */
-  async recentOrderOutcomes(environment, pages = 2) {
+  /**
+   * Final state of recent orders, keyed by order id, from the newest history pages. Paging stops once
+   * every wanted id is found or the page reaches orders older than `since` (history allows few reads).
+   */
+  async recentOrderOutcomes(environment, options = {}) {
     const client = this.client(environment);
     const outcomes = /* @__PURE__ */ new Map();
+    const wanted = new Set([...options.wanted ?? []].map(String));
+    const since = options.since ? Date.parse(options.since) : NaN;
     let path3;
-    for (let page = 0; page < pages; page++) {
+    for (let page = 0; page < (options.maxPages ?? 4); page++) {
       const result2 = await client.getHistoryPage("orders", path3);
+      let oldest = Infinity;
       for (const item of result2.items) {
+        const created = Date.parse(item.order?.createdAt ?? "");
+        if (Number.isFinite(created)) oldest = Math.min(oldest, created);
         const id = item.order?.id;
         if (id === void 0 || id === null) continue;
         const filled = Math.max(Math.abs(item.order?.filledQuantity ?? 0), Math.abs(item.fill?.quantity ?? 0));
         const previous = outcomes.get(String(id));
-        outcomes.set(String(id), { status: (item.order?.status ?? previous?.status ?? "").toUpperCase(), filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0) });
+        outcomes.set(String(id), {
+          status: (item.order?.status ?? previous?.status ?? "").toUpperCase(),
+          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0),
+          quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0)
+        });
       }
       if (!result2.nextPagePath) break;
+      if (wanted.size && [...wanted].every((id) => outcomes.has(id))) break;
+      if (Number.isFinite(since) && oldest < since) break;
       path3 = result2.nextPagePath;
     }
     return outcomes;
   }
-  /** Cancel the surviving order of a protective pair. Sent once; an unclear result is reported, not retried. */
-  async cancelLinkedOrder(environment, orderId, reason) {
+  /**
+   * Where one order stands: still open, or how it ended (filled, partly filled, cancelled, rejected),
+   * with its fills. Reads the open orders, then the newest history pages until the id is found.
+   */
+  async orderStatus(environment, orderId, maxPages = 4) {
+    const id = String(orderId).trim();
+    if (!/^\d{1,20}$/.test(id)) fail("INVALID_INPUT", "orderId must be the numeric Trading 212 order id.", { field: "orderId" });
+    const client = this.client(environment);
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const open2 = (await client.getOrders()).find((order2) => String(order2.id) === id);
+    if (open2) return { kind: "order_status", environment, orderId: id, state: Math.abs(Number(open2.filledQuantity ?? 0)) > 0 ? "partly_filled" : "open", order: open2, fills: [], timestamp };
+    const fills = [];
+    let order;
+    let path3;
+    for (let page = 0; page < maxPages; page++) {
+      const result2 = await client.getHistoryPage("orders", path3);
+      for (const item of result2.items) {
+        if (String(item.order?.id) !== id) continue;
+        order ??= item.order;
+        if (item.fill) fills.push({ ...item.fill.filledAt ? { filledAt: item.fill.filledAt } : {}, ...item.fill.quantity === void 0 ? {} : { quantity: Math.abs(item.fill.quantity) }, ...item.fill.price === void 0 ? {} : { price: item.fill.price }, ...item.fill.walletImpact?.netValue === void 0 ? {} : { netValue: item.fill.walletImpact.netValue }, ...item.fill.walletImpact?.currency ? { currency: item.fill.walletImpact.currency } : {} });
+      }
+      if (order || !result2.nextPagePath) break;
+      path3 = result2.nextPagePath;
+    }
+    if (!order) return { kind: "order_status", environment, orderId: id, state: "not_found", fills, timestamp };
+    const status = String(order.status ?? "").toUpperCase();
+    const filled = Math.max(Math.abs(Number(order.filledQuantity ?? 0)), fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0));
+    const quantity = Math.abs(Number(order.quantity ?? 0));
+    const state = /REJECT/.test(status) ? "rejected" : filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled" : filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL/.test(status) ? "filled" : /CANCEL|EXPIRE/.test(status) ? "cancelled" : "closed";
+    return { kind: "order_status", environment, orderId: id, state, order, fills, timestamp };
+  }
+  /** Cancel the surviving order of a protective pair. One request per call; the caller decides on retries. */
+  async cancelLinkedOrder(environment, orderId, reason, options = {}) {
     try {
       await this.client(environment).cancelOrder(orderId);
       await this.recordActivity("protective_sibling_cancelled", environment, { orderId, outcome: reason.slice(0, 200) });
       return "cancelled";
     } catch (error62) {
+      if (error62 instanceof Trading212ApiError && error62.status === 404) return "gone";
       const unknown2 = error62 instanceof ExecutionStatusUnknownError;
-      await this.recordActivity(unknown2 ? "cancel_status_unknown" : "cancel_rejected", environment, { orderId, outcome: reason.slice(0, 200) });
+      if (!options.quiet) await this.recordActivity(unknown2 ? "cancel_status_unknown" : "cancel_rejected", environment, { orderId, outcome: reason.slice(0, 200) });
       return unknown2 ? "unknown" : "rejected";
     }
   }
@@ -36135,6 +36291,7 @@ var TradingService = class {
       const recordTime = Date.parse(record2.createdAt);
       const pendingMatch = orders.find((order) => {
         if ((order.ticker ?? "").toUpperCase() !== record2.draft.ticker.toUpperCase()) return false;
+        if (typeof order.quantity === "number" && order.quantity !== 0 && (order.quantity < 0 ? "sell" : "buy") !== record2.draft.side) return false;
         const quantity = orderQuantity(order);
         if (quantity === void 0 || !closeQuantity(quantity, record2.draft.quantity)) return false;
         if (order.type && String(order.type).replaceAll("-", "_").toUpperCase() !== record2.draft.type.toUpperCase()) return false;
@@ -36490,10 +36647,10 @@ var InsightsService = class {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
   /** Walk newest-first history pages until the window start or the page budget is reached. */
-  async collect(environment, kind, window, maxPages = DEFAULT_HISTORY_PAGES) {
+  async collect(environment, kind, window, maxPages = DEFAULT_HISTORY_PAGES, ticker) {
     const pages = Math.max(1, Math.min(MAX_HISTORY_PAGES, Math.floor(maxPages)));
     const start = window.from ? new Date(Math.floor(window.from.getTime() / 864e5) * 864e5) : void 0;
-    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}`;
+    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached2 = this.historyCache.get(key);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.value;
     const client = this.client(environment);
@@ -36501,7 +36658,7 @@ var InsightsService = class {
     let next;
     let truncated = false;
     for (let page = 0; page < pages; page++) {
-      const result2 = await client.getHistoryPage(kind, next);
+      const result2 = await client.getHistoryPage(kind, next, ticker);
       items.push(...result2.items);
       const oldest = result2.items.length ? itemTime(kind, result2.items[result2.items.length - 1]) : NaN;
       const reachedStart = start !== void 0 && Number.isFinite(oldest) && oldest < start.getTime();
@@ -36554,22 +36711,94 @@ var InsightsService = class {
       truncated: dividends.truncated || transactions.truncated
     });
   }
-  async tradeHistory(environment, window, ticker, limit = 50, maxPages) {
-    const collected = await this.collect(environment, "orders", window, maxPages);
+  /**
+   * Dividends and cash movements (deposits, withdrawals, interest, fees) one by one, newest first,
+   * with totals per type. `types` takes DIVIDEND and Trading 212's transaction types; a ticker limits it to dividends.
+   */
+  async cashHistory(environment, window, options = {}) {
     let exact;
-    if (ticker?.trim()) {
+    if (options.ticker?.trim()) {
       try {
-        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker.toUpperCase();
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), options.ticker).ticker;
       } catch {
         exact = void 0;
       }
     }
+    const types = new Set((options.types ?? []).map((type) => type.trim().toUpperCase()).filter(Boolean));
+    const wantDividends = !types.size || types.has("DIVIDEND");
+    const wantCash = !options.ticker?.trim() && (!types.size || [...types].some((type) => type !== "DIVIDEND"));
+    const [dividends, transactions] = await Promise.all([
+      wantDividends ? this.collect(environment, "dividends", window, options.maxPages, exact) : void 0,
+      wantCash ? this.collect(environment, "transactions", window, options.maxPages) : void 0
+    ]);
+    const wanted = options.ticker?.trim().toUpperCase();
+    const inWindow2 = (time3) => Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
+    const items = [
+      ...(dividends?.items ?? []).filter((item) => !wanted || (exact ? (item.ticker ?? item.instrument?.ticker) === exact : (item.ticker ?? "").toUpperCase().startsWith(wanted))).filter((item) => inWindow2(itemTime("dividends", item))).map((item) => ({
+        date: item.paidOn ?? "",
+        type: "DIVIDEND",
+        amount: item.amount ?? 0,
+        currency: item.currency ?? "",
+        ...item.ticker ?? item.instrument?.ticker ? { ticker: item.ticker ?? item.instrument?.ticker } : {},
+        ...item.instrument?.name ? { name: item.instrument.name } : {},
+        ...item.quantity === void 0 ? {} : { quantity: item.quantity },
+        ...item.grossAmountPerShare === void 0 ? {} : { grossPerShare: item.grossAmountPerShare, perShareCurrency: item.tickerCurrency ?? "" },
+        ...item.type ? { subtype: item.type } : {},
+        ...item.reference ? { reference: item.reference } : {}
+      })),
+      ...(transactions?.items ?? []).filter((item) => !types.size || types.has(String(item.type ?? "").toUpperCase())).filter((item) => inWindow2(itemTime("transactions", item))).map((item) => ({
+        date: item.dateTime ?? "",
+        type: String(item.type ?? "OTHER").toUpperCase(),
+        amount: item.amount ?? 0,
+        currency: item.currency ?? "",
+        ...item.reference ? { reference: item.reference } : {}
+      }))
+    ].sort((a, b) => b.date.localeCompare(a.date));
+    const totals = {};
+    for (const item of items) totals[item.type] = Math.round(((totals[item.type] ?? 0) + item.amount) * 100) / 100;
+    return {
+      kind: "cash_history",
+      environment,
+      items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
+      count: items.length,
+      totals,
+      currency: items.find((item) => item.currency)?.currency ?? "",
+      truncated: !!(dividends?.truncated || transactions?.truncated),
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false) {
+    let exact;
+    if (ticker?.trim()) {
+      try {
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker;
+      } catch {
+        exact = void 0;
+      }
+    }
+    const collected = await this.collect(environment, "orders", window, maxPages, exact);
     const wanted = ticker?.trim().toUpperCase();
-    const matches = (value) => exact ? value === exact : value === wanted || value.startsWith(`${wanted}_`);
-    const fills = collected.items.filter((item) => item.fill).filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => {
+    const matches = (value) => exact ? value === exact.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
+    const inWindow2 = collected.items.filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => {
       const time3 = itemTime("orders", item);
       return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
-    }).slice(0, Math.max(1, Math.min(200, limit))).map((item) => ({
+    });
+    const max = Math.max(1, Math.min(200, limit));
+    const unfilled = includeUnfilled ? inWindow2.filter((item) => !item.fill).slice(0, max).map((item) => ({
+      ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
+      ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
+      side: item.order?.side,
+      type: item.order?.type,
+      status: item.order?.status,
+      createdAt: item.order?.createdAt,
+      quantity: item.order?.quantity,
+      ...item.order?.value === void 0 ? {} : { value: item.order.value },
+      ...item.order?.limitPrice === void 0 ? {} : { limitPrice: item.order.limitPrice },
+      ...item.order?.stopPrice === void 0 ? {} : { stopPrice: item.order.stopPrice },
+      priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
+      initiatedFrom: item.order?.initiatedFrom
+    })) : void 0;
+    const fills = inWindow2.filter((item) => item.fill).slice(0, max).map((item) => ({
       ticker: item.order?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
       side: item.order?.side,
@@ -36587,7 +36816,7 @@ var InsightsService = class {
       costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
       ...item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...tax.currency ? { currency: tax.currency } : {} })) } : {}
     }));
-    return { kind: "trade_history", environment, fills, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+    return { kind: "trade_history", environment, fills, ...unfilled ? { unfilled } : {}, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
   }
   async exchanges(environment) {
     const cached2 = this.exchangeCache.get(environment);
@@ -36648,6 +36877,15 @@ function nextRunAt(plan, after) {
   let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS2);
   if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS2);
   return candidate;
+}
+function previousRunAt(plan, next) {
+  if (plan.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan.dayOfMonth ?? 1, plan.hourUtc));
+  return new Date(next.getTime() - 7 * DAY_MS2);
+}
+function scheduleFrom(plan, now) {
+  const next = nextRunAt(plan, now);
+  const lastRun = plan.lastRunAt ? Date.parse(plan.lastRunAt) : NaN;
+  return Number.isFinite(lastRun) && lastRun > previousRunAt(plan, next).getTime() ? nextRunAt(plan, next) : next;
 }
 function validateSchedule(input2) {
   if (input2.frequency === "monthly" && (input2.dayOfMonth === void 0 || !Number.isInteger(input2.dayOfMonth) || input2.dayOfMonth < 1 || input2.dayOfMonth > 28))
@@ -36724,15 +36962,26 @@ var AutomationService = class {
       };
       validateSchedule(schedule);
       const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
-      base = { ...rest, ...schedule, nextRunAt: nextRunAt(schedule, now).toISOString() };
+      base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {} }, now).toISOString() };
     }
+    const legs = patch.legs === void 0 ? void 0 : await this.resolveLegs(plan.environment, patch.legs);
+    const resumed = patch.paused === false && plan.paused && Date.parse(base.nextRunAt) <= now.getTime();
+    const latest = await this.deps.store.get(planKey(id)) ?? plan;
+    const changed = base !== plan;
     const updated = {
-      ...base,
+      ...latest,
+      ...changed ? { frequency: base.frequency, hourUtc: base.hourUtc, nextRunAt: base.nextRunAt } : {},
+      ...changed ? base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth } : { weekday: base.weekday } : {},
       ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
-      ...patch.legs === void 0 ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) },
+      ...legs === void 0 ? {} : { legs },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
       ...patch.autoExecute === void 0 ? {} : { autoExecute: patch.autoExecute }
     };
+    if (changed) {
+      if (updated.frequency === "monthly") delete updated.weekday;
+      else delete updated.dayOfMonth;
+    }
+    if (resumed) updated.nextRunAt = scheduleFrom(updated, now).toISOString();
     await this.deps.store.put(planKey(id), updated);
     return updated;
   }
@@ -36827,8 +37076,9 @@ var AutomationService = class {
     if (!plan) return;
     const attempted = result2.legs.some((leg) => leg.result);
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
+    const { inFlightDueAt: _inFlight, ...rest } = plan;
     await this.deps.store.put(planKey(planId), {
-      ...plan,
+      ...rest,
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
       ...attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}
@@ -36853,6 +37103,16 @@ var AutomationService = class {
       }
       const lock = await this.deps.store.increment(`plan-lock:${plan.id}:${plan.nextRunAt}`, RUN_LOCK_MS, now.getTime());
       if (lock.count > 1) continue;
+      const latest = await this.deps.store.get(planKey(plan.id));
+      if (!latest || latest.paused || latest.nextRunAt !== plan.nextRunAt) continue;
+      if (latest.inFlightDueAt === latest.nextRunAt) {
+        const notice = await this.deps.store.increment(`plan-unclear:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
+        const message = `"${plan.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
+        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
+        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message });
+        continue;
+      }
+      let marked = false;
       try {
         const basket = await this.buildBasket(plan, now);
         if (!basket.drafts.length) {
@@ -36861,13 +37121,22 @@ var AutomationService = class {
           continue;
         }
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
-        const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED"));
-        if (closed.length) throw new Error(`Market closed for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until the next tick inside the session.`);
+        const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED" || notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable"));
+        if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
+        await this.deps.store.put(planKey(plan.id), { ...latest, inFlightDueAt: latest.nextRunAt });
+        marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result2.legs.length, outcome: result2.status });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result2.message, result: result2 });
       } catch (error62) {
         const message = asStructuredError(error62).message;
+        if (marked) {
+          const current = await this.deps.store.get(planKey(plan.id));
+          if (current?.inFlightDueAt) {
+            const { inFlightDueAt: _f, ...rest } = current;
+            await this.deps.store.put(planKey(plan.id), rest);
+          }
+        }
         await this.skip(plan, now, message, false);
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message });
       }
@@ -37166,10 +37435,15 @@ function policyLines(checks) {
 }
 function orderLine(order) {
   const quantity = order.quantity ?? 0;
-  const side = String(order.side ?? "").toUpperCase() || (quantity < 0 ? "SELL" : "BUY");
+  const value = typeof order.value === "number" ? order.value : void 0;
+  const side = String(order.side ?? "").toUpperCase() || (quantity < 0 || (value ?? 0) < 0 ? "SELL" : "BUY");
   const name = order.instrument?.name;
+  const currency = typeof order.currency === "string" ? ` ${order.currency}` : "";
+  const size = order.strategy === "VALUE" && value !== void 0 ? `value ${num2(Math.abs(value))}${currency} of` : num2(Math.abs(quantity), 8);
   const prices = [order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`, order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`].join("");
-  return `#${order.id ?? "?"} ${side} ${num2(Math.abs(quantity), 8)} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${order.status ? ` (${order.status})` : ""}`;
+  const validity = order.timeInForce ?? order.timeValidity;
+  const filled = typeof order.filledQuantity === "number" && order.filledQuantity > 0 ? `, filled ${num2(Math.abs(order.filledQuantity), 8)}` : "";
+  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 function positionLine(position) {
   const wallet = position.walletImpact;
@@ -37249,7 +37523,27 @@ function tradeHistory(data) {
   return [
     ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num2(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}`, 50),
+    ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []
+  ];
+}
+function orderStatus(data) {
+  const filled = data.fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0);
+  const value = data.fills.reduce((sum, fill) => sum + Math.abs(fill.netValue ?? 0), 0);
+  const average = filled > 0 ? data.fills.reduce((sum, fill) => sum + (fill.price ?? 0) * (fill.quantity ?? 0), 0) / filled : void 0;
+  return [
+    `Order ${data.orderId} on ${env(data.environment)}: ${data.state.replace("_", " ")}.`,
+    ...data.order ? [orderLine(data.order)] : [],
+    ...data.fills.length ? [`Filled ${num2(filled, 8)}${average === void 0 ? "" : ` at an average ${num2(average, 6)}`}${value ? `, ${num2(value)} ${data.fills.find((fill) => fill.currency)?.currency ?? ""}`.trimEnd() : ""} in ${data.fills.length} fill(s).`] : [],
+    ...data.state === "not_found" ? ["Not among the open orders or the recent history pages."] : []
+  ];
+}
+function cashHistory(data) {
+  return [
+    Object.keys(data.totals).length ? `Totals${data.currency ? ` (${data.currency})` : ""}: ${Object.entries(data.totals).map(([type, total]) => `${type.toLowerCase()} ${signed(total)}`).join(", ")}.` : "No entries in this window.",
+    ...rows(data.items, (item) => `${day(item.date)} ${item.type}${item.ticker ? ` ${item.ticker}` : ""}${item.name ? ` (${item.name})` : ""} ${signed(item.amount)} ${item.currency}`.trimEnd() + `${item.quantity === void 0 ? "" : `, ${num2(item.quantity, 8)} shares`}${item.grossPerShare === void 0 ? "" : ` \xD7 ${num2(item.grossPerShare, 6)} ${item.perShareCurrency ?? ""} gross`.trimEnd()}`, 60),
+    ...data.count > data.items.length ? [`${data.count - data.items.length} more not shown; raise limit or narrow the window.`] : [],
+    ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older entries."] : []
   ];
 }
 function basketDraft(data) {
@@ -37371,7 +37665,7 @@ function policy(data) {
   const p = data.policy;
   const off = "off";
   return [
-    `Per-order caps: value ${data.maxOrderNotional || off} (account currency), quantity in MAX_ORDER_QUANTITY.`,
+    `Per-order caps: value ${data.maxOrderNotional || off} (account currency), quantity ${data.maxOrderQuantity === void 0 ? "?" : data.maxOrderQuantity || off} shares.`,
     `Max position weight ${p.maxPositionWeight ? pct(p.maxPositionWeight) : off}; daily orders ${p.dailyOrderLimit || off} (used ${data.usageToday.orders}); daily value ${p.dailyNotionalLimit || off} (used ${num2(data.usageToday.notional)}).`,
     `Allowed tickers ${p.allowedTickers.join(", ") || "any"}; blocked ${p.blockedTickers.join(", ") || "none"}; allowed types to buy ${p.allowedTypes.join(", ") || "any"}.`,
     `Market orders while closed ${p.marketOrdersWhenClosed ? "allowed" : "blocked"}; reference price older than ${p.maxReferenceAgeSeconds ? `${p.maxReferenceAgeSeconds}s blocks` : "any age only warns"}.`
@@ -37425,6 +37719,17 @@ function describePayload(data) {
       break;
     case "cancel_preview":
       lines = cancelPreview(payload);
+      break;
+    case "cancel_draft": {
+      const draft = payload;
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
+    case "order_status":
+      lines = orderStatus(payload);
+      break;
+    case "cash_history":
+      lines = cashHistory(payload);
       break;
     case "execution_verification": {
       const verification = payload;
@@ -37696,20 +38001,65 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     "get_trade_history",
     {
       title: "Trade History",
-      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker or symbol. Read-only.",
+      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ticker: external_exports.string().min(1).optional(),
+        includeUnfilled: external_exports.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
         limit: external_exports.number().int().min(1).max(200).default(50),
         ...windowSchema
       }),
       annotations: readOnly,
       _meta: {}
     },
-    async ({ environment, ticker, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages);
-        return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled);
+        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_cash_history",
+    {
+      title: "Dividends and Cash Movements",
+      description: "List dividends, deposits, withdrawals, interest and fees one by one, newest first, with totals per type, from Trading 212 history. Filter by type (DIVIDEND, DEPOSIT, WITHDRAW, INTEREST, FEE \u2026) or by an instrument for its dividends. Use get_income_summary for monthly totals and yields. Read-only.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        ticker: external_exports.string().min(1).optional().describe("Only dividends of this ticker, symbol, name or ISIN"),
+        types: external_exports.array(external_exports.string().min(1).max(30)).max(10).optional(),
+        limit: external_exports.number().int().min(1).max(500).default(100),
+        ...windowSchema
+      }),
+      annotations: readOnly,
+      _meta: {}
+    },
+    async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
+      try {
+        const data = await insights.cashHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), { ...ticker ? { ticker } : {}, ...types ? { types } : {}, limit, ...maxPages ? { maxPages } : {} });
+        return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_order_status",
+    {
+      title: "Order Status",
+      description: "Look up one Trading 212 order by id: still open (and how much filled), or how it ended (filled, partly filled, cancelled, rejected) with its fills and prices. Reads open orders, then recent history. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
+      annotations: readOnly,
+      _meta: {}
+    },
+    async ({ environment, orderId }) => {
+      try {
+        const data = await trading.orderStatus(environment, orderId);
+        return result(data, `Order ${data.orderId}: ${data.state.replace("_", " ")}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37728,7 +38078,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
     async ({ environment, instrument }) => {
       try {
         const data = await insights.marketHours(environment, instrument);
-        return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}.`);
+        return result({ kind: "market_status", environment, ...data }, `${data.ticker}: ${data.session}${data.nextOpen ? `, next open ${data.nextOpen}` : ""}${data.nextClose ? `, next close ${data.nextClose}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37868,7 +38218,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
         title: "Review Exact Trading 212 Order",
         description: "Advanced exact-order entry. Open an editable order draft when the exact Trading 212 ticker and quantity are already known. This is review-only and never places an order. Prefer review_trading212_order_intent for natural-language sizing such as money amounts, half, percentages, or all shares.",
         inputSchema: orderDraftSchema.extend({ environment: environmentWithDefault }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } }
       },
       async (draft) => {
@@ -38017,7 +38367,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
       title: "Automation Overview",
       description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment }) => {
@@ -38107,7 +38457,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
         percent: external_exports.number().positive().optional(),
         note: external_exports.string().max(200).optional()
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
       _meta: {}
     },
     async (input2) => {
@@ -38161,7 +38511,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
           autoExecute: external_exports.boolean().optional().describe("Demo only: run unattended when due"),
           paused: external_exports.boolean().optional()
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: {}
       },
       async (input2) => {
@@ -38257,15 +38607,41 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
           title: external_exports.string().min(1).max(80).default("Order basket"),
           orders: external_exports.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS)
         }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } }
       },
       async ({ environment, title, orders }) => {
-        const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } })) });
-        return result(
-          { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config3), writeEnabled: true },
-          `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
-        );
+        try {
+          const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } })) });
+          return result(
+            { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config3), writeEnabled: true },
+            `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_order_cancel",
+      {
+        title: "Review an Order Cancellation",
+        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
+        inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, orderId }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          return result(
+            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...order ? { order } : {}, credentials: credentialStatus(config3), writeEnabled: true },
+            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
       }
     );
   }
@@ -38295,7 +38671,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
       title: "Refresh automation",
       description: "App-only automation overview refresh.",
       inputSchema: external_exports.object({ environment: environmentEnum }),
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { visibility: ["app"] } }
     },
     async ({ environment }) => {
@@ -38631,8 +39007,14 @@ var PriceAlerts = class {
       }
       let position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
       if (!position?.currentPrice) {
-        const instrument = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
-        const quote = instrument && (alert.condition !== "gain_percent" && alert.condition !== "loss_percent") ? await this.deps.trading.externalQuote(instrument) : void 0;
+        let quote;
+        try {
+          const instrument = alert.condition === "gain_percent" || alert.condition === "loss_percent" ? void 0 : (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+          quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
+        } catch (error62) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error62).message });
+          continue;
+        }
         if (!quote) {
           reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
           continue;
@@ -38694,7 +39076,7 @@ var DailyDigest = class {
   /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
   async run(now = /* @__PURE__ */ new Date()) {
     const hour = this.deps.config.digestHourUtc;
-    if (hour === void 0 || !this.deps.config.notifyWebhookUrl || now.getUTCHours() < hour) return [];
+    if (hour === void 0 || !this.deps.notify || now.getUTCHours() < hour) return [];
     const day2 = now.toISOString().slice(0, 10);
     const sent = [];
     const credentials = credentialStatus(this.deps.config);
@@ -38731,8 +39113,13 @@ var DailyDigest = class {
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length
         });
+        const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
+        if (!await this.deps.notify(event, { force: true })) {
+          await this.deps.store.delete(claimKey);
+          continue;
+        }
         await this.deps.store.put(`digest-value:${environment}`, totalValue);
-        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
+        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
       } catch (error62) {
         await this.deps.store.delete(claimKey).catch(() => {
@@ -38754,6 +39141,8 @@ var DEFAULT_NOTIFY_EVENTS = [
   "plan_auto_executed",
   "plan_skipped",
   "protective_sibling_cancelled",
+  "protective_attention",
+  "cancel_rejected",
   "pie_submitted",
   "pie_status_unknown",
   "price_alert_triggered",
@@ -38768,6 +39157,8 @@ var LABELS = {
   plan_auto_executed: "Investment plan ran on Demo",
   plan_skipped: "Investment plan skipped",
   protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
+  protective_attention: "Protective orders need your attention",
+  cancel_rejected: "Cancellation was rejected",
   pie_submitted: "Pie changed",
   pie_status_unknown: "Pie change result unclear, check Trading 212",
   price_alert_triggered: "Price alert",
@@ -38792,8 +39183,8 @@ async function signature(secret, body) {
 function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
   if (!config3.notifyWebhookUrl) return void 0;
   const wanted = new Set(config3.notifyEvents.length ? config3.notifyEvents : DEFAULT_NOTIFY_EVENTS);
-  return async (event) => {
-    if (!wanted.has(event.type)) return;
+  return async (event, options) => {
+    if (!options?.force && !wanted.has(event.type)) return false;
     const text = notificationText(event);
     const body = JSON.stringify({ text, content: text, event });
     const headers = { "Content-Type": "application/json" };
@@ -38801,15 +39192,20 @@ function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(in
     try {
       const response = await fetcher(config3.notifyWebhookUrl, { method: "POST", headers, body, signal: AbortSignal.timeout(5e3) });
       if (!response.ok) console.error(JSON.stringify({ message: "TradePilot webhook rejected", status: response.status }));
+      return response.ok;
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot webhook failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+      return false;
     }
   };
 }
 
 // src/core/protective-links.ts
-var isFilled = (outcome) => !!outcome && (outcome.filledQuantity > 0 || outcome.status.includes("FILLED") && !outcome.status.includes("UNFILLED"));
-var isClosedWithoutFill = (outcome) => !!outcome && !isFilled(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+var LINK_TTL_MS2 = 400 * 24 * 60 * 60 * 1e3;
+var fullyFilled = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
+var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled(outcome);
+var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+var MAX_CANCEL_ATTEMPTS = 5;
 var ProtectiveLinks = class {
   constructor(deps) {
     this.deps = deps;
@@ -38826,6 +39222,7 @@ var ProtectiveLinks = class {
     const credentials = credentialStatus(this.deps.config);
     const pendingByEnv = /* @__PURE__ */ new Map();
     const historyByEnv = /* @__PURE__ */ new Map();
+    const halfOpen = [];
     for (const link of links) {
       if (!credentials[link.environment]) continue;
       try {
@@ -38839,19 +39236,39 @@ var ProtectiveLinks = class {
           continue;
         }
         const survivor = open2[0];
-        const gone = link.orders.find((order) => order.orderId !== survivor.orderId);
-        if (!historyByEnv.has(link.environment)) historyByEnv.set(link.environment, await this.deps.trading.recentOrderOutcomes(link.environment));
+        halfOpen.push({ link, survivor, gone: link.orders.find((order) => order.orderId !== survivor.orderId) });
+      } catch (error62) {
+        reports.push({ linkId: link.id, environment: link.environment, action: "waiting", message: error62 instanceof Error ? error62.message : String(error62) });
+      }
+    }
+    for (const { link, survivor, gone } of halfOpen) {
+      try {
+        if (!historyByEnv.has(link.environment)) {
+          const same = halfOpen.filter((entry) => entry.link.environment === link.environment);
+          const since = same.map((entry) => entry.link.createdAt).sort()[0];
+          historyByEnv.set(link.environment, await this.deps.trading.recentOrderOutcomes(link.environment, { wanted: same.map((entry) => entry.gone.orderId), ...since ? { since } : {} }));
+        }
         const outcome = historyByEnv.get(link.environment).get(gone.orderId);
-        if (isFilled(outcome)) {
-          const reason = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId} filled`;
-          const result2 = await this.deps.trading.cancelLinkedOrder(link.environment, survivor.orderId, reason);
+        const label = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId}`;
+        if (fullyFilled(outcome)) {
+          const reason = `${label} filled`;
+          const attempts = link.cancelAttempts ?? 0;
+          const result2 = await this.deps.trading.cancelLinkedOrder(link.environment, survivor.orderId, reason, { quiet: attempts > 0 });
+          if (result2 === "cancelled" || result2 === "gone") {
+            await this.drop(link);
+            reports.push({ linkId: link.id, environment: link.environment, action: "cancelled_sibling", message: `${reason}; ${result2 === "cancelled" ? "cancelled" : "no longer pending:"} ${survivor.orderId}.` });
+          } else if (attempts + 1 >= MAX_CANCEL_ATTEMPTS) {
+            await this.drop(link);
+            await this.attention(link, `${reason}, but cancelling ${survivor.orderId} failed ${attempts + 1} times. Cancel it in Trading 212, or it may sell shares you buy later.`);
+            reports.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} kept failing. Check it in Trading 212.` });
+          } else {
+            await this.deps.store.put(`link:${link.id}`, { ...link, cancelAttempts: attempts + 1 }, Date.parse(link.createdAt) + LINK_TTL_MS2);
+            reports.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} did not clearly succeed and will be tried again.` });
+          }
+        } else if (partlyFilled(outcome)) {
           await this.drop(link);
-          reports.push({
-            linkId: link.id,
-            environment: link.environment,
-            action: result2 === "cancelled" ? "cancelled_sibling" : "cancel_unclear",
-            message: result2 === "cancelled" ? `${reason}; cancelled ${survivor.orderId}.` : `${reason}; cancelling ${survivor.orderId} did not clearly succeed. Check it in Trading 212.`
-          });
+          await this.attention(link, `${label} filled ${outcome.filledQuantity}${outcome.quantity ? ` of ${outcome.quantity}` : ""} and closed. ${survivor.orderId} still covers the original quantity; adjust it to what you hold.`);
+          reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} filled only partly; ${survivor.orderId} was left open for you to adjust.` });
         } else if (isClosedWithoutFill(outcome)) {
           await this.drop(link, `${gone.orderId} was cancelled or rejected without a fill, so ${survivor.orderId} stays open.`);
           reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} closed without a fill.` });
@@ -38863,6 +39280,9 @@ var ProtectiveLinks = class {
       }
     }
     return reports;
+  }
+  async attention(link, note) {
+    await this.deps.trading.recordActivity("protective_attention", link.environment, { ticker: link.ticker, outcome: note.slice(0, 200) });
   }
   async drop(link, note) {
     await this.deps.store.delete(`link:${link.id}`);
@@ -38889,8 +39309,25 @@ function createServices(input2) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation2.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...notify ? { notify } : {} });
+  const stage = async (name, run) => {
+    try {
+      return await run();
+    } catch (error62) {
+      console.error(JSON.stringify({ message: `TradePilot scheduler stage failed: ${name}`, error: error62 instanceof Error ? error62.message : String(error62) }));
+      return [];
+    }
+  };
+  const tick2 = async () => ({
+    links: await stage("protective links", () => links.reconcile()),
+    plans: await stage("plans", () => automation2.runDuePlans()),
+    alerts: await stage("alerts", () => alerts.check()),
+    digest: await stage("digest", () => digest.run())
+  });
+  let running;
+  const runScheduled = () => running ??= tick2().finally(() => {
+    running = void 0;
+  });
   const automationOverview = async (environment) => ({
     kind: "automation",
     environment,
@@ -38998,8 +39435,8 @@ var MemoryStateStore = class {
 
 // src/adapters/node/file-state-store.ts
 var LOCK_STALE_MS = 1e4;
-var LOCK_WAIT_MS = 5e3;
-var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var LOCK_WAIT_MS = 15e3;
+var sleep4 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var FileStateStore = class _FileStateStore extends MemoryStateStore {
   constructor(file2) {
     super();
@@ -39027,10 +39464,42 @@ var FileStateStore = class _FileStateStore extends MemoryStateStore {
     if (version2 === this.loadedVersion) return;
     this.values.clear();
     if (version2) {
-      const parsed = JSON.parse(await fs.readFile(this.file, "utf8"));
+      const parsed = await this.read(this.file) ?? await this.recover();
       for (const [key, value] of Object.entries(parsed)) this.values.set(key, value);
     }
-    this.loadedVersion = version2;
+    this.loadedVersion = await this.version();
+  }
+  async read(file2) {
+    try {
+      const parsed = JSON.parse(await fs.readFile(file2, "utf8"));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
+    } catch (error62) {
+      if (error62.code === "ENOENT") return void 0;
+      if (error62 instanceof SyntaxError) return void 0;
+      throw error62;
+    }
+  }
+  /** The state file cannot be parsed: keep it for inspection and continue from the last good copy. */
+  async recover() {
+    const aside = `${this.file}.corrupt-${Date.now()}`;
+    await fs.rename(this.file, aside);
+    const backup = await this.read(`${this.file}.bak`);
+    console.error(JSON.stringify({ message: "TradePilot state file was unreadable", movedTo: aside, restored: backup ? "backup" : "empty" }));
+    if (backup) await this.write(backup);
+    return backup ?? {};
+  }
+  async write(values) {
+    const temp = `${this.file}.${process.pid}.tmp`;
+    const handle = await fs.open(temp, "w");
+    try {
+      await handle.writeFile(JSON.stringify(values), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (this.loadedVersion) await fs.copyFile(this.file, `${this.file}.bak`).catch(() => {
+    });
+    await fs.rename(temp, this.file);
   }
   async withFileLock(operation) {
     const lock = `${this.file}.lock`;
@@ -39044,7 +39513,7 @@ var FileStateStore = class _FileStateStore extends MemoryStateStore {
         const stat = await fs.stat(lock).catch(() => void 0);
         if (stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) await fs.rm(lock, { force: true });
         else if (Date.now() > deadline) throw new Error(`TradePilot state is locked by another process (${lock})`);
-        else await sleep3(15);
+        else await sleep4(15);
       }
     }
     try {
@@ -39060,9 +39529,7 @@ var FileStateStore = class _FileStateStore extends MemoryStateStore {
     }));
   }
   async changed() {
-    const temp = `${this.file}.${process.pid}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(Object.fromEntries(this.values)), "utf8");
-    await fs.rename(temp, this.file);
+    await this.write(Object.fromEntries(this.values));
     this.loadedVersion = await this.version();
   }
 };

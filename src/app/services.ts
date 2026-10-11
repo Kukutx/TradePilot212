@@ -46,7 +46,7 @@ export function createServices(input: ServiceDependencies) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...(notify ? { notify } : {}) });
   /** One scheduler tick: settle protective pairs first, then due plans, price alerts and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {

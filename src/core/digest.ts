@@ -1,10 +1,12 @@
 // A once-a-day account digest sent to the notification webhook at DIGEST_HOUR_UTC, so you can
-// follow the account without opening a chat. It only reads; it never trades.
+// follow the account without opening a chat. It only reads; it never trades. It is sent whatever
+// NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
 import type { TradingEnvironment } from "../shared/contracts.js";
 import type { DcaPlan, PriceAlert } from "../shared/automation.js";
 import { positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
+import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
 import type { TradingService } from "./trading-service.js";
 
@@ -44,12 +46,12 @@ export function digestText(input: DigestInput): string {
 const RETRY_MS = 15 * 60_000;
 
 export class DailyDigest {
-  constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: TradingService }) {}
+  constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: TradingService; notify?: Notifier }) {}
 
   /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
   async run(now = new Date()): Promise<string[]> {
     const hour = this.deps.config.digestHourUtc;
-    if (hour === undefined || !this.deps.config.notifyWebhookUrl || now.getUTCHours() < hour) return [];
+    if (hour === undefined || !this.deps.notify || now.getUTCHours() < hour) return [];
     const day = now.toISOString().slice(0, 10);
     const sent: string[] = [];
     const credentials = credentialStatus(this.deps.config);
@@ -89,8 +91,14 @@ export class DailyDigest {
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length,
         });
+        const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };
+        if (!(await this.deps.notify!(event, { force: true }))) {
+          // Not delivered: release the day so the next attempt window sends it again.
+          await this.deps.store.delete(claimKey);
+          continue;
+        }
         await this.deps.store.put(`digest-value:${environment}`, totalValue);
-        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
+        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
       } catch (error) {
         await this.deps.store.delete(claimKey).catch(() => {});

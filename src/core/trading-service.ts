@@ -27,6 +27,7 @@ import { asStructuredError, fail } from "./errors.js";
 import { crossRate, knownFxRates, toAccountCurrency, type FxRates } from "./fx.js";
 import { planRebalance, type RebalanceOptions } from "./rebalance.js";
 import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type DailyUsage } from "./policy.js";
+import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
@@ -46,6 +47,17 @@ type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environm
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
 export interface OrderOutcome { status: string; filledQuantity: number; quantity: number }
+
+export interface OrderStatusReport {
+  kind: "order_status";
+  environment: TradingEnvironment;
+  orderId: string;
+  /** "closed" is a finished order with no fill and no cancel or reject status. */
+  state: "open" | "partly_filled" | "filled" | "cancelled" | "rejected" | "closed" | "not_found";
+  order?: PendingOrder;
+  fills: Array<{ filledAt?: string; quantity?: number; price?: number; netValue?: number; currency?: string }>;
+  timestamp: string;
+}
 export interface BasketRequest {
   environment: TradingEnvironment;
   purpose: BasketPurpose;
@@ -73,7 +85,7 @@ export interface TradingServiceDeps {
   /** Called after a basket created for a standing plan has been executed. */
   afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
   /** Optional webhook for notable events; it filters the types itself and never throws. */
-  notify?: (event: ActivityEvent) => Promise<void>;
+  notify?: Notifier;
   /** Optional external quotes for instruments that are not held (Trading 212 has no quote endpoint). */
   quotes?: QuoteProvider;
 }
@@ -145,6 +157,13 @@ export function resolveInstrumentFromList(instruments: Instrument[], query: stri
 
   const exact = instruments.find((item) => norm(item.ticker) === q);
   if (exact) return exact;
+
+  // An ISIN names the security; it can be listed on several exchanges in different currencies.
+  if (/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(q)) {
+    const listings = instruments.filter((item) => norm(item.isin ?? "") === q);
+    if (listings.length === 1) return listings[0]!;
+    if (listings.length > 1) throw new Error(`ISIN ${q} is listed ${listings.length} times. Use an exact Trading 212 ticker: ${listings.slice(0, 8).map((item) => `${item.ticker} (${item.currencyCode})`).join(", ")}`);
+  }
 
   const symbols = instruments.filter((item) => {
     const ticker = norm(item.ticker);
@@ -342,6 +361,15 @@ export class TradingService {
     });
   }
 
+  /** One open order with its instrument name, or undefined when it is no longer pending. */
+  async openOrder(environment: TradingEnvironment, orderId: string): Promise<PendingOrder | undefined> {
+    const client = this.client(environment);
+    const order = (await client.getOrders()).find((item) => String(item.id) === orderId.trim());
+    if (!order) return undefined;
+    const instrument = (await this.instruments(environment).catch(() => [])).find((item) => item.ticker === order.ticker);
+    return this.namedOrders(environment, [order], instrument ? [{ instrument } as Position] : [])[0];
+  }
+
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
   externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
     return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
@@ -396,6 +424,7 @@ export class TradingService {
     type: ActivityType,
     environment: TradingEnvironment,
     details: Omit<ActivityEvent, "id" | "timestamp" | "environment" | "type"> = {},
+    options: { notify?: boolean } = {},
   ): Promise<ActivityEvent> {
     const timestamp = new Date().toISOString();
     const event: ActivityEvent = { id: crypto.randomUUID(), timestamp, environment, type, ...details };
@@ -417,7 +446,7 @@ export class TradingService {
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error instanceof Error ? error.message : String(error) }));
     }
-    await this.deps.notify?.(event);
+    if (options.notify !== false) await this.deps.notify?.(event);
     return event;
   }
 
@@ -1220,7 +1249,44 @@ export class TradingService {
     return outcomes;
   }
 
-  /** Cancel the surviving order of a protective pair. Sent once; an unclear result is reported, not retried. */
+  /**
+   * Where one order stands: still open, or how it ended (filled, partly filled, cancelled, rejected),
+   * with its fills. Reads the open orders, then the newest history pages until the id is found.
+   */
+  async orderStatus(environment: TradingEnvironment, orderId: string, maxPages = 4): Promise<OrderStatusReport> {
+    const id = String(orderId).trim();
+    if (!/^\d{1,20}$/.test(id)) fail("INVALID_INPUT", "orderId must be the numeric Trading 212 order id.", { field: "orderId" });
+    const client = this.client(environment);
+    const timestamp = new Date().toISOString();
+    const open = (await client.getOrders()).find((order) => String(order.id) === id);
+    if (open) return { kind: "order_status", environment, orderId: id, state: Math.abs(Number(open.filledQuantity ?? 0)) > 0 ? "partly_filled" : "open", order: open, fills: [], timestamp };
+    const fills: OrderStatusReport["fills"] = [];
+    let order: OrderStatusReport["order"];
+    let path: string | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const result = await client.getHistoryPage("orders", path);
+      for (const item of result.items) {
+        if (String(item.order?.id) !== id) continue;
+        order ??= item.order as OrderStatusReport["order"];
+        if (item.fill) fills.push({ ...(item.fill.filledAt ? { filledAt: item.fill.filledAt } : {}), ...(item.fill.quantity === undefined ? {} : { quantity: Math.abs(item.fill.quantity) }), ...(item.fill.price === undefined ? {} : { price: item.fill.price }), ...(item.fill.walletImpact?.netValue === undefined ? {} : { netValue: item.fill.walletImpact.netValue }), ...(item.fill.walletImpact?.currency ? { currency: item.fill.walletImpact.currency } : {}) });
+      }
+      // Fills of one order sit together, so the first page after it was found ends the search.
+      if (order || !result.nextPagePath) break;
+      path = result.nextPagePath;
+    }
+    if (!order) return { kind: "order_status", environment, orderId: id, state: "not_found", fills, timestamp };
+    const status = String(order.status ?? "").toUpperCase();
+    const filled = Math.max(Math.abs(Number(order.filledQuantity ?? 0)), fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0));
+    const quantity = Math.abs(Number(order.quantity ?? 0));
+    const state: OrderStatusReport["state"] = /REJECT/.test(status) ? "rejected"
+      : filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled"
+      : filled > 0 || (/FILLED/.test(status) && !/UNFILLED|PARTIAL/.test(status)) ? "filled"
+      : /CANCEL|EXPIRE/.test(status) ? "cancelled"
+      : "closed";
+    return { kind: "order_status", environment, orderId: id, state, order, fills, timestamp };
+  }
+
+  /** Cancel the surviving order of a protective pair. One request per call; the caller decides on retries. */
   async cancelLinkedOrder(environment: TradingEnvironment, orderId: string, reason: string, options: { quiet?: boolean } = {}): Promise<"cancelled" | "gone" | "unknown" | "rejected"> {
     try {
       await this.client(environment).cancelOrder(orderId);
