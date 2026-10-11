@@ -11,7 +11,7 @@ This brief is read-only. Never prepare, confirm or submit an order from it. Sche
 
 1. Call `get_portfolio_dashboard` to load positions, pending orders and cash.
 2. Call `get_market_hours` for one representative holding per exchange, so the brief says whether markets are open, in pre-market, or closed, and when they next open.
-3. Call `analyze_portfolio_allocation` and carry its flags into the brief.
+3. Call `analyze_portfolio_allocation` and carry its flags into the brief. Call `list_investment_plans` and mention any plan that is due, so the user can confirm it later.
 4. Research current, sourced news for the largest holdings and any pending-order tickers: earnings dates, guidance, material events. Note each source's date. If you have no web access, say so and skip this step rather than relying on memory.
 5. Build candidates for `show_daily_trade_plan`:
    - short (≤1 week), medium (≤1 month) and long (≥1 year) horizons;

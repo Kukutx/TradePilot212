@@ -23,6 +23,7 @@ When the plugin is enabled, Claude Code asks for its options:
 | Default environment | `demo` unless you choose otherwise. |
 | Enable order tools | **Off by default.** See below. |
 | Max order value | Per-order value cap; `0` disables it. |
+| Run Demo plans unattended | **Off by default.** Lets due Demo investment plans marked `autoExecute` place orders on their own while Claude Code is running. Needs order tools enabled. Live plans always wait for you. |
 
 You can change these later under `/plugin` → Installed → Configure options.
 
@@ -36,6 +37,7 @@ The plugin ships a prebuilt server (`plugin/server.mjs`) and needs only `node` 2
 | `/tradepilot212:daily-brief` | Read-only pre-market brief with short, medium, and long ideas |
 | `/tradepilot212:risk-check` | Concentration, currency exposure, cash, and risky pending orders |
 | `/tradepilot212:trade-journal` | Reviewing recent fills, fees, and FX |
+| `/tradepilot212:rebalance` | Moving the portfolio toward target weights as one reviewed basket |
 
 Claude also picks these skills up automatically when your request matches.
 
@@ -45,7 +47,7 @@ In ChatGPT and other MCP Apps hosts, TradePilot's execution tools are app-only: 
 
 A terminal host may not render MCP Apps UIs. In such a host the execution tools would be ordinary tools the model could call. So in stdio mode, TradePilot registers neither the order-review tools nor the execution tools unless you enable them.
 
-If you enable them, keep Claude Code's per-call permission prompt on for `app_execute_order` and `app_execute_cancel`, and never add them to an allow-list. That prompt is then your confirmation step.
+If you enable them, keep Claude Code's per-call permission prompt on for `app_execute_order`, `app_execute_basket` and `app_execute_cancel`, and never add them to an allow-list. That prompt is then your confirmation step.
 
 ## Run the stdio server without the plugin
 

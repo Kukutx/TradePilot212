@@ -1,8 +1,8 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.5.0",
-  "description": "Trading 212 portfolio analytics, performance and income reports, market hours, and human-confirmed order review over a local MCP server.",
+  "version": "2.6.0",
+  "description": "Trading 212 portfolio analytics, rebalancing, protective orders, investment plans, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",
     "url": "https://github.com/Kukutx"
@@ -67,6 +67,12 @@
       "description": "Per-order value cap in the instrument currency. 0 disables it.",
       "default": 5000,
       "min": 0
+    },
+    "demo_automation": {
+      "type": "boolean",
+      "title": "Run Demo plans unattended",
+      "description": "Lets due Demo investment plans marked autoExecute place orders without asking. Needs order tools enabled. Live plans always wait for you.",
+      "default": false
     }
   }
 }

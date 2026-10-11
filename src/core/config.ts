@@ -1,4 +1,5 @@
 import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.js";
+import type { TradingPolicy } from "../shared/automation.js";
 
 export interface RuntimeConfig {
   publicBaseUrl: string;
@@ -10,6 +11,9 @@ export interface RuntimeConfig {
   maxOrderNotional: number;
   maxOrderQuantity: number;
   defaultTradingEnvironment: TradingEnvironment;
+  policy: Record<TradingEnvironment, TradingPolicy>;
+  /** Lets due Demo plans place orders without a person (L3). Live plans never execute unattended. */
+  demoAutomationEnabled: boolean;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -17,7 +21,11 @@ export type RuntimeEnv = Partial<Record<
   | "PUBLIC_BASE_URL" | "APP_LOGIN_PASSWORD" | "AUTH_SIGNING_SECRET"
   | "ACCESS_TOKEN_TTL_SECONDS" | "REFRESH_TOKEN_TTL_SECONDS" | "CONFIRMATION_TTL_SECONDS"
   | "MAX_ORDER_NOTIONAL" | "MAX_ORDER_QUANTITY" | "DEFAULT_TRADING_ENV"
-  | "T212_DEMO_API_KEY" | "T212_DEMO_API_SECRET" | "T212_LIVE_API_KEY" | "T212_LIVE_API_SECRET",
+  | "T212_DEMO_API_KEY" | "T212_DEMO_API_SECRET" | "T212_LIVE_API_KEY" | "T212_LIVE_API_SECRET"
+  | "POLICY_MAX_POSITION_WEIGHT" | "POLICY_DAILY_ORDER_LIMIT" | "POLICY_DAILY_NOTIONAL_LIMIT"
+  | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
+  | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
+  | "AUTOMATION_DEMO_ENABLED",
   string
 >>;
 
@@ -43,6 +51,44 @@ function tradingEnvironment(env: RuntimeEnv): TradingEnvironment {
   return value;
 }
 
+function list(env: RuntimeEnv, name: keyof RuntimeEnv): string[] {
+  return (env[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
+}
+
+function flag(env: RuntimeEnv, name: keyof RuntimeEnv): boolean {
+  return /^(1|true|yes|on)$/i.test(env[name] ?? "");
+}
+
+function weight(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number): number {
+  const value = nonNegative(env, name, fallback);
+  if (value > 1) throw new Error(`${name} must be a fraction between 0 and 1`);
+  return value;
+}
+
+/**
+ * Policy rules come from POLICY_* variables. POLICY_APPLY_TO chooses which environments they
+ * bind (default "live"); the other environment keeps only the built-in safety checks.
+ */
+function createPolicy(env: RuntimeEnv): Record<TradingEnvironment, TradingPolicy> {
+  const configured: TradingPolicy = {
+    maxPositionWeight: weight(env, "POLICY_MAX_POSITION_WEIGHT", 0.25),
+    dailyOrderLimit: Math.floor(nonNegative(env, "POLICY_DAILY_ORDER_LIMIT", 20)),
+    dailyNotionalLimit: nonNegative(env, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
+    allowedTickers: list(env, "POLICY_ALLOWED_TICKERS"),
+    blockedTickers: list(env, "POLICY_BLOCKED_TICKERS"),
+    allowedTypes: list(env, "POLICY_ALLOWED_TYPES"),
+    marketOrdersWhenClosed: env.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
+    maxReferenceAgeSeconds: Math.floor(nonNegative(env, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0)),
+  };
+  const relaxed: TradingPolicy = { ...configured, maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 };
+  const applyTo = (env.POLICY_APPLY_TO || "live").trim().toLowerCase();
+  if (!["live", "demo", "both", "none"].includes(applyTo)) throw new Error("POLICY_APPLY_TO must be live, demo, both, or none");
+  return {
+    demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
+    live: applyTo === "live" || applyTo === "both" ? configured : relaxed,
+  };
+}
+
 export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeConfig {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   return {
@@ -55,6 +101,8 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5000),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 100000),
     defaultTradingEnvironment: tradingEnvironment(env),
+    policy: createPolicy(env),
+    demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },

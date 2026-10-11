@@ -51,16 +51,20 @@ src/
 │  └─ services.ts          shared service wiring for every transport
 ├─ core/
 │  ├─ analytics.ts         pure portfolio, income, cost and market-hours math
+│  ├─ automation.ts        standing plans and the due-plan scheduler
 │  ├─ config.ts
 │  ├─ errors.ts
 │  ├─ insights-service.ts  paginated history reads feeding analytics
 │  ├─ mcp.ts
 │  ├─ oauth.ts
+│  ├─ policy.ts            pure policy rules shared by every order path
+│  ├─ rebalance.ts         pure target-weight rebalance planner
 │  ├─ state-store.ts
 │  ├─ trading-service.ts
 │  ├─ trading212-client.ts
 │  └─ web-utils.ts
 ├─ shared/
+│  ├─ automation.ts        policy, basket, rebalance and plan contracts
 │  ├─ contracts.ts
 │  ├─ history.ts
 │  └─ meta.ts
@@ -88,11 +92,18 @@ Owns application rules.
 - reads account, positions, and pending orders;
 - converts flexible sizing into a quantity-based order;
 - enforces configured application-level limits and broker-facing constraints that can be checked locally;
+- evaluates the policy for each order at review and again before the write;
+- validates baskets against one snapshot, sells first, and sends them one order at a time;
+- drafts rebalance and protective-order baskets;
 - issues short-lived one-time confirmations;
 - records a small metadata-only activity trail;
 - performs read-back verification after an ambiguous write.
 
 `TradingService` does not perform market research and does not schedule work.
+
+### `AutomationService`, `policy` and `rebalance`
+
+`AutomationService` stores investment plans and runs the due-plan tick. The tick is called from the Worker's Cron Trigger and from an interval in the Node and stdio servers. Due plans are announced for confirmation. Demo plans marked `autoExecute` run through `prepareBasket` and `executeBasket` when `AUTOMATION_DEMO_ENABLED=true`. `policy.ts` and `rebalance.ts` are pure functions with unit tests. See [AUTOMATION.md](./AUTOMATION.md).
 
 ### `InsightsService` and `analytics`
 
@@ -117,15 +128,16 @@ Broker writes remain app-only.
 
 These rules are deliberate and should remain true when extending the project:
 
-1. No scheduled or unattended path may submit a broker write.
+1. No scheduled or unattended path may submit a Live broker write. The one unattended path, due Demo plans with `autoExecute` and `AUTOMATION_DEMO_ENABLED=true`, uses the same validation, policy and no-retry rules as a confirmed basket.
 2. Preparing an order must not submit it.
-3. Every order/cancellation write consumes a one-time confirmation.
+3. Every order, basket and cancellation write consumes a one-time confirmation.
 4. A Trading 212 write request is never retried automatically.
 5. An unknown write result stays unknown until a read-back check provides evidence.
 6. Read-back verification never resubmits the original write.
 7. Demo and Live credentials remain separate.
 8. A user-facing environment switch must not silently change an already confirmed order.
-9. Secrets never enter structured MCP output, activity records, or Git-tracked files.
+9. An order that the policy blocks never receives a confirmation token, and the policy is evaluated again immediately before each write.
+10. Secrets never enter structured MCP output, activity records, or Git-tracked files.
 
 ## Cloudflare adapter
 
