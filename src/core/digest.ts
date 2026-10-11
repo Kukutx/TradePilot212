@@ -2,7 +2,7 @@
 // follow the account without opening a chat. It only reads; it never trades. It is sent whatever
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
-import type { TradingEnvironment } from "../shared/contracts.js";
+import type { ActivityEvent, TradingEnvironment } from "../shared/contracts.js";
 import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import { analyzeAllocation, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
@@ -26,6 +26,8 @@ export interface DigestInput {
   pendingOrders: number;
   duePlans: string[];
   triggeredAlerts: number;
+  /** Orders the order watch saw fill, fully or partly, in the last day. */
+  filledOrders?: number;
   /** Largest drift from the saved targets, in weight points, when targets are saved. */
   maxDrift?: number;
 }
@@ -43,6 +45,7 @@ export function digestText(input: DigestInput): string {
     input.pendingOrders ? `${input.pendingOrders} pending order(s)` : undefined,
     input.duePlans.length ? `due plans: ${input.duePlans.join(", ")}` : undefined,
     input.triggeredAlerts ? `${input.triggeredAlerts} alert(s) triggered in the last day` : undefined,
+    input.filledOrders ? `${input.filledOrders} order(s) filled in the last day` : undefined,
     input.maxDrift === undefined ? undefined : `largest drift from targets ${(input.maxDrift * 100).toFixed(1)} points`,
   ].filter(Boolean).join(" · ");
 }
@@ -82,6 +85,8 @@ export class DailyDigest {
           .filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
         const alerts = (await this.deps.store.list<PriceAlert>("alert:")).map((entry) => entry.value)
           .filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS);
+        const filledOrders = (await this.deps.store.list<ActivityEvent>("activity:")).filter((entry) => entry.value.environment === environment
+          && (entry.value.type === "order_filled" || entry.value.type === "order_partly_filled") && Date.parse(entry.value.timestamp) > now.getTime() - DAY_MS).length;
         const totalValue = account.totalValue ?? 0;
         // Drift from the same account read, so the digest costs no extra request.
         const saved = await this.deps.targets?.(environment);
@@ -100,6 +105,7 @@ export class DailyDigest {
           pendingOrders: dashboard.orders.length,
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length,
+          filledOrders,
           ...(maxDrift === undefined ? {} : { maxDrift }),
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };

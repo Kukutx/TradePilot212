@@ -96,6 +96,7 @@ function config(): RuntimeConfig {
     policy: createConfig({}).policy,
     demoAutomationEnabled: false,
     protectiveLinking: true,
+    orderWatch: true,
     notifyWebhookUrl: "",
     notifyWebhookSecret: "",
     notifyEvents: [],

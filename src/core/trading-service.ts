@@ -46,7 +46,19 @@ interface PendingBasket {
 type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
-export interface OrderOutcome { status: string; filledQuantity: number; quantity: number }
+export interface OrderOutcome {
+  status: string;
+  filledQuantity: number;
+  quantity: number;
+  ticker?: string;
+  /** Average fill price in the instrument's currency, when the history gives fill prices. */
+  averagePrice?: number;
+  /** Value of the fills in the account currency (`walletImpact.netValue`), when every fill gives one. */
+  filledValue?: number;
+  filledValueCurrency?: string;
+  /** Time of the last fill. */
+  filledAt?: string;
+}
 
 export interface OrderStatusReport {
   kind: "order_status";
@@ -1209,6 +1221,11 @@ export class TradingService {
     }
   }
 
+  /** The orders currently pending at the broker. */
+  pendingOrders(environment: TradingEnvironment): Promise<PendingOrder[]> {
+    return this.client(environment).getOrders();
+  }
+
   /** Ids of the orders currently pending at the broker. */
   async pendingOrderIds(environment: TradingEnvironment): Promise<Set<string>> {
     const orders = await this.client(environment).getOrders();
@@ -1222,6 +1239,8 @@ export class TradingService {
   async recentOrderOutcomes(environment: TradingEnvironment, options: { wanted?: Iterable<string>; since?: string; maxPages?: number } = {}): Promise<Map<string, OrderOutcome>> {
     const client = this.client(environment);
     const outcomes = new Map<string, OrderOutcome>();
+    // Fill totals per order, for the average price and the value in the account currency.
+    const fills = new Map<string, { quantity: number; cost: number; priced: number; value: number; valued: number; count: number; currency?: string; at?: string }>();
     const wanted = new Set([...(options.wanted ?? [])].map(String));
     const since = options.since ? Date.parse(options.since) : NaN;
     let path: string | undefined;
@@ -1236,10 +1255,28 @@ export class TradingService {
         // Sells can be reported with negative quantities.
         const filled = Math.max(Math.abs(item.order?.filledQuantity ?? 0), Math.abs(item.fill?.quantity ?? 0));
         const previous = outcomes.get(String(id));
+        const fill = item.fill;
+        const totals = fills.get(String(id)) ?? { quantity: 0, cost: 0, priced: 0, value: 0, valued: 0, count: 0 };
+        if (fill && Math.abs(fill.quantity ?? 0) > 0) {
+          const quantity = Math.abs(fill.quantity!);
+          totals.count++;
+          totals.quantity += quantity;
+          if (typeof fill.price === "number" && fill.price > 0) { totals.cost += quantity * fill.price; totals.priced += quantity; }
+          if (typeof fill.walletImpact?.netValue === "number") { totals.value += Math.abs(fill.walletImpact.netValue); totals.valued++; }
+          totals.currency ??= fill.walletImpact?.currency;
+          if (fill.filledAt && (!totals.at || fill.filledAt > totals.at)) totals.at = fill.filledAt;
+          fills.set(String(id), totals);
+        }
+        const ticker = item.order?.ticker ?? item.order?.instrument?.ticker ?? previous?.ticker;
         outcomes.set(String(id), {
           status: (item.order?.status ?? previous?.status ?? "").toUpperCase(),
           filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0),
           quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0),
+          ...(ticker ? { ticker } : {}),
+          // The average is only given when every filled share has a price.
+          ...(totals.priced > 0 && totals.priced >= totals.quantity * (1 - 1e-9) ? { averagePrice: Math.round((totals.cost / totals.priced) * 1e6) / 1e6 } : {}),
+          ...(totals.count > 0 && totals.valued === totals.count ? { filledValue: Math.round(totals.value * 100) / 100, ...(totals.currency ? { filledValueCurrency: totals.currency } : {}) } : {}),
+          ...(totals.at ? { filledAt: totals.at } : {}),
         });
       }
       if (!result.nextPagePath) break;

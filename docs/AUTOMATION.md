@@ -89,11 +89,23 @@ Targets only inform; they never place orders, so they work without order tools.
 - Set `PROTECTIVE_OCO=false` to place unlinked orders.
 - A triggered Stop becomes a Market order and can fill below the stop price on a gap.
 
+## Order fill notices
+
+About every 5 minutes per environment, the scheduler reads the open orders and compares them with the previous check (`src/core/order-watch.ts`). When an order has left the book, it reads the recent order history once and writes one activity event for that order:
+
+- `order_filled`: filled. The event gives the shares, the average fill price and the value in the account currency when the history includes them.
+- `order_partly_filled`: partly filled before the rest was cancelled or expired.
+- `order_closed`: closed without a fill (cancelled, rejected or expired). It is also used when the history still does not show the order after three checks, saying the outcome could not be found.
+
+Fills go to the webhook by default. `order_closed` stays in the activity log unless you add it to `NOTIFY_EVENTS`, because most of those are cancellations you made yourself. The daily digest counts the fills of the last day.
+
+This covers orders placed anywhere, the Trading 212 app included. It only reads: one order-book read per check, plus one history read when an order has left. An order that opens and fills between two checks, which is most Market orders, is not seen; its own result already says how it went. The first check after starting only records what is open. Set `ORDER_WATCH=false` to turn it off.
+
 ## Standing plans (L2 and L3)
 
 `manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency, or instead gives a `targetAmount` to invest across the [saved targets](#saved-targets-and-drift-notices). It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
-A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due. Each step runs even when an earlier one fails, and a tick that is still running when the next one starts is joined rather than run twice:
+A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then reports how open orders ended, handles plans that are due, checks price alerts and drift from saved targets, and sends the daily digest when one is due. Each step runs even when an earlier one fails, and a tick that is still running when the next one starts is joined rather than run twice:
 
 - **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run reaches the broker, whether the orders were accepted, rejected or unclear, so nothing is sent twice for one due date.
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice, and the plan is read again under the lock, so a plan you paused or changed meanwhile is not sent.
@@ -156,11 +168,11 @@ An external price only sizes an order; the order still goes through the usual re
 
 ## Notifications
 
-Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
 
 ### Daily digest
 
-Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, alerts that triggered in the last day and, with saved targets, the largest drift from them. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
+Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, orders filled in the last day, plans that are due, alerts that triggered in the last day and, with saved targets, the largest drift from them. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
 
 ## Seeing what runs
 

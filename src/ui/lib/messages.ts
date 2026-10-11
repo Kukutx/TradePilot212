@@ -214,6 +214,9 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "order_rejected": return t("activityOrderRejected");
     case "order_status_unknown": return t("activityOrderUnknown");
     case "order_verification": return t("activityVerified");
+    case "order_filled": return t("activityOrderFilled");
+    case "order_partly_filled": return t("activityOrderPartlyFilled");
+    case "order_closed": return t("activityOrderClosed");
     case "cancel_prepared": return t("activityCancelPrepared");
     case "cancel_submitted": return t("activityCancelSubmitted");
     case "cancel_rejected": return t("activityCancelRejected");

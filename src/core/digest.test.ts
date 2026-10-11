@@ -26,15 +26,28 @@ function setup(env: Record<string, string>) {
     return json([]);
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", NOTIFY_WEBHOOK_URL: "https://hooks.example/t", ...env });
-  return { ...createServices({ config, store: new MemoryStateStore(), fetcher }), hooks, total, outage, hookDown };
+  const store = new MemoryStateStore();
+  return { ...createServices({ config, store, fetcher }), store, hooks, total, outage, hookDown };
 }
 
 describe("daily digest", () => {
   it("formats a compact summary", () => {
     expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, previousTotalValue: 2000, cash: 10, unrealized: -5, positions: [{ ticker: "A", value: 5, profitLoss: 1 }], pendingOrders: 1, duePlans: ["Monthly"], triggeredAlerts: 0 }))
       .toBe("Total 2010 EUR (+10 since the last digest) · cash 10 · unrealized -5 · top: A 5 (+1) · 1 pending order(s) · due plans: Monthly");
-    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, maxDrift: 0.0712 }))
-      .toBe("Total 2010 EUR · cash 10 · largest drift from targets 7.1 points");
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, filledOrders: 2, maxDrift: 0.0712 }))
+      .toBe("Total 2010 EUR · cash 10 · 2 order(s) filled in the last day · largest drift from targets 7.1 points");
+  });
+
+  it("counts the fills the order watch saw in the last day", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    const event = (id: string, type: string, timestamp: string, environment = "demo") => services.store.put(`activity:${timestamp}:${id}`, { id, type, timestamp, environment });
+    await event("a", "order_filled", "2026-10-11T01:00:00Z");
+    await event("b", "order_partly_filled", "2026-10-10T08:00:00Z");
+    await event("c", "order_filled", "2026-10-10T06:00:00Z");
+    await event("d", "order_closed", "2026-10-11T02:00:00Z");
+    await event("e", "order_filled", "2026-10-11T03:00:00Z", "live");
+    expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
+    expect(services.hooks[0]).toMatch(/· 2 order\(s\) filled in the last day/);
   });
 
   it("sends once per day at the configured hour and reports the change since the last one", async () => {

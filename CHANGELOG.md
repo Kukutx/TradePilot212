@@ -1,8 +1,14 @@
 # Changelog
 
+## 2.18.0
+
+- Fill notices for open orders. About every 5 minutes the scheduler compares the open orders with the previous check. For each order that has left the book, it writes `order_filled` (with the shares, average fill price and value in the account currency), `order_partly_filled` or `order_closed`. This covers orders placed in the Trading 212 app too, and it only reads. Fills go to the webhook by default, and the daily digest counts the fills of the last day. `ORDER_WATCH=false` turns it off.
+- The automation page and overview text say whether open orders are watched, and the activity log names the new events in English and Chinese.
+
 ## 2.17.0
 
 - Investment plans can invest one amount across your saved targets instead of fixed legs (`targetAmount` in `manage_investment_plans`). Each run works out the split from the account at that moment: the new money goes to the targets below their share, most to the furthest below, so regular contributions move the account toward its targets without selling. Splits under 1 in the account currency stay in cash, and a plan with no saved targets is skipped with that reason. The automation page and plan list say how the plan invests.
+- An unattended Demo plan by targets is not sent if the targets are changed or cleared while its basket is priced; the next run window splits it again.
 - The daily digest adds the largest drift from the saved targets, from the same account read.
 - The rebalance skill offers a plan by targets for moving toward the targets with new money.
 
