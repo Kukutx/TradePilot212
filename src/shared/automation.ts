@@ -269,6 +269,8 @@ export interface AutomationOverview {
   settings: {
     demoAutomation: boolean;
     protectiveLinking: boolean;
+    /** Open orders are watched and how each ended is reported. */
+    orderWatch: boolean;
     webhook: boolean;
     digestHourUtc: number | null;
     quoteProvider: string;

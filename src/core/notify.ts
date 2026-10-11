@@ -9,6 +9,9 @@ import type { RuntimeConfig } from "./config.js";
 export const DEFAULT_NOTIFY_EVENTS: ActivityType[] = [
   "order_submitted",
   "order_status_unknown",
+  "order_filled",
+  "order_partly_filled",
+  "order_outcome_unknown",
   "cancel_status_unknown",
   "basket_submitted",
   "plan_due",
@@ -27,6 +30,10 @@ export const DEFAULT_NOTIFY_EVENTS: ActivityType[] = [
 const LABELS: Partial<Record<ActivityType, string>> = {
   order_submitted: "Order sent",
   order_status_unknown: "Order result unclear, check Trading 212",
+  order_filled: "Order filled",
+  order_partly_filled: "Order partly filled",
+  order_closed: "Order closed",
+  order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
   cancel_status_unknown: "Cancellation result unclear, check Trading 212",
   basket_submitted: "Basket sent",
   plan_due: "Investment plan is due and waits for your confirmation",

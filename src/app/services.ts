@@ -6,6 +6,7 @@ import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import { InsightsService } from "../core/insights-service.js";
 import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
+import { OrderWatch } from "../core/order-watch.js";
 import { PiesService } from "../core/pies.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker } from "../core/sample-broker.js";
@@ -45,11 +46,12 @@ export function createServices(input: ServiceDependencies) {
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
+  const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
-  /** One scheduler tick: settle protective pairs first, then due plans, price alerts, target drift and the daily digest. */
+  /** One scheduler tick: settle protective pairs first, then how open orders ended, due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -61,6 +63,7 @@ export function createServices(input: ServiceDependencies) {
   };
   const tick = async () => ({
     links: await stage("protective links", () => links.reconcile()),
+    orders: await stage("order watch", () => orders.check()),
     plans: await stage("plans", () => automation.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     targets: await stage("targets", () => targets.check()),
@@ -102,6 +105,7 @@ export function createServices(input: ServiceDependencies) {
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,
+        orderWatch: deps.config.orderWatch,
         webhook: !!deps.config.notifyWebhookUrl,
         digestHourUtc: deps.config.digestHourUtc ?? null,
         quoteProvider: deps.config.quoteProvider,
@@ -109,5 +113,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, alerts, targets, pies, digest, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, alerts, targets, pies, digest, runScheduled, automationOverview };
 }

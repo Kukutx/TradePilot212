@@ -42,6 +42,7 @@ export function AutomationView({ data, book, locale, t }: { data: AutomationOver
           <DetailRow label={t("valueToday")} value={`${sum(data.usageToday.notional)}${data.policy.dailyNotionalLimit ? ` / ${sum(data.policy.dailyNotionalLimit)}` : ""}`} />
           <DetailRow label={t("settingDemoAutomation")} value={on(data.settings.demoAutomation)} />
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
+          <DetailRow label={t("settingOrderWatch")} value={on(data.settings.orderWatch)} />
           <DetailRow label={t("settingWebhook")} value={on(data.settings.webhook)} />
           <DetailRow label={t("settingDigest")} value={data.settings.digestHourUtc === null ? t("settingOff") : `${String(data.settings.digestHourUtc).padStart(2, "0")}:00 UTC`} />
           <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />

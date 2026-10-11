@@ -34183,7 +34183,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   const daysAgo = (days) => new Date(started - days * 864e5).toISOString();
   const byTicker = new Map(INSTRUMENTS.map((item) => [item.ticker, item]));
   const instrumentOf = (ticker) => byTicker.get(ticker);
-  const eur = (ticker, amount) => amount * (EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"] ?? 1);
+  const eur = (ticker, amount2) => amount2 * (EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"] ?? 1);
   let cash = 3962.1;
   const realized = 412.6;
   const holdings = [
@@ -34885,6 +34885,7 @@ function createConfig(env2, requestOrigin) {
     policy: policy2,
     demoAutomationEnabled: flag(env2, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env2.PROTECTIVE_OCO ? flag(env2, "PROTECTIVE_OCO") : true,
+    orderWatch: env2.ORDER_WATCH ? flag(env2, "ORDER_WATCH") : true,
     notifyWebhookUrl: webhookUrl(env2),
     notifyWebhookSecret: env2.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env2, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
@@ -34976,10 +34977,10 @@ function crossRate(rates, from, to) {
   const b = rates[target];
   return a && b ? b / a : void 0;
 }
-function toAccountCurrency(amount, currency, accountCurrency, rates) {
+function toAccountCurrency(amount2, currency, accountCurrency, rates) {
   if (!accountCurrency) return void 0;
   const rate = crossRate(rates, accountCurrency, currency);
-  return rate ? amount / rate : void 0;
+  return rate ? amount2 / rate : void 0;
 }
 
 // src/core/rebalance.ts
@@ -36191,6 +36192,10 @@ var TradingService = class {
       console.error(JSON.stringify({ message: "TradePilot protective link persistence failed", error: error62 instanceof Error ? error62.message : String(error62) }));
     }
   }
+  /** The orders currently pending at the broker. */
+  pendingOrders(environment) {
+    return this.client(environment).getOrders();
+  }
   /** Ids of the orders currently pending at the broker. */
   async pendingOrderIds(environment) {
     const orders = await this.client(environment).getOrders();
@@ -36203,6 +36208,7 @@ var TradingService = class {
   async recentOrderOutcomes(environment, options = {}) {
     const client = this.client(environment);
     const outcomes = /* @__PURE__ */ new Map();
+    const fills = /* @__PURE__ */ new Map();
     const wanted = new Set([...options.wanted ?? []].map(String));
     const since = options.since ? Date.parse(options.since) : NaN;
     let path3;
@@ -36210,16 +36216,41 @@ var TradingService = class {
       const result2 = await client.getHistoryPage("orders", path3);
       let oldest = Infinity;
       for (const item of result2.items) {
-        const created = Date.parse(item.order?.createdAt ?? "");
+        const created = Date.parse(item.fill?.filledAt ?? item.order?.createdAt ?? "");
         if (Number.isFinite(created)) oldest = Math.min(oldest, created);
         const id = item.order?.id;
         if (id === void 0 || id === null) continue;
         const filled = Math.max(Math.abs(item.order?.filledQuantity ?? 0), Math.abs(item.fill?.quantity ?? 0));
         const previous = outcomes.get(String(id));
+        const fill = item.fill;
+        const totals = fills.get(String(id)) ?? { quantity: 0, cost: 0, priced: 0, value: 0, valued: 0, count: 0 };
+        if (fill && Math.abs(fill.quantity ?? 0) > 0) {
+          const quantity = Math.abs(fill.quantity);
+          totals.count++;
+          totals.quantity += quantity;
+          if (typeof fill.price === "number" && fill.price > 0) {
+            totals.cost += quantity * fill.price;
+            totals.priced += quantity;
+          }
+          if (typeof fill.walletImpact?.netValue === "number") {
+            totals.value += Math.abs(fill.walletImpact.netValue);
+            totals.valued++;
+          }
+          totals.currency ??= fill.walletImpact?.currency;
+          if (fill.filledAt && (!totals.at || fill.filledAt > totals.at)) totals.at = fill.filledAt;
+          fills.set(String(id), totals);
+        }
+        const ticker = item.order?.ticker ?? item.order?.instrument?.ticker ?? previous?.ticker;
         outcomes.set(String(id), {
           status: (item.order?.status ?? previous?.status ?? "").toUpperCase(),
-          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0),
-          quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0)
+          // Several fill rows add up when the order row does not give the filled total.
+          filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0, totals.quantity),
+          quantity: Math.abs(item.order?.quantity ?? previous?.quantity ?? 0),
+          ...ticker ? { ticker } : {},
+          // The average is only given when every filled share has a price.
+          ...totals.priced > 0 && totals.priced >= totals.quantity * (1 - 1e-9) ? { averagePrice: Math.round(totals.cost / totals.priced * 1e6) / 1e6 } : {},
+          ...totals.count > 0 && totals.valued === totals.count ? { filledValue: Math.round(totals.value * 100) / 100, ...totals.currency ? { filledValueCurrency: totals.currency } : {} } : {},
+          ...totals.at ? { filledAt: totals.at } : {}
         });
       }
       if (!result2.nextPagePath) break;
@@ -36353,9 +36384,9 @@ var DEFAULT_ALLOCATION_LIMITS = {
 };
 var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var ratio = (part, whole) => whole > 0 ? part / whole : 0;
-function sumBy(items, key, amount) {
+function sumBy(items, key, amount2) {
   const totals = /* @__PURE__ */ new Map();
-  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount(item));
+  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount2(item));
   return [...totals].map(([k, v]) => ({ key: k, amount: round4(v) })).sort((a, b) => b.amount - a.amount);
 }
 function positionValue(position) {
@@ -36389,7 +36420,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   const totalValue = investedValue + cash;
   for (const item of holdings) item.weight = ratio(item.value, totalValue);
   holdings.sort((a, b) => b.value - a.value);
-  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount }) => ({ k, value: amount, weight: ratio(amount, totalValue) }));
+  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount: amount2 }) => ({ k, value: amount2, weight: ratio(amount2, totalValue) }));
   const holdingCurrencies = group((item) => item.currency === "GBX" ? "GBP" : item.currency);
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
@@ -36471,12 +36502,12 @@ function summarizePerformance(input2) {
   let deposits = 0, withdrawals = 0, interest = 0;
   const transactionCosts = [];
   for (const item of transactions) {
-    const amount = item.amount ?? 0;
+    const amount2 = item.amount ?? 0;
     const type = (item.type ?? "").toUpperCase();
-    if (DEPOSIT.has(type)) deposits += Math.abs(amount);
-    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount);
-    else if (INTEREST.has(type)) interest += amount;
-    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount) });
+    if (DEPOSIT.has(type)) deposits += Math.abs(amount2);
+    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount2);
+    else if (INTEREST.has(type)) interest += amount2;
+    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount2) });
   }
   const taxes = [];
   const perTicker = /* @__PURE__ */ new Map();
@@ -36498,16 +36529,16 @@ function summarizePerformance(input2) {
     if (side === "SELL" || quantity < 0) sells++;
     else buys++;
     for (const tax of wallet?.taxes ?? []) {
-      const amount = Math.abs(tax.quantity ?? 0);
-      taxes.push({ key: tax.name ?? "OTHER", amount, ticker });
-      tickerRow(ticker).costs += amount;
+      const amount2 = Math.abs(tax.quantity ?? 0);
+      taxes.push({ key: tax.name ?? "OTHER", amount: amount2, ticker });
+      tickerRow(ticker).costs += amount2;
     }
   }
   let dividendTotal = 0;
   for (const item of dividends) {
-    const amount = item.amount ?? 0;
-    dividendTotal += amount;
-    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount;
+    const amount2 = item.amount ?? 0;
+    dividendTotal += amount2;
+    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount2;
   }
   const costs = [...taxes, ...transactionCosts];
   const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
@@ -36527,8 +36558,8 @@ function summarizePerformance(input2) {
     const flows = transactions.flatMap((item) => {
       const type = (item.type ?? "").toUpperCase();
       const at = Date.parse(item.dateTime ?? "");
-      const amount = Math.abs(item.amount ?? 0);
-      return DEPOSIT.has(type) ? [{ at, amount: -amount }] : WITHDRAW.has(type) ? [{ at, amount }] : [];
+      const amount2 = Math.abs(item.amount ?? 0);
+      return DEPOSIT.has(type) ? [{ at, amount: -amount2 }] : WITHDRAW.has(type) ? [{ at, amount: amount2 }] : [];
     }).filter((flow) => Number.isFinite(flow.at));
     const deposits2 = flows.filter((flow) => flow.amount < 0);
     const first = deposits2.length ? Math.min(...deposits2.map((flow) => flow.at)) : void 0;
@@ -37080,14 +37111,14 @@ function allocationDrift(saved, analysis) {
     savedAt: saved.updatedAt
   };
 }
-function contributionSplit(targets, values, amount) {
+function contributionSplit(targets, values, amount2) {
   const totalWeight = targets.reduce((sum, target) => sum + target.weight, 0);
-  if (!(totalWeight > 0) || !(amount > 0)) return [];
-  const after = targets.reduce((sum, target) => sum + Math.max(0, values.get(target.ticker) ?? 0), 0) + amount;
+  if (!(totalWeight > 0) || !(amount2 > 0)) return [];
+  const after = targets.reduce((sum, target) => sum + Math.max(0, values.get(target.ticker) ?? 0), 0) + amount2;
   const gaps = targets.map((target) => ({ ticker: target.ticker, gap: Math.max(0, target.weight / totalWeight * after - Math.max(0, values.get(target.ticker) ?? 0)) }));
   const totalGap = gaps.reduce((sum, item) => sum + item.gap, 0);
   if (!(totalGap > 0)) return [];
-  return gaps.map((item) => ({ ticker: item.ticker, amount: Math.floor(amount * item.gap / totalGap * 100 + 1e-6) / 100 })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount);
+  return gaps.map((item) => ({ ticker: item.ticker, amount: Math.floor(amount2 * item.gap / totalGap * 100 + 1e-6) / 100 })).filter((item) => item.amount > 0).sort((a, b) => b.amount - a.amount);
 }
 function driftSummary(drift) {
   const points2 = (value) => `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)} points`;
@@ -37177,8 +37208,8 @@ var DAY_MS3 = 864e5;
 var planKey = (id) => `plan:${id}`;
 var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
 var MIN_TARGET_LEG = 1;
-function validateTargetAmount(amount) {
-  if (!Number.isFinite(amount) || amount <= 0) fail("INVALID_INPUT", "targetAmount must be a positive amount in the account currency", { field: "targetAmount" });
+function validateTargetAmount(amount2) {
+  if (!Number.isFinite(amount2) || amount2 <= 0) fail("INVALID_INPUT", "targetAmount must be a positive amount in the account currency", { field: "targetAmount" });
 }
 var DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
 var MAX_LIMIT_OFFSET_PERCENT = 10;
@@ -37751,7 +37782,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.17.0"
+  version: "2.18.0"
 };
 
 // src/core/text-summary.ts
@@ -37904,7 +37935,7 @@ function tradeHistory(data) {
   const currency = fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
   const realized = fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0);
   return [
-    ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num2(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
+    ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}`, 50),
     ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []
@@ -38010,7 +38041,8 @@ function automation(data) {
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
     ...data.targets ? [`Target weights: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}, cash ${pct(data.targets.cashWeight)}; drift notices above ${num2(data.targets.driftThreshold * 100, 1)} points.`] : [],
-    `Today through TradePilot: ${data.usageToday.orders} order(s), ${num2(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`
+    `Today through TradePilot: ${data.usageToday.orders} order(s), ${num2(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`,
+    ...data.settings.orderWatch ? ["Open orders are watched: how each one ends (filled, partly filled, closed) is reported about every 5 minutes."] : []
   ];
 }
 function pieLine(pie, currency) {
@@ -39529,8 +39561,131 @@ var PriceAlerts = class {
   }
 };
 
-// src/core/digest.ts
+// src/core/order-watch.ts
+var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
+var MAX_MISSING_CHECKS = 3;
 var DAY_MS4 = 864e5;
+var watchKey = (environment) => `order-watch:${environment}`;
+var fillsKey = (environment) => `order-fills:${environment}`;
+var MAX_FILL_TIMES = 2e3;
+async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
+  const times = await store2.get(fillsKey(environment)) ?? [];
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS4).length;
+}
+var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
+var amount = (value) => String(Math.round(value * 1e8) / 1e8);
+function watchedOrder(order) {
+  if (order.id === void 0 || order.id === null || !order.ticker) return void 0;
+  const quantity = typeof order.quantity === "number" && Number.isFinite(order.quantity) ? order.quantity : void 0;
+  const value = typeof order.value === "number" && Number.isFinite(order.value) ? order.value : void 0;
+  const side = order.side ? /SELL/i.test(String(order.side)) ? "sell" : "buy" : (quantity ?? value ?? 0) < 0 ? "sell" : "buy";
+  return {
+    id: String(order.id),
+    ticker: order.ticker,
+    side,
+    ...order.type ? { type: String(order.type).toUpperCase() } : {},
+    ...quantity ? { quantity: Math.abs(quantity) } : {},
+    ...value ? { value: Math.abs(value) } : {},
+    ...typeof order.limitPrice === "number" ? { limitPrice: order.limitPrice } : {},
+    ...typeof order.stopPrice === "number" ? { stopPrice: order.stopPrice } : {},
+    ...order.createdAt ? { createdAt: order.createdAt } : {}
+  };
+}
+var fullyFilled = (outcome) => outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6);
+function isFinal(outcome) {
+  if (fullyFilled(outcome)) return true;
+  const status = outcome.status;
+  return /FILLED|CANCEL|REJECT|EXPIRE|REPLACED/.test(status) && !/PARTIAL|CANCELLING|REPLACING/.test(status);
+}
+function describeOutcome(order, outcome) {
+  const status = outcome.status;
+  const filled = outcome.filledQuantity;
+  const ordered = outcome.quantity || order.quantity || 0;
+  const price = outcome.averagePrice === void 0 ? "" : ` at ${amount(outcome.averagePrice)}`;
+  const value = outcome.filledValue === void 0 ? "" : ` (${outcome.filledValue.toFixed(2)}${outcome.filledValueCurrency ? ` ${outcome.filledValueCurrency}` : ""})`;
+  const closedEarly = /CANCEL|REJECT|EXPIRE/.test(status);
+  if (filled > 0 && ordered > 0 && filled < ordered * (1 - 1e-6))
+    return { result: "partly_filled", message: `Filled ${amount(filled)} of ${amount(ordered)}${price}${value}; the rest closed${status ? ` (${status})` : ""}.` };
+  if (filled > 0 && ordered === 0 && closedEarly)
+    return { result: "partly_filled", message: `Filled ${amount(filled)}${price}${value} before the rest closed (${status}).` };
+  if (filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL|REJECT/.test(status))
+    return { result: "filled", message: `Filled${filled > 0 ? ` ${amount(filled)}` : ""}${price}${value}.` };
+  return { result: "closed", message: `Closed without a fill${status ? ` (${status})` : ""}.` };
+}
+var OrderWatch = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /**
+   * One scheduler tick: about every 5 minutes per environment, compare the open orders with the last
+   * check and report each order that left the book. The first check only records what is open.
+   */
+  async check(now = /* @__PURE__ */ new Date()) {
+    if (!this.deps.config.orderWatch) return [];
+    const credentials = credentialStatus(this.deps.config);
+    const reports = [];
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const slot = await this.deps.store.increment(`order-watch-slot:${environment}`, ORDER_WATCH_INTERVAL_MS, now.getTime());
+      if (slot.count > 1) continue;
+      const open2 = (await this.deps.trading.pendingOrders(environment)).flatMap((order) => watchedOrder(order) ?? []);
+      const previous = await this.deps.store.get(watchKey(environment));
+      const openIds = new Set(open2.map((order) => order.id));
+      const gone = (previous?.orders ?? []).filter((order) => !openIds.has(order.id));
+      const kept = [];
+      if (gone.length) {
+        let outcomes;
+        try {
+          outcomes = await this.deps.trading.recentOrderOutcomes(environment, { wanted: gone.map((order) => order.id) });
+        } catch {
+          kept.push(...gone);
+        }
+        for (const order of outcomes ? gone : []) {
+          const outcome = outcomes.get(order.id);
+          if (outcome && isFinal(outcome)) {
+            reports.push(await this.report(environment, order, { ...describeOutcome(order, outcome), outcome }, now));
+            continue;
+          }
+          if ((order.missing ?? 0) + 1 < MAX_MISSING_CHECKS) {
+            kept.push({ ...order, missing: (order.missing ?? 0) + 1 });
+            continue;
+          }
+          const seen = outcome ? `the order history still shows it as ${outcome.status || "open"}${outcome.filledQuantity > 0 ? ` with ${amount(outcome.filledQuantity)} filled` : ""}` : "the order history does not show how it ended";
+          reports.push(await this.report(environment, order, { result: "unclear", message: `Left the order book, but ${seen}. Check it in Trading 212.`, ...outcome ? { outcome } : {} }, now));
+        }
+      }
+      await this.deps.store.put(watchKey(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
+    }
+    return reports;
+  }
+  async report(environment, order, found, now) {
+    const type = { filled: "order_filled", partly_filled: "order_partly_filled", closed: "order_closed", unclear: "order_outcome_unknown" }[found.result];
+    const orderType = order.type ? ORDER_TYPES[order.type] : void 0;
+    const outcome = found.outcome;
+    const filled = found.result === "filled" || found.result === "partly_filled";
+    await this.deps.trading.recordActivity(type, environment, {
+      ticker: order.ticker,
+      orderId: order.id,
+      side: order.side,
+      ...orderType ? { orderType } : {},
+      ...order.quantity ? { quantity: order.quantity } : {},
+      // The fill facts, so the widget can show them in its own language.
+      ...filled && outcome && outcome.filledQuantity > 0 ? { filledQuantity: outcome.filledQuantity } : {},
+      ...filled && outcome?.averagePrice !== void 0 ? { price: outcome.averagePrice } : {},
+      ...filled && outcome?.filledValue !== void 0 ? { value: outcome.filledValue, ...outcome.filledValueCurrency ? { valueCurrency: outcome.filledValueCurrency } : {} } : {},
+      outcome: found.message.slice(0, 200)
+    });
+    if (filled) {
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS4);
+      await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
+    }
+    return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
+  }
+};
+
+// src/core/digest.ts
+var DAY_MS5 = 864e5;
 var round6 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round6(value)}`;
 function digestText(input2) {
@@ -39544,6 +39699,7 @@ function digestText(input2) {
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
+    input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
     input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`
   ].filter(Boolean).join(" \xB7 ");
 }
@@ -39565,7 +39721,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS4, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS5, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
@@ -39576,7 +39732,8 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS4);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS5);
+        const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
         const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : void 0;
@@ -39594,6 +39751,7 @@ var DailyDigest = class {
           pendingOrders: dashboard.orders.length,
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length,
+          filledOrders,
           ...maxDrift === void 0 ? {} : { maxDrift }
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
@@ -39618,6 +39776,9 @@ var DailyDigest = class {
 var DEFAULT_NOTIFY_EVENTS = [
   "order_submitted",
   "order_status_unknown",
+  "order_filled",
+  "order_partly_filled",
+  "order_outcome_unknown",
   "cancel_status_unknown",
   "basket_submitted",
   "plan_due",
@@ -39635,6 +39796,10 @@ var DEFAULT_NOTIFY_EVENTS = [
 var LABELS = {
   order_submitted: "Order sent",
   order_status_unknown: "Order result unclear, check Trading 212",
+  order_filled: "Order filled",
+  order_partly_filled: "Order partly filled",
+  order_closed: "Order closed",
+  order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
   cancel_status_unknown: "Cancellation result unclear, check Trading 212",
   basket_submitted: "Basket sent",
   plan_due: "Investment plan is due and waits for your confirmation",
@@ -39687,9 +39852,9 @@ function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(in
 
 // src/core/protective-links.ts
 var LINK_TTL_MS2 = 400 * 24 * 60 * 60 * 1e3;
-var fullyFilled = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
-var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled(outcome);
-var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+var fullyFilled2 = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
+var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled2(outcome);
+var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled2(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
 var MAX_CANCEL_ATTEMPTS = 5;
 var ProtectiveLinks = class {
   constructor(deps) {
@@ -39735,7 +39900,7 @@ var ProtectiveLinks = class {
         }
         const outcome = historyByEnv.get(link.environment).get(gone.orderId);
         const label = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId}`;
-        if (fullyFilled(outcome)) {
+        if (fullyFilled2(outcome)) {
           const reason = `${label} filled`;
           const attempts = link.cancelAttempts ?? 0;
           const result2 = await this.deps.trading.cancelLinkedOrder(link.environment, survivor.orderId, reason, { quiet: attempts > 0 });
@@ -39792,6 +39957,7 @@ function createServices(input2) {
   const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
   const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
+  const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
@@ -39806,6 +39972,7 @@ function createServices(input2) {
   };
   const tick2 = async () => ({
     links: await stage("protective links", () => links.reconcile()),
+    orders: await stage("order watch", () => orders.check()),
     plans: await stage("plans", () => automation2.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     targets: await stage("targets", () => targets.check()),
@@ -39847,6 +40014,7 @@ function createServices(input2) {
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,
+        orderWatch: deps.config.orderWatch,
         webhook: !!deps.config.notifyWebhookUrl,
         digestHourUtc: deps.config.digestHourUtc ?? null,
         quoteProvider: deps.config.quoteProvider
@@ -39854,7 +40022,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation2, links, alerts, targets, pies: pies2, digest, runScheduled, automationOverview };
+  return { trading, insights, automation: automation2, links, orders, alerts, targets, pies: pies2, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

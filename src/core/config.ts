@@ -24,6 +24,8 @@ export interface RuntimeConfig {
   demoAutomationEnabled: boolean;
   /** Cancel the other half of a stop-loss / take-profit pair once one fills (default on). */
   protectiveLinking: boolean;
+  /** Report how open orders end (filled, partly filled, cancelled, rejected) once they leave the book (default on). */
+  orderWatch: boolean;
   /** Optional HTTPS endpoint that receives a JSON message for notable automation events. */
   notifyWebhookUrl: string;
   /** Optional secret; when set each webhook carries an HMAC-SHA256 signature header. */
@@ -52,7 +54,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MAX_POSITION_WEIGHT" | "POLICY_DAILY_ORDER_LIMIT" | "POLICY_DAILY_NOTIONAL_LIMIT"
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
-  | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
+  | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
   | "OAUTH_REDIRECT_HOSTS",
@@ -158,6 +160,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     policy,
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
+    orderWatch: env.ORDER_WATCH ? flag(env, "ORDER_WATCH") : true,
     notifyWebhookUrl: webhookUrl(env),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),

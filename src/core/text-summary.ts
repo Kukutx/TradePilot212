@@ -332,6 +332,7 @@ function automation(data: AutomationOverview): string[] {
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
     ...(data.targets ? [`Target weights: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}, cash ${pct(data.targets.cashWeight)}; drift notices above ${num(data.targets.driftThreshold * 100, 1)} points.`] : []),
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`,
+    ...(data.settings.orderWatch ? ["Open orders are watched: how each one ends (filled, partly filled, closed) is reported about every 5 minutes."] : []),
   ];
 }
 
