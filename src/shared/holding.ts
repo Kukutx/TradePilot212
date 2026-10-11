@@ -1,0 +1,63 @@
+// One instrument in one account: the position, its open orders, recent fills, dividends and alerts.
+
+import type { PriceAlert } from "./automation.js";
+import type { CredentialStatus, Instrument, PendingOrder, Position, TradingEnvironment } from "./contracts.js";
+import type { MarketStatus } from "./history.js";
+
+/** One fill of an order on this instrument, newest first. */
+export interface HoldingFill {
+  filledAt?: string;
+  side?: string;
+  type?: string;
+  quantity?: number;
+  price?: number;
+  /** Currency of price (the instrument's quote currency). */
+  priceCurrency?: string;
+  /** What the fill moved in the account, in accountCurrency. */
+  netValue?: number;
+  accountCurrency?: string;
+  realisedProfitLoss?: number;
+}
+
+/** One dividend paid on this instrument; the amount is in the account currency. */
+export interface HoldingDividend {
+  date: string;
+  amount: number;
+  currency: string;
+  quantity?: number;
+  grossPerShare?: number;
+  perShareCurrency?: string;
+}
+
+export interface HoldingDetail {
+  kind: "holding";
+  environment: TradingEnvironment;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
+  ticker: string;
+  instrument: Pick<Instrument, "ticker"> & Partial<Pick<Instrument, "name" | "shortName" | "currencyCode" | "type" | "isin">>;
+  accountCurrency?: string;
+  /** Absent when the instrument is not held. */
+  position?: Position;
+  /** Share of total account value (0 to 1). */
+  weight?: number;
+  /** The saved target weight, when targets are saved and name this instrument. */
+  targetWeight?: number;
+  orders: PendingOrder[];
+  alerts: PriceAlert[];
+  market?: MarketStatus;
+  /** The last 12 months of fills and dividends; absent when the history could not be read. */
+  history?: {
+    from: string;
+    fills: HoldingFill[];
+    dividends: HoldingDividend[];
+    /** Dividends received in the window, in the account currency, and how many payments; `dividends` lists the newest. */
+    dividendTotal: number;
+    dividendCount: number;
+    /** The page budget ended before the window start, so older records are missing. */
+    truncated: boolean;
+  };
+  /** Why the history is missing, e.g. Trading 212's rate limit; everything else is still current. */
+  historyProblem?: string;
+  timestamp: string;
+}

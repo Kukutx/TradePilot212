@@ -100,6 +100,11 @@ export function bookFromPayload(payload: unknown): InstrumentBook {
   for (const instrument of list("instruments")) add(book, instrument.ticker, fromInstrument(instrument as Partial<Instrument>));
   const resolved = value.resolvedInstrument as Partial<Instrument> | undefined;
   add(book, resolved?.ticker, fromInstrument(resolved));
+  // A holding detail names its instrument even when it is not held.
+  if (value.kind === "holding") {
+    const instrument = value.instrument as Partial<Instrument> | undefined;
+    add(book, instrument?.ticker, fromInstrument(instrument));
+  }
   return book;
 }
 

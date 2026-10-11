@@ -1,17 +1,9 @@
-import type { AlertCondition, AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
-import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
+import type { AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
+import { localeTag, type SupportedLocale } from "../i18n";
 import { DetailRow, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { fill, instrumentTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
-
-const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
-  above: "alertAbove",
-  below: "alertBelow",
-  trailing_drop: "alertTrailing",
-  gain_percent: "alertGain",
-  loss_percent: "alertLoss",
-};
+import { alertConditionLabel, fill, instrumentTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
 
 /** Weekday 1 = Monday … 7 = Sunday, in the user's language. 2024-01-01 was a Monday. */
 function weekdayName(weekday: number | undefined, locale: SupportedLocale): string {
@@ -25,7 +17,7 @@ function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string
 }
 
 /** Alert prices are in the instrument's currency; percent conditions stay percentages. */
-function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined, locale: SupportedLocale): string {
+export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined, locale: SupportedLocale): string {
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
@@ -80,7 +72,7 @@ export function AutomationView({ data, book, locale, t }: { data: AutomationOver
                   <InstrumentName ticker={alert.ticker} book={book} />
                   <span className={`statusPill ${alert.triggeredAt ? "fired" : ""}`}>{alert.triggeredAt ? t("alertTriggered") : t("alertArmed")}</span>
                 </div>
-                <small>{t(CONDITION_KEY[alert.condition])} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}</small>
+                <small>{alertConditionLabel(alert.condition, t)} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}</small>
                 {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {price(alert.ticker, alert.triggeredPrice)}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
               </li>
