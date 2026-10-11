@@ -1,6 +1,7 @@
 import type { PendingOrder, Position } from "../../shared/contracts";
+import type { StopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
-import { amount, pct } from "./format";
+import { amount, money, pct, qty } from "./format";
 import { instrumentLabel, orderCurrency, type InstrumentBook } from "./instruments";
 import { fill, orderStatusLabel, orderTypeLabel, type Translator } from "./messages";
 
@@ -53,4 +54,16 @@ export function summarizeOrder(order: PendingOrder, t: Translator, locale: Suppo
     ...(quantity === undefined ? {} : { quantity: Math.abs(quantity) }),
     ...(distance ? { distance } : {}),
   };
+}
+
+/** The highest sell stop and how far below the last price it sits: "$118.00 (8.3% below)". */
+export function stopGuardText(guard: StopProtection, position: Position, locale: SupportedLocale, t: Translator): string {
+  const price = money(guard.stopPrice, position.instrument.currencyCode, locale);
+  if (guard.gap === undefined) return price;
+  return fill(t(guard.gap < 0 ? "stopBelow" : "stopAbove"), { price, percent: pct(Math.abs(guard.gap), locale, 1) });
+}
+
+/** How much of the holding the sell stops would sell. */
+export function stopCoverageText(guard: StopProtection, position: Position, locale: SupportedLocale, t: Translator): string {
+  return guard.coverage >= 1 ? t("stopCoversAll") : fill(t("stopCovers"), { covered: qty(guard.covered, locale), quantity: qty(position.quantity, locale) });
 }

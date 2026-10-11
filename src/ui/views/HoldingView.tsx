@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { PriceAlert } from "../../shared/automation";
 import type { Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
+import { stopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
@@ -9,6 +10,7 @@ import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, wa
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { alertConditionLabel, fill, instrumentTypeLabel, orderTypeLabel, type Translator } from "../lib/messages";
 import { alertTarget } from "./AutomationView";
+import { stopCoverageText, stopGuardText } from "../lib/orders";
 import { PendingOrderList } from "./PortfolioView";
 
 export type PriceLevelKind = "last" | "average" | "stop" | "limit" | "alert";
@@ -103,6 +105,11 @@ export function HoldingView({
   const pnl = position ? walletNumber(position, "unrealizedProfitLoss") : undefined;
   const cost = value !== undefined && pnl !== undefined ? value - pnl : undefined;
   const levels = priceLevels(data, t, locale);
+  const guard = position ? stopProtection(position, data.orders) : undefined;
+  // For a holding, say whether a sell stop protects it; an unheld instrument has nothing to protect.
+  const guardNote = !position ? undefined : guard
+    ? `${t("stopLoss")} ${stopGuardText(guard, position, locale, t)} · ${stopCoverageText(guard, position, locale, t)}`
+    : t("noStopLoss");
   const eyebrow = [data.instrument.type ? instrumentTypeLabel(data.instrument.type, t) : undefined, quote, marketText(data, t, locale)].filter(Boolean).join(" · ");
   const share = data.weight === undefined ? "—" : data.targetWeight === undefined ? pct(data.weight, locale) : `${pct(data.weight, locale)} / ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`;
   return (
@@ -141,7 +148,8 @@ export function HoldingView({
         )}
       </section>
 
-      {levels.length >= 2 && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} />}
+      {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
+      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} />}
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={data.orders.length} />
@@ -204,11 +212,12 @@ export function HoldingView({
 }
 
 /** The price levels as a ladder, highest at the top, each with its distance from the last price. */
-function PriceLadder({ levels, last, currency, locale, t }: { levels: PriceLevel[]; last?: number; currency?: string; locale: SupportedLocale; t: Translator }) {
+function PriceLadder({ levels, last, currency, locale, t, guardNote, partial }: { levels: PriceLevel[]; last?: number; currency?: string; locale: SupportedLocale; t: Translator; guardNote?: string; partial?: boolean }) {
   return (
     <section className="dataPanel">
       <div className="pieHeader"><h2>{t("priceLevels")}</h2></div>
-      <ol className="levelLadder">
+      {guardNote && <p className={`ladderGuard${partial ? " partial" : ""}`}><span className="positionGuardMark" aria-hidden="true" />{guardNote}</p>}
+      {levels.length >= 2 && <ol className="levelLadder">
         {levels.map((level) => {
           const gap = last && level.kind !== "last" ? (level.price - last) / last : undefined;
           return (
@@ -220,8 +229,8 @@ function PriceLadder({ levels, last, currency, locale, t }: { levels: PriceLevel
             </li>
           );
         })}
-      </ol>
-      {last !== undefined && <p className="panelNote">{t("priceLevelsNote")}</p>}
+      </ol>}
+      {levels.length >= 2 && last !== undefined && <p className="panelNote">{t("priceLevelsNote")}</p>}
     </section>
   );
 }
