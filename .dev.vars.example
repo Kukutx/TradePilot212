@@ -33,6 +33,8 @@ PROTECTIVE_OCO=true
 NOTIFY_WEBHOOK_URL=
 NOTIFY_WEBHOOK_SECRET=
 NOTIFY_EVENTS=
+# Send a short daily account digest to the webhook at this UTC hour (0-23). Empty turns it off.
+DIGEST_HOUR_UTC=
 
 # Quotes for instruments you do not hold (Trading 212 has no quote endpoint). Used by get_quote,
 # price alerts, plan legs and rebalance targets. stooq (default) is free, needs no key, and is

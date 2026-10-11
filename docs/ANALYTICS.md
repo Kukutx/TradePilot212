@@ -6,7 +6,7 @@ TradePilot computes portfolio figures deterministically from Trading 212 data, s
 |---|---|---|
 | `analyze_portfolio_allocation` | Weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl index, effective number of holdings), rule-based flags | account, portfolio, metadata |
 | `get_portfolio_performance` | Realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, costs by type, trade counts, per-ticker contribution; for all-time windows, a simple return on net contributions | account, history (orders, dividends, transactions) |
-| `get_income_summary` | Dividends and interest by month and by ticker, trailing 12 months | account, history (dividends, transactions) |
+| `get_income_summary` | Dividends and interest by month and by ticker, trailing 12 months, and expected dividends for the next 12 months from current holdings | account, positions, history (dividends, transactions) |
 | `get_trade_history` | Executed fills with price, quantity, net value, realized P/L, FX rate, and costs | history (orders) |
 | `get_market_hours` | Current session (regular, pre-market, after-hours, overnight, break, closed) and the next open and close | metadata |
 | `manage_history_export` | Lists the broker's CSV reports, or requests a new one | history |

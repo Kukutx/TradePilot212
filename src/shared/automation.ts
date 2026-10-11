@@ -91,6 +91,8 @@ export interface RebalanceTarget {
   weight: number;
   /** Price for an instrument you do not hold yet; Trading 212 has no quote endpoint. */
   referencePrice?: number;
+  /** When referencePrice is from; without it the order review treats the price as undated. */
+  referencePriceAt?: string;
 }
 
 export interface RebalanceTrade {
@@ -98,6 +100,8 @@ export interface RebalanceTrade {
   side: "buy" | "sell";
   quantity: number;
   price: number;
+  /** When the price is from: now for broker prices, the quote time for external quotes. */
+  priceAt?: string;
   value: number;
   currentWeight: number;
   targetWeight: number;
@@ -191,6 +195,27 @@ export interface PriceAlert {
   lastCheckedAt?: string;
   triggeredAt?: string;
   triggeredPrice?: number;
+}
+
+/** Everything the scheduler acts on, for one environment, in one payload for the widget. */
+export interface AutomationOverview {
+  kind: "automation";
+  environment: TradingEnvironment;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
+  plans: DcaPlan[];
+  alerts: PriceAlert[];
+  links: ProtectiveLink[];
+  usageToday: { orders: number; notional: number };
+  policy: TradingPolicy;
+  settings: {
+    demoAutomation: boolean;
+    protectiveLinking: boolean;
+    webhook: boolean;
+    digestHourUtc: number | null;
+    quoteProvider: string;
+  };
+  timestamp: string;
 }
 
 export interface AlertReport {

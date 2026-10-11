@@ -92,7 +92,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, pies }: Services,
+  { trading, insights, automation, alerts, pies, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -231,7 +231,7 @@ export function createMcpServer(
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
       } catch (error) {
         return toolError(error);
       }
@@ -253,9 +253,9 @@ export function createMcpServer(
       annotations: readOnly,
       _meta: {},
     },
-    async ({ environment, ticker, limit, period, from, to }) => {
+    async ({ environment, ticker, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages);
         return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
@@ -297,6 +297,8 @@ export function createMcpServer(
     async ({ environment, action, period, from, to }) => {
       try {
         if (action === "request") {
+          // Requesting a report is a broker write, so it needs the same write access as orders.
+          if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
           const created = await insights.requestExport(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }));
           return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
         }
@@ -466,6 +468,7 @@ export function createMcpServer(
           ticker: z.string().min(1).describe("Trading 212 ticker, symbol or name"),
           weight: z.number().min(0).max(1),
           referencePrice: z.number().positive().optional(),
+          referencePriceAt: z.string().datetime().optional().describe("When referencePrice is from"),
         })).min(1).max(MAX_BASKET_LEGS),
         cashWeight: z.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
         minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
@@ -562,6 +565,26 @@ export function createMcpServer(
         const pie = await pies.getPie(environment, pieId);
         const data = { kind: "pies", environment, credentials: credentialStatus(config), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: new Date().toISOString() };
         return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_automation_overview",
+    {
+      title: "Automation Overview",
+      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment }) => {
+      try {
+        const data = { ...(await automationOverview(environment)), writeEnabled: canWrite };
+        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
       } catch (error) {
         return toolError(error);
       }
@@ -687,7 +710,7 @@ export function createMcpServer(
       {
         title: "Manage Investment Plans",
         description:
-          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
+          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
         inputSchema: z.object({
           action: z.enum(["create", "update", "delete"]),
           planId: z.string().optional().describe("Required for update and delete"),
@@ -736,8 +759,12 @@ export function createMcpServer(
             ...(input.legs === undefined ? {} : { legs: input.legs }),
             ...(input.paused === undefined ? {} : { paused: input.paused }),
             ...(input.autoExecute === undefined ? {} : { autoExecute: input.autoExecute }),
+            ...(input.frequency === undefined ? {} : { frequency: input.frequency }),
+            ...(input.dayOfMonth === undefined ? {} : { dayOfMonth: input.dayOfMonth }),
+            ...(input.weekday === undefined ? {} : { weekday: input.weekday }),
+            ...(input.hourUtc === undefined ? {} : { hourUtc: input.hourUtc }),
           });
-          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}.`);
+          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}; next due ${plan.nextRunAt}.`);
         } catch (error) {
           return toolError(error);
         }
@@ -827,6 +854,25 @@ export function createMcpServer(
       try {
         const data = { ...(await trading.getDashboard(environment)), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "app_get_automation",
+    {
+      title: "Refresh automation",
+      description: "App-only automation overview refresh.",
+      inputSchema: z.object({ environment: environmentEnum }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ environment }) => {
+      try {
+        return result({ ...(await automationOverview(environment)), writeEnabled: canWrite }, "Automation refreshed.");
       } catch (error) {
         return toolError(error);
       }

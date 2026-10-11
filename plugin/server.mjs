@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round4 = 0;
+    let round5 = 0;
     while (true) {
-      round4 += 1;
-      if (round4 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round5 += 1;
+      if (round5 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34313,6 +34313,13 @@ function webhookUrl(env) {
   if (url2.protocol !== "https:" && !(local && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url2.toString();
 }
+function digestHour(env) {
+  const raw = (env.DIGEST_HOUR_UTC ?? "").trim();
+  if (!raw) return void 0;
+  const hour = Number(raw);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
+  return hour;
+}
 function quoteProvider(env) {
   const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
   if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
@@ -34340,6 +34347,7 @@ function createConfig(env, requestOrigin) {
     quoteProvider: quoteProvider(env),
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
+    ...digestHour(env) === void 0 ? {} : { digestHourUtc: digestHour(env) },
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
@@ -34467,7 +34475,10 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       continue;
     }
     const heldQuantity = Math.max(0, position?.quantity ?? 0);
+    const brokerPrice = !!(position?.currentPrice && position.currentPrice > 0);
+    const priceAt = brokerPrice ? (/* @__PURE__ */ new Date()).toISOString() : target.referencePriceAt;
     lines.push({
+      ...priceAt ? { priceAt } : {},
       ticker: position?.instrument.ticker ?? target.ticker,
       currency,
       price,
@@ -34491,7 +34502,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   const reserve = cashWeight * totalValue;
   const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
@@ -34508,7 +34519,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     }
     cash -= value;
     valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
   if (!trades.length) notes.push("The portfolio is already within the minimum trade value of every target.");
@@ -34810,6 +34821,12 @@ function closeQuantity(a, b) {
 }
 function orderQuantity(order) {
   return typeof order.quantity === "number" && Number.isFinite(order.quantity) ? Math.abs(order.quantity) : void 0;
+}
+function basketNotes(plan) {
+  const clip = (note) => note.length > 500 ? `${note.slice(0, 497)}...` : note;
+  const skipped = plan.skipped.map((item) => `${item.ticker}: ${item.reason}`);
+  if (plan.notes.length + skipped.length <= 20) return [...plan.notes, ...skipped].map(clip);
+  return [...plan.notes.slice(0, 18), `Skipped ${plan.skipped.length} instrument(s) with no usable price or FX rate: ${plan.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
 }
 function resolveInstrumentFromList(instruments, query) {
   const norm = (value) => value.trim().toUpperCase();
@@ -35284,23 +35301,23 @@ var TradingService = class {
       const instrument = resolveInstrumentFromList(snapshot.instruments, target.ticker);
       const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
       const quote = !held && target.referencePrice === void 0 ? await this.externalQuote(instrument) : void 0;
-      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price } : {} });
+      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price, referencePriceAt: quote.asOf } : {} });
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
   rebalanceBasket(plan) {
-    const at = (/* @__PURE__ */ new Date()).toISOString();
     return {
       kind: "basket_draft",
       environment: plan.environment,
       purpose: "rebalance",
       title: "Rebalance",
       legs: plan.trades.map((trade) => ({
-        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, referencePriceAt: at },
+        // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
+        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...trade.priceAt ? { referencePriceAt: trade.priceAt } : {} },
         reason: `${(trade.currentWeight * 100).toFixed(1)}% \u2192 ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`
       })),
-      notes: [...plan.notes, ...plan.skipped.map((item) => `${item.ticker}: ${item.reason}`)]
+      notes: basketNotes(plan)
     };
   }
   /**
@@ -35788,6 +35805,26 @@ function summarizePerformance(input2) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
+function forwardDividends(dividends, positions, to) {
+  const yearAgo = new Date(to.getTime() - 365 * 864e5);
+  const perShare = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
+    perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+  }
+  const byTicker = [];
+  let value = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker?.toUpperCase();
+    value += positionValue(position);
+    const rate = ticker ? perShare.get(ticker) : void 0;
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round2(rate * position.quantity) });
+  }
+  byTicker.sort((a, b) => b.amount - a.amount);
+  const total = round2(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+}
 function summarizeIncome(input2) {
   const events = [
     ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
@@ -35809,6 +35846,7 @@ function summarizeIncome(input2) {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round2(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -35942,7 +35980,7 @@ var InsightsService = class {
   }
   async income(environment, window, maxPages) {
     const client = this.client(environment);
-    const account = await client.getAccountSummary();
+    const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
     const yearAgo = new Date(window.to.getTime() - 365 * 864e5);
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
@@ -35953,11 +35991,12 @@ var InsightsService = class {
       window,
       dividends: dividends.items,
       transactions: transactions.items,
+      positions,
       truncated: dividends.truncated || transactions.truncated
     });
   }
-  async tradeHistory(environment, window, ticker, limit = 50) {
-    const collected = await this.collect(environment, "orders", window);
+  async tradeHistory(environment, window, ticker, limit = 50, maxPages) {
+    const collected = await this.collect(environment, "orders", window, maxPages);
     const wanted = ticker?.trim().toUpperCase();
     const fills = collected.items.filter((item) => item.fill).filter((item) => !wanted || (item.order?.ticker ?? "").toUpperCase() === wanted || (item.order?.ticker ?? "").toUpperCase().startsWith(`${wanted}_`)).filter((item) => {
       const time3 = itemTime("orders", item);
@@ -36100,11 +36139,23 @@ var AutomationService = class {
     await this.deps.store.put(planKey(plan.id), plan);
     return plan;
   }
-  async updatePlan(id, patch) {
+  async updatePlan(id, patch, now = /* @__PURE__ */ new Date()) {
     const plan = await this.getPlan(id);
     assertAutoExecuteAllowed(plan.environment, patch.autoExecute);
+    let base = plan;
+    if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hourUtc].some((value) => value !== void 0)) {
+      const frequency = patch.frequency ?? plan.frequency;
+      const schedule = {
+        frequency,
+        ...frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan.dayOfMonth } : { weekday: patch.weekday ?? plan.weekday },
+        hourUtc: patch.hourUtc ?? plan.hourUtc
+      };
+      validateSchedule(schedule);
+      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
+      base = { ...rest, ...schedule, nextRunAt: nextRunAt(schedule, now).toISOString() };
+    }
     const updated = {
-      ...plan,
+      ...base,
       ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
       ...patch.legs === void 0 ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
@@ -36181,19 +36232,19 @@ var AutomationService = class {
   async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
     const plan = await this.deps.store.get(planKey(planId));
     if (!plan) return;
-    const anySent = result2.legs.some((leg) => leg.result?.ok);
+    const attempted = result2.legs.some((leg) => leg.result);
     await this.deps.store.put(planKey(planId), {
       ...plan,
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
-      // Only a run that sent something moves the plan on; otherwise it stays due.
-      ...anySent ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+      ...attempted ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
     });
   }
   /**
    * One scheduler tick. Due Live plans and Demo plans without autoExecute are announced once in
    * the activity log for the user to confirm. Due Demo autoExecute plans run when Demo automation
-   * is enabled. A plan blocked by policy (for example a closed market) stays due for the next tick.
+   * is enabled. A plan blocked before sending (policy, closed market) stays due and is tried again
+   * when its run lock expires, about every 10 minutes.
    */
   async runDuePlans(now = /* @__PURE__ */ new Date()) {
     const reports = [];
@@ -36230,10 +36281,12 @@ var AutomationService = class {
     return reports;
   }
   async skip(plan, now, message, advance) {
+    const current = await this.deps.store.get(planKey(plan.id));
+    if (!current) return;
     await this.deps.store.put(planKey(plan.id), {
-      ...plan,
+      ...current,
       lastOutcome: message,
-      ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+      ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
     const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
     if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
@@ -36478,7 +36531,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.9.0"
+  version: "2.10.0"
 };
 
 // src/core/mcp.ts
@@ -36549,7 +36602,7 @@ var windowSchema = {
   to: external_exports.string().datetime().optional(),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation, alerts, pies }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation, alerts, pies, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version });
@@ -36671,7 +36724,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -36692,9 +36745,9 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
       annotations: readOnly,
       _meta: {}
     },
-    async ({ environment, ticker, limit, period, from, to }) => {
+    async ({ environment, ticker, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages);
         return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -36733,6 +36786,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
     async ({ environment, action, period, from, to }) => {
       try {
         if (action === "request") {
+          if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
           const created = await insights.requestExport(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }));
           return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
         }
@@ -36890,7 +36944,8 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
         targets: external_exports.array(external_exports.object({
           ticker: external_exports.string().min(1).describe("Trading 212 ticker, symbol or name"),
           weight: external_exports.number().min(0).max(1),
-          referencePrice: external_exports.number().positive().optional()
+          referencePrice: external_exports.number().positive().optional(),
+          referencePriceAt: external_exports.string().datetime().optional().describe("When referencePrice is from")
         })).min(1).max(MAX_BASKET_LEGS),
         cashWeight: external_exports.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
@@ -36983,6 +37038,25 @@ ${data.notes.join(" ")}` : ""}`);
         const pie = await pies.getPie(environment, pieId);
         const data = { kind: "pies", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_automation_overview",
+    {
+      title: "Automation Overview",
+      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment }) => {
+      try {
+        const data = { ...await automationOverview(environment), writeEnabled: canWrite };
+        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37100,7 +37174,7 @@ ${data.notes.join(" ")}` : ""}`);
       "manage_investment_plans",
       {
         title: "Manage Investment Plans",
-        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
+        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
         inputSchema: external_exports.object({
           action: external_exports.enum(["create", "update", "delete"]),
           planId: external_exports.string().optional().describe("Required for update and delete"),
@@ -37148,9 +37222,13 @@ ${data.notes.join(" ")}` : ""}`);
             ...input2.label === void 0 ? {} : { label: input2.label },
             ...input2.legs === void 0 ? {} : { legs: input2.legs },
             ...input2.paused === void 0 ? {} : { paused: input2.paused },
-            ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
+            ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute },
+            ...input2.frequency === void 0 ? {} : { frequency: input2.frequency },
+            ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
+            ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
+            ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc }
           });
-          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}.`);
+          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}; next due ${plan.nextRunAt}.`);
         } catch (error62) {
           return toolError(error62);
         }
@@ -37234,6 +37312,24 @@ ${data.notes.join(" ")}` : ""}`);
       try {
         const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "app_get_automation",
+    {
+      title: "Refresh automation",
+      description: "App-only automation overview refresh.",
+      inputSchema: external_exports.object({ environment: environmentEnum }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async ({ environment }) => {
+      try {
+        return result({ ...await automationOverview(environment), writeEnabled: canWrite }, "Automation refreshed.");
       } catch (error62) {
         return toolError(error62);
       }
@@ -37493,6 +37589,10 @@ function evaluateAlert(alert, position) {
     }
   }
 }
+function pickTickFields(alert) {
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice }).filter(([, value]) => value !== void 0));
+}
 var PriceAlerts = class {
   constructor(deps) {
     this.deps = deps;
@@ -37576,7 +37676,11 @@ var PriceAlerts = class {
         ...outcome.highWatermark === void 0 ? {} : { highWatermark: outcome.highWatermark },
         ...outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: position.currentPrice } : {}
       };
-      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) await this.deps.store.put(alertKey(alert.id), updated);
+      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) {
+        const current = await this.deps.store.get(alertKey(alert.id));
+        if (!current || current.createdAt !== alert.createdAt || current.triggeredAt) continue;
+        await this.deps.store.put(alertKey(alert.id), { ...current, ...pickTickFields(updated) });
+      }
       if (outcome.fired) {
         await this.deps.trading.recordActivity("price_alert_triggered", alert.environment, {
           ticker: alert.ticker,
@@ -37593,6 +37697,73 @@ var PriceAlerts = class {
   }
 };
 
+// src/core/digest.ts
+var DAY_MS2 = 864e5;
+var round4 = (value) => Math.round(value * 100) / 100;
+var signed = (value) => `${value >= 0 ? "+" : ""}${round4(value)}`;
+function digestText(input2) {
+  const change = input2.previousTotalValue === void 0 ? "" : ` (${signed(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round4(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed(item.profitLoss)})`}`);
+  return [
+    `Total ${round4(input2.totalValue)} ${input2.currency}${change}`,
+    `cash ${round4(input2.cash)}`,
+    input2.unrealized === void 0 ? void 0 : `unrealized ${signed(input2.unrealized)}`,
+    top.length ? `top: ${top.join(", ")}` : void 0,
+    input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
+    input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
+    input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0
+  ].filter(Boolean).join(" \xB7 ");
+}
+var DailyDigest = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
+  async run(now = /* @__PURE__ */ new Date()) {
+    const hour = this.deps.config.digestHourUtc;
+    if (hour === void 0 || !this.deps.config.notifyWebhookUrl || now.getUTCHours() < hour) return [];
+    const day = now.toISOString().slice(0, 10);
+    const sent = [];
+    const credentials = credentialStatus(this.deps.config);
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const claim2 = await this.deps.store.increment(`digest:${environment}:${day}`, 2 * DAY_MS2, now.getTime());
+      if (claim2.count > 1) continue;
+      try {
+        const dashboard = await this.deps.trading.getDashboard(environment);
+        const account = dashboard.account;
+        if (!account) continue;
+        const previous = await this.deps.store.get(`digest-value:${environment}`);
+        const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS2);
+        const totalValue = account.totalValue ?? 0;
+        const text = digestText({
+          environment,
+          currency: account.currency ?? "",
+          totalValue,
+          ...previous === void 0 ? {} : { previousTotalValue: previous },
+          cash: account.cash?.availableToTrade ?? 0,
+          ...account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealized: account.investments.unrealizedProfitLoss },
+          positions: dashboard.positions.map((position) => {
+            const wallet = position.walletImpact;
+            return { ticker: position.instrument.ticker, value: positionValue(position), ...typeof wallet?.unrealizedProfitLoss === "number" ? { profitLoss: wallet.unrealizedProfitLoss } : {} };
+          }),
+          pendingOrders: dashboard.orders.length,
+          duePlans: plans.map((plan) => plan.label),
+          triggeredAlerts: alerts.length
+        });
+        await this.deps.store.put(`digest-value:${environment}`, totalValue);
+        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
+        sent.push(environment);
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+    }
+    return sent;
+  }
+};
+
 // src/core/notify.ts
 var DEFAULT_NOTIFY_EVENTS = [
   "order_submitted",
@@ -37605,7 +37776,8 @@ var DEFAULT_NOTIFY_EVENTS = [
   "protective_sibling_cancelled",
   "pie_submitted",
   "pie_status_unknown",
-  "price_alert_triggered"
+  "price_alert_triggered",
+  "daily_digest"
 ];
 var LABELS = {
   order_submitted: "Order sent",
@@ -37618,7 +37790,8 @@ var LABELS = {
   protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
   pie_submitted: "Pie changed",
   pie_status_unknown: "Pie change result unclear, check Trading 212",
-  price_alert_triggered: "Price alert"
+  price_alert_triggered: "Price alert",
+  daily_digest: "Daily digest"
 };
 function notificationText(event) {
   const parts = [
@@ -37733,8 +37906,27 @@ function createServices(deps) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check() });
-  return { trading, insights, automation, links, alerts, pies, runScheduled };
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  const automationOverview = async (environment) => ({
+    kind: "automation",
+    environment,
+    credentials: credentialStatus(deps.config),
+    plans: await automation.listPlans(environment),
+    alerts: await alerts.list(environment),
+    links: (await links.list()).filter((link) => link.environment === environment),
+    usageToday: await trading.usageToday(environment),
+    policy: deps.config.policy[environment],
+    settings: {
+      demoAutomation: deps.config.demoAutomationEnabled,
+      protectiveLinking: deps.config.protectiveLinking,
+      webhook: !!deps.config.notifyWebhookUrl,
+      digestHourUtc: deps.config.digestHourUtc ?? null,
+      quoteProvider: deps.config.quoteProvider
+    },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts
@@ -37821,27 +38013,73 @@ var MemoryStateStore = class {
 };
 
 // src/adapters/node/file-state-store.ts
+var LOCK_STALE_MS = 1e4;
+var LOCK_WAIT_MS = 5e3;
+var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var FileStateStore = class _FileStateStore extends MemoryStateStore {
   constructor(file2) {
     super();
     this.file = file2;
   }
   file;
+  loadedVersion = "";
   static async open(file2) {
     const store2 = new _FileStateStore(file2);
-    try {
-      const parsed = JSON.parse(await fs.readFile(file2, "utf8"));
-      for (const [k, v] of Object.entries(parsed)) store2.values.set(k, v);
-    } catch (error62) {
-      if (error62.code !== "ENOENT") throw error62;
-    }
+    await fs.mkdir(path.dirname(file2), { recursive: true });
+    await store2.withFileLock(() => store2.reloadIfChanged());
     return store2;
   }
+  async version() {
+    try {
+      const stat = await fs.stat(this.file);
+      return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+    } catch (error62) {
+      if (error62.code === "ENOENT") return "";
+      throw error62;
+    }
+  }
+  async reloadIfChanged() {
+    const version2 = await this.version();
+    if (version2 === this.loadedVersion) return;
+    this.values.clear();
+    if (version2) {
+      const parsed = JSON.parse(await fs.readFile(this.file, "utf8"));
+      for (const [key, value] of Object.entries(parsed)) this.values.set(key, value);
+    }
+    this.loadedVersion = version2;
+  }
+  async withFileLock(operation) {
+    const lock = `${this.file}.lock`;
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    for (; ; ) {
+      try {
+        await (await fs.open(lock, "wx")).close();
+        break;
+      } catch (error62) {
+        if (error62.code !== "EEXIST") throw error62;
+        const stat = await fs.stat(lock).catch(() => void 0);
+        if (stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) await fs.rm(lock, { force: true });
+        else if (Date.now() > deadline) throw new Error(`TradePilot state is locked by another process (${lock})`);
+        else await sleep3(15);
+      }
+    }
+    try {
+      return await operation();
+    } finally {
+      await fs.rm(lock, { force: true });
+    }
+  }
+  serialize(operation) {
+    return super.serialize(() => this.withFileLock(async () => {
+      await this.reloadIfChanged();
+      return operation();
+    }));
+  }
   async changed() {
-    await fs.mkdir(path.dirname(this.file), { recursive: true });
     const temp = `${this.file}.${process.pid}.tmp`;
     await fs.writeFile(temp, JSON.stringify(Object.fromEntries(this.values)), "utf8");
     await fs.rename(temp, this.file);
+    this.loadedVersion = await this.version();
   }
 };
 

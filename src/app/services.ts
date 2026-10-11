@@ -1,7 +1,10 @@
 import { PriceAlerts } from "../core/alerts.js";
 import { AutomationService } from "../core/automation.js";
-import type { RuntimeConfig } from "../core/config.js";
+import { credentialStatus, type RuntimeConfig } from "../core/config.js";
+import type { AutomationOverview } from "../shared/automation.js";
+import type { TradingEnvironment } from "../shared/contracts.js";
 import { InsightsService } from "../core/insights-service.js";
+import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
 import { PiesService } from "../core/pies.js";
 import { createQuoteProvider } from "../core/quotes.js";
@@ -36,7 +39,27 @@ export function createServices(deps: ServiceDependencies) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
-  /** One scheduler tick: settle protective pairs first, then due plans, then price alerts. */
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check() });
-  return { trading, insights, automation, links, alerts, pies, runScheduled };
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
+  /** One scheduler tick: settle protective pairs first, then due plans, price alerts and the daily digest. */
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  /** Plans, alerts, linked pairs, today's usage and the automation settings for one environment. */
+  const automationOverview = async (environment: TradingEnvironment): Promise<AutomationOverview> => ({
+    kind: "automation",
+    environment,
+    credentials: credentialStatus(deps.config),
+    plans: await automation.listPlans(environment),
+    alerts: await alerts.list(environment),
+    links: (await links.list()).filter((link) => link.environment === environment),
+    usageToday: await trading.usageToday(environment),
+    policy: deps.config.policy[environment],
+    settings: {
+      demoAutomation: deps.config.demoAutomationEnabled,
+      protectiveLinking: deps.config.protectiveLinking,
+      webhook: !!deps.config.notifyWebhookUrl,
+      digestHourUtc: deps.config.digestHourUtc ?? null,
+      quoteProvider: deps.config.quoteProvider,
+    },
+    timestamp: new Date().toISOString(),
+  });
+  return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
 }

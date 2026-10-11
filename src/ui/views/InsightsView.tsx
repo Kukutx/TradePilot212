@@ -167,6 +167,7 @@ export function IncomeView({ data, locale, t, period, onPeriod, busy }: {
           <span className="sectionEyebrow">{t("incomeTotal")}</span>
           <strong className="heroValue">{m(data.total)}</strong>
           <span className="overviewSubline">{t("trailing12m")} · {m(data.trailing12Months)}</span>
+          {data.forwardAnnual && <span className="overviewSubline">{t("forward12m")} · {m(data.forwardAnnual.total)}{data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}%)`}</span>}
         </div>
         <div className="metricGrid">
           <Metric label={t("dividends")} value={m(data.dividends)} />

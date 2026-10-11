@@ -28,6 +28,8 @@ export interface RuntimeConfig {
   quoteApiKey: string;
   /** Exact Trading 212 ticker to provider symbol, for instruments outside the US. */
   quoteSymbols: Map<string, string>;
+  /** UTC hour of the daily webhook digest; undefined turns it off. */
+  digestHourUtc?: number;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -41,7 +43,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
-  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS",
+  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC",
   string
 >>;
 
@@ -114,6 +116,14 @@ function webhookUrl(env: RuntimeEnv): string {
   return url.toString();
 }
 
+function digestHour(env: RuntimeEnv): number | undefined {
+  const raw = (env.DIGEST_HOUR_UTC ?? "").trim();
+  if (!raw) return undefined;
+  const hour = Number(raw);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
+  return hour;
+}
+
 function quoteProvider(env: RuntimeEnv): QuoteProviderName {
   const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase() as QuoteProviderName;
   if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
@@ -142,6 +152,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     quoteProvider: quoteProvider(env),
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
+    ...(digestHour(env) === undefined ? {} : { digestHourUtc: digestHour(env)! }),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },

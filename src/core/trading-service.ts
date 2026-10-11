@@ -120,6 +120,14 @@ function orderQuantity(order: PendingOrder): number | undefined {
   return typeof order.quantity === "number" && Number.isFinite(order.quantity) ? Math.abs(order.quantity) : undefined;
 }
 
+/** Notes for a rebalance basket, within the 20 notes of up to 500 characters the review accepts. */
+export function basketNotes(plan: Pick<RebalancePlan, "notes" | "skipped">): string[] {
+  const clip = (note: string) => (note.length > 500 ? `${note.slice(0, 497)}...` : note);
+  const skipped = plan.skipped.map((item) => `${item.ticker}: ${item.reason}`);
+  if (plan.notes.length + skipped.length <= 20) return [...plan.notes, ...skipped].map(clip);
+  return [...plan.notes.slice(0, 18), `Skipped ${plan.skipped.length} instrument(s) with no usable price or FX rate: ${plan.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
+}
+
 export function resolveInstrumentFromList(instruments: Instrument[], query: string): Instrument {
   const norm = (value: string) => value.trim().toUpperCase();
   const q = norm(query);
@@ -674,24 +682,24 @@ export class TradingService {
       // A target you do not hold needs a price; fill it from the quote provider when none was given.
       const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
       const quote = !held && target.referencePrice === undefined ? await this.externalQuote(instrument) : undefined;
-      resolved.push({ ...target, ticker: instrument.ticker, ...(quote ? { referencePrice: quote.price } : {}) });
+      resolved.push({ ...target, ticker: instrument.ticker, ...(quote ? { referencePrice: quote.price, referencePriceAt: quote.asOf } : {}) });
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
 
   rebalanceBasket(plan: RebalancePlan): Omit<BasketDraftPayload, "credentials" | "writeEnabled"> {
-    const at = new Date().toISOString();
     return {
       kind: "basket_draft",
       environment: plan.environment,
       purpose: "rebalance",
       title: "Rebalance",
       legs: plan.trades.map((trade) => ({
-        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, referencePriceAt: at },
+        // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
+        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...(trade.priceAt ? { referencePriceAt: trade.priceAt } : {}) },
         reason: `${(trade.currentWeight * 100).toFixed(1)}% → ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`,
       })),
-      notes: [...plan.notes, ...plan.skipped.map((item) => `${item.ticker}: ${item.reason}`)],
+      notes: basketNotes(plan),
     };
   }
 

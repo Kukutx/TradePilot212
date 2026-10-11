@@ -117,7 +117,7 @@ export class InsightsService {
 
   async income(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number): Promise<IncomeSummary> {
     const client = this.client(environment);
-    const account = await client.getAccountSummary();
+    const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
     // Trailing-12-month income needs a year of history even for shorter windows.
     const yearAgo = new Date(window.to.getTime() - 365 * 86_400_000);
     const fetchWindow = { to: window.to, ...(window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {}) };
@@ -125,13 +125,13 @@ export class InsightsService {
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
     return summarizeIncome({
       environment, accountCurrency: account.currency ?? "", window,
-      dividends: dividends.items, transactions: transactions.items,
+      dividends: dividends.items, transactions: transactions.items, positions,
       truncated: dividends.truncated || transactions.truncated,
     });
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50) {
-    const collected = await this.collect(environment, "orders", window);
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number) {
+    const collected = await this.collect(environment, "orders", window, maxPages);
     const wanted = ticker?.trim().toUpperCase();
     const fills = collected.items
       .filter((item) => item.fill)

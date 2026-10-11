@@ -26,9 +26,11 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 券商原生止损和止盈单（GTC，长期有效），两张联动：一张成交后 TradePilot 自动撤另一张
 - 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；Demo 计划可以选择无人值守自动执行
 - Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/PIES.md](./docs/PIES.md)）
-- 持仓价格提醒：高于或低于某价格、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
+- 价格提醒（持仓或任何能取到外部报价的标的）：高于或低于某价格、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
 - 未持仓标的的外部报价，数据源可插拔：默认免费的 Stooq，无需注册；也可以填自己的 Finnhub、Twelve Data 或 Alpha Vantage Key。价格提醒、定投和再平衡都能用
-- 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送
+- 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送；还可以每天推一条账户摘要
+- 界面里的“自动化”页：定投计划、价格提醒、联动的止损止盈、今日额度使用和各项设置一目了然
+- 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入
 - Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
@@ -241,6 +243,7 @@ POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
 NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
 NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
+DIGEST_HOUR_UTC=7             # 可选，每天 UTC 7 点推送账户摘要
 ```
 
 ## 本地开发

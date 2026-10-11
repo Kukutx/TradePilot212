@@ -38,7 +38,7 @@ async function listTools(extraEnv) {
 }
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "get_quote"])
+for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "get_quote", "get_automation_overview"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || ["manage_investment_plans", "manage_price_alerts"].includes(name)))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
