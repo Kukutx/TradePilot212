@@ -37802,7 +37802,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.22.0"
+  version: "2.23.0"
 };
 
 // src/core/text-summary.ts

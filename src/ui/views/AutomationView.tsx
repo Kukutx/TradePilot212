@@ -1,5 +1,6 @@
 import type { AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
 import { localeTag, type SupportedLocale } from "../i18n";
+import { AlertActions } from "../components/alerts";
 import { DetailRow, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -21,7 +22,15 @@ export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined,
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, book, locale, t }: { data: AutomationOverview; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
+export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert }: {
+  data: AutomationOverview;
+  book?: InstrumentBook;
+  locale: SupportedLocale;
+  t: Translator;
+  busy?: boolean;
+  onDeleteAlert?: (alertId: string) => void;
+  onRearmAlert?: (alertId: string) => void;
+}) {
   const on = (value: boolean) => (value ? t("settingOn") : t("settingOff"));
   const sum = (value: number | undefined) => amount(value, data.currency, locale);
   const price = (ticker: string, value: number | undefined) => amount(value, instrumentCurrency(ticker, book), locale);
@@ -75,6 +84,7 @@ export function AutomationView({ data, book, locale, t }: { data: AutomationOver
                 <small>{alertConditionLabel(alert.condition, t)} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}</small>
                 {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {price(alert.ticker, alert.triggeredPrice)}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
+                {onDeleteAlert && onRearmAlert && <AlertActions alert={alert} t={t} busy={busy} onRearm={onRearmAlert} onDelete={onDeleteAlert} />}
               </li>
             ))}
           </ul>

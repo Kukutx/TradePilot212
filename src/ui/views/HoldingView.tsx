@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { PriceAlert } from "../../shared/automation";
 import type { Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
 import type { SupportedLocale } from "../i18n";
+import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
 import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -69,22 +71,30 @@ export function HoldingView({
   locale,
   t,
   writeEnabled,
-  busy = false,
+  busy,
   onBack,
   onTrade,
   onCancel,
+  onSaveAlert,
+  onDeleteAlert,
+  onRearmAlert,
 }: {
   data: HoldingDetail;
   book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
   writeEnabled: boolean;
-  /** While a read or write is running, Back waits so the result can't replace the page it returns to. */
-  busy?: boolean;
+  /** While a read or write is running, Back and the alert controls wait, so a late result can't replace the page. */
+  busy: boolean;
   onBack: () => void;
   onTrade: (side: "buy" | "sell") => void;
   onCancel: (orderId: string) => void;
+  /** Resolves true once the alert is saved, so the form can close. */
+  onSaveAlert: (request: AlertRequest) => Promise<boolean>;
+  onDeleteAlert: (alertId: string) => void;
+  onRearmAlert: (alertId: string) => void;
 }) {
+  const [addingAlert, setAddingAlert] = useState(false);
   const position = data.position;
   const currency = data.accountCurrency ?? "EUR";
   const quote = data.instrument.currencyCode;
@@ -138,9 +148,17 @@ export function HoldingView({
         <PendingOrderList orders={data.orders} positions={position ? [position] : []} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} />
       </section>
 
-      {data.alerts.length > 0 && (
-        <section className="dataPanel">
-          <SectionHeader title={t("alertsTitle")} count={data.alerts.length} />
+      <section className="dataPanel">
+        <div className="pieHeader">
+          <h2>{t("alertsTitle")}</h2>
+          {!addingAlert && <button type="button" className="secondaryButton compactButton" onClick={() => setAddingAlert(true)}>{t("addAlert")}</button>}
+        </div>
+        {addingAlert && (
+          <AlertForm held={Boolean(position)} {...(position ? { last: position.currentPrice } : {})} {...(quote ? { currency: quote } : {})} t={t} busy={busy}
+            onCancel={() => setAddingAlert(false)}
+            onSave={(request) => void onSaveAlert(request).then((saved) => { if (saved) setAddingAlert(false); })} />
+        )}
+        {data.alerts.length === 0 ? (!addingAlert && <div className="emptyState compact">{t("noAlerts")}</div>) : (
           <ul className="automationList">
             {data.alerts.map((alert) => (
               <li key={alert.id}>
@@ -150,11 +168,12 @@ export function HoldingView({
                 </div>
                 {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {amount(alert.triggeredPrice, quote, locale)}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
+                <AlertActions alert={alert} t={t} busy={busy} onRearm={onRearmAlert} onDelete={onDeleteAlert} />
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       {data.history ? (
         <>

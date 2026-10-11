@@ -460,6 +460,15 @@ export default function App() {
     }, () => void refresh(env, target));
   }
 
+  /** Create, delete or re-arm a price alert, then read the page again so it shows the change. Alerts never trade. */
+  async function changeAlert(input: Record<string, unknown>): Promise<boolean> {
+    const done = await run("errorTitleAlert", async () => {
+      await callTool("manage_price_alerts", { environment, ...input });
+    });
+    if (done) await refresh(environment, "holdings");
+    return done;
+  }
+
   /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
   async function openHolding(ticker: string): Promise<void> {
     await run("errorTitleLoad", async () => {
@@ -844,6 +853,9 @@ export default function App() {
                 writeEnabled={writeEnabled}
                 busy={loading}
                 onBack={() => void backFromHolding()}
+                onSaveAlert={(request) => changeAlert({ action: "create", instrument: base.ticker, ...request })}
+                onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
+                onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
                 onCancel={(id) => void startCancel(id)}
                 onTrade={(side) => {
                   // One share to start; the editor changes the size and type before anything is reviewed.
@@ -855,7 +867,11 @@ export default function App() {
               />
             )}
             {base?.kind === "pies" && <PiesView payload={base} book={book} locale={locale} t={t} />}
-            {base?.kind === "automation" && <AutomationView data={base} book={book} locale={locale} t={t} />}
+            {base?.kind === "automation" && (
+              <AutomationView data={base} book={book} locale={locale} t={t} busy={loading}
+                onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
+                onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })} />
+            )}
             {base?.kind === "order_draft" && !draft && (loading ? <SkeletonView label={t("refreshing")} /> : <div className="emptyState">{t("orderLoaded")}</div>)}
             {base?.kind === "cancel_draft" && (loading
               ? <SkeletonView label={t("refreshing")} />

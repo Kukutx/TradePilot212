@@ -293,6 +293,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .historyList strong { display: block; font-size: 13px; font-variant-numeric: tabular-nums; }
 .historyList small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
 .historyList .historyAmount { text-align: right; }
+.alertForm { margin-bottom: 12px; padding: 14px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-bg-soft); }
+.alertForm .panelNote { margin: 10px 0 0; }
+.alertFormActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.alertActions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 2px; }
+.alertActions .linkButton { min-height: 32px; font-size: 12px; }
+.linkButton.danger, .linkButton.danger:hover { color: var(--tp-red); }
 .panelTotal { color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .orderRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--tp-border); }
 .orderRow:last-child { border-bottom: 0; }

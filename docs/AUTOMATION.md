@@ -150,7 +150,7 @@ The stdio server also needs `TRADEPILOT_ALLOW_WRITES=true`. Without it, Demo aut
 | `trailing_drop` | the price falls `percent` from the highest price seen since the alert was armed (a trailing-stop warning) |
 | `gain_percent` / `loss_percent` | the price is `percent` above / below the position's average cost |
 
-A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it. Alerts never place or cancel orders. Held instruments use the broker's last position price; others use the external quote source below. Prices are checked once a minute.
+In the widget, a holding's page has an **Add alert** form. It offers above or below a price for any instrument, and trailing drop, loss and gain for a holding. The page and the automation overview have **Re-arm** and **Delete** on each alert. The price ladder on the holding page shows where each armed alert would fire. A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it. Alerts never place or cancel orders. Held instruments use the broker's last position price; others use the external quote source below. Prices are checked once a minute.
 
 ## Quotes for instruments you do not hold
 
