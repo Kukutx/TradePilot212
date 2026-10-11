@@ -18,7 +18,7 @@ function setup(env: RuntimeEnv = {}, store = new MemoryStateStore()) {
     return json([]);
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", ...env });
-  return { ...createServices({ config, store, fetcher }), account, store };
+  return { ...createServices({ config, store, fetcher }), account, store, config };
 }
 
 const at = (iso: string) => new Date(iso);
@@ -101,5 +101,31 @@ describe("value history", () => {
       notes: [], timestamp: "2026-10-11T20:00:00Z",
     });
     expect(text).toContain("Account value recorded on 3 day(s): 1000 on 2026-10-01 to 1100 on 2026-10-11 (+100, +10%; includes deposits and withdrawals). Low 900 on 2026-10-05, high 1100 on 2026-10-11.");
+  });
+});
+
+describe("dashboard value trend", () => {
+  it("adds the last 30 recorded days to the dashboard and its text", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const services = setup();
+    const today = Date.now();
+    const day = (offset: number) => new Date(today - offset * 86_400_000).toISOString();
+    // One day older than the window, then three inside it.
+    for (const [offset, value] of [[40, 800], [20, 900], [10, 950], [0, 1000]] as const) await services.values.record("demo", { date: day(offset).slice(0, 10), totalValue: value, at: day(offset), account: 1 });
+    const server = createMcpServer(services, services.config, async () => "<html></html>", new Set(["trade:read"]));
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    const outcome = await client.callTool({ name: "get_portfolio_dashboard", arguments: { environment: "demo" } });
+    const data = outcome.structuredContent as { valueTrend?: Array<{ totalValue: number }> };
+    expect(data.valueTrend?.map((point) => point.totalValue)).toEqual([900, 950, 1000]);
+    expect(JSON.stringify(outcome.content)).toContain("Account value recorded on 3 day(s)");
+    // Days recorded for another Trading 212 account are not shown as this account's trend.
+    services.account.id = 2;
+    const other = await client.callTool({ name: "get_portfolio_dashboard", arguments: { environment: "demo" } });
+    expect((other.structuredContent as { valueTrend?: unknown }).valueTrend).toBeUndefined();
+    await client.close();
   });
 });

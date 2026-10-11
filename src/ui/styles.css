@@ -214,6 +214,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .pnlBadge.positive { background: var(--tp-green-soft); color: var(--tp-green); }
 .pnlBadge.negative { background: var(--tp-red-soft); color: var(--tp-red); }
 .overviewSubline { margin-top: 10px; color: var(--tp-muted); font-size: 13px; }
+.valueTrend { display: flex; align-items: center; gap: 10px; margin-top: 12px; min-width: 0; }
+.valueTrend span { color: var(--tp-muted); font-size: 12px; line-height: 1.35; }
+.valueTrend b { display: block; font-size: 13px; font-variant-numeric: tabular-nums; }
+.sparkline { flex: none; overflow: visible; }
+.sparkArea { fill: color-mix(in srgb, var(--tp-chart) 12%, transparent); }
+.sparkPath { fill: none; stroke: var(--tp-chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sparkEnd { fill: var(--tp-chart); stroke: var(--tp-bg); stroke-width: 2; }
 .noWrap { white-space: nowrap; }
 .metricGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .metric { min-width: 0; padding: 13px 14px; border-radius: 13px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
@@ -259,6 +266,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .orderIdentity strong, .orderIdentity span { display: block; }
 .orderIdentity strong { font-size: 13px; }
 .orderIdentity span { margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
+.orderIdentity .orderDistance { color: var(--tp-text); font-variant-numeric: tabular-nums; }
 .orderSide { font-weight: 760; }
 .orderSide.buy { color: var(--tp-green); }
 .orderSide.sell { color: var(--tp-red); }

@@ -192,3 +192,32 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }
     </figure>
   );
 }
+
+const SPARK = { width: 132, height: 40, pad: 5 };
+
+/**
+ * A small line of recent values beside a headline number, placed by time so missed days keep their
+ * length. The caption next to it states the change in words; the label repeats it for screen readers.
+ */
+export function Sparkline({ points, label }: { points: Array<{ time: number; value: number }>; label: string }) {
+  const { width, height, pad } = SPARK;
+  const times = points.map((point) => point.time);
+  const values = points.map((point) => point.value);
+  const start = Math.min(...times);
+  const timeSpan = Math.max(1, Math.max(...times) - start);
+  const low = Math.min(...values);
+  const valueSpan = Math.max(...values) - low || 1;
+  const x = (time: number) => pad + ((time - start) / timeSpan) * (width - 2 * pad);
+  const y = (value: number) => pad + (1 - (value - low) / valueSpan) * (height - 2 * pad);
+  const line = points.map((point, index) => `${index ? "L" : "M"}${x(point.time).toFixed(1)},${y(point.value).toFixed(1)}`).join("");
+  const last = points[points.length - 1]!;
+  const first = points[0]!;
+  const area = `${line}L${x(last.time).toFixed(1)},${height}L${x(first.time).toFixed(1)},${height}Z`;
+  return (
+    <svg className="sparkline" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
+      <path className="sparkArea" d={area} />
+      <path className="sparkPath" d={line} />
+      <circle className="sparkEnd" cx={x(last.time)} cy={y(last.value)} r={3.5} />
+    </svg>
+  );
+}

@@ -3,16 +3,11 @@ import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
 import { BarList, ColumnChart, LineChart, type ChartLabels } from "../components/charts";
-import { money, pct, signedClass } from "../lib/format";
+import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
 
 export type InsightPeriod = "ytd" | "1y" | "all";
-
-function dayLabel(value: string, locale: SupportedLocale): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : new Intl.DateTimeFormat(localeTag(locale), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }).format(date);
-}
 
 const COST_KEYS: Record<string, MessageKey> = {
   CURRENCY_CONVERSION_FEE: "costCurrencyConversionFee",

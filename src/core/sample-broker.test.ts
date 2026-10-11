@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
 import { createConfig, credentialStatus } from "./config.js";
 import { asStructuredError } from "./errors.js";
-import { SAMPLE_BASE_URL } from "./sample-broker.js";
+import { createSampleBroker, SAMPLE_BASE_URL } from "./sample-broker.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
 
@@ -62,6 +62,20 @@ describe("sample data mode", () => {
     expect(history.unfilled).toEqual([expect.objectContaining({ ticker: "MSFT_US_EQ", status: "CANCELLED", limitPrice: 400 })]);
     expect(history.fills.every((fill) => fill.ticker === "MSFT_US_EQ")).toBe(true);
     expect((await services.insights.tradeHistory("demo", { to: new Date() }, "MSFT")).unfilled).toBeUndefined();
+  });
+
+  it("holds back the shares a pending sell covers, as Trading 212 does", async () => {
+    const broker = createSampleBroker((async () => new Response("{}")) as typeof fetch);
+    const call = async (path: string, init?: RequestInit) => (await broker(`${SAMPLE_BASE_URL}${path}`, init)).json() as Promise<Record<string, unknown>>;
+    const nvidia = async () => ((await call("/equity/positions")) as unknown as Array<{ instrument: { ticker: string }; quantityAvailableForTrading: number }>).find((item) => item.instrument.ticker === "NVDA_US_EQ")!;
+    // 20 shares, 4 in pies, 5 under the sample stop-loss.
+    expect((await nvidia()).quantityAvailableForTrading).toBe(11);
+    const sell = (quantity: number) => broker(`${SAMPLE_BASE_URL}/equity/orders/limit`, { method: "POST", body: JSON.stringify({ ticker: "NVDA_US_EQ", quantity: -quantity, limitPrice: 140, timeValidity: "DAY" }) });
+    expect(await (await sell(12)).json()).toMatchObject({ code: "SellingEquityNotOwned" });
+    expect((await sell(11)).ok).toBe(true);
+    expect((await nvidia()).quantityAvailableForTrading).toBe(0);
+    await broker(`${SAMPLE_BASE_URL}/equity/orders/81235`, { method: "DELETE" });
+    expect((await nvidia()).quantityAvailableForTrading).toBe(5);
   });
 
   it("reports one order's state and lists dividends and cash movements", async () => {

@@ -68,7 +68,12 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   let nextId = 90_000;
   const pending: Json[] = [
     { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
+    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
   ];
+  /** Shares held back by pending sells, as Trading 212 does; released when the order is cancelled. */
+  const reservedShares = (ticker: string) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
+  const sellable = (holding: Holding) => round(holding.quantity - holding.inPies - reservedShares(holding.ticker), 6);
   /** Cash held back for a pending buy, in EUR; released when the order is cancelled. */
   const reservation = (order: Json) => (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0);
   const history: Json[] = [];
@@ -112,7 +117,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     return {
       instrument: meta,
       quantity: holding.quantity,
-      quantityAvailableForTrading: round(holding.quantity - holding.inPies, 6),
+      quantityAvailableForTrading: sellable(holding),
       quantityInPies: holding.inPies,
       averagePricePaid: holding.average,
       currentPrice: price,
@@ -159,7 +164,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       holding.average = (holding.average * holding.quantity + instrument.price * quantity) / (holding.quantity + quantity);
       holding.quantity = round(holding.quantity + quantity, 6);
     } else {
-      if (!holding || holding.quantity - holding.inPies < -quantity - 1e-9) return { error: json({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
+      if (!holding || sellable(holding) < -quantity - 1e-9) return { error: json({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
       cash += value;
       holding.quantity = round(holding.quantity + quantity, 6);
       if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
@@ -216,6 +221,8 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
         if (result.error) return result.error as Response;
         return json({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker)!.price) });
       }
+      const holding = holdings.find((item) => item.ticker === ticker);
+      if (quantity < 0 && (!holding || sellable(holding) < -quantity - 1e-9)) return json({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400);
       const held = reservation(order);
       if (held > cash) return json({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
       cash -= held;

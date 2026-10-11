@@ -34195,8 +34195,12 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   ];
   let nextId = 9e4;
   const pending = [
-    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) }
+    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
+    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) }
   ];
+  const reservedShares = (ticker) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
+  const sellable = (holding) => round(holding.quantity - holding.inPies - reservedShares(holding.ticker), 6);
   const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
   const history = [];
   const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
@@ -34238,7 +34242,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     return {
       instrument: meta3,
       quantity: holding.quantity,
-      quantityAvailableForTrading: round(holding.quantity - holding.inPies, 6),
+      quantityAvailableForTrading: sellable(holding),
       quantityInPies: holding.inPies,
       averagePricePaid: holding.average,
       currentPrice: price,
@@ -34284,7 +34288,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       holding.average = (holding.average * holding.quantity + instrument.price * quantity) / (holding.quantity + quantity);
       holding.quantity = round(holding.quantity + quantity, 6);
     } else {
-      if (!holding || holding.quantity - holding.inPies < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
+      if (!holding || sellable(holding) < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
       cash += value;
       holding.quantity = round(holding.quantity + quantity, 6);
       if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
@@ -34340,6 +34344,8 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
         if (result2.error) return result2.error;
         return json2({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker).price) });
       }
+      const holding = holdings.find((item) => item.ticker === ticker);
+      if (quantity < 0 && (!holding || sellable(holding) < -quantity - 1e-9)) return json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400);
       const held = reservation(order);
       if (held > cash) return json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
       cash -= held;
@@ -37796,7 +37802,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.20.0"
+  version: "2.21.0"
 };
 
 // src/core/text-summary.ts
@@ -37834,7 +37840,7 @@ function noticesLines(notices) {
 function policyLines(checks) {
   return (checks ?? []).filter((check2) => check2.status !== "pass" && check2.status !== "skip").map((check2) => `  policy ${check2.status}: ${check2.message}`);
 }
-function orderLine(order) {
+function orderLine(order, positions = []) {
   const quantity = order.quantity ?? 0;
   const value = typeof order.value === "number" ? order.value : void 0;
   const side = String(order.side ?? "").toUpperCase() || (quantity < 0 || (value ?? 0) < 0 ? "SELL" : "BUY");
@@ -37844,7 +37850,13 @@ function orderLine(order) {
   const prices = [order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`, order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`].join("");
   const validity = order.timeInForce ?? order.timeValidity;
   const filled = typeof order.filledQuantity === "number" && order.filledQuantity !== 0 ? `, filled ${num2(Math.abs(order.filledQuantity), 8)}` : "";
-  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
+  const last = positions.find((position) => position.instrument.ticker === order.ticker)?.currentPrice;
+  const trigger = order.stopPrice ?? order.limitPrice;
+  const gap = typeof trigger === "number" && last && last > 0 ? (trigger - last) / last : void 0;
+  const distance = gap === void 0 ? "" : `, ${pct(Math.abs(gap))} ${gap < 0 ? "below" : "above"} the last price ${num2(last, 6)}`;
+  const kind = String(order.type ?? "").toLowerCase();
+  const typed = (kind === "limit" || kind === "stop") && prices ? prices.trim() : `${kind}${prices}`;
+  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${typed}${distance}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 function positionLine(position) {
   const wallet = position.walletImpact;
@@ -37874,8 +37886,9 @@ function portfolio(data) {
     ...credentialsLine(data.environment, data.credentials),
     ...data.warning ? [data.warning] : [],
     ...data.account ? [accountLine(data.environment, data.account)] : [],
+    ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
-    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, orderLine)),
+    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine))
   ];
 }
@@ -38321,6 +38334,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     canWrite ? ORDER_INSTRUCTIONS : ""
   ].filter(Boolean).join("\n\n");
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const dashboard = async (environment) => {
+    const data = await trading.getDashboard(environment);
+    const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    const account = data.account?.id;
+    const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
+    return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
+  };
   G(
     server2,
     "TradePilot 212 trading dashboard",
@@ -38341,14 +38361,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     "get_portfolio_dashboard",
     {
       title: "Trading 212 Portfolio Dashboard",
-      description: "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
+      description: "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment }) => {
       try {
-        const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
+        const data = await dashboard(environment);
         return result(data, `Rendered ${environment.toUpperCase()} Trading 212 portfolio dashboard.`);
       } catch (error62) {
         return toolError(error62);
@@ -39200,7 +39220,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     },
     async ({ environment }) => {
       try {
-        const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
+        const data = await dashboard(environment);
         return result(data, "Dashboard refreshed.");
       } catch (error62) {
         return toolError(error62);
@@ -40029,12 +40049,12 @@ var ValueHistory = class {
   }
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
-   * date-time bound compares when each value was read. After a switch to another Trading 212 account,
-   * only the current account's days are returned.
+   * date-time bound compares when each value was read. Only one Trading 212 account's days are
+   * returned: `account` when given, otherwise the account of the newest point.
    */
   async points(environment, range = {}) {
     const stored = (await this.deps.store.list(`value-history:${this.series(environment)}:`)).flatMap((entry) => entry.value).sort((a, b) => a.date.localeCompare(b.date));
-    const current = stored[stored.length - 1]?.account;
+    const current = range.account ?? stored[stored.length - 1]?.account;
     return stored.filter((point) => point.account === current && within(point, range.from, "from") && within(point, range.to, "to")).map(({ account: _account, ...point }) => point);
   }
 };

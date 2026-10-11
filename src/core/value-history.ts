@@ -74,14 +74,15 @@ export class ValueHistory {
 
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
-   * date-time bound compares when each value was read. After a switch to another Trading 212 account,
-   * only the current account's days are returned.
+   * date-time bound compares when each value was read. Only one Trading 212 account's days are
+   * returned: `account` when given, otherwise the account of the newest point.
    */
-  async points(environment: TradingEnvironment, range: { from?: string; to?: string } = {}): Promise<ValuePoint[]> {
+  async points(environment: TradingEnvironment, range: { from?: string; to?: string; account?: number } = {}): Promise<ValuePoint[]> {
     const stored = (await this.deps.store.list<StoredPoint[]>(`value-history:${this.series(environment)}:`))
       .flatMap((entry) => entry.value)
       .sort((a, b) => a.date.localeCompare(b.date));
-    const current = stored[stored.length - 1]?.account;
+    // A caller that knows the account asks for its days; otherwise the newest point names it.
+    const current = range.account ?? stored[stored.length - 1]?.account;
     return stored
       .filter((point) => point.account === current && within(point, range.from, "from") && within(point, range.to, "to"))
       .map(({ account: _account, ...point }) => point);

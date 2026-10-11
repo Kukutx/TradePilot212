@@ -9,7 +9,7 @@ This brief is read-only. Never prepare, confirm or submit an order from it. Sche
 
 ## Steps
 
-1. Call `get_portfolio_dashboard` to load positions, pending orders and cash.
+1. Call `get_portfolio_dashboard` to load positions, pending orders and cash. Its text says how far each stop or limit on a holding is from the last price; flag a stop-loss within about 3% of it. When it returns `valueTrend`, give the change in account value since the first recorded day, and say it includes deposits and withdrawals.
 2. Call `get_market_hours` for one representative holding per exchange, so the brief says whether markets are open, in pre-market, or closed, and when they next open.
 3. Call `analyze_portfolio_allocation` and carry its flags into the brief. Call `list_investment_plans` and mention any plan that is due, so the user can confirm it later. Call `list_price_alerts` and mention alerts that triggered since the last brief. If the user holds pies, call `list_pies` and flag a pie whose drift is above 5%.
 4. Research current, sourced news for the largest holdings and any pending-order tickers: earnings dates, guidance, material events. Note each source's date. If you have no web access, say so and skip this step rather than relying on memory.

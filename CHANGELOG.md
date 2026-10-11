@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.21.0
+
+- Pending orders on held instruments say how far their trigger is from the last price, e.g. "8.3% below the last price ($128.75)". A stop or stop-limit is measured from its stop price, a limit from its limit price. Trading 212 has no quote endpoint, so orders on instruments you do not hold have no distance. The text that text-only hosts read carries the same distance, and reads "limit 215" instead of "limit limit 215".
+- The dashboard shows a small line of the account value TradePilot recorded over the last 30 days, with the change since the first of those days (deposits and withdrawals included). `get_portfolio_dashboard` returns those days as `valueTrend` once there are two or more, and only for the account the dashboard shows.
+- The sample account has a stop-loss on NVIDIA, so the preview shows an order with a distance. Like Trading 212, the sample account now holds back the shares a pending sell covers: they no longer count as available, and a sell for more than the rest is rejected.
+
 ## 2.20.0
 
 - An account value chart. Trading 212's API reports only today's value, so the scheduler now reads the account summary about once an hour and keeps the last value of each UTC day (with cash and holdings), for about six years. `get_portfolio_performance` returns the recorded days in its window as `valueHistory`, and the Performance tab draws them as a line with a crosshair readout (pointer or arrow keys) and a table view. The value includes deposits and withdrawals; days the server was not running have no point, and the chart spaces points by date so such gaps stay visible. The sample account keeps its own record, and after a switch to another Trading 212 account only the current account's days are shown.
