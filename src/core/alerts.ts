@@ -1,4 +1,5 @@
-// Price alerts on holdings, checked by the scheduler. A triggered alert writes a
+// Price alerts, checked by the scheduler against the held position's price or, for instruments you
+// do not hold, the external quote provider. A triggered alert writes a
 // price_alert_triggered activity event (and webhook, when configured) once, then stays
 // triggered until it is re-armed. Alerts never place or cancel orders.
 
@@ -115,10 +116,16 @@ export class PriceAlerts {
       }
       const held = positions.get(alert.environment)!;
       if (held instanceof Error) { reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message }); continue; }
-      const position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      let position: Pick<Position, "currentPrice" | "averagePricePaid"> | undefined = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
       if (!position?.currentPrice) {
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held, so Trading 212 reports no price for it.` });
-        continue;
+        // Not held: fall back to the external quote provider (price alerts only; cost-based alerts need a holding).
+        const instrument = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+        const quote = instrument && (alert.condition !== "gain_percent" && alert.condition !== "loss_percent") ? await this.deps.trading.externalQuote(instrument) : undefined;
+        if (!quote) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
+          continue;
+        }
+        position = { currentPrice: quote.price, averagePricePaid: 0 };
       }
       const outcome = evaluateAlert(alert, position);
       const updated: PriceAlert = {

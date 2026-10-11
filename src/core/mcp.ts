@@ -459,7 +459,7 @@ export function createMcpServer(
     {
       title: "Plan a Rebalance",
       description:
-        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold need a referencePrice because Trading 212 has no quote endpoint.",
+        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         targets: z.array(z.object({
@@ -570,6 +570,29 @@ export function createMcpServer(
 
   registerAppTool(
     server,
+    "get_quote",
+    {
+      title: "Instrument Price",
+      description: "Get the best available price for a Trading 212 instrument: the broker's last price when it is held, otherwise the configured external quote provider (Stooq by default, free and unofficial; Finnhub, Twelve Data or Alpha Vantage with QUOTE_API_KEY). Use it to fill referencePrice before drafting an order. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, instrument: z.string().min(1) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {},
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const lookup = await trading.lookupPrice(environment, instrument);
+        const text = lookup.price === undefined
+          ? `${lookup.instrument.ticker}: no price. ${lookup.message ?? ""}`.trim()
+          : `${lookup.instrument.ticker}: ${lookup.price} ${lookup.instrument.currencyCode} from ${lookup.source}${lookup.symbol ? ` (${lookup.symbol})` : ""} as of ${lookup.asOf}.`;
+        return result({ kind: "quote", environment, ...lookup }, text);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "list_price_alerts",
     {
       title: "Price Alerts",
@@ -615,7 +638,7 @@ export function createMcpServer(
       "manage_price_alerts",
       {
         title: "Manage Price Alerts",
-        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Only held instruments have a price.",
+        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
         inputSchema: z.object({
           action: z.enum(["create", "delete", "rearm"]),
           alertId: z.string().optional().describe("Required for delete and rearm"),

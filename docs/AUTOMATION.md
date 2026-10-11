@@ -88,7 +88,7 @@ A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.
 - **A due plan blocked by the policy**, for example because the market is closed: the plan stays due and is tried at the next tick. The reason is logged once per due date.
 
-Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet, or one quoted in another currency, is skipped with a note. Buy it once manually first.
+Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency than the account is skipped.
 
 Each leg is a Market buy by default. Set `orderType: "limit"` to send a Day Limit buy at the last price plus `limitOffsetPercent` (default 0.5, at most 10), sized at the limit so it never spends more than the leg amount. A limit leg cannot fill at a gap price, so it may be placed while the market is closed and unattended Demo runs do not have to wait for the session. If the price runs away, the order expires at the end of the day and the plan moves on to its next date.
 
@@ -115,7 +115,23 @@ The stdio server also needs `TRADEPILOT_ALLOW_WRITES=true`. Without it, Demo aut
 | `trailing_drop` | the price falls `percent` from the highest price seen since the alert was armed (a trailing-stop warning) |
 | `gain_percent` / `loss_percent` | the price is `percent` above / below the position's average cost |
 
-A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it. Alerts never place or cancel orders. Trading 212 has no quote endpoint, so only held instruments have a price, and the price is the broker's last position price, checked once a minute.
+A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it. Alerts never place or cancel orders. Held instruments use the broker's last position price; others use the external quote source below. Prices are checked once a minute.
+
+## Quotes for instruments you do not hold
+
+Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price.
+
+| `QUOTE_PROVIDER` | Key | Notes |
+|---|---|---|
+| `stooq` (default) | none | Free, no account. Unofficial and best effort; prices may be delayed, and the service may change or block requests. |
+| `finnhub` | free key in `QUOTE_API_KEY` | Real-time US quotes on the free tier. |
+| `twelvedata` | free key | Daily request limit on the free tier. |
+| `alphavantage` | free key | Small daily limit; latest trading day's price. |
+| `none` | | External quotes off. |
+
+US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. Check one with `get_quote` before relying on it. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
+
+An external price only sizes an order; the order still goes through the usual review, policy and broker checks, and Live orders still wait for your confirmation.
 
 ## Notifications
 

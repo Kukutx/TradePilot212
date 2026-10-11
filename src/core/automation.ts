@@ -169,15 +169,21 @@ export class AutomationService {
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const drafts: OrderDraft[] = [];
     const skipped: string[] = [];
+    const instruments = await this.deps.trading.instruments(plan.environment);
     for (const leg of plan.legs) {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      if (!position?.currentPrice) { skipped.push(`${leg.ticker}: no broker price because it is not held yet; buy it once manually.`); continue; }
-      if (!accountCurrency || position.instrument.currencyCode.toUpperCase() !== accountCurrency) { skipped.push(`${leg.ticker}: quoted in ${position.instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`); continue; }
-      const limitPrice = leg.orderType === "limit" ? planLimitPrice(position.currentPrice, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : undefined;
+      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      if (!instrument) { skipped.push(`${leg.ticker}: no longer listed by Trading 212.`); continue; }
+      // Held legs use the broker's last price; others the external quote provider, when one can price them.
+      const quote = position?.currentPrice ? undefined : await this.deps.trading.externalQuote(instrument);
+      const price = position?.currentPrice || quote?.price;
+      if (!price) { skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`); continue; }
+      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) { skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`); continue; }
+      const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : undefined;
       // A limit leg is sized at its limit, so it never spends more than the leg amount.
-      const quantity = floorTo(leg.amount / (limitPrice ?? position.currentPrice), 4);
+      const quantity = floorTo(leg.amount / (limitPrice ?? price), 4);
       if (quantity <= 0) { skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`); continue; }
-      const base = { environment: plan.environment, ticker: position.instrument.ticker, side: "buy" as const, quantity, referencePrice: position.currentPrice, referencePriceAt: now.toISOString() };
+      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
       drafts.push(limitPrice === undefined ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
@@ -186,7 +192,7 @@ export class AutomationService {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
       skipped,
     };
   }

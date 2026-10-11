@@ -25,6 +25,7 @@ When the plugin is enabled, Claude Code asks for its options:
 | Max order value | Per-order value cap; `0` disables it. |
 | Run Demo plans unattended | **Off by default.** Lets due Demo investment plans marked `autoExecute` place orders on their own while Claude Code is running. Needs order tools enabled. Live plans always wait for you. |
 | Notification webhook | Optional HTTPS webhook (Slack, Discord or your own) for due plans, fills and price alerts. Only sent while Claude Code runs the server. |
+| Quote source / Quote API key | Prices for instruments you do not hold. `stooq` (default) is free with no key; `finnhub`, `twelvedata` and `alphavantage` need a free key. |
 
 You can change these later under `/plugin` → Installed → Configure options.
 

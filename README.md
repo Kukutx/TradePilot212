@@ -27,6 +27,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs; Demo plans can optionally run unattended
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
 - price alerts on holdings (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
+- quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans and rebalancing
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results
 - a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states

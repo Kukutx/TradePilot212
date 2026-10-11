@@ -4,6 +4,7 @@ import type { RuntimeConfig } from "../core/config.js";
 import { InsightsService } from "../core/insights-service.js";
 import { createNotifier } from "../core/notify.js";
 import { PiesService } from "../core/pies.js";
+import { createQuoteProvider } from "../core/quotes.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
 import type { StateStore } from "../core/state-store.js";
 import { TradingService, type InstrumentCache } from "../core/trading-service.js";
@@ -22,9 +23,11 @@ export type Services = ReturnType<typeof createServices>;
 export function createServices(deps: ServiceDependencies) {
   // The closures only run after all three services exist.
   const notify = createNotifier(deps.config, deps.fetcher);
+  const quotes = createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
     ...deps,
     ...(notify ? { notify } : {}),
+    ...(quotes ? { quotes } : {}),
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
     afterBasket: (planId, result) => automation.recordRun(planId, result),
   });

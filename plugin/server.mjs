@@ -34161,8 +34161,102 @@ var StdioServerTransport = class {
 // src/adapters/stdio/index.ts
 var import_dotenv = __toESM(require_main(), 1);
 
+// src/core/quotes.ts
+var QUOTE_PROVIDERS = ["stooq", "finnhub", "twelvedata", "alphavantage", "none"];
+var CACHE_MS = 6e4;
+function usSymbol(ticker) {
+  const match = /^([A-Z0-9.]+)_US_EQ$/.exec(ticker);
+  return match?.[1];
+}
+function parseSymbolMap(raw) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const entry of raw.split(/[\s,]+/).filter(Boolean)) {
+    const [ticker, symbol2] = entry.split("=");
+    if (!ticker || !symbol2) throw new Error(`QUOTE_SYMBOLS entry "${entry}" must look like TICKER=SYMBOL`);
+    map2.set(ticker.trim().toUpperCase(), symbol2.trim());
+  }
+  return map2;
+}
+var positive = (value) => {
+  const number4 = typeof value === "string" ? Number(value) : value;
+  return typeof number4 === "number" && Number.isFinite(number4) && number4 > 0 ? number4 : void 0;
+};
+async function getJson(fetcher, url2) {
+  const response = await fetcher(url2, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8e3) });
+  if (!response.ok) throw new Error(`Quote provider returned ${response.status}`);
+  return response.json();
+}
+function providerFetcher(name, key, fetcher) {
+  switch (name) {
+    case "stooq":
+      return async (symbol2) => {
+        const response = await fetcher(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol2.toLowerCase())}&f=sd2t2c&h&e=csv`, { signal: AbortSignal.timeout(8e3) });
+        if (!response.ok) throw new Error(`Stooq returned ${response.status}`);
+        const [, row] = (await response.text()).trim().split(/\r?\n/);
+        const [, date5, time3, close] = (row ?? "").split(",");
+        const price = positive(close);
+        if (!price) return void 0;
+        const asOf = date5 && /^\d{4}-\d{2}-\d{2}$/.test(date5) ? `${date5}T${time3 && /^\d{2}:\d{2}:\d{2}$/.test(time3) ? time3 : "00:00:00"}Z` : void 0;
+        return { price, ...asOf ? { asOf } : {} };
+      };
+    case "finnhub":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol2)}&token=${encodeURIComponent(key)}`);
+        const price = positive(body.c);
+        return price ? { price, ...body.t ? { asOf: new Date(body.t * 1e3).toISOString() } : {} } : void 0;
+      };
+    case "twelvedata":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol2)}&apikey=${encodeURIComponent(key)}`);
+        const price = positive(body.price);
+        return price ? { price } : void 0;
+      };
+    case "alphavantage":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol2)}&apikey=${encodeURIComponent(key)}`);
+        const quote = body["Global Quote"] ?? {};
+        const price = positive(quote["05. price"]);
+        const day = quote["07. latest trading day"];
+        return price ? { price, ...day ? { asOf: `${day}T00:00:00Z` } : {} } : void 0;
+      };
+  }
+}
+function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
+  const name = config3.quoteProvider;
+  if (name === "none") return void 0;
+  if (name !== "stooq" && !config3.quoteApiKey) return void 0;
+  const fetchQuote = providerFetcher(name, config3.quoteApiKey, fetcher);
+  const cache = /* @__PURE__ */ new Map();
+  const symbolFor = (instrument) => {
+    const mapped = config3.quoteSymbols.get(instrument.ticker.toUpperCase());
+    if (mapped) return mapped;
+    const us = usSymbol(instrument.ticker);
+    if (!us) return void 0;
+    return name === "stooq" ? `${us}.US` : us;
+  };
+  return {
+    name,
+    symbolFor,
+    async quote(instrument) {
+      const symbol2 = symbolFor(instrument);
+      if (!symbol2) return void 0;
+      const cached2 = cache.get(symbol2);
+      if (cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
+      let quote;
+      try {
+        const result2 = await fetchQuote(symbol2);
+        if (result2) quote = { ticker: instrument.ticker, symbol: symbol2, price: result2.price, asOf: result2.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), source: name };
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+      cache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, quote });
+      return quote;
+    }
+  };
+}
+
 // src/core/config.ts
-function positive(env, name, fallback) {
+function positive2(env, name, fallback) {
   const raw = env[name];
   if (!raw) return fallback;
   const value = Number(raw);
@@ -34219,6 +34313,11 @@ function webhookUrl(env) {
   if (url2.protocol !== "https:" && !(local && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url2.toString();
 }
+function quoteProvider(env) {
+  const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
+  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
+  return value;
+}
 function createConfig(env, requestOrigin) {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   const policy = createPolicy(env);
@@ -34226,9 +34325,9 @@ function createConfig(env, requestOrigin) {
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
     signingSecret: env.AUTH_SIGNING_SECRET ?? "",
-    accessTokenTtlSeconds: Math.floor(positive(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
-    refreshTokenTtlSeconds: Math.floor(positive(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
-    confirmationTtlSeconds: Math.floor(positive(env, "CONFIRMATION_TTL_SECONDS", 90)),
+    accessTokenTtlSeconds: Math.floor(positive2(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
+    refreshTokenTtlSeconds: Math.floor(positive2(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
+    confirmationTtlSeconds: Math.floor(positive2(env, "CONFIRMATION_TTL_SECONDS", 90)),
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5e3),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 1e5),
     defaultTradingEnvironment: tradingEnvironment(env),
@@ -34238,6 +34337,9 @@ function createConfig(env, requestOrigin) {
     notifyWebhookUrl: webhookUrl(env),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: quoteProvider(env),
+    quoteApiKey: env.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
@@ -34807,6 +34909,23 @@ var TradingService = class {
     this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
     return instruments;
   }
+  /** External quote for an instrument that is not held, when a provider is configured and can map it. */
+  externalQuote(instrument) {
+    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
+  }
+  /** Best available price: the broker's position price when held, else the external quote. */
+  async lookupPrice(environment, query) {
+    const instrument = resolveInstrumentFromList(await this.instruments(environment), query);
+    const position = this.positionFor(await this.positions(environment), instrument.ticker);
+    if (position?.currentPrice) return { instrument, price: position.currentPrice, asOf: (/* @__PURE__ */ new Date()).toISOString(), source: "broker" };
+    const quote = await this.externalQuote(instrument);
+    if (quote) return { instrument, price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol };
+    const provider = this.deps.quotes;
+    return {
+      instrument,
+      message: !provider ? "Not held, and no quote provider is configured (QUOTE_PROVIDER / QUOTE_API_KEY)." : provider.symbolFor(instrument) ? `Not held, and ${provider.name} returned no price for ${provider.symbolFor(instrument)}.` : `Not held, and ${instrument.ticker} has no ${provider.name} symbol. Add it to QUOTE_SYMBOLS.`
+    };
+  }
   /** Current positions only, for the scheduler's price checks. */
   positions(environment) {
     return this.client(environment).getPositions();
@@ -35160,7 +35279,13 @@ var TradingService = class {
   async planRebalance(environment, targets, options = {}) {
     if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
     const snapshot = await this.snapshot(environment);
-    const resolved = targets.map((target) => ({ ...target, ticker: resolveInstrumentFromList(snapshot.instruments, target.ticker).ticker }));
+    const resolved = [];
+    for (const target of targets) {
+      const instrument = resolveInstrumentFromList(snapshot.instruments, target.ticker);
+      const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
+      const quote = !held && target.referencePrice === void 0 ? await this.externalQuote(instrument) : void 0;
+      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price } : {} });
+    }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
@@ -36002,23 +36127,31 @@ var AutomationService = class {
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const drafts = [];
     const skipped = [];
+    const instruments = await this.deps.trading.instruments(plan.environment);
     for (const leg of plan.legs) {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      if (!position?.currentPrice) {
-        skipped.push(`${leg.ticker}: no broker price because it is not held yet; buy it once manually.`);
+      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      if (!instrument) {
+        skipped.push(`${leg.ticker}: no longer listed by Trading 212.`);
         continue;
       }
-      if (!accountCurrency || position.instrument.currencyCode.toUpperCase() !== accountCurrency) {
-        skipped.push(`${leg.ticker}: quoted in ${position.instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+      const quote = position?.currentPrice ? void 0 : await this.deps.trading.externalQuote(instrument);
+      const price = position?.currentPrice || quote?.price;
+      if (!price) {
+        skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`);
         continue;
       }
-      const limitPrice = leg.orderType === "limit" ? planLimitPrice(position.currentPrice, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : void 0;
-      const quantity = floorTo2(leg.amount / (limitPrice ?? position.currentPrice), 4);
+      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) {
+        skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+        continue;
+      }
+      const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : void 0;
+      const quantity = floorTo2(leg.amount / (limitPrice ?? price), 4);
       if (quantity <= 0) {
         skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`);
         continue;
       }
-      const base = { environment: plan.environment, ticker: position.instrument.ticker, side: "buy", quantity, referencePrice: position.currentPrice, referencePriceAt: now.toISOString() };
+      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy", quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
       drafts.push(limitPrice === void 0 ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
@@ -36027,7 +36160,7 @@ var AutomationService = class {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
       skipped
     };
   }
@@ -36345,7 +36478,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.8.0"
+  version: "2.9.0"
 };
 
 // src/core/mcp.ts
@@ -36751,7 +36884,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold need a referencePrice because Trading 212 has no quote endpoint.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -36857,6 +36990,26 @@ ${data.notes.join(" ")}` : ""}`);
   );
   j(
     server2,
+    "get_quote",
+    {
+      title: "Instrument Price",
+      description: "Get the best available price for a Trading 212 instrument: the broker's last price when it is held, otherwise the configured external quote provider (Stooq by default, free and unofficial; Finnhub, Twelve Data or Alpha Vantage with QUOTE_API_KEY). Use it to fill referencePrice before drafting an order. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {}
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const lookup = await trading.lookupPrice(environment, instrument);
+        const text = lookup.price === void 0 ? `${lookup.instrument.ticker}: no price. ${lookup.message ?? ""}`.trim() : `${lookup.instrument.ticker}: ${lookup.price} ${lookup.instrument.currencyCode} from ${lookup.source}${lookup.symbol ? ` (${lookup.symbol})` : ""} as of ${lookup.asOf}.`;
+        return result({ kind: "quote", environment, ...lookup }, text);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
     "list_price_alerts",
     {
       title: "Price Alerts",
@@ -36900,7 +37053,7 @@ ${data.notes.join(" ")}` : ""}`);
       "manage_price_alerts",
       {
         title: "Manage Price Alerts",
-        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Only held instruments have a price.",
+        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
         inputSchema: external_exports.object({
           action: external_exports.enum(["create", "delete", "rearm"]),
           alertId: external_exports.string().optional().describe("Required for delete and rearm"),
@@ -37405,10 +37558,15 @@ var PriceAlerts = class {
         reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
         continue;
       }
-      const position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      let position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
       if (!position?.currentPrice) {
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held, so Trading 212 reports no price for it.` });
-        continue;
+        const instrument = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+        const quote = instrument && (alert.condition !== "gain_percent" && alert.condition !== "loss_percent") ? await this.deps.trading.externalQuote(instrument) : void 0;
+        if (!quote) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
+          continue;
+        }
+        position = { currentPrice: quote.price, averagePricePaid: 0 };
       }
       const outcome = evaluateAlert(alert, position);
       const updated = {
@@ -37562,9 +37720,11 @@ var ProtectiveLinks = class {
 // src/app/services.ts
 function createServices(deps) {
   const notify = createNotifier(deps.config, deps.fetcher);
+  const quotes = createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
     ...deps,
     ...notify ? { notify } : {},
+    ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
     afterBasket: (planId, result2) => automation.recordRun(planId, result2)
   });

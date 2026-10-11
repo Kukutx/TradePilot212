@@ -15,7 +15,9 @@
         "TRADEPILOT_ALLOW_WRITES": "${user_config.allow_writes}",
         "MAX_ORDER_NOTIONAL": "${user_config.max_order_notional}",
         "AUTOMATION_DEMO_ENABLED": "${user_config.demo_automation}",
-        "NOTIFY_WEBHOOK_URL": "${user_config.notify_webhook_url}"
+        "NOTIFY_WEBHOOK_URL": "${user_config.notify_webhook_url}",
+        "QUOTE_PROVIDER": "${user_config.quote_provider}",
+        "QUOTE_API_KEY": "${user_config.quote_api_key}"
       }
     }
   }

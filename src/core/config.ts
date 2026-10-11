@@ -1,5 +1,6 @@
 import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.js";
 import type { TradingPolicy } from "../shared/automation.js";
+import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 
 export interface RuntimeConfig {
   publicBaseUrl: string;
@@ -22,6 +23,11 @@ export interface RuntimeConfig {
   notifyWebhookSecret: string;
   /** Activity types sent to the webhook; empty means the default set in notify.ts. */
   notifyEvents: string[];
+  /** External quote source for instruments you do not hold (Trading 212 has no quote endpoint). */
+  quoteProvider: QuoteProviderName;
+  quoteApiKey: string;
+  /** Exact Trading 212 ticker to provider symbol, for instruments outside the US. */
+  quoteSymbols: Map<string, string>;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -34,7 +40,8 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
-  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS",
+  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
+  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS",
   string
 >>;
 
@@ -107,6 +114,12 @@ function webhookUrl(env: RuntimeEnv): string {
   return url.toString();
 }
 
+function quoteProvider(env: RuntimeEnv): QuoteProviderName {
+  const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase() as QuoteProviderName;
+  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
+  return value;
+}
+
 export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeConfig {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   const policy = createPolicy(env);
@@ -126,6 +139,9 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     notifyWebhookUrl: webhookUrl(env),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: quoteProvider(env),
+    quoteApiKey: env.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },

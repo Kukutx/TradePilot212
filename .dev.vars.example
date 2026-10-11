@@ -33,3 +33,12 @@ PROTECTIVE_OCO=true
 NOTIFY_WEBHOOK_URL=
 NOTIFY_WEBHOOK_SECRET=
 NOTIFY_EVENTS=
+
+# Quotes for instruments you do not hold (Trading 212 has no quote endpoint). Used by get_quote,
+# price alerts, plan legs and rebalance targets. stooq (default) is free, needs no key, and is
+# unofficial and best effort. finnhub, twelvedata and alphavantage need a free QUOTE_API_KEY.
+# US tickers map automatically; map others with QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE
+# in the provider's symbol format and price unit. none turns external quotes off.
+QUOTE_PROVIDER=stooq
+QUOTE_API_KEY=
+QUOTE_SYMBOLS=
