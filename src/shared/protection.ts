@@ -27,7 +27,8 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
   if (!stops.length || !(position.quantity > 0)) return undefined;
   // Part of a stop may already have filled; only the rest is still waiting.
   const remaining = (order: PendingOrder) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
-  const covered = Math.min(position.quantity, stops.reduce((sum, order) => sum + remaining(order), 0));
+  // Trading 212 quantities have at most 8 decimals; rounding the sum keeps 0.1 + 0.7 equal to 0.8.
+  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice as number));
   const last = position.currentPrice;
   return {
@@ -35,7 +36,7 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
     stopPrice,
     ...(last > 0 ? { gap: (stopPrice - last) / last } : {}),
     covered,
-    coverage: covered / position.quantity,
+    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
     orders: stops.length,
   };
 }

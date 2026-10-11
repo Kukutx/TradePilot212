@@ -37815,7 +37815,7 @@ function stopProtection(position, orders) {
   const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
   if (!stops.length || !(position.quantity > 0)) return void 0;
   const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
-  const covered = Math.min(position.quantity, stops.reduce((sum, order) => sum + remaining(order), 0));
+  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
   const last = position.currentPrice;
   return {
@@ -37823,7 +37823,7 @@ function stopProtection(position, orders) {
     stopPrice,
     ...last > 0 ? { gap: (stopPrice - last) / last } : {},
     covered,
-    coverage: covered / position.quantity,
+    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
     orders: stops.length
   };
 }
@@ -37909,7 +37909,7 @@ function protectionLines(positions, orders) {
     return [`${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}`];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${guarded.length && bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 function portfolio(data) {
   const holdings = [...data.positions].sort((a, b) => {

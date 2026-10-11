@@ -104,7 +104,7 @@ function activityLine(event: ActivityEvent): string {
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
 
-/** Which holdings a pending sell stop covers, how much of each and how far below the last price; and which have none. */
+/** Which holdings a pending sell stop covers, how much of each and how far below the last price; and every holding without one. */
 function protectionLines(positions: Position[], orders: PendingOrder[]): string[] {
   if (!positions.length) return [];
   const guarded = positions.flatMap((position) => {
@@ -114,7 +114,7 @@ function protectionLines(positions: Position[], orders: PendingOrder[]): string[
     return [`${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${gap}`];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${guarded.length && bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 
 function portfolio(data: PortfolioSnapshot): string[] {

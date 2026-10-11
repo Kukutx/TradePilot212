@@ -148,7 +148,8 @@ export function HoldingView({
         )}
       </section>
 
-      {levels.length >= 2 && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} />}
+      {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
+      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} />}
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={data.orders.length} />
@@ -216,7 +217,7 @@ function PriceLadder({ levels, last, currency, locale, t, guardNote, partial }: 
     <section className="dataPanel">
       <div className="pieHeader"><h2>{t("priceLevels")}</h2></div>
       {guardNote && <p className={`ladderGuard${partial ? " partial" : ""}`}><span className="positionGuardMark" aria-hidden="true" />{guardNote}</p>}
-      <ol className="levelLadder">
+      {levels.length >= 2 && <ol className="levelLadder">
         {levels.map((level) => {
           const gap = last && level.kind !== "last" ? (level.price - last) / last : undefined;
           return (
@@ -228,8 +229,8 @@ function PriceLadder({ levels, last, currency, locale, t, guardNote, partial }: 
             </li>
           );
         })}
-      </ol>
-      {last !== undefined && <p className="panelNote">{t("priceLevelsNote")}</p>}
+      </ol>}
+      {levels.length >= 2 && last !== undefined && <p className="panelNote">{t("priceLevelsNote")}</p>}
     </section>
   );
 }

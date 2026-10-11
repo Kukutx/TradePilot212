@@ -30,6 +30,12 @@ describe("stop-loss protection", () => {
     expect(stopProtection(position(), orders)).toEqual({ ticker: "NVDA_US_EQ", stopPrice: 115, gap: -0.08, covered: 11, coverage: 0.55, orders: 2 });
     expect(stopProtection(position({ quantity: 6 }), orders)?.coverage).toBe(1);
     expect(stopProtection(position(), orders.slice(2))).toBeUndefined();
+    // Fractional stops that add up to the holding cover all of it, despite binary floating point.
+    const fractional = stopProtection(position({ quantity: 0.8 }), [
+      { ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.1, stopPrice: 110 },
+      { ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.7, stopPrice: 110 },
+    ]);
+    expect(fractional).toMatchObject({ covered: 0.8, coverage: 1 });
   });
 
   it("lists covered and uncovered holdings in the dashboard summary", async () => {
@@ -37,5 +43,8 @@ describe("stop-loss protection", () => {
     const text = describePayload(await services.trading.getDashboard("demo"));
     // The sample account has one sell stop: 5 of 20 NVIDIA at 118.
     expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price\. No stop on [A-Za-z_, ]+\.$/m);
+    const bare = describePayload({ ...(await services.trading.getDashboard("demo")), orders: [] });
+    // With no stop anywhere, the line still names every holding without one.
+    expect(bare).toMatch(/^Stop-loss orders: none\. No stop on (?=.*NVDA_US_EQ)(?=.*AAPL_US_EQ)[A-Za-z_, ]+\.$/m);
   });
 });
