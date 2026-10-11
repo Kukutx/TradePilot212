@@ -15982,13 +15982,13 @@ function initializeContext(params) {
     external: params?.external ?? void 0
   };
 }
-function handleUnrepresentable(schema, ctx, json2, params, message) {
+function handleUnrepresentable(schema, ctx, json3, params, message) {
   const result2 = typeof ctx.unrepresentable === "function" ? ctx.unrepresentable({ zodSchema: schema, path: params.path, message }) : ctx.unrepresentable;
   if (result2 === "any")
     return false;
   if (result2 === void 0 || result2 === "throw")
     throw new Error(message);
-  Object.assign(json2, result2);
+  Object.assign(json3, result2);
   return true;
 }
 function processSchema(schema, ctx, _params = { path: [], schemaPath: [] }) {
@@ -16224,12 +16224,12 @@ function foldObjects(members2) {
   }
   return folded;
 }
-function foldIntersection(json2) {
-  const allOf = json2.allOf;
+function foldIntersection(json3) {
+  const allOf = json3.allOf;
   if (!Array.isArray(allOf) || allOf.length < 2)
     return;
   for (const key of FOLDABLE_KEYS)
-    if (key in json2)
+    if (key in json3)
       return;
   const unions = allOf.filter((m) => UNION_KEYS.some((k) => Array.isArray(m[k])));
   let folded = null;
@@ -16248,8 +16248,8 @@ function foldIntersection(json2) {
   }
   if (!folded)
     return;
-  delete json2.allOf;
-  assignProps(json2, folded);
+  delete json3.allOf;
+  assignProps(json3, folded);
 }
 function finalize(ctx, schema) {
   const root2 = ctx.seen.get(schema);
@@ -16331,20 +16331,20 @@ function finalize(ctx, schema) {
     if (ctx.intersections.length) {
       const carriers = /* @__PURE__ */ new Map();
       for (const seen of ctx.seen.values()) {
-        for (const json2 of [seen.schema, seen.def]) {
-          const allOf = json2?.allOf;
+        for (const json3 of [seen.schema, seen.def]) {
+          const allOf = json3?.allOf;
           if (!Array.isArray(allOf))
             continue;
           const existing = carriers.get(allOf);
           if (existing)
-            existing.push(json2);
+            existing.push(json3);
           else
-            carriers.set(allOf, [json2]);
+            carriers.set(allOf, [json3]);
         }
       }
       for (const allOf of ctx.intersections) {
-        for (const json2 of carriers.get(allOf) ?? [])
-          foldIntersection(json2);
+        for (const json3 of carriers.get(allOf) ?? [])
+          foldIntersection(json3);
       }
     }
   }
@@ -16579,29 +16579,29 @@ var exactPatterns = /* @__PURE__ */ new Map([
 ]);
 var exactPattern = (p) => exactPatterns.get(p) ?? p;
 var stringProcessor = (schema, ctx, _json, _params) => {
-  const json2 = _json;
-  json2.type = "string";
+  const json3 = _json;
+  json3.type = "string";
   const { minimum, maximum, format, patterns, contentEncoding, laxFormat } = aggregateChecks(schema);
   if (typeof minimum === "number")
-    json2.minLength = minimum;
+    json3.minLength = minimum;
   if (typeof maximum === "number")
-    json2.maxLength = maximum;
+    json3.maxLength = maximum;
   if (format) {
-    json2.format = formatMap[format] ?? format;
-    if (json2.format === "")
-      delete json2.format;
+    json3.format = formatMap[format] ?? format;
+    if (json3.format === "")
+      delete json3.format;
     if (format === "time" || laxFormat) {
-      delete json2.format;
+      delete json3.format;
     }
   }
   if (contentEncoding)
-    json2.contentEncoding = contentEncoding;
+    json3.contentEncoding = contentEncoding;
   if (patterns && patterns.size > 0) {
     const patternList = [...patterns].map(exactPattern);
     if (patternList.length === 1)
-      json2.pattern = patternList[0].source;
+      json3.pattern = patternList[0].source;
     else if (patternList.length > 1) {
-      json2.allOf = [
+      json3.allOf = [
         ...patternList.map((regex) => ({
           ...ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0" ? { type: "string" } : {},
           pattern: regex.source
@@ -16611,31 +16611,31 @@ var stringProcessor = (schema, ctx, _json, _params) => {
   }
 };
 var numberProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const { minimum, maximum, multipleOf, exclusiveMaximum, exclusiveMinimum, isInt } = aggregateChecks(schema);
-  json2.type = isInt ? "integer" : "number";
+  json3.type = isInt ? "integer" : "number";
   const exMin = typeof exclusiveMinimum === "number" && exclusiveMinimum >= (minimum ?? Number.NEGATIVE_INFINITY);
   const exMax = typeof exclusiveMaximum === "number" && exclusiveMaximum <= (maximum ?? Number.POSITIVE_INFINITY);
   const legacy = ctx.target === "draft-04" || ctx.target === "openapi-3.0";
   if (exMin) {
     if (legacy) {
-      json2.minimum = exclusiveMinimum;
-      json2.exclusiveMinimum = true;
+      json3.minimum = exclusiveMinimum;
+      json3.exclusiveMinimum = true;
     } else {
-      json2.exclusiveMinimum = exclusiveMinimum;
+      json3.exclusiveMinimum = exclusiveMinimum;
     }
   } else if (typeof minimum === "number") {
-    json2.minimum = minimum;
+    json3.minimum = minimum;
   }
   if (exMax) {
     if (legacy) {
-      json2.maximum = exclusiveMaximum;
-      json2.exclusiveMaximum = true;
+      json3.maximum = exclusiveMaximum;
+      json3.exclusiveMaximum = true;
     } else {
-      json2.exclusiveMaximum = exclusiveMaximum;
+      json3.exclusiveMaximum = exclusiveMaximum;
     }
   } else if (typeof maximum === "number") {
-    json2.maximum = maximum;
+    json3.maximum = maximum;
   }
   if (multipleOf) {
     const divisors = /* @__PURE__ */ new Set();
@@ -16643,75 +16643,75 @@ var numberProcessor = (schema, ctx, _json, params) => {
       if (Number.isFinite(divisor) && divisor !== 0)
         divisors.add(Math.abs(divisor));
       else
-        handleUnrepresentable(schema, ctx, json2, params, `A multipleOf divisor of ${divisor} cannot be represented in JSON Schema`);
+        handleUnrepresentable(schema, ctx, json3, params, `A multipleOf divisor of ${divisor} cannot be represented in JSON Schema`);
     }
     const [first, ...rest] = divisors;
     if (first !== void 0)
-      json2.multipleOf = first;
+      json3.multipleOf = first;
     if (rest.length)
-      json2.allOf = [...json2.allOf ?? [], ...rest.map((m) => ({ multipleOf: m }))];
+      json3.allOf = [...json3.allOf ?? [], ...rest.map((m) => ({ multipleOf: m }))];
   }
 };
-var booleanProcessor = (_schema, _ctx, json2, _params) => {
-  json2.type = "boolean";
+var booleanProcessor = (_schema, _ctx, json3, _params) => {
+  json3.type = "boolean";
 };
-var bigintProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "BigInt cannot be represented in JSON Schema");
+var bigintProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "BigInt cannot be represented in JSON Schema");
 };
-var symbolProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Symbols cannot be represented in JSON Schema");
+var symbolProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Symbols cannot be represented in JSON Schema");
 };
-var nullProcessor = (_schema, ctx, json2, _params) => {
+var nullProcessor = (_schema, ctx, json3, _params) => {
   if (ctx.target === "openapi-3.0") {
-    json2.type = "string";
-    json2.nullable = true;
-    json2.enum = [null];
+    json3.type = "string";
+    json3.nullable = true;
+    json3.enum = [null];
   } else {
-    json2.type = "null";
+    json3.type = "null";
   }
 };
-var undefinedProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Undefined cannot be represented in JSON Schema");
+var undefinedProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Undefined cannot be represented in JSON Schema");
 };
-var voidProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Void cannot be represented in JSON Schema");
+var voidProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Void cannot be represented in JSON Schema");
 };
-var neverProcessor = (_schema, _ctx, json2, _params) => {
-  json2.not = {};
+var neverProcessor = (_schema, _ctx, json3, _params) => {
+  json3.not = {};
 };
 var anyProcessor = (_schema, _ctx, _json, _params) => {
 };
 var unknownProcessor = (_schema, _ctx, _json, _params) => {
 };
-var dateProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Date cannot be represented in JSON Schema");
+var dateProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Date cannot be represented in JSON Schema");
 };
-var enumProcessor = (schema, _ctx, json2, _params) => {
+var enumProcessor = (schema, _ctx, json3, _params) => {
   const def = schema._zod.def;
   const values = getEnumValues(def.entries);
   if (values.length === 0) {
-    json2.not = {};
+    json3.not = {};
     return;
   }
   if (values.every((v) => typeof v === "number"))
-    json2.type = "number";
+    json3.type = "number";
   if (values.every((v) => typeof v === "string"))
-    json2.type = "string";
-  json2.enum = values;
+    json3.type = "string";
+  json3.enum = values;
 };
-var literalProcessor = (schema, ctx, json2, params) => {
+var literalProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   if (def.values.length === 0) {
-    json2.not = {};
+    json3.not = {};
     return;
   }
   const vals = [];
   for (const val of def.values) {
     if (val === void 0) {
-      if (handleUnrepresentable(schema, ctx, json2, params, "Literal `undefined` cannot be represented in JSON Schema"))
+      if (handleUnrepresentable(schema, ctx, json3, params, "Literal `undefined` cannot be represented in JSON Schema"))
         return;
     } else if (typeof val === "bigint") {
-      if (handleUnrepresentable(schema, ctx, json2, params, "BigInt literals cannot be represented in JSON Schema"))
+      if (handleUnrepresentable(schema, ctx, json3, params, "BigInt literals cannot be represented in JSON Schema"))
         return;
       vals.push(Number(val));
     } else {
@@ -16721,37 +16721,37 @@ var literalProcessor = (schema, ctx, json2, params) => {
   if (vals.length === 0) {
   } else if (vals.length === 1) {
     const val = vals[0];
-    json2.type = val === null ? "null" : typeof val;
+    json3.type = val === null ? "null" : typeof val;
     if (ctx.target === "draft-04" || ctx.target === "openapi-3.0") {
-      json2.enum = [val];
+      json3.enum = [val];
     } else {
-      json2.const = val;
+      json3.const = val;
     }
   } else {
     if (vals.every((v) => typeof v === "number"))
-      json2.type = "number";
+      json3.type = "number";
     if (vals.every((v) => typeof v === "string"))
-      json2.type = "string";
+      json3.type = "string";
     if (vals.every((v) => typeof v === "boolean"))
-      json2.type = "boolean";
+      json3.type = "boolean";
     if (vals.every((v) => v === null))
-      json2.type = "null";
-    json2.enum = vals;
+      json3.type = "null";
+    json3.enum = vals;
   }
 };
-var nanProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "NaN cannot be represented in JSON Schema");
+var nanProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "NaN cannot be represented in JSON Schema");
 };
-var templateLiteralProcessor = (schema, _ctx, json2, _params) => {
-  const _json = json2;
+var templateLiteralProcessor = (schema, _ctx, json3, _params) => {
+  const _json = json3;
   const pattern = schema._zod.pattern;
   if (!pattern)
     throw new Error("Pattern not found in template literal");
   _json.type = "string";
   _json.pattern = pattern.source;
 };
-var fileProcessor = (schema, _ctx, json2, _params) => {
-  const _json = json2;
+var fileProcessor = (schema, _ctx, json3, _params) => {
+  const _json = json3;
   _json.type = "string";
   _json.format = "binary";
   _json.contentEncoding = "binary";
@@ -16769,34 +16769,34 @@ var fileProcessor = (schema, _ctx, json2, _params) => {
   else
     _json.anyOf = mime.map((m) => ({ contentMediaType: m }));
 };
-var successProcessor = (_schema, _ctx, json2, _params) => {
-  json2.type = "boolean";
+var successProcessor = (_schema, _ctx, json3, _params) => {
+  json3.type = "boolean";
 };
-var customProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Custom types cannot be represented in JSON Schema");
+var customProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Custom types cannot be represented in JSON Schema");
 };
-var functionProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Function types cannot be represented in JSON Schema");
+var functionProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Function types cannot be represented in JSON Schema");
 };
-var transformProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Transforms cannot be represented in JSON Schema");
+var transformProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Transforms cannot be represented in JSON Schema");
 };
-var mapProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Map cannot be represented in JSON Schema");
+var mapProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Map cannot be represented in JSON Schema");
 };
-var setProcessor = (schema, ctx, json2, params) => {
-  handleUnrepresentable(schema, ctx, json2, params, "Set cannot be represented in JSON Schema");
+var setProcessor = (schema, ctx, json3, params) => {
+  handleUnrepresentable(schema, ctx, json3, params, "Set cannot be represented in JSON Schema");
 };
 var arrayProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
   const { minimum, maximum } = aggregateChecks(schema);
   if (typeof minimum === "number")
-    json2.minItems = minimum;
+    json3.minItems = minimum;
   if (typeof maximum === "number")
-    json2.maxItems = maximum;
-  json2.type = "array";
-  json2.items = processSchema(def.element, ctx, {
+    json3.maxItems = maximum;
+  json3.type = "array";
+  json3.items = processSchema(def.element, ctx, {
     ...params,
     path: [...params.path, "items"]
   });
@@ -16812,17 +16812,17 @@ function inputOptin(schema) {
   return schema._zod.optin;
 }
 var objectProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
   const shape = def.shape;
   const symbolKeys = Object.getOwnPropertySymbols(shape);
-  if (symbolKeys.length && handleUnrepresentable(schema, ctx, json2, params, "Symbol keys cannot be represented in JSON Schema")) {
+  if (symbolKeys.length && handleUnrepresentable(schema, ctx, json3, params, "Symbol keys cannot be represented in JSON Schema")) {
     return;
   }
-  json2.type = "object";
-  json2.properties = {};
+  json3.type = "object";
+  json3.properties = {};
   for (const key in shape) {
-    assignProp(json2.properties, key, processSchema(shape[key], ctx, {
+    assignProp(json3.properties, key, processSchema(shape[key], ctx, {
       ...params,
       path: [...params.path, "properties", key]
     }));
@@ -16837,46 +16837,46 @@ var objectProcessor = (schema, ctx, _json, params) => {
     }
   }));
   if (requiredKeys.size > 0) {
-    json2.required = Array.from(requiredKeys);
+    json3.required = Array.from(requiredKeys);
   }
   if (def.catchall?._zod.def.type === "never") {
-    json2.additionalProperties = false;
+    json3.additionalProperties = false;
   } else if (!def.catchall) {
     if (ctx.io === "output")
-      json2.additionalProperties = false;
+      json3.additionalProperties = false;
   } else if (def.catchall) {
-    json2.additionalProperties = processSchema(def.catchall, ctx, {
+    json3.additionalProperties = processSchema(def.catchall, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
   }
 };
 var propertiesProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  if (Object.getOwnPropertySymbols(def.shape).length && handleUnrepresentable(schema, ctx, json2, params, "Symbol keys cannot be represented in JSON Schema")) {
+  if (Object.getOwnPropertySymbols(def.shape).length && handleUnrepresentable(schema, ctx, json3, params, "Symbol keys cannot be represented in JSON Schema")) {
     return;
   }
   if (ctx.io === "output") {
     for (const key in def.shape) {
-      if (isTransforming(def.shape[key]) && handleUnrepresentable(schema, ctx, json2, params, `z.properties() returns its input, so the output of a transforming schema at key "${key}" cannot be represented in JSON Schema`)) {
+      if (isTransforming(def.shape[key]) && handleUnrepresentable(schema, ctx, json3, params, `z.properties() returns its input, so the output of a transforming schema at key "${key}" cannot be represented in JSON Schema`)) {
         return;
       }
     }
   }
-  json2.type = "object";
-  json2.properties = {};
+  json3.type = "object";
+  json3.properties = {};
   for (const key in def.shape) {
-    assignProp(json2.properties, key, processSchema(def.shape[key], ctx, {
+    assignProp(json3.properties, key, processSchema(def.shape[key], ctx, {
       ...params,
       path: [...params.path, "properties", key]
     }));
   }
   const required2 = Object.keys(def.shape).filter((key) => inputOptin(def.shape[key]) === void 0);
   if (required2.length > 0)
-    json2.required = required2;
+    json3.required = required2;
 };
-var unionProcessor = (schema, ctx, json2, params) => {
+var unionProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const isExclusive = def.inclusive === false;
   const options = def.options.map((x, i) => processSchema(x, ctx, {
@@ -16884,12 +16884,12 @@ var unionProcessor = (schema, ctx, json2, params) => {
     path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
   }));
   if (isExclusive) {
-    json2.oneOf = options;
+    json3.oneOf = options;
   } else {
-    json2.anyOf = options;
+    json3.anyOf = options;
   }
 };
-var intersectionProcessor = (schema, ctx, json2, params) => {
+var intersectionProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const a = processSchema(def.left, ctx, {
     ...params,
@@ -16904,13 +16904,13 @@ var intersectionProcessor = (schema, ctx, json2, params) => {
     ...isSimpleIntersection(a) ? a.allOf : [a],
     ...isSimpleIntersection(b) ? b.allOf : [b]
   ];
-  json2.allOf = allOf;
+  json3.allOf = allOf;
   ctx.intersections.push(allOf);
 };
 var tupleProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  json2.type = "array";
+  json3.type = "array";
   const prefixPath = ctx.target === "draft-2020-12" ? "prefixItems" : "items";
   const restPath = ctx.target === "draft-2020-12" ? "items" : ctx.target === "openapi-3.0" ? "items" : "additionalItems";
   const prefixItems = def.items.map((x, i) => processSchema(x, ctx, {
@@ -16932,70 +16932,70 @@ var tupleProcessor = (schema, ctx, _json, params) => {
   const maxItems = def.items.length;
   const isClosed = !def.rest;
   if (ctx.target === "draft-2020-12") {
-    json2.prefixItems = prefixItems;
+    json3.prefixItems = prefixItems;
     if (isClosed) {
-      json2.items = false;
+      json3.items = false;
     } else if (rest) {
-      json2.items = rest;
+      json3.items = rest;
     }
     if (minItems > 0)
-      json2.minItems = minItems;
+      json3.minItems = minItems;
     if (isClosed)
-      json2.maxItems = maxItems;
+      json3.maxItems = maxItems;
   } else if (ctx.target === "openapi-3.0") {
-    json2.items = {
+    json3.items = {
       anyOf: prefixItems
     };
     if (rest) {
-      json2.items.anyOf.push(rest);
+      json3.items.anyOf.push(rest);
     }
     if (minItems > 0)
-      json2.minItems = minItems;
+      json3.minItems = minItems;
     if (isClosed)
-      json2.maxItems = maxItems;
+      json3.maxItems = maxItems;
   } else {
-    json2.items = prefixItems;
+    json3.items = prefixItems;
     if (isClosed) {
-      json2.additionalItems = false;
+      json3.additionalItems = false;
     } else if (rest) {
-      json2.additionalItems = rest;
+      json3.additionalItems = rest;
     }
     if (minItems > 0)
-      json2.minItems = minItems;
+      json3.minItems = minItems;
     if (isClosed)
-      json2.maxItems = maxItems;
+      json3.maxItems = maxItems;
   }
   const { minimum, maximum } = aggregateChecks(schema);
   if (typeof minimum === "number")
-    json2.minItems = minimum;
+    json3.minItems = minimum;
   if (typeof maximum === "number")
-    json2.maxItems = maximum;
+    json3.maxItems = maximum;
 };
-function stringifyKeyNames(bySchema, json2, visited) {
-  if (json2.$ref) {
-    if (visited.has(json2))
-      return json2;
-    visited.add(json2);
-    const def = bySchema.get(json2)?.def;
+function stringifyKeyNames(bySchema, json3, visited) {
+  if (json3.$ref) {
+    if (visited.has(json3))
+      return json3;
+    visited.add(json3);
+    const def = bySchema.get(json3)?.def;
     if (!def)
-      return json2;
+      return json3;
     const inlined = stringifyKeyNames(bySchema, def, visited);
-    return inlined === def ? json2 : inlined;
+    return inlined === def ? json3 : inlined;
   }
   for (const keyword of ["anyOf", "oneOf"]) {
-    const branches = json2[keyword];
+    const branches = json3[keyword];
     if (!Array.isArray(branches))
       continue;
     const mapped = branches.map((branch) => stringifyKeyNames(bySchema, branch, visited));
     if (mapped.some((branch, i) => branch !== branches[i]))
-      json2 = { ...json2, [keyword]: mapped };
+      json3 = { ...json3, [keyword]: mapped };
   }
-  const types = Array.isArray(json2.type) ? json2.type : [json2.type];
+  const types = Array.isArray(json3.type) ? json3.type : [json3.type];
   const numericType = !types.includes("string") && types.some((t) => t === "number" || t === "integer");
-  const values = json2.enum ?? (json2.const !== void 0 ? [json2.const] : void 0);
+  const values = json3.enum ?? (json3.const !== void 0 ? [json3.const] : void 0);
   if (!numericType && !values?.some((v) => typeof v === "number"))
-    return json2;
-  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format, id, ...rest } = json2;
+    return json3;
+  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format, id, ...rest } = json3;
   if (rest.enum)
     rest.enum = rest.enum.map((v) => typeof v === "number" ? String(v) : v);
   else if (typeof rest.const === "number")
@@ -17035,9 +17035,9 @@ function rewriteKeyNames(ctx) {
   }
 }
 var recordProcessor = (schema, ctx, _json, params) => {
-  const json2 = _json;
+  const json3 = _json;
   const def = schema._zod.def;
-  json2.type = "object";
+  json3.type = "object";
   const keyType = def.keyType;
   const patterns = aggregateChecks(keyType).patterns;
   if (def.mode === "loose" && patterns && patterns.size > 0) {
@@ -17045,13 +17045,13 @@ var recordProcessor = (schema, ctx, _json, params) => {
       ...params,
       path: [...params.path, "patternProperties", "*"]
     });
-    json2.patternProperties = {};
+    json3.patternProperties = {};
     for (const pattern of patterns) {
-      assignProp(json2.patternProperties, exactPattern(pattern).source, valueSchema);
+      assignProp(json3.patternProperties, exactPattern(pattern).source, valueSchema);
     }
   } else {
     if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
-      json2.propertyNames = processSchema(def.keyType, ctx, {
+      json3.propertyNames = processSchema(def.keyType, ctx, {
         ...params,
         path: [...params.path, "propertyNames"]
       });
@@ -17063,7 +17063,7 @@ var recordProcessor = (schema, ctx, _json, params) => {
       }
       pending.push(schema);
     }
-    json2.additionalProperties = processSchema(def.valueType, ctx, {
+    json3.additionalProperties = processSchema(def.valueType, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -17073,19 +17073,19 @@ var recordProcessor = (schema, ctx, _json, params) => {
   if (keyValues && !def.partial && !omittableOnInput) {
     const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
     if (validKeyValues.length > 0) {
-      json2.required = validKeyValues.map(String);
+      json3.required = validKeyValues.map(String);
     }
   }
 };
-var nullableProcessor = (schema, ctx, json2, params) => {
+var nullableProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   const inner = processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
-    json2.nullable = true;
+    json3.nullable = true;
   } else {
-    json2.anyOf = [inner, { type: "null" }];
+    json3.anyOf = [inner, { type: "null" }];
   }
 };
 var nonoptionalProcessor = (schema, ctx, _json, params) => {
@@ -17095,7 +17095,7 @@ var nonoptionalProcessor = (schema, ctx, _json, params) => {
   seen.ref = def.innerType;
 };
 var UNREPRESENTABLE_DEFAULT = /* @__PURE__ */ Symbol();
-function serializeDefaultValue(value, schema, ctx, json2, params) {
+function serializeDefaultValue(value, schema, ctx, json3, params) {
   let unrepresentable = false;
   const serialized = JSON.stringify(value, (_, val) => {
     if (typeof val !== "bigint")
@@ -17105,30 +17105,30 @@ function serializeDefaultValue(value, schema, ctx, json2, params) {
   });
   if (!unrepresentable)
     return JSON.parse(serialized);
-  handleUnrepresentable(schema, ctx, json2, params, "BigInt defaults cannot be represented in JSON Schema");
+  handleUnrepresentable(schema, ctx, json3, params, "BigInt defaults cannot be represented in JSON Schema");
   return UNREPRESENTABLE_DEFAULT;
 }
-var defaultProcessor = (schema, ctx, json2, params) => {
+var defaultProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
-  const value = serializeDefaultValue(def.defaultValue, schema, ctx, json2, params);
+  const value = serializeDefaultValue(def.defaultValue, schema, ctx, json3, params);
   if (value !== UNREPRESENTABLE_DEFAULT)
-    json2.default = value;
+    json3.default = value;
 };
-var prefaultProcessor = (schema, ctx, json2, params) => {
+var prefaultProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
   if (ctx.io !== "input")
     return;
-  const value = serializeDefaultValue(def.defaultValue, schema, ctx, json2, params);
+  const value = serializeDefaultValue(def.defaultValue, schema, ctx, json3, params);
   if (value !== UNREPRESENTABLE_DEFAULT)
-    json2._prefault = value;
+    json3._prefault = value;
 };
-var catchProcessor = (schema, ctx, json2, params) => {
+var catchProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
@@ -17137,10 +17137,10 @@ var catchProcessor = (schema, ctx, json2, params) => {
   try {
     catchValue = def.catchValue(void 0);
   } catch {
-    handleUnrepresentable(schema, ctx, json2, params, "Dynamic catch values are not supported in JSON Schema");
+    handleUnrepresentable(schema, ctx, json3, params, "Dynamic catch values are not supported in JSON Schema");
     return;
   }
-  json2.default = catchValue;
+  json3.default = catchValue;
 };
 var pipeProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
@@ -17150,12 +17150,12 @@ var pipeProcessor = (schema, ctx, _json, params) => {
   const seen = ctx.seen.get(schema);
   seen.ref = innerType;
 };
-var readonlyProcessor = (schema, ctx, json2, params) => {
+var readonlyProcessor = (schema, ctx, json3, params) => {
   const def = schema._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema);
   seen.ref = def.innerType;
-  json2.readOnly = true;
+  json3.readOnly = true;
 };
 var promiseProcessor = (schema, ctx, _json, params) => {
   const def = schema._zod.def;
@@ -17798,7 +17798,7 @@ var _ZodString = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodString.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json2, params) => stringProcessor(inst, ctx, json2, params);
+    inst._zod.processJSONSchema = (ctx, json3, params) => stringProcessor(inst, ctx, json3, params);
   },
   /* @__PURE__ */ util_exports.derived({
     format: (inst) => aggregateChecks(inst).format ?? null,
@@ -18154,7 +18154,7 @@ var ZodNumber = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodNumber.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json2, params) => numberProcessor(inst, ctx, json2, params);
+    inst._zod.processJSONSchema = (ctx, json3, params) => numberProcessor(inst, ctx, json3, params);
     inst.isFinite = true;
   },
   /* @__PURE__ */ util_exports.derived({
@@ -18244,7 +18244,7 @@ function uint32(params) {
 var ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
   $ZodBoolean.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => booleanProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => booleanProcessor(inst, ctx, json3, params);
 });
 function boolean2(params) {
   return _boolean(ZodBoolean, params);
@@ -18254,7 +18254,7 @@ var ZodBigInt = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodBigInt.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json2, params) => bigintProcessor(inst, ctx, json2, params);
+    inst._zod.processJSONSchema = (ctx, json3, params) => bigintProcessor(inst, ctx, json3, params);
   },
   /* @__PURE__ */ util_exports.derived({
     minValue: (inst) => aggregateChecks(inst).minimum ?? null,
@@ -18312,7 +18312,7 @@ function uint64(params) {
 var ZodSymbol = /* @__PURE__ */ $constructor("ZodSymbol", (inst, def) => {
   $ZodSymbol.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => symbolProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => symbolProcessor(inst, ctx, json3, params);
 });
 function symbol(params) {
   return _symbol(ZodSymbol, params);
@@ -18320,7 +18320,7 @@ function symbol(params) {
 var ZodUndefined = /* @__PURE__ */ $constructor("ZodUndefined", (inst, def) => {
   $ZodUndefined.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => undefinedProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => undefinedProcessor(inst, ctx, json3, params);
 });
 function _undefined3(params) {
   return _undefined2(ZodUndefined, params);
@@ -18328,7 +18328,7 @@ function _undefined3(params) {
 var ZodNull = /* @__PURE__ */ $constructor("ZodNull", (inst, def) => {
   $ZodNull.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nullProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nullProcessor(inst, ctx, json3, params);
 });
 function _null3(params) {
   return _null2(ZodNull, params);
@@ -18336,7 +18336,7 @@ function _null3(params) {
 var ZodAny = /* @__PURE__ */ $constructor("ZodAny", (inst, def) => {
   $ZodAny.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => anyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => anyProcessor(inst, ctx, json3, params);
 });
 function any() {
   return _any(ZodAny);
@@ -18344,7 +18344,7 @@ function any() {
 var ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
   $ZodUnknown.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unknownProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unknownProcessor(inst, ctx, json3, params);
 });
 function unknown() {
   return _unknown(ZodUnknown);
@@ -18352,7 +18352,7 @@ function unknown() {
 var ZodNever = /* @__PURE__ */ $constructor("ZodNever", (inst, def) => {
   $ZodNever.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => neverProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => neverProcessor(inst, ctx, json3, params);
 });
 function never(params) {
   return _never(ZodNever, params);
@@ -18360,7 +18360,7 @@ function never(params) {
 var ZodVoid = /* @__PURE__ */ $constructor("ZodVoid", (inst, def) => {
   $ZodVoid.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => voidProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => voidProcessor(inst, ctx, json3, params);
 });
 function _void2(params) {
   return _void(ZodVoid, params);
@@ -18370,7 +18370,7 @@ var ZodDate = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodDate.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json2, params) => dateProcessor(inst, ctx, json2, params);
+    inst._zod.processJSONSchema = (ctx, json3, params) => dateProcessor(inst, ctx, json3, params);
     inst.min = (value, params) => inst.check(_gte(value, params));
     inst.max = (value, params) => inst.check(_lte(value, params));
   },
@@ -18392,7 +18392,7 @@ var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodArray.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => arrayProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => arrayProcessor(inst, ctx, json3, params);
   inst.element = def.element;
 }, {
   min(n, params) {
@@ -18422,7 +18422,7 @@ var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodObjectJIT.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => objectProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => objectProcessor(inst, ctx, json3, params);
   util_exports.installLazyProp(inst, "shape", (self) => self._zod.def.shape, false);
 }, {
   keyof() {
@@ -18495,7 +18495,7 @@ function looseObject(shape, params) {
 var ZodUnion = /* @__PURE__ */ $constructor("ZodUnion", (inst, def) => {
   $ZodUnion.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unionProcessor(inst, ctx, json3, params);
   inst.options = def.options;
 });
 function union(options, params) {
@@ -18508,7 +18508,7 @@ function union(options, params) {
 var ZodXor = /* @__PURE__ */ $constructor("ZodXor", (inst, def) => {
   ZodUnion.init(inst, def);
   $ZodXor.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => unionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => unionProcessor(inst, ctx, json3, params);
   inst.options = def.options;
 });
 function xor(options, params) {
@@ -18534,7 +18534,7 @@ function discriminatedUnion(discriminator, options, params) {
 var ZodIntersection = /* @__PURE__ */ $constructor("ZodIntersection", (inst, def) => {
   $ZodIntersection.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => intersectionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => intersectionProcessor(inst, ctx, json3, params);
 });
 function intersection(left, right) {
   return new ZodIntersection({
@@ -18547,7 +18547,7 @@ var ZodTuple = /* @__PURE__ */ $constructor("ZodTuple", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodTuple.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => tupleProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => tupleProcessor(inst, ctx, json3, params);
 }, {
   rest(rest) {
     return this.clone({
@@ -18580,7 +18580,7 @@ var ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodRecord.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => recordProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => recordProcessor(inst, ctx, json3, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
 });
@@ -18622,7 +18622,7 @@ var ZodMap = /* @__PURE__ */ $constructor("ZodMap", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodMap.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => mapProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => mapProcessor(inst, ctx, json3, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
   inst.min = (...args) => inst.check(_minSize(...args));
@@ -18642,7 +18642,7 @@ var ZodSet = /* @__PURE__ */ $constructor("ZodSet", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodSet.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => setProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => setProcessor(inst, ctx, json3, params);
   inst.min = (...args) => inst.check(_minSize(...args));
   inst.nonempty = (params) => inst.check(_minSize(1, params));
   inst.max = (...args) => inst.check(_maxSize(...args));
@@ -18658,7 +18658,7 @@ function set(valueType, params) {
 var ZodEnum = /* @__PURE__ */ $constructor("ZodEnum", (inst, def) => {
   $ZodEnum.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => enumProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => enumProcessor(inst, ctx, json3, params);
   inst.enum = def.entries;
   inst.options = [...inst._zod.values];
   const keys = new Set(Object.keys(def.entries));
@@ -18711,7 +18711,7 @@ function nativeEnum(entries, params) {
 var ZodLiteral = /* @__PURE__ */ $constructor("ZodLiteral", (inst, def) => {
   $ZodLiteral.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => literalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => literalProcessor(inst, ctx, json3, params);
   inst.values = new Set(def.values);
   Object.defineProperty(inst, "value", {
     get() {
@@ -18732,7 +18732,7 @@ function literal(value, params) {
 var ZodFile = /* @__PURE__ */ $constructor("ZodFile", (inst, def) => {
   $ZodFile.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => fileProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => fileProcessor(inst, ctx, json3, params);
   inst.min = (size, params) => inst.check(_minSize(size, params));
   inst.max = (size, params) => inst.check(_maxSize(size, params));
   inst.mime = (types, params) => inst.check(_mime(Array.isArray(types) ? types : [types], params));
@@ -18744,7 +18744,7 @@ var ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodTransform.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => transformProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => transformProcessor(inst, ctx, json3, params);
   inst._zod.parse = (payload, _ctx) => {
     if (_ctx.direction === "backward") {
       throw new $ZodEncodeError(inst.constructor.name);
@@ -18783,7 +18783,7 @@ function transform(fn) {
 var ZodOptional = /* @__PURE__ */ $constructor("ZodOptional", (inst, def) => {
   $ZodOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => optionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function optional(innerType) {
@@ -18795,7 +18795,7 @@ function optional(innerType) {
 var ZodExactOptional = /* @__PURE__ */ $constructor("ZodExactOptional", (inst, def) => {
   $ZodExactOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => optionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function exactOptional(innerType) {
@@ -18807,7 +18807,7 @@ function exactOptional(innerType) {
 var ZodNullable = /* @__PURE__ */ $constructor("ZodNullable", (inst, def) => {
   $ZodNullable.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nullableProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nullableProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nullable(innerType) {
@@ -18822,7 +18822,7 @@ function nullish2(innerType) {
 var ZodDefault = /* @__PURE__ */ $constructor("ZodDefault", (inst, def) => {
   $ZodDefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => defaultProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => defaultProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeDefault = inst.unwrap;
 });
@@ -18838,7 +18838,7 @@ function _default2(innerType, defaultValue) {
 var ZodPrefault = /* @__PURE__ */ $constructor("ZodPrefault", (inst, def) => {
   $ZodPrefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => prefaultProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => prefaultProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function prefault(innerType, defaultValue) {
@@ -18853,7 +18853,7 @@ function prefault(innerType, defaultValue) {
 var ZodNonOptional = /* @__PURE__ */ $constructor("ZodNonOptional", (inst, def) => {
   $ZodNonOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nonoptionalProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nonoptionalProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nonoptional(innerType, params) {
@@ -18866,7 +18866,7 @@ function nonoptional(innerType, params) {
 var ZodSuccess = /* @__PURE__ */ $constructor("ZodSuccess", (inst, def) => {
   $ZodSuccess.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => successProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => successProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function success(innerType) {
@@ -18878,7 +18878,7 @@ function success(innerType) {
 var ZodCatch = /* @__PURE__ */ $constructor("ZodCatch", (inst, def) => {
   $ZodCatch.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => catchProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => catchProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeCatch = inst.unwrap;
 });
@@ -18892,7 +18892,7 @@ function _catch2(innerType, catchValue) {
 var ZodNaN = /* @__PURE__ */ $constructor("ZodNaN", (inst, def) => {
   $ZodNaN.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => nanProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => nanProcessor(inst, ctx, json3, params);
 });
 function nan(params) {
   return _nan(ZodNaN, params);
@@ -18900,7 +18900,7 @@ function nan(params) {
 var ZodPipe = /* @__PURE__ */ $constructor("ZodPipe", (inst, def) => {
   $ZodPipe.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => pipeProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => pipeProcessor(inst, ctx, json3, params);
   inst.in = def.in;
   inst.out = def.out;
 });
@@ -18942,7 +18942,7 @@ var ZodPreprocess = /* @__PURE__ */ $constructor("ZodPreprocess", (inst, def) =>
 var ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
   $ZodReadonly.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => readonlyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => readonlyProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function readonly(innerType) {
@@ -18954,7 +18954,7 @@ function readonly(innerType) {
 var ZodTemplateLiteral = /* @__PURE__ */ $constructor("ZodTemplateLiteral", (inst, def) => {
   $ZodTemplateLiteral.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => templateLiteralProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => templateLiteralProcessor(inst, ctx, json3, params);
 });
 function templateLiteral(parts, params) {
   return new ZodTemplateLiteral({
@@ -18966,7 +18966,7 @@ function templateLiteral(parts, params) {
 var ZodLazy = /* @__PURE__ */ $constructor("ZodLazy", (inst, def) => {
   $ZodLazy.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => lazyProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => lazyProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.getter();
 });
 function lazy(getter) {
@@ -18978,7 +18978,7 @@ function lazy(getter) {
 var ZodPromise = /* @__PURE__ */ $constructor("ZodPromise", (inst, def) => {
   $ZodPromise.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => promiseProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => promiseProcessor(inst, ctx, json3, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function promise(innerType) {
@@ -18990,7 +18990,7 @@ function promise(innerType) {
 var ZodFunction = /* @__PURE__ */ $constructor("ZodFunction", (inst, def) => {
   $ZodFunction.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => functionProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => functionProcessor(inst, ctx, json3, params);
 });
 function _function(params) {
   return new ZodFunction({
@@ -19002,7 +19002,7 @@ function _function(params) {
 var ZodCustom = /* @__PURE__ */ $constructor("ZodCustom", (inst, def) => {
   $ZodCustom.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json2, params) => customProcessor(inst, ctx, json2, params);
+  inst._zod.processJSONSchema = (ctx, json3, params) => customProcessor(inst, ctx, json3, params);
 });
 var ZodProperties = /* @__PURE__ */ $constructor("ZodProperties", (inst, def) => {
   _ensureDefaultMemoizer();
@@ -22140,8 +22140,8 @@ var memo$1;
 function buildSchemas2025() {
   return memo$1 ??= build$1();
 }
-function isNonObjectJsonSchemaRoot(json2) {
-  return json2["type"] !== "object";
+function isNonObjectJsonSchemaRoot(json3) {
+  return json3["type"] !== "object";
 }
 var REF_REWRITE_DATA_POSITION_KEYS = /* @__PURE__ */ new Set([
   "const",
@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round5 = 0;
+    let round6 = 0;
     while (true) {
-      round5 += 1;
-      if (round5 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round6 += 1;
+      if (round6 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -33463,9 +33463,9 @@ var McpServer = class {
     if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
     if (tool.inputSchema === void 0) return EMPTY_OBJECT_JSON_SCHEMA;
     try {
-      const json2 = standardSchemaToJsonSchema(tool.inputSchema, "input");
-      this._toolInputSchemaJson[name] = json2;
-      return json2;
+      const json3 = standardSchemaToJsonSchema(tool.inputSchema, "input");
+      this._toolInputSchemaJson[name] = json3;
+      return json3;
     } catch {
       return;
     }
@@ -34005,10 +34005,10 @@ var EMPTY_OBJECT_JSON_SCHEMA = {
   properties: {}
 };
 function convertListedInputSchema(name, inputSchema) {
-  const json2 = standardSchemaToJsonSchema(inputSchema, "input");
-  const scan = scanXMcpHeaderDeclarations(json2);
+  const json3 = standardSchemaToJsonSchema(inputSchema, "input");
+  const scan = scanXMcpHeaderDeclarations(json3);
   if (!scan.valid) console.warn(`[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by conforming Streamable HTTP clients: ${scan.reason}`);
-  return json2;
+  return json3;
 }
 function convertOutputSchemaJson(outputSchema) {
   if (outputSchema === void 0) return void 0;
@@ -34131,7 +34131,7 @@ var StdioServerTransport = class {
   send(message) {
     if (this._closed) return Promise.reject(/* @__PURE__ */ new Error("StdioServerTransport is closed"));
     return new Promise((resolve, reject) => {
-      const json2 = serializeMessage(message);
+      const json3 = serializeMessage(message);
       let settled = false;
       const onError = (error62) => {
         if (settled) return;
@@ -34148,7 +34148,7 @@ var StdioServerTransport = class {
         resolve();
       };
       this._stdout.once("error", onError);
-      if (this._stdout.write(json2)) {
+      if (this._stdout.write(json3)) {
         if (settled) return;
         settled = true;
         this._stdout.off("error", onError);
@@ -34160,6 +34160,244 @@ var StdioServerTransport = class {
 
 // src/adapters/stdio/index.ts
 var import_dotenv = __toESM(require_main(), 1);
+
+// src/core/sample-broker.ts
+var SAMPLE_BASE_URL = "https://sample.tradepilot.invalid/api/v0";
+var INSTRUMENTS = [
+  { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", isin: "US0378331005", type: "STOCK", price: 231.55, extendedHours: true, workingScheduleId: 1 },
+  { ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD", isin: "US5949181045", type: "STOCK", price: 428.9, extendedHours: true, workingScheduleId: 1 },
+  { ticker: "NVDA_US_EQ", name: "NVIDIA", shortName: "NVDA", currencyCode: "USD", isin: "US67066G1040", type: "STOCK", price: 128.75, extendedHours: true, workingScheduleId: 1 },
+  { ticker: "KO_US_EQ", name: "Coca-Cola", shortName: "KO", currencyCode: "USD", isin: "US1912161007", type: "STOCK", price: 61.2, workingScheduleId: 1 },
+  { ticker: "TSLA_US_EQ", name: "Tesla", shortName: "TSLA", currencyCode: "USD", isin: "US88160R1014", type: "STOCK", price: 244.1, extendedHours: true, workingScheduleId: 1 },
+  { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 UCITS ETF (Dist)", shortName: "VUSA", currencyCode: "GBX", isin: "IE00B3XXRP09", type: "ETF", price: 9175, workingScheduleId: 2 },
+  { ticker: "EUNLd_EQ", name: "iShares Core MSCI World UCITS ETF (Acc)", shortName: "EUNL", currencyCode: "EUR", isin: "IE00B4L5Y983", type: "ETF", price: 98.42, workingScheduleId: 3 }
+];
+var EUR_PER_UNIT = { EUR: 1, USD: 0.92, GBX: 0.0118 };
+var json2 = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+var round = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+function weekdaySchedule(openHour, closeHour, now) {
+  const events = [];
+  for (let offset = -3; offset < 10; offset++) {
+    const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset);
+    const weekday = new Date(day).getUTCDay();
+    if (weekday === 0 || weekday === 6) continue;
+    events.push({ date: new Date(day + openHour * 36e5).toISOString(), type: "OPEN" }, { date: new Date(day + closeHour * 36e5).toISOString(), type: "CLOSE" });
+  }
+  return events;
+}
+function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(input2, init)) {
+  const started = Date.now();
+  const daysAgo = (days) => new Date(started - days * 864e5).toISOString();
+  const byTicker = new Map(INSTRUMENTS.map((item) => [item.ticker, item]));
+  const instrumentOf = (ticker) => byTicker.get(ticker);
+  const eur = (ticker, amount) => amount * (EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"] ?? 1);
+  let cash = 3962.1;
+  const realized = 412.6;
+  const holdings = [
+    { ticker: "AAPL_US_EQ", quantity: 12, average: 168.4, inPies: 1.6, createdAt: daysAgo(400) },
+    { ticker: "MSFT_US_EQ", quantity: 6, average: 352.1, inPies: 1.4, createdAt: daysAgo(380) },
+    { ticker: "NVDA_US_EQ", quantity: 20, average: 96.3, inPies: 4, createdAt: daysAgo(300) },
+    { ticker: "VUSAl_EQ", quantity: 40, average: 8420, inPies: 3, createdAt: daysAgo(350) },
+    { ticker: "KO_US_EQ", quantity: 25, average: 64.9, inPies: 7, createdAt: daysAgo(330) }
+  ];
+  let nextId = 9e4;
+  const pending = [
+    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) }
+  ];
+  const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
+  const history = [];
+  const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0) => {
+    const id = nextId++;
+    history.unshift({
+      order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
+      fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
+    });
+  };
+  for (let index = 13; index >= 0; index--) {
+    const instrument = INSTRUMENTS[index % 5];
+    const sell = index % 4 === 3;
+    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.72 + index * 0.015)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
+  }
+  const dividends = [];
+  for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]]) {
+    for (let quarter = 0; quarter < 4; quarter++) {
+      const paidOn = daysAgo(firstDay + quarter * 91);
+      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * 0.85), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
+    }
+  }
+  dividends.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
+  const transactions = [
+    { reference: "sample-deposit-1", type: "DEPOSIT", amount: 1e4, currency: "EUR", dateTime: daysAgo(420) },
+    { reference: "sample-deposit-2", type: "DEPOSIT", amount: 4e3, currency: "EUR", dateTime: daysAgo(200) },
+    { reference: "sample-withdraw-1", type: "WITHDRAW", amount: -500, currency: "EUR", dateTime: daysAgo(90) },
+    { reference: "sample-interest-1", type: "INTEREST", amount: 6.4, currency: "EUR", dateTime: daysAgo(31) }
+  ];
+  let nextPieId = 4103;
+  const pies = /* @__PURE__ */ new Map([
+    [4101, { name: "Core tech", icon: "Rocket", goal: 5e3, dividendCashAction: "REINVEST", shares: { NVDA_US_EQ: 0.5, MSFT_US_EQ: 0.3, AAPL_US_EQ: 0.2 }, cash: 23.3, createdAt: daysAgo(300) }],
+    [4102, { name: "Dividend income", icon: "Coins", dividendCashAction: "TO_ACCOUNT_CASH", shares: { KO_US_EQ: 0.6, VUSAl_EQ: 0.4 }, cash: 100, createdAt: daysAgo(120) }]
+  ]);
+  const exports = [{ reportId: 11, status: "Finished", downloadLink: "https://sample.tradepilot.invalid/report-11.csv", timeFrom: daysAgo(365), timeTo: daysAgo(0), dataIncluded: { includeOrders: true, includeDividends: true, includeTransactions: true, includeInterest: true } }];
+  const position = (holding) => {
+    const instrument = instrumentOf(holding.ticker);
+    const currentValue = round(eur(holding.ticker, holding.quantity * instrument.price));
+    const totalCost = round(eur(holding.ticker, holding.quantity * holding.average));
+    const { price, ...meta3 } = instrument;
+    return {
+      instrument: meta3,
+      quantity: holding.quantity,
+      quantityAvailableForTrading: round(holding.quantity - holding.inPies, 6),
+      quantityInPies: holding.inPies,
+      averagePricePaid: holding.average,
+      currentPrice: price,
+      createdAt: holding.createdAt,
+      walletImpact: { currency: "EUR", totalCost, currentValue, unrealizedProfitLoss: round(currentValue - totalCost), fxImpact: 0 }
+    };
+  };
+  const pieSummary = (id) => {
+    const pie = pies.get(id);
+    const invested = id === 4101 ? 1950 : id === 4102 ? 800 : 0;
+    const value = id === 4101 ? 2210.4 : id === 4102 ? 764.2 : 0;
+    return {
+      id,
+      cash: pie.cash,
+      dividendDetails: { gained: id === 4101 ? 18.4 : 6.1, inCash: pie.dividendCashAction === "REINVEST" ? 0 : 6.1, reinvested: pie.dividendCashAction === "REINVEST" ? 18.4 : 0 },
+      progress: pie.goal ? round(value / pie.goal, 4) : null,
+      status: id === 4102 ? "BEHIND" : "ON_TRACK",
+      result: { priceAvgInvestedValue: invested, priceAvgValue: value, priceAvgResult: round(value - invested), priceAvgResultCoef: invested ? round((value - invested) / invested, 4) : 0 }
+    };
+  };
+  const drift = (id, ticker, target) => (id === 4101 ? { NVDA_US_EQ: 0.08, MSFT_US_EQ: -0.04, AAPL_US_EQ: -0.04 }[ticker] ?? 0 : id === 4102 ? { KO_US_EQ: -0.05, VUSAl_EQ: 0.05 }[ticker] ?? 0 : 0) + target;
+  const pieDetail = (id) => {
+    const pie = pies.get(id);
+    return {
+      settings: { id, name: pie.name, icon: pie.icon, ...pie.goal ? { goal: pie.goal } : {}, instrumentShares: pie.shares, dividendCashAction: pie.dividendCashAction, creationDate: pie.createdAt, publicUrl: null },
+      instruments: Object.entries(pie.shares).map(([ticker, share2]) => ({
+        ticker,
+        expectedShare: share2,
+        currentShare: round(drift(id, ticker, share2), 4),
+        ownedQuantity: holdings.find((item) => item.ticker === ticker)?.inPies ?? 0,
+        issues: []
+      }))
+    };
+  };
+  const fill = (ticker, quantity) => {
+    const instrument = instrumentOf(ticker);
+    const value = eur(ticker, Math.abs(quantity) * instrument.price);
+    let holding = holdings.find((item) => item.ticker === ticker);
+    if (quantity > 0) {
+      if (value > cash) return { error: json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400) };
+      cash -= value;
+      if (!holding) holdings.push(holding = { ticker, quantity: 0, average: instrument.price, inPies: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      holding.average = (holding.average * holding.quantity + instrument.price * quantity) / (holding.quantity + quantity);
+      holding.quantity = round(holding.quantity + quantity, 6);
+    } else {
+      if (!holding || holding.quantity - holding.inPies < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
+      cash += value;
+      holding.quantity = round(holding.quantity + quantity, 6);
+      if (holding.quantity <= 0) holdings.splice(holdings.indexOf(holding), 1);
+    }
+    addHistory(ticker, quantity, instrument.price, (/* @__PURE__ */ new Date()).toISOString());
+    return {};
+  };
+  const handle = async (method, path3, query, body) => {
+    if (method === "GET" && path3 === "/equity/account/summary") {
+      const invested = holdings.reduce((sum, item) => sum + position(item).walletImpact.currentValue, 0);
+      const cost = holdings.reduce((sum, item) => sum + position(item).walletImpact.totalCost, 0);
+      const pieCash = [...pies.values()].reduce((sum, pie) => sum + pie.cash, 0);
+      const reserved = pending.reduce((sum, order) => sum + reservation(order), 0);
+      return json2({ id: 212e5, currency: "EUR", totalValue: round(invested + cash + pieCash + reserved), cash: { availableToTrade: round(cash), inPies: round(pieCash), reservedForOrders: round(reserved) }, investments: { currentValue: round(invested), totalCost: round(cost), unrealizedProfitLoss: round(invested - cost), realizedProfitLoss: realized } });
+    }
+    if (method === "GET" && path3 === "/equity/positions") return json2(holdings.map(position));
+    if (method === "GET" && path3 === "/equity/orders") return json2(pending);
+    if (method === "GET" && path3.startsWith("/equity/orders/")) {
+      const order = pending.find((item) => String(item.id) === path3.split("/").pop());
+      return order ? json2(order) : json2({ code: "OrderNotFound" }, 404);
+    }
+    if (method === "GET" && path3 === "/equity/metadata/instruments") return json2(INSTRUMENTS.map(({ price, ...meta3 }) => ({ ...meta3, maxOpenQuantity: 1e4, addedOn: "2019-01-01T00:00:00.000Z" })));
+    if (method === "GET" && path3 === "/equity/metadata/exchanges") {
+      const now = /* @__PURE__ */ new Date();
+      return json2([
+        { id: 1, name: "NASDAQ", workingSchedules: [{ id: 1, timeEvents: weekdaySchedule(13.5, 20, now) }] },
+        { id: 2, name: "London Stock Exchange", workingSchedules: [{ id: 2, timeEvents: weekdaySchedule(8, 16.5, now) }] },
+        { id: 3, name: "Xetra", workingSchedules: [{ id: 3, timeEvents: weekdaySchedule(8, 16.5, now) }] }
+      ]);
+    }
+    if (method === "GET" && path3.startsWith("/equity/history/") && path3 !== "/equity/history/exports") {
+      const kind = path3.split("/").pop();
+      const items = kind === "orders" ? history : kind === "dividends" ? dividends : kind === "transactions" ? transactions : void 0;
+      if (!items) return json2({ code: "NotFound" }, 404);
+      const ticker = query.get("ticker");
+      return json2({ items: ticker ? items.filter((item) => (item.ticker ?? item.order?.ticker) === ticker) : items, nextPagePath: null });
+    }
+    if (method === "GET" && path3 === "/equity/history/exports") return json2(exports);
+    if (method === "POST" && path3 === "/equity/history/exports") {
+      const reportId = nextId++;
+      exports.unshift({ reportId, status: "Finished", downloadLink: `https://sample.tradepilot.invalid/report-${reportId}.csv`, timeFrom: body.timeFrom, timeTo: body.timeTo, dataIncluded: body.dataIncluded });
+      return json2({ reportId });
+    }
+    if (method === "POST" && path3.startsWith("/equity/orders/")) {
+      const type = path3.split("/").pop().toUpperCase();
+      const ticker = String(body.ticker ?? "");
+      const quantity = Number(body.quantity);
+      if (!instrumentOf(ticker)) return json2({ code: "InstrumentNotFound" }, 404);
+      if (!Number.isFinite(quantity) || quantity === 0) return json2({ code: "InvalidQuantity" }, 400);
+      const order = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: (/* @__PURE__ */ new Date()).toISOString(), ...body.limitPrice ? { limitPrice: body.limitPrice } : {}, ...body.stopPrice ? { stopPrice: body.stopPrice } : {}, ...body.timeValidity ? { timeValidity: body.timeValidity } : {} };
+      if (type === "MARKET") {
+        const result2 = fill(ticker, quantity);
+        if (result2.error) return result2.error;
+        return json2({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker).price) });
+      }
+      const held = reservation(order);
+      if (held > cash) return json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
+      cash -= held;
+      pending.push(order);
+      return json2(order);
+    }
+    if (method === "DELETE" && path3.startsWith("/equity/orders/")) {
+      const index = pending.findIndex((item) => String(item.id) === path3.split("/").pop());
+      if (index < 0) return json2({ code: "OrderNotFound" }, 404);
+      cash += reservation(pending[index]);
+      pending.splice(index, 1);
+      return new Response(null, { status: 200 });
+    }
+    if (method === "GET" && path3 === "/equity/pies") return json2([...pies.keys()].map(pieSummary));
+    const pieMatch = /^\/equity\/pies\/(\d+)(\/duplicate)?$/.exec(path3);
+    if (method === "POST" && path3 === "/equity/pies") {
+      const id = nextPieId++;
+      pies.set(id, { name: String(body.name ?? "New pie"), icon: String(body.icon ?? "Home"), ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? "REINVEST"), shares: body.instrumentShares ?? {}, cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      return json2(pieDetail(id));
+    }
+    if (pieMatch) {
+      const id = Number(pieMatch[1]);
+      const pie = pies.get(id);
+      if (!pie) return json2({ code: "PieNotFound" }, 404);
+      if (method === "GET" && !pieMatch[2]) return json2(pieDetail(id));
+      if (method === "DELETE" && !pieMatch[2]) {
+        pies.delete(id);
+        return new Response(null, { status: 200 });
+      }
+      if (method === "POST" && pieMatch[2]) {
+        const copy = nextPieId++;
+        pies.set(copy, { ...pie, shares: { ...pie.shares }, name: String(body.name ?? `${pie.name} copy`), cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+        return json2(pieDetail(copy));
+      }
+      if (method === "POST") {
+        pies.set(id, { ...pie, name: String(body.name ?? pie.name), ...body.icon ? { icon: String(body.icon) } : {}, ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? pie.dividendCashAction), shares: body.instrumentShares ?? pie.shares });
+        return json2(pieDetail(id));
+      }
+    }
+    return json2({ code: "NotFound", path: path3 }, 404);
+  };
+  return async (input2, init) => {
+    const url2 = new URL(typeof input2 === "string" ? input2 : input2 instanceof URL ? input2.href : input2.url);
+    const base = new URL(SAMPLE_BASE_URL);
+    if (url2.host !== base.host) return passthrough(input2, init);
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    return handle(method, url2.pathname.replace(/^\/api\/v0/, ""), url2.searchParams, body);
+  };
+}
 
 // src/core/quotes.ts
 var QUOTE_PROVIDERS = ["stooq", "finnhub", "twelvedata", "alphavantage", "none"];
@@ -34328,6 +34566,7 @@ function quoteProvider(env) {
 function createConfig(env, requestOrigin) {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
   const policy = createPolicy(env);
+  const sampleData = flag(env, "TRADEPILOT_SAMPLE_DATA");
   return {
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
@@ -34337,18 +34576,23 @@ function createConfig(env, requestOrigin) {
     confirmationTtlSeconds: Math.floor(positive2(env, "CONFIRMATION_TTL_SECONDS", 90)),
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5e3),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 1e5),
-    defaultTradingEnvironment: tradingEnvironment(env),
+    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env),
     policy,
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
     notifyWebhookUrl: webhookUrl(env),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
-    quoteProvider: quoteProvider(env),
+    quoteProvider: sampleData ? "none" : quoteProvider(env),
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     ...digestHour(env) === void 0 ? {} : { digestHourUtc: digestHour(env) },
-    trading212: {
+    sampleData,
+    // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
+    trading212: sampleData ? {
+      demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
+      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" }
+    } : {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
     }
@@ -34357,7 +34601,8 @@ function createConfig(env, requestOrigin) {
 function credentialStatus(config3) {
   return {
     demo: Boolean(config3.trading212.demo.apiKey && config3.trading212.demo.apiSecret),
-    live: Boolean(config3.trading212.live.apiKey && config3.trading212.live.apiSecret)
+    live: Boolean(config3.trading212.live.apiKey && config3.trading212.live.apiSecret),
+    ...config3.sampleData ? { sample: true } : {}
   };
 }
 
@@ -34430,6 +34675,26 @@ var floorTo = (value, digits) => {
 };
 var money = (value) => Math.round(value * 100) / 100;
 var share = (value) => Math.round(value * 1e4) / 1e4;
+function impliedFxRates(positions, accountCurrency) {
+  const samples = /* @__PURE__ */ new Map();
+  for (const position of positions) {
+    const currency = position.instrument.currencyCode?.toUpperCase();
+    const wallet = position.walletImpact;
+    if (!currency || currency === accountCurrency) continue;
+    if (typeof wallet?.currency === "string" && wallet.currency.toUpperCase() !== accountCurrency) continue;
+    const value = typeof wallet?.currentValue === "number" ? wallet.currentValue : 0;
+    const local = position.quantity * position.currentPrice;
+    if (!(value > 0) || !(local > 0)) continue;
+    samples.set(currency, [...samples.get(currency) ?? [], local / value]);
+  }
+  const rates = {};
+  for (const [currency, values] of samples) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    rates[currency] = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return rates;
+}
 function planRebalance(environment, account, positions, targets, options = {}, instrumentCurrency = () => void 0) {
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const totalValue = account.totalValue ?? 0;
@@ -34460,14 +34725,18 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     const untouched = positions.filter((position) => !wanted.has(position.instrument.ticker.toUpperCase()) && position.quantity > 0);
     if (untouched.length) notes.push(`${untouched.length} holding(s) without a target are left as they are.`);
   }
+  const implied = impliedFxRates(positions, accountCurrency);
+  const fxRates = { ...implied, ...options.fxRates };
+  const usedImplied = /* @__PURE__ */ new Set();
   const lines = [];
   for (const [key, target] of wanted) {
     const position = byTicker.get(key);
     const currency = (position?.instrument.currencyCode ?? instrumentCurrency(target.ticker) ?? accountCurrency).toUpperCase();
-    const fx = currency === accountCurrency ? 1 : options.fxRates?.[currency];
+    const fx = currency === accountCurrency ? 1 : fxRates[currency];
+    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) usedImplied.add(currency);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
     if (!fx || fx <= 0) {
-      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency}; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
       continue;
     }
     if (!price || price <= 0) {
@@ -34502,7 +34771,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   const reserve = cashWeight * totalValue;
   const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
@@ -34519,10 +34788,11 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     }
     cash -= value;
     valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
-  if (!trades.length) notes.push("The portfolio is already within the minimum trade value of every target.");
+  if (usedImplied.size) notes.push(`Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`);
+  if (!trades.length) notes.push(skipped.length && !lines.length ? "No trades could be planned: every target was skipped." : "The portfolio is already within the minimum trade value of every target.");
   notes.push("Prices are the broker's last position prices or the reference prices you supplied; Market orders can fill elsewhere.");
   return {
     kind: "rebalance_plan",
@@ -34544,7 +34814,7 @@ function ageSeconds(value, now) {
   const time3 = Date.parse(value);
   return Number.isFinite(time3) ? Math.max(0, Math.floor((now.getTime() - time3) / 1e3)) : void 0;
 }
-var round = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round2 = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
 function evaluatePolicy(policy, input2) {
   const { draft, instrument, position, account } = input2;
   const now = input2.now ?? /* @__PURE__ */ new Date();
@@ -34575,7 +34845,7 @@ function evaluatePolicy(policy, input2) {
         rule: "max_position_weight",
         status: over ? "block" : "pass",
         message: over ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy.maxPositionWeight * 100).toFixed(1)}% limit.` : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
-        details: { resultingWeight: round(resulting), limit: policy.maxPositionWeight }
+        details: { resultingWeight: round2(resulting), limit: policy.maxPositionWeight }
       });
     }
   }
@@ -34590,7 +34860,7 @@ function evaluatePolicy(policy, input2) {
     } else {
       const next = input2.usage.notional + input2.estimatedNotional;
       const over = next > policy.dailyNotionalLimit + 1e-9;
-      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round(input2.usage.notional, 2), limit: policy.dailyNotionalLimit } });
+      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round2(input2.usage.notional, 2), limit: policy.dailyNotionalLimit } });
     }
   }
   if (!policy.marketOrdersWhenClosed && draft.type === "market" && input2.market && input2.market.session !== "unknown" && !input2.market.isOpen) {
@@ -34919,6 +35189,20 @@ var TradingService = class {
   client(environment) {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
+  currencies = /* @__PURE__ */ new Map();
+  /** The account currency, for labelling amounts. It never changes, so it is fetched once; undefined when unavailable. */
+  async accountCurrency(environment) {
+    const known = this.currencies.get(environment);
+    if (known) return known;
+    if (!credentialStatus(this.deps.config)[environment]) return void 0;
+    try {
+      const currency = (await this.client(environment).getAccountSummary()).currency;
+      if (currency) this.currencies.set(environment, currency);
+      return currency;
+    } catch {
+      return void 0;
+    }
+  }
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.instruments;
@@ -35157,6 +35441,7 @@ var TradingService = class {
   async snapshot(environment) {
     const client = this.client(environment);
     const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    if (account.currency) this.currencies.set(environment, account.currency);
     return { instruments, positions, account };
   }
   async market(environment, instrument) {
@@ -35644,12 +35929,12 @@ var DEFAULT_ALLOCATION_LIMITS = {
   cashLowWeight: 0.02,
   maxCurrencyWeight: 0.85
 };
-var round2 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round3 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var ratio = (part, whole) => whole > 0 ? part / whole : 0;
 function sumBy(items, key, amount) {
   const totals = /* @__PURE__ */ new Map();
   for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount(item));
-  return [...totals].map(([k, v]) => ({ key: k, amount: round2(v) })).sort((a, b) => b.amount - a.amount);
+  return [...totals].map(([k, v]) => ({ key: k, amount: round3(v) })).sort((a, b) => b.amount - a.amount);
 }
 function positionValue(position) {
   const wallet = position.walletImpact;
@@ -35691,7 +35976,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
   const cashWeight = ratio(cash, totalValue);
   const flags = [];
-  const pct = (value) => `${round2(value * 100, 1)}%`;
+  const pct = (value) => `${round3(value * 100, 1)}%`;
   if (holdings[0] && largestWeight > limits.maxSingleWeight)
     flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct(largestWeight)} of invested value (limit ${pct(limits.maxSingleWeight)}).` });
   if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
@@ -35707,14 +35992,14 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
     kind: "allocation",
     environment,
     accountCurrency: account.currency ?? "",
-    totalValue: round2(totalValue),
-    investedValue: round2(investedValue),
-    cash: round2(cash),
+    totalValue: round3(totalValue),
+    investedValue: round3(investedValue),
+    cash: round3(cash),
     cashWeight,
-    holdings: holdings.map((item) => ({ ...item, value: round2(item.value) })),
+    holdings: holdings.map((item) => ({ ...item, value: round3(item.value) })),
     byCurrency,
     byType,
-    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round2(1 / herfindahl, 1) : 0 },
+    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round3(1 / herfindahl, 1) : 0 },
     flags,
     timestamp: now.toISOString()
   };
@@ -35792,15 +36077,15 @@ function summarizePerformance(input2) {
     accountCurrency: input2.account.currency ?? "",
     period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
     coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
-    contributions: { deposits: round2(deposits), withdrawals: round2(withdrawals), net: round2(net) },
-    income: { dividends: round2(dividendTotal), interest: round2(interest) },
-    costs: { total: round2(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    realizedProfitLoss: round2(realized),
+    contributions: { deposits: round3(deposits), withdrawals: round3(withdrawals), net: round3(net) },
+    income: { dividends: round3(dividendTotal), interest: round3(interest) },
+    costs: { total: round3(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    realizedProfitLoss: round3(realized),
     ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
     ...currentValue === void 0 ? {} : { currentValue },
     ...!window.from && !input2.truncated && currentValue !== void 0 && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
-    trades: { buys, sells, turnover: round2(turnover) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round2(row.realizedProfitLoss), dividends: round2(row.dividends), costs: round2(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    trades: { buys, sells, turnover: round3(turnover) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round3(row.realizedProfitLoss), dividends: round3(row.dividends), costs: round3(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
     notes,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -35819,10 +36104,10 @@ function forwardDividends(dividends, positions, to) {
     const ticker = position.instrument?.ticker?.toUpperCase();
     value += positionValue(position);
     const rate = ticker ? perShare.get(ticker) : void 0;
-    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round2(rate * position.quantity) });
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round3(rate * position.quantity) });
   }
   byTicker.sort((a, b) => b.amount - a.amount);
-  const total = round2(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  const total = round3(byTicker.reduce((sum, item) => sum + item.amount, 0));
   return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
 }
 function summarizeIncome(input2) {
@@ -35840,12 +36125,12 @@ function summarizeIncome(input2) {
     environment: input2.environment,
     accountCurrency: input2.accountCurrency,
     period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
-    total: round2(dividends + interest),
-    dividends: round2(dividends),
-    interest: round2(interest),
+    total: round3(dividends + interest),
+    dividends: round3(dividends),
+    interest: round3(interest),
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
-    trailing12Months: round2(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    trailing12Months: round3(trailing.reduce((sum, item) => sum + item.amount, 0)),
     ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
@@ -36299,7 +36584,7 @@ var DEFAULT_PIE_DETAILS = 10;
 var LIST_CACHE_MS = 3e4;
 var DETAIL_CACHE_MS = 6e4;
 var SHARE_DIGITS = 4;
-var round3 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var num = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
 function normaliseShares(shares) {
   const entries = Object.entries(shares);
@@ -36307,11 +36592,11 @@ function normaliseShares(shares) {
   for (const [ticker, share2] of entries)
     if (!Number.isFinite(share2) || share2 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
   const total = entries.reduce((sum, [, share2]) => sum + share2, 0);
-  const scaled = entries.map(([ticker, share2]) => [ticker, round3(share2 / total, SHARE_DIGITS)]);
-  const remainder = round3(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
+  const scaled = entries.map(([ticker, share2]) => [ticker, round4(share2 / total, SHARE_DIGITS)]);
+  const remainder = round4(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
   const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
   const result2 = Object.fromEntries(scaled);
-  result2[scaled[largest][0]] = round3(scaled[largest][1] + remainder, SHARE_DIGITS);
+  result2[scaled[largest][0]] = round4(scaled[largest][1] + remainder, SHARE_DIGITS);
   for (const [ticker, share2] of Object.entries(result2))
     if (share2 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
   return result2;
@@ -36327,7 +36612,7 @@ function pieOverview(summary, detail, id) {
       ticker: item.ticker,
       targetShare,
       currentShare,
-      driftShare: round3(currentShare - targetShare, 4),
+      driftShare: round4(currentShare - targetShare, 4),
       ownedQuantity: num(item.ownedQuantity),
       ...item.result?.priceAvgValue === void 0 ? {} : { value: item.result.priceAvgValue },
       ...item.result?.priceAvgResult === void 0 ? {} : { result: item.result.priceAvgResult },
@@ -36342,12 +36627,12 @@ function pieOverview(summary, detail, id) {
     cash: num(summary?.cash),
     invested,
     value,
-    result: num(result2.priceAvgResult) || round3(value - invested),
-    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round3(result2.priceAvgResultCoef * 100) : invested > 0 ? round3((value - invested) / invested * 100) : null,
+    result: num(result2.priceAvgResult) || round4(value - invested),
+    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round4(result2.priceAvgResultCoef * 100) : invested > 0 ? round4((value - invested) / invested * 100) : null,
     progress: typeof summary?.progress === "number" ? summary.progress : null,
     ...settings?.goal ? { goal: settings.goal } : {},
     dividends: { gained: num(summary?.dividendDetails?.gained), reinvested: num(summary?.dividendDetails?.reinvested), inCash: num(summary?.dividendDetails?.inCash) },
-    ...instruments ? { instruments, drift: round3(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
+    ...instruments ? { instruments, drift: round4(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
     ...settings ? { settings } : {}
   };
 }
@@ -36414,7 +36699,8 @@ var PiesService = class {
     }
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
     const totals = pies.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
-    return { ...base, pies, totals: { value: round3(totals.value), invested: round3(totals.invested), result: round3(totals.result), cash: round3(totals.cash) }, notes };
+    const currency = await this.deps.trading.accountCurrency(environment);
+    return { ...base, pies, totals: { value: round4(totals.value), invested: round4(totals.invested), result: round4(totals.result), cash: round4(totals.cash) }, ...currency ? { currency } : {}, notes };
   }
   async getPie(environment, id) {
     this.assertCredentials(environment);
@@ -36531,7 +36817,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.10.0"
+  version: "2.11.0"
 };
 
 // src/core/mcp.ts
@@ -36605,7 +36891,10 @@ var windowSchema = {
 function createMcpServer({ trading, insights, automation, alerts, pies, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
-  const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version });
+  const server2 = new McpServer(
+    { name: "tradepilot212", version: APP_META.version },
+    config3.sampleData ? { instructions: "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212." } : {}
+  );
   G(
     server2,
     "TradePilot 212 trading dashboard",
@@ -36951,7 +37240,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
         sellUntargeted: external_exports.boolean().default(false).describe("Sell holdings that have no target"),
         wholeSharesOnly: external_exports.boolean().default(false),
-        fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe('Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account')
+        fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency`)
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -37699,14 +37988,14 @@ var PriceAlerts = class {
 
 // src/core/digest.ts
 var DAY_MS2 = 864e5;
-var round4 = (value) => Math.round(value * 100) / 100;
-var signed = (value) => `${value >= 0 ? "+" : ""}${round4(value)}`;
+var round5 = (value) => Math.round(value * 100) / 100;
+var signed = (value) => `${value >= 0 ? "+" : ""}${round5(value)}`;
 function digestText(input2) {
   const change = input2.previousTotalValue === void 0 ? "" : ` (${signed(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round4(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed(item.profitLoss)})`}`);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round5(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed(item.profitLoss)})`}`);
   return [
-    `Total ${round4(input2.totalValue)} ${input2.currency}${change}`,
-    `cash ${round4(input2.cash)}`,
+    `Total ${round5(input2.totalValue)} ${input2.currency}${change}`,
+    `cash ${round5(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
@@ -37891,7 +38180,10 @@ var ProtectiveLinks = class {
 };
 
 // src/app/services.ts
-function createServices(deps) {
+var processSampleBroker;
+function createServices(input2) {
+  const sampleFetcher = () => input2.fetcher ? createSampleBroker(input2.fetcher) : processSampleBroker ??= createSampleBroker();
+  const deps = input2.config.sampleData ? { ...input2, fetcher: sampleFetcher() } : input2;
   const notify = createNotifier(deps.config, deps.fetcher);
   const quotes = createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
@@ -37916,6 +38208,7 @@ function createServices(deps) {
     alerts: await alerts.list(environment),
     links: (await links.list()).filter((link) => link.environment === environment),
     usageToday: await trading.usageToday(environment),
+    ...await trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}),
     policy: deps.config.policy[environment],
     settings: {
       demoAutomation: deps.config.demoAutomationEnabled,
@@ -38124,4 +38417,4 @@ await server.connect(new StdioServerTransport());
 var tick = () => services.runScheduled().catch((error62) => log("Scheduler tick failed", error62));
 setInterval(tick, 6e4).unref();
 void tick();
-log(`ready (writes ${allowWrites ? "enabled" : "disabled"}, state in ${dataDir})`);
+log(`ready (writes ${allowWrites ? "enabled" : "disabled"}${config2.sampleData ? ", sample data" : ""}, state in ${dataDir})`);

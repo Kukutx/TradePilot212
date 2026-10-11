@@ -58,7 +58,13 @@ const environments = [
   ["LIVE", pair("LIVE"), "https://live.trading212.com/api/v0/equity/account/summary"],
 ];
 
+const sample = /^(1|true|yes|on)$/i.test(process.env.TRADEPILOT_SAMPLE_DATA ?? "");
 for (const [name, credentials, url] of environments) {
+  // Sample data ignores the keys, so nothing is sent to Trading 212.
+  if (sample) {
+    result(`Trading 212 ${name}`, true, credentials.complete || credentials.partial ? "keys ignored while TRADEPILOT_SAMPLE_DATA is on" : "not used with sample data");
+    continue;
+  }
   if (credentials.partial) {
     result(`Trading 212 ${name}`, false, "API key/secret pair is incomplete");
     continue;
@@ -79,7 +85,7 @@ for (const [name, credentials, url] of environments) {
   }
 }
 
-const atLeastOne = pair("DEMO").complete || pair("LIVE").complete;
-result("Trading environment", atLeastOne, atLeastOne ? "ready" : "configure Demo and/or Live credentials");
+const atLeastOne = sample || pair("DEMO").complete || pair("LIVE").complete;
+result("Trading environment", atLeastOne, sample ? "sample data (simulated Demo account; Trading 212 keys are ignored)" : atLeastOne ? "ready" : "configure Demo and/or Live credentials, or set TRADEPILOT_SAMPLE_DATA=true to try it first");
 
 if (checks.some((check) => !check.ok)) process.exitCode = 1;

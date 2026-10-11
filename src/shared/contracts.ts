@@ -47,6 +47,8 @@ export interface ErrorPayload {
 export interface CredentialStatus {
   demo: boolean;
   live: boolean;
+  /** The Demo account is TradePilot's simulated sample account, not Trading 212. */
+  sample?: boolean;
 }
 
 export interface Instrument {

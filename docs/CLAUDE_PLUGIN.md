@@ -19,6 +19,7 @@ When the plugin is enabled, Claude Code asks for its options:
 
 | Option | Purpose |
 |---|---|
+| Try with sample data | Use a simulated Demo account instead of Trading 212, to try every tool without a key. Live is off while it is on. See [TRY_IT.md](./TRY_IT.md). |
 | Trading 212 Demo / Live API key and secret | Stored in the system credential store (marked sensitive). Leave unused environments empty. |
 | Default environment | `demo` unless you choose otherwise. |
 | Enable order tools | **Off by default.** See below. |
@@ -85,6 +86,7 @@ Any MCP client config can point at the bundled file:
 | `TRADEPILOT_ALLOW_WRITES` | `false` | Register the order-review and execution tools |
 | `TRADEPILOT_DATA_DIR` | `~/.tradepilot212` | Confirmation state and `audit.jsonl` |
 | `TRADEPILOT_WIDGET_HTML` | bundled `plugin/widget.html` | Override the UI file |
+| `TRADEPILOT_SAMPLE_DATA` | `false` | Serve the simulated sample account instead of Trading 212; Live is off |
 
 The remaining settings (`T212_*`, `DEFAULT_TRADING_ENV`, `MAX_ORDER_*`, `CONFIRMATION_TTL_SECONDS`) mean the same as in the Worker.
 

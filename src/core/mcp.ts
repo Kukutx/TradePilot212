@@ -99,7 +99,12 @@ export function createMcpServer(
 ): McpServer {
   const canWrite = scopes.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config.defaultTradingEnvironment);
-  const server = new McpServer({ name: "tradepilot212", version: APP_META.version });
+  const server = new McpServer(
+    { name: "tradepilot212", version: APP_META.version },
+    config.sampleData
+      ? { instructions: "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212." }
+      : {},
+  );
 
   registerAppResource(
     server,
@@ -474,7 +479,7 @@ export function createMcpServer(
         minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
         sellUntargeted: z.boolean().default(false).describe("Sell holdings that have no target"),
         wholeSharesOnly: z.boolean().default(false),
-        fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account"),
+        fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency"),
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },

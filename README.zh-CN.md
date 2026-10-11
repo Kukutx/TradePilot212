@@ -15,6 +15,18 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - **异常可恢复**：写入结果不确定时不会自动重试，而是提供只读状态检查。
 - **界面可扩展**：支持内嵌/全屏、自适应桌面和移动端；订单审查使用正常文档流，不依赖固定 iframe 浮层；当前提供中文和英文。
 
+**先试用：** 打开样例数据，不需要 Trading 212 Key 就能在模拟账户上体验全部功能，然后再接入你的 Demo 账户。步骤见 [docs/TRY_IT.md](./docs/TRY_IT.md)（英文），下方“快速试用”有中文简版。
+
+## 快速试用
+
+1. 在 Claude Code 里安装插件：`/plugin marketplace add Kukutx/TradePilot212`，然后 `/plugin install tradepilot212@tradepilot212`。
+2. 在插件选项里打开 **Try with sample data**（样例数据）；想试下单就同时打开 **Enable order tools**。
+3. 直接问：“看一下我的持仓”“今年收益和分红怎么样”“把组合再平衡到苹果 30%、微软 30%、英伟达 20%、VUSA 20%”“英伟达设 110 止损、150 止盈”“每月 5 号定投 200 欧 VUSA”。
+4. 想用自己的账户：在 Trading 212 切到 **Practice（模拟）账户**，在 **Settings → API (Beta)** 生成 Key 和 Secret，填进插件的 Demo 选项，并关闭样例数据。Live 栏留空。
+5. 想看图形界面（仪表盘、图表、确认页）：按下方“安装与部署”部署 Worker，把 `/mcp` 地址作为自定义连接器加到 ChatGPT 或 Claude。
+
+样例数据只在内存里，重启后重置；Live 在样例模式下始终关闭，不会连接 Trading 212。
+
 ## 功能
 
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
@@ -27,6 +39,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；Demo 计划可以选择无人值守自动执行
 - Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/PIES.md](./docs/PIES.md)）
 - 价格提醒（持仓或任何能取到外部报价的标的）：高于或低于某价格、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
+- 内置样例账户（`TRADEPILOT_SAMPLE_DATA=true`），不需要 API Key 就能试用全部功能（[docs/TRY_IT.md](./docs/TRY_IT.md)）
 - 未持仓标的的外部报价，数据源可插拔：默认免费的 Stooq，无需注册；也可以填自己的 Finnhub、Twelve Data 或 Alpha Vantage Key。价格提醒、定投和再平衡都能用
 - 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送；还可以每天推一条账户摘要
 - 界面里的“自动化”页：定投计划、价格提醒、联动的止损止盈、今日额度使用和各项设置一目了然

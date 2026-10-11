@@ -15,6 +15,8 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - **Recoverable failures** — ambiguous write outcomes are never retried automatically and can be checked against current broker state.
 - **Portable UI** — responsive inline/fullscreen layouts, an in-flow order workspace that does not depend on fixed iframe overlays, English and Simplified Chinese, with an extensible locale registry.
 
+**Try it first:** turn on sample data to explore every feature on a simulated account with no Trading 212 key, then move to your Demo account. See [docs/TRY_IT.md](./docs/TRY_IT.md).
+
 ## What is included
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
@@ -27,6 +29,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs; Demo plans can optionally run unattended
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
 - price alerts on holdings or any quoted instrument (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
+- a built-in sample account (`TRADEPILOT_SAMPLE_DATA=true`) for trying everything without an API key ([docs/TRY_IT.md](./docs/TRY_IT.md))
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans and rebalancing
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings

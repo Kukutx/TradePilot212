@@ -61,4 +61,4 @@ await server.connect(new StdioServerTransport());
 const tick = () => services.runScheduled().catch((error: unknown) => log("Scheduler tick failed", error));
 setInterval(tick, 60_000).unref();
 void tick();
-log(`ready (writes ${allowWrites ? "enabled" : "disabled"}, state in ${dataDir})`);
+log(`ready (writes ${allowWrites ? "enabled" : "disabled"}${config.sampleData ? ", sample data" : ""}, state in ${dataDir})`);

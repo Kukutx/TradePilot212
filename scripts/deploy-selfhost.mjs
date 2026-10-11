@@ -84,8 +84,9 @@ for (const [label, keyName, secretName] of pairs) {
   }
   if (key && secret) configured += 1;
 }
-if (!configured) {
-  console.error("Configure at least one Trading 212 environment (Demo or Live) in .env.local.");
+const sampleData = /^(1|true|yes|on)$/i.test(process.env.TRADEPILOT_SAMPLE_DATA ?? "");
+if (!configured && !sampleData) {
+  console.error("Configure at least one Trading 212 environment (Demo or Live) in .env.local, or set TRADEPILOT_SAMPLE_DATA=true to deploy with sample data.");
   process.exit(1);
 }
 
@@ -127,7 +128,7 @@ for (const name of [
   "POLICY_ALLOWED_TICKERS", "POLICY_BLOCKED_TICKERS", "POLICY_ALLOWED_TYPES",
   "POLICY_MARKET_ORDERS_WHEN_CLOSED", "POLICY_MAX_REFERENCE_AGE_SECONDS", "AUTOMATION_DEMO_ENABLED", "PROTECTIVE_OCO",
   "NOTIFY_WEBHOOK_URL", "NOTIFY_WEBHOOK_SECRET", "NOTIFY_EVENTS",
-  "QUOTE_PROVIDER", "QUOTE_API_KEY", "QUOTE_SYMBOLS", "DIGEST_HOUR_UTC",
+  "QUOTE_PROVIDER", "QUOTE_API_KEY", "QUOTE_SYMBOLS", "DIGEST_HOUR_UTC", "TRADEPILOT_SAMPLE_DATA",
 ]) if (process.env[name]) secrets[name] = process.env[name];
 for (const [, keyName, secretName] of pairs) {
   if (process.env[keyName] && process.env[secretName]) {

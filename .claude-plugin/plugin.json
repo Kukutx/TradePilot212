@@ -1,7 +1,7 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "description": "Trading 212 portfolio analytics, pies, rebalancing, protective orders, investment plans, price alerts, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",
@@ -17,6 +17,12 @@
     "mcp"
   ],
   "userConfig": {
+    "sample_data": {
+      "type": "boolean",
+      "title": "Try with sample data",
+      "description": "Use a simulated Demo account instead of Trading 212, so you can try every feature without an API key. Live is off and the keys above are ignored while this is on.",
+      "default": false
+    },
     "t212_demo_api_key": {
       "type": "string",
       "title": "Trading 212 Demo API key",

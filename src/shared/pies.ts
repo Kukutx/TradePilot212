@@ -99,6 +99,8 @@ export interface PiesPayload {
   writeEnabled?: boolean;
   pies: PieOverview[];
   totals: { value: number; invested: number; result: number; cash: number };
+  /** Account currency of every amount, when known. */
+  currency?: string;
   notes: string[];
   timestamp: string;
 }

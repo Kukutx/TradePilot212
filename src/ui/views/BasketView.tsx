@@ -43,7 +43,7 @@ function LegHeading({ leg, t, locale }: { leg: BasketLeg; t: Translator; locale:
       <span className="assetAvatar">{legName(leg).slice(0, 2).toUpperCase()}</span>
       <div>
         <strong>{legName(leg)}</strong>
-        <small>{draft.ticker}</small>
+        {legName(leg) !== draft.ticker && <small>{draft.ticker}</small>}
       </div>
       <span className={`sideBadge ${draft.side}`}>{sideLabel(draft, t)} · {num(draft.quantity, locale)}</span>
     </div>
@@ -52,7 +52,7 @@ function LegHeading({ leg, t, locale }: { leg: BasketLeg; t: Translator; locale:
 
 function LegFacts({ leg, trade, currency, t, locale }: { leg: BasketLeg; trade?: RebalanceTrade; currency?: string; t: Translator; locale: SupportedLocale }) {
   const draft = leg.draft;
-  const priceCurrency = leg.instrument?.currencyCode;
+  const priceCurrency = leg.instrument?.currencyCode ?? trade?.currency;
   const price = (value: number) => (priceCurrency ? money(value, priceCurrency, locale) : num(value, locale));
   return (
     <dl className="basketFacts">
@@ -60,16 +60,18 @@ function LegFacts({ leg, trade, currency, t, locale }: { leg: BasketLeg; trade?:
       {draft.limitPrice !== undefined && <div><dt>{t("limitPrice")}</dt><dd>{price(draft.limitPrice)}</dd></div>}
       {draft.stopPrice !== undefined && <div><dt>{t("stopPrice")}</dt><dd>{price(draft.stopPrice)}</dd></div>}
       {draft.referencePrice !== undefined && <div><dt>{t("referencePrice")}</dt><dd>{price(draft.referencePrice)}</dd></div>}
-      {leg.estimatedNotional !== undefined && (
+      {leg.estimatedNotional !== undefined ? (
         <div><dt>{t("estimatedAmount")}</dt><dd>{money(leg.estimatedNotional, leg.estimatedNotionalCurrency ?? priceCurrency ?? currency ?? "EUR", locale)}</dd></div>
-      )}
+      ) : trade && currency ? (
+        <div><dt>{t("estimatedAmount")}</dt><dd>{money(trade.value, currency, locale)}</dd></div>
+      ) : null}
       {trade && (
         <div>
           <dt>{t("weightCurrentToResulting")}</dt>
           <dd>{pct(trade.currentWeight, locale)} → {pct(trade.resultingWeight, locale)} <span className="mutedInline">({t("targetWeight")} {pct(trade.targetWeight, locale)})</span></dd>
         </div>
       )}
-      {leg.reason && <div className="wide"><dt>{t("reason")}</dt><dd>{leg.reason}</dd></div>}
+      {leg.reason && !trade && <div className="wide"><dt>{t("reason")}</dt><dd>{leg.reason}</dd></div>}
     </dl>
   );
 }
@@ -110,6 +112,13 @@ function Notes({ notes, t }: { notes: string[]; t: Translator }) {
       <ul>{notes.map((note, index) => <li key={`${index}-${note}`}>{note}</li>)}</ul>
     </div>
   );
+}
+
+/** Skipped instruments are listed in the rebalance summary, so their copies in the notes are dropped. */
+function withoutSkipped(notes: string[], plan?: RebalancePlan): string[] {
+  if (!plan?.skipped.length) return notes;
+  const skipped = new Set(plan.skipped.map((item) => `${item.ticker}: ${item.reason}`));
+  return notes.filter((note) => !skipped.has(note) && !note.startsWith(`Skipped ${plan.skipped.length} instrument(s)`));
 }
 
 function RebalanceSummary({ plan, t, locale }: { plan: RebalancePlan; t: Translator; locale: SupportedLocale }) {
@@ -189,7 +198,7 @@ export function BasketView({
             ))}
           </ol>
         )}
-        <Notes notes={payload.notes} t={t} />
+        <Notes notes={withoutSkipped(payload.notes, payload.rebalance)} t={t} />
         <p className="basketHint">{legs.length > 1 ? `${t("basketRemoveHint")} ${t("basketOrderNote")}` : t("basketRemoveHint")}</p>
         {!canReview && <div className="notice warning compactNotice">{t("basketReadonlyHint")}</div>}
         <div className="transactionFooter">
@@ -246,7 +255,7 @@ function BasketConfirmation({
             </li>
           ))}
         </ol>
-        <Notes notes={preview.notes} t={t} />
+        <Notes notes={withoutSkipped(preview.notes, rebalance)} t={t} />
         {preview.legs.length > 1 && <p className="basketHint">{t("basketOrderNote")}</p>}
         <div className="expiryLine">{t("snapshotAsOf")} · {dateTime(preview.snapshotAt, locale)} · {t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
         {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}
