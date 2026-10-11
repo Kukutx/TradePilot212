@@ -84,8 +84,9 @@ for (const [label, keyName, secretName] of pairs) {
   }
   if (key && secret) configured += 1;
 }
-if (!configured) {
-  console.error("Configure at least one Trading 212 environment (Demo or Live) in .env.local.");
+const sampleData = /^(1|true|yes|on)$/i.test(process.env.TRADEPILOT_SAMPLE_DATA ?? "");
+if (!configured && !sampleData) {
+  console.error("Configure at least one Trading 212 environment (Demo or Live) in .env.local, or set TRADEPILOT_SAMPLE_DATA=true to deploy with sample data.");
   process.exit(1);
 }
 

@@ -38,4 +38,21 @@ describe("sample data mode", () => {
     expect(after.account!.cash!.availableToTrade!).toBeLessThan(dashboard.account!.cash!.availableToTrade!);
     expect(outside).toEqual([]);
   });
+
+  it("holds cash for a pending buy and releases it on cancel", async () => {
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
+    const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
+    const before = (await services.trading.getDashboard("demo")).account!;
+    const preview = await services.trading.prepareOrder({ environment: "demo", ticker: "MSFT", side: "buy", type: "limit", quantity: 1, limitPrice: 400, timeValidity: "DAY" });
+    expect((await services.trading.executeOrder(preview.token)).status).toBe("submitted");
+    const placed = await services.trading.getDashboard("demo");
+    expect(placed.account!.cash!.availableToTrade).toBeCloseTo(before.cash!.availableToTrade! - 368, 2);
+    expect(placed.account!.totalValue).toBeCloseTo(before.totalValue!, 2);
+    const order = placed.orders.find((item) => item.ticker === "MSFT_US_EQ")!;
+    const cancel = await services.trading.prepareCancel("demo", String(order.id));
+    await services.trading.executeCancel(cancel.token);
+    const cancelled = (await services.trading.getDashboard("demo")).account!;
+    expect(cancelled.cash!.availableToTrade).toBeCloseTo(before.cash!.availableToTrade!, 2);
+    expect(cancelled.totalValue).toBeCloseTo(before.totalValue!, 2);
+  });
 });

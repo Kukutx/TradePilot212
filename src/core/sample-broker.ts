@@ -69,6 +69,8 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   const pending: Json[] = [
     { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
   ];
+  /** Cash held back for a pending buy, in EUR; released when the order is cancelled. */
+  const reservation = (order: Json) => (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0);
   const history: Json[] = [];
   const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0) => {
     const id = nextId++;
@@ -172,7 +174,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const invested = holdings.reduce((sum, item) => sum + position(item).walletImpact.currentValue, 0);
       const cost = holdings.reduce((sum, item) => sum + position(item).walletImpact.totalCost, 0);
       const pieCash = [...pies.values()].reduce((sum, pie) => sum + pie.cash, 0);
-      const reserved = pending.reduce((sum, order) => sum + (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0), 0);
+      const reserved = pending.reduce((sum, order) => sum + reservation(order), 0);
       return json({ id: 21_200_000, currency: "EUR", totalValue: round(invested + cash + pieCash + reserved), cash: { availableToTrade: round(cash), inPies: round(pieCash), reservedForOrders: round(reserved) }, investments: { currentValue: round(invested), totalCost: round(cost), unrealizedProfitLoss: round(invested - cost), realizedProfitLoss: realized } });
     }
     if (method === "GET" && path === "/equity/positions") return json(holdings.map(position));
@@ -215,12 +217,16 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
         if (result.error) return result.error as Response;
         return json({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker)!.price) });
       }
+      const held = reservation(order);
+      if (held > cash) return json({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
+      cash -= held;
       pending.push(order);
       return json(order);
     }
     if (method === "DELETE" && path.startsWith("/equity/orders/")) {
       const index = pending.findIndex((item) => String(item.id) === path.split("/").pop());
       if (index < 0) return json({ code: "OrderNotFound" }, 404);
+      cash += reservation(pending[index]!);
       pending.splice(index, 1);
       return new Response(null, { status: 200 });
     }
