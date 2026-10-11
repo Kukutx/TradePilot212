@@ -15,7 +15,7 @@ import type {
 } from "../shared/history.js";
 import { analyzeAllocation, DEFAULT_ALLOCATION_LIMITS, marketStatus, summarizeIncome, summarizePerformance, type AllocationLimits, type HistoryWindow } from "./analytics.js";
 import type { RuntimeConfig } from "./config.js";
-import { credentialStatus } from "./config.js";
+import { requireCredentials } from "./config.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
 import { Trading212Client, type HistoryKind } from "./trading212-client.js";
@@ -104,7 +104,7 @@ export class InsightsService {
   constructor(private readonly deps: InsightsDeps) {}
 
   private client(environment: TradingEnvironment) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
 

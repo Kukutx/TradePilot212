@@ -111,6 +111,16 @@ export function ErrorCard({ title, message, retryLabel, onRetry, busy }: { title
   );
 }
 
+// The control that last received focus, and when. Captured before React re-renders, so a dialog can
+// still find the button that opened it after that button was replaced.
+const OPENER_WINDOW_MS = 30_000;
+let lastFocus: { element: HTMLElement; at: number } | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (event) => {
+    if (event.target instanceof HTMLElement) lastFocus = { element: event.target, at: Date.now() };
+  }, true);
+}
+
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
 
 /**
@@ -120,7 +130,12 @@ const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), selec
  */
 export function useDialogFocus(panel: RefObject<HTMLElement | null>, heading: RefObject<HTMLElement | null>): void {
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    // The review button that opens a dialog is usually unmounted in the same render, so focus has already
+    // fallen back to the body here. A review button focused shortly before (it carries a data-focus-id)
+    // stands in for it; the wait covers the broker check that runs between the click and the dialog.
+    const recent = lastFocus && Date.now() - lastFocus.at < OPENER_WINDOW_MS && lastFocus.element.hasAttribute("data-focus-id") ? lastFocus.element : null;
+    const opener = active ?? recent;
     const openerId = opener?.getAttribute("data-focus-id") ?? null;
     heading.current?.focus({ preventScroll: false });
 

@@ -15,7 +15,7 @@ import type {
   PiesPayload,
   PieSummary,
 } from "../shared/pies.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
@@ -111,7 +111,7 @@ export class PiesService {
   }
 
   private assertCredentials(environment: TradingEnvironment) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
   }
 
   private async summaries(environment: TradingEnvironment, fresh = false): Promise<PieSummary[]> {

@@ -135,7 +135,9 @@ function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate 
 }
 
 function initialEnvironment(payload: BasePayload | null): TradingEnvironment {
-  if (!payload || payload.kind === "error") return "demo";
+  if (!payload) return "demo";
+  // A missing API key names the environment that was asked for.
+  if (payload.kind === "error") return payload.error.details?.environment === "live" ? "live" : "demo";
   if (payload.kind === "order_draft" || payload.kind === "pie_change_draft") return payload.draft.environment;
   return payload.environment;
 }
@@ -336,7 +338,9 @@ export default function App() {
   }, [error]);
 
   const credentials: CredentialStatus = useMemo(() => {
-    if (!base || base.kind === "error") return { demo: false, live: false };
+    if (!base) return { demo: false, live: false };
+    // A missing API key says which environments are set up, so the setup card can offer the other one.
+    if (base.kind === "error") return { demo: base.error.details?.demo === true, live: base.error.details?.live === true };
     return base.credentials;
   }, [base]);
 

@@ -22,7 +22,7 @@ import type {
 import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, ProtectiveLink, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
 import { BASKET_ORDER_NOTE } from "../shared/automation.js";
 import type { MarketStatus } from "../shared/history.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import { crossRate, knownFxRates, toAccountCurrency, type FxRates } from "./fx.js";
 import { planRebalance, type RebalanceOptions } from "./rebalance.js";
@@ -893,7 +893,7 @@ export class TradingService {
 
   /** Compute (but never send) the trades that move the account toward target weights. */
   async planRebalance(environment: TradingEnvironment, targets: RebalanceTarget[], options: RebalanceOptions = {}): Promise<RebalancePlan> {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     const snapshot = await this.snapshot(environment);
     const resolved: RebalanceTarget[] = [];
     for (const target of targets) {
@@ -954,7 +954,7 @@ export class TradingService {
    */
   async protectiveBasket(environment: TradingEnvironment, instrumentQuery: string, input: { stopLossPrice?: number; takeProfitPrice?: number; quantity?: number }): Promise<Omit<BasketDraftPayload, "credentials" | "writeEnabled">> {
     if (input.stopLossPrice === undefined && input.takeProfitPrice === undefined) fail("INVALID_INPUT", "Give a stopLossPrice, a takeProfitPrice, or both");
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     const snapshot = await this.snapshot(environment);
     const instrument = resolveInstrumentFromList(snapshot.instruments, instrumentQuery);
     const position = this.positionFor(snapshot.positions, instrument.ticker);
@@ -1046,7 +1046,7 @@ export class TradingService {
 
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
   async prepareBasket(request: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
-    if (!credentialStatus(this.deps.config)[request.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${request.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
     const snapshotAt = new Date().toISOString();

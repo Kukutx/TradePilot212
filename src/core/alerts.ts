@@ -5,7 +5,7 @@
 
 import type { Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AlertCondition, AlertReport, PriceAlert } from "../shared/automation.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
@@ -64,7 +64,7 @@ export class PriceAlerts {
   }
 
   async create(input: AlertInput, now = new Date()): Promise<PriceAlert> {
-    if (!credentialStatus(this.deps.config)[input.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, input.environment);
     if ((await this.list()).length >= MAX_ALERTS) fail("INVALID_INPUT", `At most ${MAX_ALERTS} alerts can be stored`);
     const byPrice = input.condition === "above" || input.condition === "below";
     if (byPrice && !(input.price! > 0)) fail("INVALID_INPUT", `A ${input.condition} alert needs a positive price`, { field: "price" });

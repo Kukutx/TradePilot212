@@ -96,6 +96,8 @@ export function bookFromPayload(payload: unknown): InstrumentBook {
     const embedded = order.instrument as { name?: string; currencyCode?: string; currency?: string } | undefined;
     add(book, order.ticker, { name: embedded?.name ?? "", currency: embedded?.currencyCode ?? embedded?.currency ?? "" });
   }
+  // Pages that list only tickers (automation) send the instruments they name alongside.
+  for (const instrument of list("instruments")) add(book, instrument.ticker, fromInstrument(instrument as Partial<Instrument>));
   const resolved = value.resolvedInstrument as Partial<Instrument> | undefined;
   add(book, resolved?.ticker, fromInstrument(resolved));
   return book;

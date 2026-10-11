@@ -2,7 +2,7 @@ import { PriceAlerts } from "../core/alerts.js";
 import { AutomationService } from "../core/automation.js";
 import { credentialStatus, type RuntimeConfig } from "../core/config.js";
 import type { AutomationOverview } from "../shared/automation.js";
-import type { TradingEnvironment } from "../shared/contracts.js";
+import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import { InsightsService } from "../core/insights-service.js";
 import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
@@ -66,25 +66,40 @@ export function createServices(input: ServiceDependencies) {
   // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
   let running: ReturnType<typeof tick> | undefined;
   const runScheduled = () => (running ??= tick().finally(() => { running = undefined; }));
+  // The instruments the automation page names, so it can show their names and price alerts in their currency.
+  const namedInstruments = async (environment: TradingEnvironment, tickers: string[]): Promise<NonNullable<AutomationOverview["instruments"]>> => {
+    const wanted = new Set(tickers);
+    if (!wanted.size) return [];
+    const all = await trading.instruments(environment).catch(() => [] as Instrument[]);
+    return all.filter((instrument) => wanted.has(instrument.ticker))
+      .map(({ ticker, name, shortName, currencyCode, type }) => ({ ticker, ...(name ? { name } : {}), ...(shortName ? { shortName } : {}), ...(currencyCode ? { currencyCode } : {}), ...(type ? { type } : {}) }));
+  };
   /** Plans, alerts, linked pairs, today's usage and the automation settings for one environment. */
-  const automationOverview = async (environment: TradingEnvironment): Promise<AutomationOverview> => ({
-    kind: "automation",
-    environment,
-    credentials: credentialStatus(deps.config),
-    plans: await automation.listPlans(environment),
-    alerts: await alerts.list(environment),
-    links: (await links.list()).filter((link) => link.environment === environment),
-    usageToday: await trading.usageToday(environment),
-    ...await trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {})),
-    policy: deps.config.policy[environment],
-    settings: {
-      demoAutomation: deps.config.demoAutomationEnabled,
-      protectiveLinking: deps.config.protectiveLinking,
-      webhook: !!deps.config.notifyWebhookUrl,
-      digestHourUtc: deps.config.digestHourUtc ?? null,
-      quoteProvider: deps.config.quoteProvider,
-    },
-    timestamp: new Date().toISOString(),
-  });
+  const automationOverview = async (environment: TradingEnvironment): Promise<AutomationOverview> => {
+    const plans = await automation.listPlans(environment);
+    const priceAlerts = await alerts.list(environment);
+    const pairs = (await links.list()).filter((link) => link.environment === environment);
+    const instruments = await namedInstruments(environment, [...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)), ...priceAlerts.map((alert) => alert.ticker), ...pairs.map((link) => link.ticker)]);
+    return {
+      kind: "automation",
+      environment,
+      credentials: credentialStatus(deps.config),
+      plans,
+      alerts: priceAlerts,
+      links: pairs,
+      ...(instruments.length ? { instruments } : {}),
+      usageToday: await trading.usageToday(environment),
+      ...await trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {})),
+      policy: deps.config.policy[environment],
+      settings: {
+        demoAutomation: deps.config.demoAutomationEnabled,
+        protectiveLinking: deps.config.protectiveLinking,
+        webhook: !!deps.config.notifyWebhookUrl,
+        digestHourUtc: deps.config.digestHourUtc ?? null,
+        quoteProvider: deps.config.quoteProvider,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  };
   return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
 }

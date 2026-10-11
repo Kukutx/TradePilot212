@@ -56,9 +56,8 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
 export function AllocationView({ data, book, locale, t }: { data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
   const currency = data.accountCurrency || "EUR";
   const tableProps = { labels: chartLabels(t), valueHeader: t("weightColumn") };
-  // Every share on this page is of the total account value, cash included, so the parts add up to 100%.
-  const largest = data.holdings[0]?.weight ?? 0;
-  const top5 = data.holdings.slice(0, 5).reduce((sum, item) => sum + item.weight, 0);
+  // The bars are shares of the total account value, cash included, so the parts add up to 100%.
+  // Concentration is measured on invested value, as the checks below are, so a large cash balance does not hide it.
   const byType = [...data.byType, ...(data.cash > 0 ? [{ type: "CASH", value: data.cash, weight: data.cashWeight }] : [])].sort((a, b) => b.weight - a.weight);
   return (
     <main className="contentStack">
@@ -71,8 +70,8 @@ export function AllocationView({ data, book, locale, t }: { data: AllocationAnal
         </div>
         <div className="metricGrid">
           <Metric label={t("cashShare")} value={pct(data.cashWeight, locale)} />
-          <Metric label={t("largestHolding")} value={pct(largest, locale)} />
-          <Metric label={t("top5Share")} value={pct(top5, locale)} />
+          <Metric label={t("largestHolding")} value={pct(data.concentration.largestWeight, locale)} />
+          <Metric label={t("top5Share")} value={pct(data.concentration.top5Weight, locale)} />
           <Metric label={t("effectiveHoldings")} value={new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: 1 }).format(data.concentration.effectiveHoldings)} />
         </div>
       </section>
