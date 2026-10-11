@@ -37643,7 +37643,7 @@ function planLine(plan) {
 function alertLine(alert, instrument) {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
   const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
-  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}${unit}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
 }
 function linkLine(link) {
   return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;

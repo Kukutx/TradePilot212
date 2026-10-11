@@ -283,7 +283,7 @@ function planLine(plan: DcaPlan): string {
 function alertLine(alert: PriceAlert, instrument?: { name?: string; currencyCode?: string }): string {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
   const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num(alert.percent)}%`;
-  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` — ${alert.note}` : ""}`;
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}${unit}` : ", armed"}${alert.note ? ` — ${alert.note}` : ""}`;
 }
 
 function linkLine(link: ProtectiveLink): string {
