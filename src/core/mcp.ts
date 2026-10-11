@@ -925,29 +925,6 @@ export function createMcpServer(
         }
       },
     );
-
-    registerAppTool(
-      server,
-      "review_order_cancel",
-      {
-        title: "Review an Order Cancellation",
-        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
-        inputSchema: z.object({ environment: environmentWithDefault, orderId: z.string().min(1).max(24) }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-        _meta: { ui: { resourceUri: WIDGET_URI } },
-      },
-      async ({ environment, orderId }) => {
-        try {
-          const order = await trading.openOrder(environment, orderId);
-          return result(
-            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...(order ? { order } : {}), credentials: credentialStatus(config), writeEnabled: true },
-            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`,
-          );
-        } catch (error) {
-          return toolError(error);
-        }
-      },
-    );
   }
 
   // App-only tools: hidden from the model. The widget invokes these only after explicit user actions.

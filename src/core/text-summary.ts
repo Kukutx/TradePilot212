@@ -61,7 +61,8 @@ function orderLine(order: PendingOrder): string {
   const size = order.strategy === "VALUE" && value !== undefined ? `value ${num(Math.abs(value))}${currency} of` : num(Math.abs(quantity), 8);
   const prices = [order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`, order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`].join("");
   const validity = order.timeInForce ?? order.timeValidity;
-  const filled = typeof order.filledQuantity === "number" && order.filledQuantity > 0 ? `, filled ${num(Math.abs(order.filledQuantity), 8)}` : "";
+  // Sells report negative quantities, filled ones included.
+  const filled = typeof order.filledQuantity === "number" && order.filledQuantity !== 0 ? `, filled ${num(Math.abs(order.filledQuantity), 8)}` : "";
   return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 
@@ -377,11 +378,6 @@ export function describePayload(data: unknown): string {
     case "order_preview": lines = orderPreview(payload as unknown as OrderPreview); break;
     case "order_execution": lines = orderExecution(payload as unknown as OrderExecutionResult); break;
     case "cancel_preview": lines = cancelPreview(payload as unknown as CancelPreview); break;
-    case "cancel_draft": {
-      const draft = payload as { environment: TradingEnvironment; orderId: string; order?: PendingOrder; credentials?: CredentialStatus };
-      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
-      break;
-    }
     case "order_status": lines = orderStatus(payload as unknown as OrderStatusReport); break;
     case "cash_history": lines = cashHistory(payload as unknown as Parameters<typeof cashHistory>[0]); break;
     case "execution_verification": {

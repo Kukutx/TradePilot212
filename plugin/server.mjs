@@ -35322,7 +35322,7 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
     fail("INSUFFICIENT_SELLABLE_QUANTITY", `Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`, { requested: draft.quantity, available: position?.quantityAvailableForTrading ?? 0 });
   const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value) => value !== void 0 && value > 0);
-  const price = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? Math.max(draft.stopPrice, ...marketPrices) : marketPrices.length ? Math.max(...marketPrices) : void 0;
+  const price = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.side === "buy" ? Math.max(draft.stopPrice, ...marketPrices) : draft.stopPrice : marketPrices.length ? Math.max(...marketPrices) : void 0;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : void 0;
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const instrumentCurrency = instrument.currencyCode.toUpperCase();
@@ -36253,7 +36253,7 @@ var TradingService = class {
     const status = String(order.status ?? "").toUpperCase();
     const filled = Math.max(Math.abs(Number(order.filledQuantity ?? 0)), fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0));
     const quantity = Math.abs(Number(order.quantity ?? 0));
-    const state = /REJECT/.test(status) ? "rejected" : filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled" : filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL/.test(status) ? "filled" : /CANCEL|EXPIRE/.test(status) ? "cancelled" : "closed";
+    const state = filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled" : filled > 0 || /FILLED/.test(status) && !/UNFILLED|PARTIAL|REJECT/.test(status) ? "filled" : /REJECT/.test(status) ? "rejected" : /CANCEL|EXPIRE/.test(status) ? "cancelled" : "closed";
     return { kind: "order_status", environment, orderId: id, state, order, fills, timestamp };
   }
   /** Cancel the surviving order of a protective pair. One request per call; the caller decides on retries. */
@@ -37127,7 +37127,7 @@ var AutomationService = class {
       }
       let marked = false;
       try {
-        const basket = await this.buildBasket(plan, now);
+        const basket = await this.buildBasket(latest, now);
         if (!basket.drafts.length) {
           await this.skip(plan, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
           reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
@@ -37138,6 +37138,7 @@ var AutomationService = class {
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
         const current = await this.deps.store.get(planKey(plan.id));
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || !current.autoExecute) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
@@ -37457,7 +37458,7 @@ function orderLine(order) {
   const size = order.strategy === "VALUE" && value !== void 0 ? `value ${num2(Math.abs(value))}${currency} of` : num2(Math.abs(quantity), 8);
   const prices = [order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`, order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`].join("");
   const validity = order.timeInForce ?? order.timeValidity;
-  const filled = typeof order.filledQuantity === "number" && order.filledQuantity > 0 ? `, filled ${num2(Math.abs(order.filledQuantity), 8)}` : "";
+  const filled = typeof order.filledQuantity === "number" && order.filledQuantity !== 0 ? `, filled ${num2(Math.abs(order.filledQuantity), 8)}` : "";
   return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 function positionLine(position) {
@@ -37735,11 +37736,6 @@ function describePayload(data) {
     case "cancel_preview":
       lines = cancelPreview(payload);
       break;
-    case "cancel_draft": {
-      const draft = payload;
-      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
-      break;
-    }
     case "order_status":
       lines = orderStatus(payload);
       break;
@@ -38631,28 +38627,6 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
           return result(
             { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config3), writeEnabled: true },
             `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
-          );
-        } catch (error62) {
-          return toolError(error62);
-        }
-      }
-    );
-    j(
-      server2,
-      "review_order_cancel",
-      {
-        title: "Review an Order Cancellation",
-        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
-        inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
-        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-        _meta: { ui: { resourceUri: WIDGET_URI } }
-      },
-      async ({ environment, orderId }) => {
-        try {
-          const order = await trading.openOrder(environment, orderId);
-          return result(
-            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...order ? { order } : {}, credentials: credentialStatus(config3), writeEnabled: true },
-            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`
           );
         } catch (error62) {
           return toolError(error62);

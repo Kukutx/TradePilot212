@@ -21,7 +21,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
 - performance, dividend/interest income, trading costs, trade history (including cancelled and rejected orders), itemised dividends and cash movements, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
-- order follow-up from the chat: one order's status and fills, and a cancellation opened in the widget for you to confirm
+- order follow-up from the chat: one order's status and fills
 - market-hours awareness, including a warning when a Market order would queue until the next open
 - a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result

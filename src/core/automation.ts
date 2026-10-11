@@ -322,7 +322,8 @@ export class AutomationService {
       }
       let marked = false;
       try {
-        const basket = await this.buildBasket(plan, now);
+        // Built from the plan as read under the lock, and sent only if it has not changed since.
+        const basket = await this.buildBasket(latest, now);
         if (!basket.drafts.length) {
           await this.skip(plan, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
           reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
@@ -338,6 +339,8 @@ export class AutomationService {
         // Read once more, so a change made while the basket was being priced is kept and respected.
         const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        // Legs edited while the basket was being priced: the next run lock window rebuilds it.
+        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || !current.autoExecute) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);

@@ -269,6 +269,20 @@ describe("standing plans", () => {
     expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
   });
 
+  it("does not send a basket priced before the plan's legs were changed", async () => {
+    const { automation, trading, store, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    const prepare = trading.prepareBasket.bind(trading);
+    trading.prepareBasket = async (...args) => {
+      const current = (await automation.getPlan(plan.id));
+      await store.put(`plan:${plan.id}`, { ...current, legs: [{ ticker: "EQQQ_EQ", amount: 100 }] });
+      return prepare(...args);
+    };
+    expect(await automation.runDuePlans(new Date(Date.parse(plan.nextRunAt) + 60_000))).toEqual([]);
+    expect(writes).toHaveLength(0);
+    expect((await automation.getPlan(plan.id))).toMatchObject({ nextRunAt: plan.nextRunAt, legs: [{ ticker: "EQQQ_EQ" }] });
+  });
+
   it("keeps an unattended Market leg due while the market hours cannot be read", async () => {
     const { automation, insights, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
     insights.tryMarketStatus = async () => undefined;

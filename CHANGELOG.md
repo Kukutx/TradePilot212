@@ -20,7 +20,6 @@ Protective orders and plans
 New tools
 - `get_order_status`: one order by id, open or how it ended, with its fills.
 - `get_cash_history`: dividends, deposits, withdrawals, interest and fees one by one, with totals per type.
-- `review_order_cancel`: opens a pending order's cancellation in the widget for you to confirm.
 - `get_trade_history` filters by ticker at Trading 212, so older trades of one instrument are found, and lists cancelled, rejected and expired orders with `includeUnfilled`.
 - Instruments can be named by ISIN; one listed on several exchanges returns its listings to choose from.
 

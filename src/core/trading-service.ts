@@ -239,13 +239,14 @@ export function validateOrderAgainstSnapshot(
 
   // A Market order's referencePrice comes from the caller, so it must not be able to talk the
   // notional cap down: when the broker reports a current price, the higher of the two is used.
-  // A Stop order fills at the market once triggered, and at once when the stop is already passed,
-  // so it is valued at the higher of its stop and those prices.
+  // A Stop buy fills at the market once triggered, and at once when the stop is already passed, so it
+  // is valued at the higher of its stop and those prices. A Stop sell keeps its stop price, so its
+  // proceeds are not overstated when they fund later buys in a basket.
   const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value): value is number => value !== undefined && value > 0);
   const price = draft.type === "limit" || draft.type === "stop_limit"
     ? draft.limitPrice
     : draft.type === "stop"
-      ? Math.max(draft.stopPrice!, ...marketPrices)
+      ? draft.side === "buy" ? Math.max(draft.stopPrice!, ...marketPrices) : draft.stopPrice
       : marketPrices.length ? Math.max(...marketPrices) : undefined;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : undefined;
   const accountCurrency = (account.currency ?? "").toUpperCase();
@@ -1278,9 +1279,10 @@ export class TradingService {
     const status = String(order.status ?? "").toUpperCase();
     const filled = Math.max(Math.abs(Number(order.filledQuantity ?? 0)), fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0));
     const quantity = Math.abs(Number(order.quantity ?? 0));
-    const state: OrderStatusReport["state"] = /REJECT/.test(status) ? "rejected"
-      : filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled"
-      : filled > 0 || (/FILLED/.test(status) && !/UNFILLED|PARTIAL/.test(status)) ? "filled"
+    // Fills come first: a broker can reject or cancel only the unfilled remainder of an order.
+    const state: OrderStatusReport["state"] = filled > 0 && quantity > 0 && filled < quantity * (1 - 1e-6) ? "partly_filled"
+      : filled > 0 || (/FILLED/.test(status) && !/UNFILLED|PARTIAL|REJECT/.test(status)) ? "filled"
+      : /REJECT/.test(status) ? "rejected"
       : /CANCEL|EXPIRE/.test(status) ? "cancelled"
       : "closed";
     return { kind: "order_status", environment, orderId: id, state, order, fills, timestamp };
