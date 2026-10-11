@@ -39,6 +39,10 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 - Baskets are confirmed once with a one-time token; an uncertain leg stops the remaining legs.
 - Live orders and baskets need a second, explicit acknowledgement that real money is used; the server rejects a Live execution without it and keeps the token unused.
 - Linked stop-loss / take-profit pairs: after one half fills, the scheduler cancels the other. This cancellation is the only unattended Live write, it is sent once and never retried, and `PROTECTIVE_OCO=false` disables it.
+- Pie changes (create, update, duplicate, delete) use the same one-time token and, on Live, the same second confirmation as orders. Reads are cached for 30 to 60 seconds.
+- External quotes (`QUOTE_PROVIDER`) send the symbols you ask about to that provider. `QUOTE_API_KEY` stays on the server. An external price only sizes orders; review, policy and Live confirmation are unchanged.
+- Price alerts only read positions and write activity events. They never place or cancel orders.
+- `NOTIFY_WEBHOOK_URL` sends tickers, quantities, prices and outcomes to the endpoint you choose, over HTTPS only. Set `NOTIFY_WEBHOOK_SECRET` so the receiver can check the `X-TradePilot-Signature` header. Delivery is best effort and never retried.
 - Unattended execution exists only for Demo investment plans, only with `AUTOMATION_DEMO_ENABLED=true`, and goes through the same validation and policy. Live plans cannot be marked for unattended runs; this is enforced in code.
 
 These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.

@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round3 = 0;
+    let round4 = 0;
     while (true) {
-      round3 += 1;
-      if (round3 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round4 += 1;
+      if (round4 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34161,8 +34161,102 @@ var StdioServerTransport = class {
 // src/adapters/stdio/index.ts
 var import_dotenv = __toESM(require_main(), 1);
 
+// src/core/quotes.ts
+var QUOTE_PROVIDERS = ["stooq", "finnhub", "twelvedata", "alphavantage", "none"];
+var CACHE_MS = 6e4;
+function usSymbol(ticker) {
+  const match = /^([A-Z0-9.]+)_US_EQ$/.exec(ticker);
+  return match?.[1];
+}
+function parseSymbolMap(raw) {
+  const map2 = /* @__PURE__ */ new Map();
+  for (const entry of raw.split(/[\s,]+/).filter(Boolean)) {
+    const [ticker, symbol2] = entry.split("=");
+    if (!ticker || !symbol2) throw new Error(`QUOTE_SYMBOLS entry "${entry}" must look like TICKER=SYMBOL`);
+    map2.set(ticker.trim().toUpperCase(), symbol2.trim());
+  }
+  return map2;
+}
+var positive = (value) => {
+  const number4 = typeof value === "string" ? Number(value) : value;
+  return typeof number4 === "number" && Number.isFinite(number4) && number4 > 0 ? number4 : void 0;
+};
+async function getJson(fetcher, url2) {
+  const response = await fetcher(url2, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8e3) });
+  if (!response.ok) throw new Error(`Quote provider returned ${response.status}`);
+  return response.json();
+}
+function providerFetcher(name, key, fetcher) {
+  switch (name) {
+    case "stooq":
+      return async (symbol2) => {
+        const response = await fetcher(`https://stooq.com/q/l/?s=${encodeURIComponent(symbol2.toLowerCase())}&f=sd2t2c&h&e=csv`, { signal: AbortSignal.timeout(8e3) });
+        if (!response.ok) throw new Error(`Stooq returned ${response.status}`);
+        const [, row] = (await response.text()).trim().split(/\r?\n/);
+        const [, date5, time3, close] = (row ?? "").split(",");
+        const price = positive(close);
+        if (!price) return void 0;
+        const asOf = date5 && /^\d{4}-\d{2}-\d{2}$/.test(date5) ? `${date5}T${time3 && /^\d{2}:\d{2}:\d{2}$/.test(time3) ? time3 : "00:00:00"}Z` : void 0;
+        return { price, ...asOf ? { asOf } : {} };
+      };
+    case "finnhub":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol2)}&token=${encodeURIComponent(key)}`);
+        const price = positive(body.c);
+        return price ? { price, ...body.t ? { asOf: new Date(body.t * 1e3).toISOString() } : {} } : void 0;
+      };
+    case "twelvedata":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol2)}&apikey=${encodeURIComponent(key)}`);
+        const price = positive(body.price);
+        return price ? { price } : void 0;
+      };
+    case "alphavantage":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol2)}&apikey=${encodeURIComponent(key)}`);
+        const quote = body["Global Quote"] ?? {};
+        const price = positive(quote["05. price"]);
+        const day = quote["07. latest trading day"];
+        return price ? { price, ...day ? { asOf: `${day}T00:00:00Z` } : {} } : void 0;
+      };
+  }
+}
+function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
+  const name = config3.quoteProvider;
+  if (name === "none") return void 0;
+  if (name !== "stooq" && !config3.quoteApiKey) return void 0;
+  const fetchQuote = providerFetcher(name, config3.quoteApiKey, fetcher);
+  const cache = /* @__PURE__ */ new Map();
+  const symbolFor = (instrument) => {
+    const mapped = config3.quoteSymbols.get(instrument.ticker.toUpperCase());
+    if (mapped) return mapped;
+    const us = usSymbol(instrument.ticker);
+    if (!us) return void 0;
+    return name === "stooq" ? `${us}.US` : us;
+  };
+  return {
+    name,
+    symbolFor,
+    async quote(instrument) {
+      const symbol2 = symbolFor(instrument);
+      if (!symbol2) return void 0;
+      const cached2 = cache.get(symbol2);
+      if (cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
+      let quote;
+      try {
+        const result2 = await fetchQuote(symbol2);
+        if (result2) quote = { ticker: instrument.ticker, symbol: symbol2, price: result2.price, asOf: result2.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), source: name };
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+      cache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, quote });
+      return quote;
+    }
+  };
+}
+
 // src/core/config.ts
-function positive(env, name, fallback) {
+function positive2(env, name, fallback) {
   const raw = env[name];
   if (!raw) return fallback;
   const value = Number(raw);
@@ -34211,21 +34305,41 @@ function createPolicy(env) {
     live: applyTo === "live" || applyTo === "both" ? configured : relaxed
   };
 }
+function webhookUrl(env) {
+  const raw = (env.NOTIFY_WEBHOOK_URL ?? "").trim();
+  if (!raw) return "";
+  const url2 = new URL(raw);
+  const local = ["localhost", "127.0.0.1", "::1"].includes(url2.hostname);
+  if (url2.protocol !== "https:" && !(local && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
+  return url2.toString();
+}
+function quoteProvider(env) {
+  const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
+  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
+  return value;
+}
 function createConfig(env, requestOrigin) {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
+  const policy = createPolicy(env);
   return {
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
     signingSecret: env.AUTH_SIGNING_SECRET ?? "",
-    accessTokenTtlSeconds: Math.floor(positive(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
-    refreshTokenTtlSeconds: Math.floor(positive(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
-    confirmationTtlSeconds: Math.floor(positive(env, "CONFIRMATION_TTL_SECONDS", 90)),
+    accessTokenTtlSeconds: Math.floor(positive2(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
+    refreshTokenTtlSeconds: Math.floor(positive2(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
+    confirmationTtlSeconds: Math.floor(positive2(env, "CONFIRMATION_TTL_SECONDS", 90)),
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5e3),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 1e5),
     defaultTradingEnvironment: tradingEnvironment(env),
-    policy: createPolicy(env),
+    policy,
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
+    notifyWebhookUrl: webhookUrl(env),
+    notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
+    notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: quoteProvider(env),
+    quoteApiKey: env.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
@@ -34637,6 +34751,25 @@ var Trading212Client = class {
   requestExport(body) {
     return this.request("POST", "/equity/history/exports", body);
   }
+  // Pies. Trading 212 marks these endpoints deprecated but still serves them; they need the pies scopes.
+  async getPies() {
+    return unwrapArray(await this.request("GET", "/equity/pies"));
+  }
+  getPie(id) {
+    return this.request("GET", `/equity/pies/${id}`);
+  }
+  createPie(body) {
+    return this.request("POST", "/equity/pies", body);
+  }
+  updatePie(id, body) {
+    return this.request("POST", `/equity/pies/${id}`, body);
+  }
+  deletePie(id) {
+    return this.request("DELETE", `/equity/pies/${id}`);
+  }
+  duplicatePie(id, body) {
+    return this.request("POST", `/equity/pies/${id}/duplicate`, body);
+  }
 };
 
 // src/core/web-utils.ts
@@ -34776,6 +34909,27 @@ var TradingService = class {
     this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
     return instruments;
   }
+  /** External quote for an instrument that is not held, when a provider is configured and can map it. */
+  externalQuote(instrument) {
+    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
+  }
+  /** Best available price: the broker's position price when held, else the external quote. */
+  async lookupPrice(environment, query) {
+    const instrument = resolveInstrumentFromList(await this.instruments(environment), query);
+    const position = this.positionFor(await this.positions(environment), instrument.ticker);
+    if (position?.currentPrice) return { instrument, price: position.currentPrice, asOf: (/* @__PURE__ */ new Date()).toISOString(), source: "broker" };
+    const quote = await this.externalQuote(instrument);
+    if (quote) return { instrument, price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol };
+    const provider = this.deps.quotes;
+    return {
+      instrument,
+      message: !provider ? "Not held, and no quote provider is configured (QUOTE_PROVIDER / QUOTE_API_KEY)." : provider.symbolFor(instrument) ? `Not held, and ${provider.name} returned no price for ${provider.symbolFor(instrument)}.` : `Not held, and ${instrument.ticker} has no ${provider.name} symbol. Add it to QUOTE_SYMBOLS.`
+    };
+  }
+  /** Current positions only, for the scheduler's price checks. */
+  positions(environment) {
+    return this.client(environment).getPositions();
+  }
   positionFor(positions, ticker) {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
@@ -34797,6 +34951,7 @@ var TradingService = class {
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error62 instanceof Error ? error62.message : String(error62) }));
     }
+    await this.deps.notify?.(event);
     return event;
   }
   async getActivity(environment, limit = 12) {
@@ -35124,7 +35279,13 @@ var TradingService = class {
   async planRebalance(environment, targets, options = {}) {
     if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
     const snapshot = await this.snapshot(environment);
-    const resolved = targets.map((target) => ({ ...target, ticker: resolveInstrumentFromList(snapshot.instruments, target.ticker).ticker }));
+    const resolved = [];
+    for (const target of targets) {
+      const instrument = resolveInstrumentFromList(snapshot.instruments, target.ticker);
+      const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
+      const quote = !held && target.referencePrice === void 0 ? await this.externalQuote(instrument) : void 0;
+      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price } : {} });
+    }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
@@ -35857,6 +36018,12 @@ var RUN_LOCK_MS = 10 * 6e4;
 var DAY_MS = 864e5;
 var planKey = (id) => `plan:${id}`;
 var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
+var DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
+var MAX_LIMIT_OFFSET_PERCENT = 10;
+function planLimitPrice(price, offsetPercent) {
+  const digits = price >= 1 ? 2 : 4;
+  return Math.round(price * (1 + offsetPercent / 100) * 10 ** digits) / 10 ** digits;
+}
 function nextRunAt(plan, after) {
   if (plan.frequency === "monthly") {
     const day = plan.dayOfMonth ?? 1;
@@ -35901,7 +36068,12 @@ var AutomationService = class {
     const instruments = await this.deps.trading.instruments(environment);
     return legs.map((leg) => {
       if (!Number.isFinite(leg.amount) || leg.amount <= 0) fail("INVALID_INPUT", "Each plan leg needs a positive amount", { field: "amount" });
-      return { ticker: resolveInstrumentFromList(instruments, leg.ticker).ticker, amount: leg.amount };
+      const ticker = resolveInstrumentFromList(instruments, leg.ticker).ticker;
+      if (leg.orderType !== "limit") return { ticker, amount: leg.amount };
+      const offset = leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT;
+      if (!Number.isFinite(offset) || offset < 0 || offset > MAX_LIMIT_OFFSET_PERCENT)
+        fail("INVALID_INPUT", `limitOffsetPercent must be between 0 and ${MAX_LIMIT_OFFSET_PERCENT}`, { field: "limitOffsetPercent" });
+      return { ticker, amount: leg.amount, orderType: "limit", limitOffsetPercent: offset };
     });
   }
   async createPlan(input2, now = /* @__PURE__ */ new Date()) {
@@ -35946,7 +36118,8 @@ var AutomationService = class {
     await this.deps.store.delete(planKey(id));
   }
   /**
-   * Turn a plan into Market buy orders sized from the broker's last position price.
+   * Turn a plan into buy orders sized from the broker's last position price: Market orders, or Day
+   * Limit orders capped at the last price plus an offset so a gap cannot fill them higher.
    * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
    */
   async buildBasket(plan, now = /* @__PURE__ */ new Date()) {
@@ -35954,22 +36127,32 @@ var AutomationService = class {
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const drafts = [];
     const skipped = [];
+    const instruments = await this.deps.trading.instruments(plan.environment);
     for (const leg of plan.legs) {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      if (!position?.currentPrice) {
-        skipped.push(`${leg.ticker}: no broker price because it is not held yet; buy it once manually.`);
+      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      if (!instrument) {
+        skipped.push(`${leg.ticker}: no longer listed by Trading 212.`);
         continue;
       }
-      if (!accountCurrency || position.instrument.currencyCode.toUpperCase() !== accountCurrency) {
-        skipped.push(`${leg.ticker}: quoted in ${position.instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+      const quote = position?.currentPrice ? void 0 : await this.deps.trading.externalQuote(instrument);
+      const price = position?.currentPrice || quote?.price;
+      if (!price) {
+        skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`);
         continue;
       }
-      const quantity = floorTo2(leg.amount / position.currentPrice, 4);
+      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) {
+        skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+        continue;
+      }
+      const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : void 0;
+      const quantity = floorTo2(leg.amount / (limitPrice ?? price), 4);
       if (quantity <= 0) {
         skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`);
         continue;
       }
-      drafts.push({ environment: plan.environment, ticker: position.instrument.ticker, side: "buy", type: "market", quantity, referencePrice: position.currentPrice, referencePriceAt: now.toISOString() });
+      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy", quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
+      drafts.push(limitPrice === void 0 ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
       environment: plan.environment,
@@ -35977,7 +36160,7 @@ var AutomationService = class {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
       skipped
     };
   }
@@ -35989,7 +36172,7 @@ var AutomationService = class {
       environment: plan.environment,
       purpose: "dca",
       title: plan.label,
-      legs: basket.drafts.map((draft) => ({ draft, reason: `Plan "${plan.label}"` })),
+      legs: basket.drafts.map((draft) => ({ draft, reason: draft.type === "limit" ? `Plan "${plan.label}", limit ${draft.limitPrice}` : `Plan "${plan.label}"` })),
       notes: basket.notes ?? [],
       planId: plan.id
     };
@@ -36057,11 +36240,245 @@ var AutomationService = class {
   }
 };
 
+// src/core/pies.ts
+var MAX_PIE_INSTRUMENTS = 50;
+var DEFAULT_PIE_DETAILS = 10;
+var LIST_CACHE_MS = 3e4;
+var DETAIL_CACHE_MS = 6e4;
+var SHARE_DIGITS = 4;
+var round3 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var num = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+function normaliseShares(shares) {
+  const entries = Object.entries(shares);
+  if (!entries.length || entries.length > MAX_PIE_INSTRUMENTS) fail("INVALID_INPUT", `A pie needs 1 to ${MAX_PIE_INSTRUMENTS} instruments`, { field: "instrumentShares" });
+  for (const [ticker, share2] of entries)
+    if (!Number.isFinite(share2) || share2 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
+  const total = entries.reduce((sum, [, share2]) => sum + share2, 0);
+  const scaled = entries.map(([ticker, share2]) => [ticker, round3(share2 / total, SHARE_DIGITS)]);
+  const remainder = round3(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
+  const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
+  const result2 = Object.fromEntries(scaled);
+  result2[scaled[largest][0]] = round3(scaled[largest][1] + remainder, SHARE_DIGITS);
+  for (const [ticker, share2] of Object.entries(result2))
+    if (share2 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
+  return result2;
+}
+function pieOverview(summary, detail, id) {
+  const result2 = summary?.result ?? {};
+  const invested = num(result2.priceAvgInvestedValue);
+  const value = num(result2.priceAvgValue);
+  const instruments = detail?.instruments?.map((item) => {
+    const targetShare = num(item.expectedShare);
+    const currentShare = num(item.currentShare);
+    return {
+      ticker: item.ticker,
+      targetShare,
+      currentShare,
+      driftShare: round3(currentShare - targetShare, 4),
+      ownedQuantity: num(item.ownedQuantity),
+      ...item.result?.priceAvgValue === void 0 ? {} : { value: item.result.priceAvgValue },
+      ...item.result?.priceAvgResult === void 0 ? {} : { result: item.result.priceAvgResult },
+      issues: item.issues ?? []
+    };
+  });
+  const settings = detail?.settings;
+  return {
+    id,
+    name: settings?.name || `Pie ${id}`,
+    status: summary?.status ?? null,
+    cash: num(summary?.cash),
+    invested,
+    value,
+    result: num(result2.priceAvgResult) || round3(value - invested),
+    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round3(result2.priceAvgResultCoef * 100) : invested > 0 ? round3((value - invested) / invested * 100) : null,
+    progress: typeof summary?.progress === "number" ? summary.progress : null,
+    ...settings?.goal ? { goal: settings.goal } : {},
+    dividends: { gained: num(summary?.dividendDetails?.gained), reinvested: num(summary?.dividendDetails?.reinvested), inCash: num(summary?.dividendDetails?.inCash) },
+    ...instruments ? { instruments, drift: round3(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
+    ...settings ? { settings } : {}
+  };
+}
+var PiesService = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  client(environment) {
+    return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
+  }
+  assertCredentials(environment) {
+    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+  }
+  async summaries(environment, fresh = false) {
+    const key = `pies-cache:${environment}`;
+    if (!fresh) {
+      const cached2 = await this.deps.store.get(key);
+      if (cached2) return cached2;
+    }
+    const pies = await this.client(environment).getPies();
+    await this.deps.store.put(key, pies, Date.now() + LIST_CACHE_MS);
+    return pies;
+  }
+  async detail(environment, id, fresh = false) {
+    const key = `pie-cache:${environment}:${id}`;
+    if (!fresh) {
+      const cached2 = await this.deps.store.get(key);
+      if (cached2) return cached2;
+    }
+    try {
+      const pie = await this.client(environment).getPie(id);
+      await this.deps.store.put(key, pie, Date.now() + DETAIL_CACHE_MS);
+      return pie;
+    } catch (error62) {
+      if (error62 instanceof Trading212ApiError && error62.status === 404) fail("PIE_NOT_FOUND", `Pie ${id} was not found`, { pieId: id });
+      throw error62;
+    }
+  }
+  async forget(environment, id) {
+    await this.deps.store.delete(`pies-cache:${environment}`);
+    if (id !== void 0) await this.deps.store.delete(`pie-cache:${environment}:${id}`);
+  }
+  /** All pies with totals. Details (names, slices) are read for up to `details` pies, newest first. */
+  async listPies(environment, options = {}) {
+    const credentials = credentialStatus(this.deps.config);
+    const base = { kind: "pies", environment, credentials, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+    if (!credentials[environment]) return { ...base, pies: [], totals: { value: 0, invested: 0, result: 0, cash: 0 }, notes: [`${environment.toUpperCase()} credentials are not configured.`] };
+    const summaries = await this.summaries(environment, options.fresh);
+    const limit = Math.max(0, Math.min(options.details ?? DEFAULT_PIE_DETAILS, summaries.length));
+    const ordered = [...summaries].sort((a, b) => b.id - a.id);
+    const pies = [];
+    const notes = [];
+    for (const [index, summary] of ordered.entries()) {
+      let detail;
+      if (index < limit) {
+        try {
+          detail = await this.detail(environment, summary.id, options.fresh);
+        } catch (error62) {
+          notes.push(`Pie ${summary.id}: details unavailable (${asStructuredError(error62).message}).`);
+        }
+      }
+      pies.push(pieOverview(summary, detail, summary.id));
+    }
+    if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
+    const totals = pies.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
+    return { ...base, pies, totals: { value: round3(totals.value), invested: round3(totals.invested), result: round3(totals.result), cash: round3(totals.cash) }, notes };
+  }
+  async getPie(environment, id) {
+    this.assertCredentials(environment);
+    const [summaries, detail] = [await this.summaries(environment), await this.detail(environment, id)];
+    return pieOverview(summaries.find((item) => item.id === id), detail, id);
+  }
+  /** Resolve tickers, normalise shares and fill unchanged settings so the broker gets a full body. */
+  async buildRequest(draft, current) {
+    const instruments = await this.deps.trading.instruments(draft.environment);
+    const sharesInput = draft.instrumentShares ?? Object.fromEntries((current?.instruments ?? []).map((item) => [item.ticker, item.targetShare]));
+    const resolved = {};
+    for (const [query, share2] of Object.entries(sharesInput)) {
+      const ticker = resolveInstrumentFromList(instruments, query).ticker;
+      resolved[ticker] = (resolved[ticker] ?? 0) + share2;
+    }
+    const name = (draft.name ?? current?.settings?.name ?? "").trim();
+    if (!name || name.length > 100) fail("INVALID_INPUT", "A pie needs a name of 1 to 100 characters", { field: "name" });
+    if (draft.goal !== void 0 && (!Number.isFinite(draft.goal) || draft.goal <= 0)) fail("INVALID_INPUT", "goal must be a positive amount", { field: "goal" });
+    if (draft.endDate !== void 0 && !(Date.parse(draft.endDate) > Date.now())) fail("INVALID_INPUT", "endDate must be a future date", { field: "endDate" });
+    const goal = draft.goal ?? current?.settings?.goal;
+    const endDate = draft.endDate ?? current?.settings?.endDate;
+    const icon = draft.icon ?? current?.settings?.icon;
+    return {
+      name,
+      instrumentShares: normaliseShares(resolved),
+      dividendCashAction: draft.dividendCashAction ?? current?.settings?.dividendCashAction ?? "REINVEST",
+      ...icon ? { icon } : {},
+      ...goal ? { goal } : {},
+      ...endDate ? { endDate } : {}
+    };
+  }
+  async preparePieChange(draft) {
+    this.assertCredentials(draft.environment);
+    if (draft.action !== "create" && (draft.pieId === void 0 || !Number.isInteger(draft.pieId) || draft.pieId <= 0))
+      fail("INVALID_INPUT", `pieId is required to ${draft.action} a pie`, { field: "pieId" });
+    const current = draft.action === "create" ? void 0 : await this.getPie(draft.environment, draft.pieId);
+    const notices = ["Trading 212 marks the pies API as deprecated. It still works, but it may change or stop."];
+    if (draft.environment === "live") notices.push("LIVE: this changes a pie in your real-money account.");
+    let request;
+    let duplicate;
+    let changes = [];
+    if (draft.action === "create" || draft.action === "update") {
+      if (draft.action === "create" && !draft.instrumentShares) fail("INVALID_INPUT", "instrumentShares is required to create a pie", { field: "instrumentShares" });
+      request = await this.buildRequest(draft, current);
+      const before = new Map((current?.instruments ?? []).map((item) => [item.ticker, item.targetShare]));
+      const tickers = /* @__PURE__ */ new Set([...before.keys(), ...Object.keys(request.instrumentShares)]);
+      changes = [...tickers].map((ticker) => ({ ticker, from: before.get(ticker) ?? 0, to: request.instrumentShares[ticker] ?? 0 })).filter((change) => Math.abs(change.from - change.to) >= 1e-6).sort((a, b) => Math.abs(b.to - b.from) - Math.abs(a.to - a.from));
+      const removed = changes.filter((change) => change.to === 0 && (current?.instruments?.find((item) => item.ticker === change.ticker)?.ownedQuantity ?? 0) > 0);
+      if (removed.length) notices.push(`Removing ${removed.map((item) => item.ticker).join(", ")} takes those holdings out of the pie. Check in Trading 212 whether they are kept as shares or sold.`);
+      if (draft.action === "update" && changes.length) notices.push("New target shares apply to future investments. Trading 212 does not rebalance existing holdings unless you ask it to in the app.");
+      if (draft.action === "create") notices.push("Creating a pie invests nothing. Add money to it in Trading 212, or with an order basket.");
+    } else if (draft.action === "duplicate") {
+      duplicate = { ...draft.name ? { name: draft.name.trim().slice(0, 100) } : {}, ...draft.icon ? { icon: draft.icon } : {} };
+      notices.push("The copy has the same slices and settings and starts empty.");
+    } else {
+      const value = current?.value ?? 0;
+      notices.push(value > 0 ? `This pie holds about ${value} in value. Deleting it takes the holdings out of the pie; Trading 212 decides whether they stay as shares or are sold, so check the app first.` : "This pie holds nothing, so deleting it moves no money.");
+    }
+    const pending = {
+      environment: draft.environment,
+      action: draft.action,
+      ...draft.pieId === void 0 || draft.action === "create" ? {} : { pieId: draft.pieId },
+      ...request ? { request } : {},
+      ...duplicate ? { duplicate } : {}
+    };
+    const token = randomToken();
+    const expiresAt = Date.now() + this.deps.config.confirmationTtlSeconds * 1e3;
+    await this.deps.store.put(`pie-confirm:${token}`, pending, expiresAt);
+    await this.deps.trading.recordActivity("pie_prepared", draft.environment, { outcome: draft.action, ...pending.pieId ? { pieId: pending.pieId } : {} });
+    return {
+      kind: "pie_change_preview",
+      token,
+      expiresAt: new Date(expiresAt).toISOString(),
+      environment: draft.environment,
+      action: draft.action,
+      ...pending.pieId ? { pieId: pending.pieId } : {},
+      ...request ? { request } : {},
+      ...current ? { current } : {},
+      changes,
+      notices
+    };
+  }
+  /** Send a confirmed pie change once. Live changes need the second confirmation, as orders do. */
+  async executePieChange(token, options = {}) {
+    const key = `pie-confirm:${token}`;
+    const peeked = await this.deps.store.get(key);
+    if (!peeked) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    if (peeked.environment === "live" && !options.liveAcknowledged) fail("LIVE_ACK_REQUIRED", "Live pie changes need the second confirmation that a real-money account will change");
+    const pending = await this.deps.store.consume(key);
+    if (!pending) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const client = this.client(pending.environment);
+    const base = { kind: "pie_change_result", environment: pending.environment, action: pending.action };
+    try {
+      let pie;
+      if (pending.action === "create") pie = await client.createPie(pending.request);
+      else if (pending.action === "update") pie = await client.updatePie(pending.pieId, pending.request);
+      else if (pending.action === "duplicate") pie = await client.duplicatePie(pending.pieId, pending.duplicate ?? {});
+      else await client.deletePie(pending.pieId);
+      const pieId = pie?.settings?.id ?? pending.pieId;
+      await this.forget(pending.environment, pending.pieId);
+      await this.deps.trading.recordActivity("pie_submitted", pending.environment, { outcome: pending.action, ...pieId ? { pieId } : {} });
+      return { ...base, ok: true, status: "submitted", ...pieId ? { pieId } : {}, ...pie ? { pie } : {}, message: `${pending.environment.toUpperCase()} pie ${pending.action} sent to Trading 212.` };
+    } catch (error62) {
+      await this.forget(pending.environment, pending.pieId);
+      const unknown2 = error62 instanceof ExecutionStatusUnknownError;
+      await this.deps.trading.recordActivity(unknown2 ? "pie_status_unknown" : "pie_rejected", pending.environment, { outcome: pending.action, ...pending.pieId ? { pieId: pending.pieId } : {} });
+      const message = unknown2 ? "Trading 212 did not clearly confirm the pie change. Refresh your pies before trying again." : error62 instanceof Trading212ApiError && error62.status === 403 ? "Trading 212 refused the pie change (403). The API key needs the pies write permission." : asStructuredError(error62).message;
+      return { ...base, ok: false, status: unknown2 ? "unknown" : "rejected", ...pending.pieId ? { pieId: pending.pieId } : {}, message };
+    }
+  }
+};
+
 // src/shared/meta.ts
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.7.0"
+  version: "2.9.0"
 };
 
 // src/core/mcp.ts
@@ -36132,7 +36549,7 @@ var windowSchema = {
   to: external_exports.string().datetime().optional(),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation, alerts, pies }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version });
@@ -36467,7 +36884,7 @@ function createMcpServer({ trading, insights, automation }, config3, widgetHtml2
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold need a referencePrice because Trading 212 has no quote endpoint.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -36514,19 +36931,187 @@ function createMcpServer({ trading, insights, automation }, config3, widgetHtml2
       }
     }
   );
+  const pieDraftSchema = external_exports.object({
+    environment: environmentWithDefault,
+    action: external_exports.enum(["create", "update", "delete", "duplicate"]),
+    pieId: external_exports.number().int().positive().optional().describe("Required for update, delete and duplicate"),
+    name: external_exports.string().min(1).max(100).optional(),
+    icon: external_exports.string().max(40).optional(),
+    goal: external_exports.number().positive().optional().describe("Target value in the account currency"),
+    endDate: external_exports.string().datetime().optional(),
+    dividendCashAction: external_exports.enum(["REINVEST", "TO_ACCOUNT_CASH"]).optional(),
+    instrumentShares: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Ticker, symbol or name to target share, up to ${MAX_PIE_INSTRUMENTS}. Shares are normalised to sum to 1, so {"VUSA": 70, "EIMI": 30} works. On update, omit to keep the current slices.`)
+  });
+  j(
+    server2,
+    "list_pies",
+    {
+      title: "Trading 212 Pies",
+      description: "List the user's Trading 212 pies with value, invested amount, return, dividends, goal progress and, for the newest pies, each slice's target and current share and the drift between them. Read-only. Trading 212 allows one pie list read every 30 seconds and one detail read every 5 seconds, so results are cached briefly.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        details: external_exports.number().int().min(0).max(30).default(10).describe("How many pies to read slices for, newest first"),
+        fresh: external_exports.boolean().default(false).describe("Skip the short cache")
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment, details, fresh }) => {
+      try {
+        const data = { ...await pies.listPies(environment, { details, fresh }), writeEnabled: canWrite };
+        const lines = data.pies.map((pie) => `${pie.name} (#${pie.id}): value ${pie.value}, return ${pie.result}${pie.resultPercent === null ? "" : ` (${pie.resultPercent}%)`}${pie.drift === void 0 ? "" : `, drift ${(pie.drift * 100).toFixed(1)}%`}`);
+        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).${lines.length ? `
+${lines.join("\n")}` : ""}${data.notes.length ? `
+${data.notes.join(" ")}` : ""}`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_pie",
+    {
+      title: "Trading 212 Pie",
+      description: "Read one pie with its settings, every slice's target and current share, owned quantity, value, return and any issues Trading 212 reports. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault, pieId: external_exports.number().int().positive() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment, pieId }) => {
+      try {
+        const pie = await pies.getPie(environment, pieId);
+        const data = { kind: "pies", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "get_quote",
+    {
+      title: "Instrument Price",
+      description: "Get the best available price for a Trading 212 instrument: the broker's last price when it is held, otherwise the configured external quote provider (Stooq by default, free and unofficial; Finnhub, Twelve Data or Alpha Vantage with QUOTE_API_KEY). Use it to fill referencePrice before drafting an order. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1) }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: {}
+    },
+    async ({ environment, instrument }) => {
+      try {
+        const lookup = await trading.lookupPrice(environment, instrument);
+        const text = lookup.price === void 0 ? `${lookup.instrument.ticker}: no price. ${lookup.message ?? ""}`.trim() : `${lookup.instrument.ticker}: ${lookup.price} ${lookup.instrument.currencyCode} from ${lookup.source}${lookup.symbol ? ` (${lookup.symbol})` : ""} as of ${lookup.asOf}.`;
+        return result({ kind: "quote", environment, ...lookup }, text);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "list_price_alerts",
+    {
+      title: "Price Alerts",
+      description: "List price alerts on holdings: the condition, the last price seen, and whether and when each one triggered. Read-only.",
+      inputSchema: external_exports.object({ environment: environmentEnum.optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {}
+    },
+    async ({ environment }) => {
+      try {
+        const list2 = await alerts.list(environment);
+        return result({ kind: "price_alerts", alerts: list2, webhook: !!config3.notifyWebhookUrl }, `${list2.length} alert(s), ${list2.filter((alert) => alert.triggeredAt).length} triggered.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  if (canWrite) {
+    j(
+      server2,
+      "review_pie_change",
+      {
+        title: "Review a Pie Change",
+        description: "Draft creating, updating (name, slices, goal, end date, icon, dividend handling), duplicating or deleting a Trading 212 pie, and open it for the user to review and confirm. Never changes anything by itself. Creating a pie invests nothing.",
+        inputSchema: pieDraftSchema,
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async (draft) => {
+        try {
+          const current = draft.action === "create" || !draft.pieId ? void 0 : await pies.getPie(draft.environment, draft.pieId);
+          const data = { kind: "pie_change_draft", draft, ...current ? { current } : {}, credentials: credentialStatus(config3), writeEnabled: true };
+          return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "manage_price_alerts",
+      {
+        title: "Manage Price Alerts",
+        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+        inputSchema: external_exports.object({
+          action: external_exports.enum(["create", "delete", "rearm"]),
+          alertId: external_exports.string().optional().describe("Required for delete and rearm"),
+          environment: environmentWithDefault,
+          instrument: external_exports.string().min(1).optional(),
+          condition: external_exports.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+          price: external_exports.number().positive().optional(),
+          percent: external_exports.number().positive().optional(),
+          note: external_exports.string().max(200).optional()
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        _meta: {}
+      },
+      async (input2) => {
+        try {
+          if (input2.action === "create") {
+            if (!input2.instrument || !input2.condition) return toolError(new Error("instrument and condition are required to create an alert"));
+            const alert2 = await alerts.create({
+              environment: input2.environment,
+              instrument: input2.instrument,
+              condition: input2.condition,
+              ...input2.price === void 0 ? {} : { price: input2.price },
+              ...input2.percent === void 0 ? {} : { percent: input2.percent },
+              ...input2.note ? { note: input2.note } : {}
+            });
+            return result({ kind: "price_alert", alert: alert2 }, `Saved alert ${alert2.id} on ${alert2.ticker}.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          }
+          if (!input2.alertId) return toolError(new Error("alertId is required"));
+          if (input2.action === "delete") {
+            await alerts.delete(input2.alertId);
+            return result({ kind: "price_alert", deleted: input2.alertId }, `Deleted alert ${input2.alertId}.`);
+          }
+          const alert = await alerts.rearm(input2.alertId);
+          return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+  }
   if (canWrite) {
     j(
       server2,
       "manage_investment_plans",
       {
         title: "Manage Investment Plans",
-        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price.",
+        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
         inputSchema: external_exports.object({
           action: external_exports.enum(["create", "update", "delete"]),
           planId: external_exports.string().optional().describe("Required for update and delete"),
           environment: environmentWithDefault,
           label: external_exports.string().max(80).optional(),
-          legs: external_exports.array(external_exports.object({ ticker: external_exports.string().min(1), amount: external_exports.number().positive() })).min(1).max(MAX_PLAN_LEGS).optional(),
+          legs: external_exports.array(external_exports.object({
+            ticker: external_exports.string().min(1),
+            amount: external_exports.number().positive(),
+            orderType: external_exports.enum(["market", "limit"]).optional().describe("limit = Day Limit buy at the last price plus limitOffsetPercent, so a gap cannot fill it higher. Limit legs can also be placed while the market is closed."),
+            limitOffsetPercent: external_exports.number().min(0).max(MAX_LIMIT_OFFSET_PERCENT).optional().describe("Limit legs: percent above the last broker price (default 0.5)")
+          })).min(1).max(MAX_PLAN_LEGS).optional(),
           frequency: external_exports.enum(["weekly", "monthly"]).optional(),
           dayOfMonth: external_exports.number().int().min(1).max(28).optional(),
           weekday: external_exports.number().int().min(1).max(7).optional().describe("1 = Monday \u2026 7 = Sunday"),
@@ -36595,7 +37180,7 @@ function createMcpServer({ trading, insights, automation }, config3, widgetHtml2
       "review_protective_orders",
       {
         title: "Review Stop-Loss and Take-Profit Orders",
-        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. The two orders are not linked.",
+        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. When both are placed, TradePilot links them: after one fills, the scheduler cancels the other.",
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           instrument: external_exports.string().min(1),
@@ -36649,6 +37234,25 @@ function createMcpServer({ trading, insights, automation }, config3, widgetHtml2
       try {
         const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "app_list_pies",
+    {
+      title: "Refresh pies",
+      description: "App-only pie list refresh.",
+      inputSchema: external_exports.object({ environment: environmentEnum, fresh: external_exports.boolean().optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async ({ environment, fresh }) => {
+      try {
+        const data = { ...await pies.listPies(environment, { fresh: fresh === true }), writeEnabled: canWrite };
+        return result(data, "Pies refreshed.");
       } catch (error62) {
         return toolError(error62);
       }
@@ -36822,8 +37426,232 @@ function createMcpServer({ trading, insights, automation }, config3, widgetHtml2
         }
       }
     );
+    j(
+      server2,
+      "app_prepare_pie_change",
+      {
+        title: "Prepare pie change confirmation",
+        description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
+        inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async (draft) => {
+        try {
+          const data = await pies.preparePieChange(draft);
+          return result(data, "Pie change validated. Explicit user confirmation is still required.");
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "app_execute_pie_change",
+      {
+        title: "Execute confirmed pie change",
+        description: "App-only external write. Consumes a one-time pie token. Never retry automatically.",
+        inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional().describe("Second confirmation that a Live pie will change") }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async ({ token, liveAcknowledged }) => {
+        try {
+          const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
+          return result(data, data.message);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
   }
   return server2;
+}
+
+// src/core/alerts.ts
+var MAX_ALERTS = 50;
+var alertKey = (id) => `alert:${id}`;
+function evaluateAlert(alert, position) {
+  const price = position.currentPrice;
+  switch (alert.condition) {
+    case "above":
+      return { fired: price >= alert.price, message: `${alert.ticker} is at ${price}, at or above ${alert.price}.` };
+    case "below":
+      return { fired: price <= alert.price, message: `${alert.ticker} is at ${price}, at or below ${alert.price}.` };
+    case "trailing_drop": {
+      const high = Math.max(alert.highWatermark ?? price, price);
+      const trigger = high * (1 - alert.percent / 100);
+      return { fired: price <= trigger, highWatermark: high, message: `${alert.ticker} is at ${price}, ${((high - price) / high * 100).toFixed(2)}% below its high of ${high} (alert at ${alert.percent}%).` };
+    }
+    case "gain_percent":
+    case "loss_percent": {
+      const cost = position.averagePricePaid;
+      if (!cost) return { fired: false, message: `${alert.ticker} has no average cost.` };
+      const change = (price - cost) / cost * 100;
+      const fired = alert.condition === "gain_percent" ? change >= alert.percent : change <= -alert.percent;
+      return { fired, message: `${alert.ticker} is at ${price}, ${change >= 0 ? "+" : ""}${change.toFixed(2)}% against the average cost ${cost}.` };
+    }
+  }
+}
+var PriceAlerts = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  async list(environment) {
+    return (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => !environment || alert.environment === environment).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  async create(input2, now = /* @__PURE__ */ new Date()) {
+    if (!credentialStatus(this.deps.config)[input2.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input2.environment.toUpperCase()} credentials are not configured`);
+    if ((await this.list()).length >= MAX_ALERTS) fail("INVALID_INPUT", `At most ${MAX_ALERTS} alerts can be stored`);
+    const byPrice = input2.condition === "above" || input2.condition === "below";
+    if (byPrice && !(input2.price > 0)) fail("INVALID_INPUT", `A ${input2.condition} alert needs a positive price`, { field: "price" });
+    const maxPercent = input2.condition === "gain_percent" ? 1e4 : 100;
+    if (!byPrice && !(input2.percent > 0 && input2.percent < maxPercent))
+      fail("INVALID_INPUT", `A ${input2.condition} alert needs a percent above 0 and below ${maxPercent}`, { field: "percent" });
+    const instrument = resolveInstrumentFromList(await this.deps.trading.instruments(input2.environment), input2.instrument);
+    const alert = {
+      id: `alt_${randomToken(12)}`,
+      environment: input2.environment,
+      ticker: instrument.ticker,
+      condition: input2.condition,
+      ...byPrice ? { price: input2.price } : { percent: input2.percent },
+      ...input2.note ? { note: input2.note.trim().slice(0, 200) } : {},
+      createdAt: now.toISOString()
+    };
+    await this.deps.store.put(alertKey(alert.id), alert);
+    return alert;
+  }
+  async get(id) {
+    const alert = await this.deps.store.get(alertKey(id));
+    if (!alert) fail("ALERT_NOT_FOUND", "Alert not found", { alertId: id });
+    return alert;
+  }
+  async delete(id) {
+    await this.get(id);
+    await this.deps.store.delete(alertKey(id));
+  }
+  /** Arm a triggered alert again; a trailing alert restarts from the next price it sees. */
+  async rearm(id) {
+    const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...alert } = await this.get(id);
+    await this.deps.store.put(alertKey(id), alert);
+    return alert;
+  }
+  /** One scheduler tick: one positions read per environment, then every armed alert is evaluated. */
+  async check(now = /* @__PURE__ */ new Date()) {
+    const armed = (await this.list()).filter((alert) => !alert.triggeredAt);
+    if (!armed.length) return [];
+    const credentials = credentialStatus(this.deps.config);
+    const reports = [];
+    const positions = /* @__PURE__ */ new Map();
+    for (const alert of armed) {
+      if (!credentials[alert.environment]) continue;
+      if (!positions.has(alert.environment)) {
+        try {
+          positions.set(alert.environment, await this.deps.trading.positions(alert.environment));
+        } catch (error62) {
+          positions.set(alert.environment, new Error(asStructuredError(error62).message));
+        }
+      }
+      const held = positions.get(alert.environment);
+      if (held instanceof Error) {
+        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
+        continue;
+      }
+      let position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      if (!position?.currentPrice) {
+        const instrument = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+        const quote = instrument && (alert.condition !== "gain_percent" && alert.condition !== "loss_percent") ? await this.deps.trading.externalQuote(instrument) : void 0;
+        if (!quote) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
+          continue;
+        }
+        position = { currentPrice: quote.price, averagePricePaid: 0 };
+      }
+      const outcome = evaluateAlert(alert, position);
+      const updated = {
+        ...alert,
+        lastPrice: position.currentPrice,
+        lastCheckedAt: now.toISOString(),
+        ...outcome.highWatermark === void 0 ? {} : { highWatermark: outcome.highWatermark },
+        ...outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: position.currentPrice } : {}
+      };
+      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) await this.deps.store.put(alertKey(alert.id), updated);
+      if (outcome.fired) {
+        await this.deps.trading.recordActivity("price_alert_triggered", alert.environment, {
+          ticker: alert.ticker,
+          alertId: alert.id,
+          price: position.currentPrice,
+          outcome: `${outcome.message}${alert.note ? ` ${alert.note}` : ""}`.slice(0, 200)
+        });
+        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "triggered", message: outcome.message });
+      } else {
+        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: outcome.message });
+      }
+    }
+    return reports;
+  }
+};
+
+// src/core/notify.ts
+var DEFAULT_NOTIFY_EVENTS = [
+  "order_submitted",
+  "order_status_unknown",
+  "cancel_status_unknown",
+  "basket_submitted",
+  "plan_due",
+  "plan_auto_executed",
+  "plan_skipped",
+  "protective_sibling_cancelled",
+  "pie_submitted",
+  "pie_status_unknown",
+  "price_alert_triggered"
+];
+var LABELS = {
+  order_submitted: "Order sent",
+  order_status_unknown: "Order result unclear, check Trading 212",
+  cancel_status_unknown: "Cancellation result unclear, check Trading 212",
+  basket_submitted: "Basket sent",
+  plan_due: "Investment plan is due and waits for your confirmation",
+  plan_auto_executed: "Investment plan ran on Demo",
+  plan_skipped: "Investment plan skipped",
+  protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
+  pie_submitted: "Pie changed",
+  pie_status_unknown: "Pie change result unclear, check Trading 212",
+  price_alert_triggered: "Price alert"
+};
+function notificationText(event) {
+  const parts = [
+    `[TradePilot ${event.environment.toUpperCase()}] ${LABELS[event.type] ?? event.type}`,
+    event.ticker,
+    event.side && event.quantity !== void 0 ? `${event.side} ${event.quantity}` : void 0,
+    event.price !== void 0 ? `@ ${event.price}` : void 0,
+    event.legs !== void 0 ? `${event.legs} order(s)` : void 0,
+    event.outcome
+  ];
+  return parts.filter(Boolean).join(" \xB7 ");
+}
+async function signature(secret, body) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac3 = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+  return [...mac3].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
+  if (!config3.notifyWebhookUrl) return void 0;
+  const wanted = new Set(config3.notifyEvents.length ? config3.notifyEvents : DEFAULT_NOTIFY_EVENTS);
+  return async (event) => {
+    if (!wanted.has(event.type)) return;
+    const text = notificationText(event);
+    const body = JSON.stringify({ text, content: text, event });
+    const headers = { "Content-Type": "application/json" };
+    if (config3.notifyWebhookSecret) headers["X-TradePilot-Signature"] = `sha256=${await signature(config3.notifyWebhookSecret, body)}`;
+    try {
+      const response = await fetcher(config3.notifyWebhookUrl, { method: "POST", headers, body, signal: AbortSignal.timeout(5e3) });
+      if (!response.ok) console.error(JSON.stringify({ message: "TradePilot webhook rejected", status: response.status }));
+    } catch (error62) {
+      console.error(JSON.stringify({ message: "TradePilot webhook failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+    }
+  };
 }
 
 // src/core/protective-links.ts
@@ -36891,16 +37719,22 @@ var ProtectiveLinks = class {
 
 // src/app/services.ts
 function createServices(deps) {
+  const notify = createNotifier(deps.config, deps.fetcher);
+  const quotes = createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
     ...deps,
+    ...notify ? { notify } : {},
+    ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
     afterBasket: (planId, result2) => automation.recordRun(planId, result2)
   });
   const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans() });
-  return { trading, insights, automation, links, runScheduled };
+  const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
+  const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check() });
+  return { trading, insights, automation, links, alerts, pies, runScheduled };
 }
 
 // src/adapters/node/file-state-store.ts

@@ -25,6 +25,8 @@ export type TradePilotErrorCode =
   | "POLICY_BLOCKED"
   | "LIVE_ACK_REQUIRED"
   | "PLAN_NOT_FOUND"
+  | "PIE_NOT_FOUND"
+  | "ALERT_NOT_FOUND"
   | "BROKER_RATE_LIMITED"
   | "BROKER_REQUEST_FAILED"
   | "EXECUTION_STATUS_UNKNOWN"
@@ -121,7 +123,12 @@ export type ActivityType =
   | "plan_skipped"
   | "protective_linked"
   | "protective_sibling_cancelled"
-  | "protective_unlinked";
+  | "protective_unlinked"
+  | "pie_prepared"
+  | "pie_submitted"
+  | "pie_rejected"
+  | "pie_status_unknown"
+  | "price_alert_triggered";
 
 export interface ActivityEvent {
   id: string;
@@ -136,6 +143,9 @@ export interface ActivityEvent {
   outcome?: string;
   planId?: string;
   legs?: number;
+  pieId?: number;
+  alertId?: string;
+  price?: number;
 }
 
 export interface PortfolioSnapshot {

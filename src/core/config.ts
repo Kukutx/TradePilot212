@@ -1,5 +1,6 @@
 import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.js";
 import type { TradingPolicy } from "../shared/automation.js";
+import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 
 export interface RuntimeConfig {
   publicBaseUrl: string;
@@ -12,10 +13,21 @@ export interface RuntimeConfig {
   maxOrderQuantity: number;
   defaultTradingEnvironment: TradingEnvironment;
   policy: Record<TradingEnvironment, TradingPolicy>;
-  /** Lets due Demo plans place orders without a person (L3). Live plans never execute unattended. */
+  /** Lets due Demo plans and Demo trailing stops place orders without a person (L3). Live never does. */
   demoAutomationEnabled: boolean;
   /** Cancel the other half of a stop-loss / take-profit pair once one fills (default on). */
   protectiveLinking: boolean;
+  /** Optional HTTPS endpoint that receives a JSON message for notable automation events. */
+  notifyWebhookUrl: string;
+  /** Optional secret; when set each webhook carries an HMAC-SHA256 signature header. */
+  notifyWebhookSecret: string;
+  /** Activity types sent to the webhook; empty means the default set in notify.ts. */
+  notifyEvents: string[];
+  /** External quote source for instruments you do not hold (Trading 212 has no quote endpoint). */
+  quoteProvider: QuoteProviderName;
+  quoteApiKey: string;
+  /** Exact Trading 212 ticker to provider symbol, for instruments outside the US. */
+  quoteSymbols: Map<string, string>;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -27,7 +39,9 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MAX_POSITION_WEIGHT" | "POLICY_DAILY_ORDER_LIMIT" | "POLICY_DAILY_NOTIONAL_LIMIT"
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
-  | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO",
+  | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
+  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
+  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS",
   string
 >>;
 
@@ -91,8 +105,24 @@ function createPolicy(env: RuntimeEnv): Record<TradingEnvironment, TradingPolicy
   };
 }
 
+function webhookUrl(env: RuntimeEnv): string {
+  const raw = (env.NOTIFY_WEBHOOK_URL ?? "").trim();
+  if (!raw) return "";
+  const url = new URL(raw);
+  const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
+  return url.toString();
+}
+
+function quoteProvider(env: RuntimeEnv): QuoteProviderName {
+  const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase() as QuoteProviderName;
+  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
+  return value;
+}
+
 export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeConfig {
   const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
+  const policy = createPolicy(env);
   return {
     publicBaseUrl,
     loginPassword: env.APP_LOGIN_PASSWORD ?? "",
@@ -103,9 +133,15 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5000),
     maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 100000),
     defaultTradingEnvironment: tradingEnvironment(env),
-    policy: createPolicy(env),
+    policy,
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
+    notifyWebhookUrl: webhookUrl(env),
+    notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
+    notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: quoteProvider(env),
+    quoteApiKey: env.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },
@@ -131,3 +167,4 @@ export function assertAuthConfigured(config: RuntimeConfig): void {
   if (url.username || url.password || url.search || url.hash || !["", "/"].includes(url.pathname))
     throw new Error("PUBLIC_BASE_URL must be an origin without credentials, query, fragment, or path");
 }
+

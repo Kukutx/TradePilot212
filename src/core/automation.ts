@@ -46,6 +46,14 @@ const DAY_MS = 86_400_000;
 
 const planKey = (id: string) => `plan:${id}`;
 const floorTo = (value: number, digits: number) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
+export const DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
+export const MAX_LIMIT_OFFSET_PERCENT = 10;
+
+/** Limit price for a plan leg: the last price plus the offset, rounded to the price's usual tick. */
+export function planLimitPrice(price: number, offsetPercent: number): number {
+  const digits = price >= 1 ? 2 : 4;
+  return Math.round(price * (1 + offsetPercent / 100) * 10 ** digits) / 10 ** digits;
+}
 
 /** The first due time strictly after `after`. */
 export function nextRunAt(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "weekday" | "hourUtc">, after: Date): Date {
@@ -98,7 +106,12 @@ export class AutomationService {
     const instruments = await this.deps.trading.instruments(environment);
     return legs.map((leg) => {
       if (!Number.isFinite(leg.amount) || leg.amount <= 0) fail("INVALID_INPUT", "Each plan leg needs a positive amount", { field: "amount" });
-      return { ticker: resolveInstrumentFromList(instruments, leg.ticker).ticker, amount: leg.amount };
+      const ticker = resolveInstrumentFromList(instruments, leg.ticker).ticker;
+      if (leg.orderType !== "limit") return { ticker, amount: leg.amount };
+      const offset = leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT;
+      if (!Number.isFinite(offset) || offset < 0 || offset > MAX_LIMIT_OFFSET_PERCENT)
+        fail("INVALID_INPUT", `limitOffsetPercent must be between 0 and ${MAX_LIMIT_OFFSET_PERCENT}`, { field: "limitOffsetPercent" });
+      return { ticker, amount: leg.amount, orderType: "limit" as const, limitOffsetPercent: offset };
     });
   }
 
@@ -147,7 +160,8 @@ export class AutomationService {
   }
 
   /**
-   * Turn a plan into Market buy orders sized from the broker's last position price.
+   * Turn a plan into buy orders sized from the broker's last position price: Market orders, or Day
+   * Limit orders capped at the last price plus an offset so a gap cannot fill them higher.
    * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
    */
   async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[] }> {
@@ -155,13 +169,22 @@ export class AutomationService {
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const drafts: OrderDraft[] = [];
     const skipped: string[] = [];
+    const instruments = await this.deps.trading.instruments(plan.environment);
     for (const leg of plan.legs) {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      if (!position?.currentPrice) { skipped.push(`${leg.ticker}: no broker price because it is not held yet; buy it once manually.`); continue; }
-      if (!accountCurrency || position.instrument.currencyCode.toUpperCase() !== accountCurrency) { skipped.push(`${leg.ticker}: quoted in ${position.instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`); continue; }
-      const quantity = floorTo(leg.amount / position.currentPrice, 4);
+      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      if (!instrument) { skipped.push(`${leg.ticker}: no longer listed by Trading 212.`); continue; }
+      // Held legs use the broker's last price; others the external quote provider, when one can price them.
+      const quote = position?.currentPrice ? undefined : await this.deps.trading.externalQuote(instrument);
+      const price = position?.currentPrice || quote?.price;
+      if (!price) { skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`); continue; }
+      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) { skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`); continue; }
+      const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : undefined;
+      // A limit leg is sized at its limit, so it never spends more than the leg amount.
+      const quantity = floorTo(leg.amount / (limitPrice ?? price), 4);
       if (quantity <= 0) { skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`); continue; }
-      drafts.push({ environment: plan.environment, ticker: position.instrument.ticker, side: "buy", type: "market", quantity, referencePrice: position.currentPrice, referencePriceAt: now.toISOString() });
+      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
+      drafts.push(limitPrice === undefined ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
       environment: plan.environment,
@@ -169,7 +192,7 @@ export class AutomationService {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
       skipped,
     };
   }
@@ -182,7 +205,7 @@ export class AutomationService {
       environment: plan.environment,
       purpose: "dca",
       title: plan.label,
-      legs: basket.drafts.map((draft) => ({ draft, reason: `Plan "${plan.label}"` })),
+      legs: basket.drafts.map((draft) => ({ draft, reason: draft.type === "limit" ? `Plan "${plan.label}", limit ${draft.limitPrice}` : `Plan "${plan.label}"` })),
       notes: basket.notes ?? [],
       planId: plan.id,
     };

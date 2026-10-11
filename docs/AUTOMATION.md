@@ -82,15 +82,17 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 `manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency. It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
-A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due:
+A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts:
 
 - **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run sends at least one order.
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.
 - **A due plan blocked by the policy**, for example because the market is closed: the plan stays due and is tried at the next tick. The reason is logged once per due date.
 
-Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet, or one quoted in another currency, is skipped with a note. Buy it once manually first.
+Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency than the account is skipped.
 
-With the policy defaults on Live, closed-market Market orders are blocked. Pick an `hourUtc` inside your instruments' regular session.
+Each leg is a Market buy by default. Set `orderType: "limit"` to send a Day Limit buy at the last price plus `limitOffsetPercent` (default 0.5, at most 10), sized at the limit so it never spends more than the leg amount. A limit leg cannot fill at a gap price, so it may be placed while the market is closed and unattended Demo runs do not have to wait for the session. If the price runs away, the order expires at the end of the day and the plan moves on to its next date.
+
+With the policy defaults on Live, closed-market Market orders are blocked. Pick an `hourUtc` inside your instruments' regular session, or use limit legs.
 
 ### Turning on Demo automation
 
@@ -102,6 +104,38 @@ AUTOMATION_DEMO_ENABLED=true
 ```
 
 The stdio server also needs `TRADEPILOT_ALLOW_WRITES=true`. Without it, Demo automation stays off even when the variable is set.
+
+## Price alerts
+
+`manage_price_alerts` creates, deletes and re-arms alerts on holdings; `list_price_alerts` shows them with the last price seen. Every scheduler tick reads positions once per environment and checks each armed alert:
+
+| Condition | Fires when |
+|---|---|
+| `above` / `below` | the last price is at or above / at or below `price` |
+| `trailing_drop` | the price falls `percent` from the highest price seen since the alert was armed (a trailing-stop warning) |
+| `gain_percent` / `loss_percent` | the price is `percent` above / below the position's average cost |
+
+A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it. Alerts never place or cancel orders. Held instruments use the broker's last position price; others use the external quote source below. Prices are checked once a minute.
+
+## Quotes for instruments you do not hold
+
+Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price.
+
+| `QUOTE_PROVIDER` | Key | Notes |
+|---|---|---|
+| `stooq` (default) | none | Free, no account. Unofficial and best effort; prices may be delayed, and the service may change or block requests. |
+| `finnhub` | free key in `QUOTE_API_KEY` | Real-time US quotes on the free tier. |
+| `twelvedata` | free key | Daily request limit on the free tier. |
+| `alphavantage` | free key | Small daily limit; latest trading day's price. |
+| `none` | | External quotes off. |
+
+US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. Check one with `get_quote` before relying on it. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
+
+An external price only sizes an order; the order still goes through the usual review, policy and broker checks, and Live orders still wait for your confirmation.
+
+## Notifications
+
+Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `pie_submitted`, `pie_status_unknown` and `price_alert_triggered`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
 
 ## Scheduled research (L0)
 

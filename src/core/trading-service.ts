@@ -28,6 +28,7 @@ import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type D
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
+import type { ExternalQuote, QuoteProvider } from "./quotes.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 interface PendingBasket {
@@ -67,6 +68,20 @@ export interface TradingServiceDeps {
   marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
   /** Called after a basket created for a standing plan has been executed. */
   afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
+  /** Optional webhook for notable events; it filters the types itself and never throws. */
+  notify?: (event: ActivityEvent) => Promise<void>;
+  /** Optional external quotes for instruments that are not held (Trading 212 has no quote endpoint). */
+  quotes?: QuoteProvider;
+}
+
+export interface PriceLookup {
+  instrument: Instrument;
+  price?: number;
+  asOf?: string;
+  /** "broker" is the held position's last price; otherwise the external provider's name. */
+  source?: "broker" | ExternalQuote["source"];
+  symbol?: string;
+  message?: string;
 }
 
 function positiveNumber(name: string, value?: number): asserts value is number {
@@ -229,6 +244,34 @@ export class TradingService {
     return instruments;
   }
 
+  /** External quote for an instrument that is not held, when a provider is configured and can map it. */
+  externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
+    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
+  }
+
+  /** Best available price: the broker's position price when held, else the external quote. */
+  async lookupPrice(environment: TradingEnvironment, query: string): Promise<PriceLookup> {
+    const instrument = resolveInstrumentFromList(await this.instruments(environment), query);
+    const position = this.positionFor(await this.positions(environment), instrument.ticker);
+    if (position?.currentPrice) return { instrument, price: position.currentPrice, asOf: new Date().toISOString(), source: "broker" };
+    const quote = await this.externalQuote(instrument);
+    if (quote) return { instrument, price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol };
+    const provider = this.deps.quotes;
+    return {
+      instrument,
+      message: !provider
+        ? "Not held, and no quote provider is configured (QUOTE_PROVIDER / QUOTE_API_KEY)."
+        : provider.symbolFor(instrument)
+          ? `Not held, and ${provider.name} returned no price for ${provider.symbolFor(instrument)}.`
+          : `Not held, and ${instrument.ticker} has no ${provider.name} symbol. Add it to QUOTE_SYMBOLS.`,
+    };
+  }
+
+  /** Current positions only, for the scheduler's price checks. */
+  positions(environment: TradingEnvironment): Promise<Position[]> {
+    return this.client(environment).getPositions();
+  }
+
   private positionFor(positions: Position[], ticker: string) {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
@@ -257,6 +300,7 @@ export class TradingService {
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error instanceof Error ? error.message : String(error) }));
     }
+    await this.deps.notify?.(event);
     return event;
   }
 
@@ -624,7 +668,14 @@ export class TradingService {
   async planRebalance(environment: TradingEnvironment, targets: RebalanceTarget[], options: RebalanceOptions = {}): Promise<RebalancePlan> {
     if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
     const snapshot = await this.snapshot(environment);
-    const resolved = targets.map((target) => ({ ...target, ticker: resolveInstrumentFromList(snapshot.instruments, target.ticker).ticker }));
+    const resolved: RebalanceTarget[] = [];
+    for (const target of targets) {
+      const instrument = resolveInstrumentFromList(snapshot.instruments, target.ticker);
+      // A target you do not hold needs a price; fill it from the quote provider when none was given.
+      const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
+      const quote = !held && target.referencePrice === undefined ? await this.externalQuote(instrument) : undefined;
+      resolved.push({ ...target, ticker: instrument.ticker, ...(quote ? { referencePrice: quote.price } : {}) });
+    }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
