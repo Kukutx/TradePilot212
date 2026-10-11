@@ -4,7 +4,7 @@ import { createConfig } from "../core/config.js";
 import { MemoryStateStore } from "../core/state-store.js";
 import { describePayload } from "../core/text-summary.js";
 import type { PendingOrder, Position } from "./contracts.js";
-import { isSellStop, stopProtection, suggestedStop } from "./protection.js";
+import { isSellStop, portfolioProtection, stopProtection, suggestedStop } from "./protection.js";
 
 const position = (fields: Partial<Position> = {}): Position => ({
   instrument: { ticker: "NVDA_US_EQ", name: "NVIDIA", currencyCode: "USD" },
@@ -54,7 +54,22 @@ describe("stop-loss protection", () => {
   it("keeps a suggested stop under 1 positive and below the price instead of rounding it to cents", () => {
     expect(suggestedStop(position({ currentPrice: 0.05 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.046 });
     expect(suggestedStop(position({ currentPrice: 0.004 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.00368 });
+    expect(suggestedStop(position({ currentPrice: 0.0345 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.03174 });
     expect(suggestedStop(position({ currentPrice: 1 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.92 });
+    // Another drop for the portfolio basket's dropPercent.
+    expect(suggestedStop(position(), undefined, 0.1)).toEqual({ quantity: 15, stopPrice: 112.5 });
+  });
+
+  it("sums coverage across the portfolio in the account currency", () => {
+    const amd = position({ instrument: { ticker: "AMD_US_EQ", name: "AMD", currencyCode: "USD" } as Position["instrument"], quantity: 10, quantityAvailableForTrading: 10, walletImpact: { currentValue: 1000 } });
+    const nvda = position({ walletImpact: { currentValue: 3000 } });
+    const stops: PendingOrder[] = [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110 }];
+    // NVDA: 5 of 20 covered, so 2250 of its 3000 is not; AMD has no stop.
+    expect(portfolioProtection([nvda, amd], stops)).toEqual({ holdings: 2, covered: 0, partial: 1, protectable: 2, unprotectedValue: 3250, unprotectedShare: 0.8125 });
+    expect(portfolioProtection([nvda, amd], [...stops, { ticker: "NVDA_US_EQ", side: "SELL", quantity: -15, stopPrice: 110 }, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 90 }]))
+      .toEqual({ holdings: 2, covered: 2, partial: 0, protectable: 0, unprotectedValue: 0, unprotectedShare: 0 });
+    // Without an account-currency value for every holding there is no total to show.
+    expect(portfolioProtection([nvda, position({ instrument: amd.instrument })], stops)).not.toHaveProperty("unprotectedValue");
   });
 
   it("lists covered and uncovered holdings in the dashboard summary", async () => {

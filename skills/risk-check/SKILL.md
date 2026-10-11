@@ -16,7 +16,7 @@ Report:
 - the cash share;
 - pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.
 
-If a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop.
+If a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop. When several holdings lack one, `review_portfolio_stops` drafts a stop for each of them in one basket that the user confirms once.
 
 If the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.
 

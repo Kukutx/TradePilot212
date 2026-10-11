@@ -34942,6 +34942,42 @@ var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
+// src/shared/protection.ts
+function isSellStop(order) {
+  if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
+  return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
+}
+function stopProtection(position, orders) {
+  const ticker = position.instrument.ticker;
+  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
+  if (!stops.length || !(position.quantity > 0)) return void 0;
+  const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
+  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
+  const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
+  const last = position.currentPrice;
+  return {
+    ticker,
+    stopPrice,
+    ...last > 0 ? { gap: (stopPrice - last) / last } : {},
+    covered,
+    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
+    orders: stops.length
+  };
+}
+var SUGGESTED_STOP_DROP = 0.08;
+var STOPS_BASKET_TITLE = "Stop-losses for unprotected holdings";
+function roundPrice(price) {
+  return price >= 1 ? Math.round(price * 100) / 100 : Number(price.toPrecision(4));
+}
+function suggestedStop(position, guard, drop = SUGGESTED_STOP_DROP) {
+  if (!(position.currentPrice > 0)) return void 0;
+  const uncovered = Number((position.quantity - (guard?.covered ?? 0)).toFixed(8));
+  const quantity = Math.min(uncovered, position.quantityAvailableForTrading);
+  if (!(quantity > 0)) return void 0;
+  const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - drop));
+  return { quantity, stopPrice };
+}
+
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
   const account = accountCurrency.toUpperCase();
@@ -35133,6 +35169,424 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   };
 }
 
+// src/core/analytics.ts
+var DEFAULT_ALLOCATION_LIMITS = {
+  maxSingleWeight: 0.2,
+  maxTop5Weight: 0.6,
+  cashHighWeight: 0.3,
+  cashLowWeight: 0.02,
+  maxCurrencyWeight: 0.85
+};
+var round2 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var ratio = (part, whole) => whole > 0 ? part / whole : 0;
+function sumBy(items, key, amount2) {
+  const totals = /* @__PURE__ */ new Map();
+  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount2(item));
+  return [...totals].map(([k, v]) => ({ key: k, amount: round2(v) })).sort((a, b) => b.amount - a.amount);
+}
+function positionValue(position) {
+  const wallet = position.walletImpact;
+  if (typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue)) return wallet.currentValue;
+  return position.quantity * position.currentPrice;
+}
+function positionPnl(position) {
+  const wallet = position.walletImpact;
+  return typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : void 0;
+}
+function analyzeAllocation(environment, account, positions, instruments = [], limits = DEFAULT_ALLOCATION_LIMITS, now = /* @__PURE__ */ new Date()) {
+  const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
+  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0) + Math.max(0, account.cash?.inPies ?? 0);
+  const holdings = positions.map((position) => {
+    const ticker = position.instrument?.ticker ?? "";
+    const meta3 = byTicker.get(ticker.toUpperCase());
+    const pnl = positionPnl(position);
+    const type = meta3?.type ?? position.instrument?.type;
+    return {
+      ticker,
+      name: position.instrument?.name ?? meta3?.name ?? ticker,
+      currency: (position.instrument?.currencyCode ?? position.instrument?.currency ?? meta3?.currencyCode ?? "?").toUpperCase(),
+      ...type ? { type } : {},
+      value: positionValue(position),
+      weight: 0,
+      ...pnl === void 0 ? {} : { unrealizedProfitLoss: pnl }
+    };
+  }).filter((item) => item.value > 0);
+  const investedValue = holdings.reduce((sum, item) => sum + item.value, 0);
+  const totalValue = investedValue + cash;
+  for (const item of holdings) item.weight = ratio(item.value, totalValue);
+  holdings.sort((a, b) => b.value - a.value);
+  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount: amount2 }) => ({ k, value: amount2, weight: ratio(amount2, totalValue) }));
+  const holdingCurrencies = group((item) => item.currency === "GBX" ? "GBP" : item.currency);
+  const accountCurrency = (account.currency ?? "").toUpperCase();
+  const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
+  if (cash > 0 && accountCurrency) exposure.set(accountCurrency, (exposure.get(accountCurrency) ?? 0) + cash);
+  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round2(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
+  const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight: weight2 }) => ({ type: k, value, weight: weight2 }));
+  const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
+  const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
+  const largestWeight = investedWeights[0] ?? 0;
+  const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
+  const cashWeight = ratio(cash, totalValue);
+  const flags = [];
+  const pct2 = (value) => `${round2(value * 100, 1)}%`;
+  if (holdings[0] && largestWeight > limits.maxSingleWeight)
+    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct2(largestWeight)} of invested value (limit ${pct2(limits.maxSingleWeight)}).` });
+  if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
+    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct2(top5Weight)} of invested value (limit ${pct2(limits.maxTop5Weight)}).` });
+  if (totalValue > 0 && cashWeight > limits.cashHighWeight)
+    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct2(cashWeight)} of the account.` });
+  if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
+    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct2(cashWeight)} of the account.` });
+  const topCurrency = holdingCurrencies[0];
+  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight)
+    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct2(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.k}.` });
+  return {
+    kind: "allocation",
+    environment,
+    accountCurrency: account.currency ?? "",
+    totalValue: round2(totalValue),
+    investedValue: round2(investedValue),
+    cash: round2(cash),
+    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round2(account.cash.availableToTrade) } : {},
+    cashWeight,
+    holdings: holdings.map((item) => ({ ...item, value: round2(item.value) })),
+    byCurrency,
+    byType,
+    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round2(1 / herfindahl, 1) : 0 },
+    flags,
+    timestamp: now.toISOString()
+  };
+}
+var inWindow = (value, window) => {
+  if (!value) return false;
+  const time3 = Date.parse(value);
+  return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
+};
+var DEPOSIT = /* @__PURE__ */ new Set(["DEPOSIT"]);
+var WITHDRAW = /* @__PURE__ */ new Set(["WITHDRAW", "WITHDRAWAL"]);
+var INTEREST = /* @__PURE__ */ new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
+function fillTicker(item) {
+  return item.order?.ticker ?? item.order?.instrument?.ticker ?? "?";
+}
+var YEAR_MS = 365.25 * 864e5;
+function moneyWeightedReturn(flows) {
+  const usable = flows.filter((flow) => Number.isFinite(flow.at) && Number.isFinite(flow.amount) && flow.amount !== 0);
+  if (!usable.some((flow) => flow.amount < 0) || !usable.some((flow) => flow.amount > 0)) return void 0;
+  const start = Math.min(...usable.map((flow) => flow.at));
+  const value = (rate) => usable.reduce((sum, flow) => sum + flow.amount / (1 + rate) ** ((flow.at - start) / YEAR_MS), 0);
+  let low = -0.9999, high = 100;
+  let atLow = value(low), atHigh = value(high);
+  if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return void 0;
+  for (let step = 0; step < 200 && high - low > 1e-10; step++) {
+    const middle = (low + high) / 2;
+    const atMiddle = value(middle);
+    if (Math.sign(atMiddle) === Math.sign(atLow)) {
+      low = middle;
+      atLow = atMiddle;
+    } else {
+      high = middle;
+      atHigh = atMiddle;
+    }
+  }
+  return (low + high) / 2;
+}
+function summarizePerformance(input2) {
+  const { window } = input2;
+  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
+  const dividends = input2.dividends.filter((item) => inWindow(item.paidOn, window));
+  const transactions = input2.transactions.filter((item) => inWindow(item.dateTime, window));
+  let deposits = 0, withdrawals = 0, interest = 0;
+  const transactionCosts = [];
+  for (const item of transactions) {
+    const amount2 = item.amount ?? 0;
+    const type = (item.type ?? "").toUpperCase();
+    if (DEPOSIT.has(type)) deposits += Math.abs(amount2);
+    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount2);
+    else if (INTEREST.has(type)) interest += amount2;
+    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount2) });
+  }
+  const taxes = [];
+  const perTicker = /* @__PURE__ */ new Map();
+  const tickerRow = (ticker) => {
+    let row = perTicker.get(ticker);
+    if (!row) perTicker.set(ticker, row = { realizedProfitLoss: 0, dividends: 0, costs: 0 });
+    return row;
+  };
+  let realized = 0, buys = 0, sells = 0, turnover = 0;
+  for (const item of fills) {
+    const ticker = fillTicker(item);
+    const wallet = item.fill?.walletImpact;
+    const pnl = wallet?.realisedProfitLoss ?? 0;
+    realized += pnl;
+    tickerRow(ticker).realizedProfitLoss += pnl;
+    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
+    const side = (item.order?.side ?? "").toUpperCase();
+    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
+    if (side === "SELL" || quantity < 0) sells++;
+    else buys++;
+    for (const tax of wallet?.taxes ?? []) {
+      const amount2 = Math.abs(tax.quantity ?? 0);
+      taxes.push({ key: tax.name ?? "OTHER", amount: amount2, ticker });
+      tickerRow(ticker).costs += amount2;
+    }
+  }
+  let dividendTotal = 0;
+  for (const item of dividends) {
+    const amount2 = item.amount ?? 0;
+    dividendTotal += amount2;
+    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount2;
+  }
+  const costs = [...taxes, ...transactionCosts];
+  const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
+  const net = deposits - withdrawals;
+  const currentValue = input2.account.totalValue;
+  const notes = [
+    "Amounts are in the account currency as reported by Trading 212.",
+    "Realized P/L comes from the broker's per-fill wallet impact and already reflects FX at execution."
+  ];
+  if (input2.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
+  if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
+  const endsNow = window.to.getTime() >= (input2.now ?? /* @__PURE__ */ new Date()).getTime() - 5 * 6e4;
+  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before now, because only the current account value is available.");
+  const measurable = !window.from && endsNow && !input2.truncated && currentValue !== void 0;
+  let annualized;
+  if (measurable) {
+    const flows = transactions.flatMap((item) => {
+      const type = (item.type ?? "").toUpperCase();
+      const at = Date.parse(item.dateTime ?? "");
+      const amount2 = Math.abs(item.amount ?? 0);
+      return DEPOSIT.has(type) ? [{ at, amount: -amount2 }] : WITHDRAW.has(type) ? [{ at, amount: amount2 }] : [];
+    }).filter((flow) => Number.isFinite(flow.at));
+    const deposits2 = flows.filter((flow) => flow.amount < 0);
+    const first = deposits2.length ? Math.min(...deposits2.map((flow) => flow.at)) : void 0;
+    if (first !== void 0 && window.to.getTime() - first >= 365 * 864e5) {
+      const rate = moneyWeightedReturn([...flows, { at: window.to.getTime(), amount: currentValue }]);
+      if (rate !== void 0) annualized = { rate, since: new Date(first).toISOString() };
+    } else if (first !== void 0) {
+      notes.push("annualizedReturn needs at least a year of deposits; it is omitted until then.");
+    }
+  }
+  return {
+    kind: "performance",
+    environment: input2.environment,
+    accountCurrency: input2.account.currency ?? "",
+    period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
+    coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
+    contributions: { deposits: round2(deposits), withdrawals: round2(withdrawals), net: round2(net) },
+    income: { dividends: round2(dividendTotal), interest: round2(interest) },
+    costs: { total: round2(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    realizedProfitLoss: round2(realized),
+    ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
+    ...currentValue === void 0 ? {} : { currentValue },
+    ...measurable && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
+    ...annualized ? { annualizedReturn: Math.round(annualized.rate * 1e4) / 1e4, annualizedSince: annualized.since } : {},
+    trades: { buys, sells, turnover: round2(turnover) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round2(row.realizedProfitLoss), dividends: round2(row.dividends), costs: round2(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    notes,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function forwardDividends(dividends, positions, to) {
+  const yearAgo = new Date(to.getTime() - 365 * 864e5);
+  const payments = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
+    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
+  }
+  const perShare = /* @__PURE__ */ new Map();
+  for (const [ticker, list2] of payments) {
+    const sum = list2.reduce((total2, item) => total2 + item.perShare, 0);
+    const times = list2.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
+    const gaps = times.slice(1).map((time3, index) => (time3 - times[index]) / 864e5).filter((days) => days > 10).sort((a, b) => a - b);
+    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
+    const frequency = gap === void 0 ? void 0 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+    perShare.set(ticker, frequency && list2.length < frequency ? sum * frequency / list2.length : sum);
+  }
+  const byTicker = [];
+  let value = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    value += positionValue(position);
+    const rate = ticker ? perShare.get(ticker) : void 0;
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round2(rate * position.quantity) });
+  }
+  byTicker.sort((a, b) => b.amount - a.amount);
+  const total = round2(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+}
+function summarizeIncome(input2) {
+  const events = [
+    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
+    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
+  ];
+  const windowed = events.filter((item) => inWindow(item.at, input2.window));
+  const yearAgo = new Date(input2.window.to.getTime() - 365 * 864e5);
+  const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
+  const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  return {
+    kind: "income",
+    environment: input2.environment,
+    accountCurrency: input2.accountCurrency,
+    period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
+    total: round2(dividends + interest),
+    dividends: round2(dividends),
+    interest: round2(interest),
+    byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
+    byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
+    trailing12Months: round2(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
+    truncated: input2.truncated,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+var SESSION_BY_EVENT = {
+  OPEN: "regular",
+  BREAK_END: "regular",
+  BREAK_START: "break",
+  PRE_MARKET_OPEN: "pre_market",
+  AFTER_HOURS_OPEN: "after_hours",
+  OVERNIGHT_OPEN: "overnight",
+  CLOSE: "closed",
+  AFTER_HOURS_CLOSE: "closed"
+};
+function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
+  const checkedAt = now.toISOString();
+  const scheduleId = instrument.workingScheduleId;
+  const exchange = exchanges.find((item) => item.workingSchedules?.some((schedule2) => schedule2.id === scheduleId));
+  const schedule = exchange?.workingSchedules.find((item) => item.id === scheduleId);
+  if (scheduleId === void 0 || !schedule?.timeEvents?.length)
+    return { ticker: instrument.ticker, ...scheduleId === void 0 ? {} : { scheduleId }, session: "unknown", isOpen: false, checkedAt };
+  const events = schedule.timeEvents.map((event) => ({ ...event, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
+  const nowTime = now.getTime();
+  const past = events.filter((event) => event.time <= nowTime);
+  const future = events.filter((event) => event.time > nowTime);
+  const last = past[past.length - 1];
+  const session = last ? SESSION_BY_EVENT[last.type] ?? "unknown" : "closed";
+  const nextOpen = future.find((event) => event.type === "OPEN");
+  const nextClose = future.find((event) => event.type === "CLOSE");
+  return {
+    ticker: instrument.ticker,
+    scheduleId,
+    ...exchange ? { exchange: exchange.name } : {},
+    session,
+    isOpen: session === "regular",
+    ...nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {},
+    ...nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {},
+    checkedAt
+  };
+}
+function parseYearStart(value) {
+  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
+  const month = Number(match?.[1]), day2 = Number(match?.[2]);
+  const valid = match && month >= 1 && month <= 12 && day2 >= 1 && day2 <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
+  return valid ? { month, day: day2, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
+}
+function validTimeZone(timeZone) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function zoneOffset(instant, timeZone) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - Math.floor(instant / 1e3) * 1e3;
+}
+function localDay(instant, timeZone) {
+  return new Date(instant + zoneOffset(instant, timeZone)).toISOString().slice(0, 10);
+}
+function localMidnight(year, month, day2, timeZone) {
+  const guess = Date.UTC(year, month - 1, day2);
+  const first = guess - zoneOffset(guess, timeZone);
+  return guess - zoneOffset(first, timeZone);
+}
+function taxYearWindow(year, start, timeZone = "UTC") {
+  return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
+}
+function currentTaxYear(start, now = /* @__PURE__ */ new Date(), timeZone = "UTC") {
+  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
+  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone) ? year : year - 1;
+}
+function summarizeTaxYear(input2) {
+  const now = input2.now ?? /* @__PURE__ */ new Date();
+  const timeZone = input2.timeZone ?? "UTC";
+  const window = taxYearWindow(input2.year, input2.yearStart, timeZone);
+  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt, window));
+  const undated = input2.orders.filter((item) => item.fill && !Number.isFinite(Date.parse(item.fill.filledAt ?? ""))).length;
+  let count = 0, proceeds = 0, gains = 0, losses = 0, unvalued = 0;
+  const perTicker = /* @__PURE__ */ new Map();
+  const costs = [];
+  for (const item of fills) {
+    const wallet = item.fill?.walletImpact;
+    for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
+    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
+    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
+    const pnl = wallet?.realisedProfitLoss ?? 0;
+    const value = wallet?.netValue === void 0 ? 0 : Math.abs(wallet.netValue);
+    if (wallet?.netValue === void 0) unvalued++;
+    count++;
+    proceeds += value;
+    if (pnl > 0) gains += pnl;
+    else losses += pnl;
+    const ticker = fillTicker(item);
+    const row = perTicker.get(ticker) ?? { disposals: 0, proceeds: 0, realizedProfitLoss: 0 };
+    row.disposals++;
+    row.proceeds += value;
+    row.realizedProfitLoss += pnl;
+    perTicker.set(ticker, row);
+  }
+  let dividends = 0, interest = 0;
+  for (const item of input2.dividends) if (inWindow(item.paidOn, window)) dividends += item.amount ?? 0;
+  for (const item of input2.transactions) {
+    if (!inWindow(item.dateTime, window)) continue;
+    const type = (item.type ?? "").toUpperCase();
+    if (INTEREST.has(type)) interest += item.amount ?? 0;
+    else if (type === "FEE") costs.push({ key: "ACCOUNT_FEE", amount: Math.abs(item.amount ?? 0) });
+  }
+  const ended = now.getTime() > window.to.getTime();
+  const notes = [
+    "Amounts are in the account currency as reported by Trading 212.",
+    "Gains and losses are Trading 212's realised P/L per sale, worked out against your average purchase price at the exchange rate of the sale. Countries match purchases to sales in their own way (for example the UK's same-day and 30-day rules), so use these figures to prepare and check a return, not as the tax due.",
+    "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need."
+  ];
+  if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
+  if (timeZone === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
+  if (unvalued) notes.push(`${unvalued} sale(s) had no account-currency value from Trading 212; proceeds leave them out, but their realised P/L is counted.`);
+  if (undated) notes.push(`${undated} fill(s) had no fill date and are left out; check them in the Trading 212 statement.`);
+  if (input2.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
+  return {
+    kind: "tax_year",
+    environment: input2.environment,
+    accountCurrency: input2.accountCurrency,
+    year: input2.year,
+    yearStart: input2.yearStart.text,
+    timeZone,
+    firstDay: `${input2.year}-${input2.yearStart.text}`,
+    lastDay: localDay(window.to.getTime(), timeZone),
+    period: { from: window.from.toISOString(), to: window.to.toISOString() },
+    ended,
+    disposals: { count, proceeds: round2(proceeds), gains: round2(gains), losses: round2(losses), net: round2(gains + losses) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round2(row.proceeds), realizedProfitLoss: round2(row.realizedProfitLoss) })).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
+    income: { dividends: round2(dividends), interest: round2(interest) },
+    costs: { total: round2(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    truncated: input2.truncated,
+    notes,
+    timestamp: now.toISOString()
+  };
+}
+
 // src/core/policy.ts
 var EMPTY_USAGE = { orders: 0, notional: 0 };
 function ageSeconds(value, now) {
@@ -35140,7 +35594,7 @@ function ageSeconds(value, now) {
   const time3 = Date.parse(value);
   return Number.isFinite(time3) ? Math.max(0, Math.floor((now.getTime() - time3) / 1e3)) : void 0;
 }
-var round2 = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round3 = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
 function evaluatePolicy(policy2, input2) {
   const { draft, instrument, position, account } = input2;
   const now = input2.now ?? /* @__PURE__ */ new Date();
@@ -35173,7 +35627,7 @@ function evaluatePolicy(policy2, input2) {
         rule: "max_position_weight",
         status: over ? "block" : "pass",
         message: over ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy2.maxPositionWeight * 100).toFixed(1)}% limit.` : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
-        details: { ticker, resultingWeight: round2(resulting), limit: policy2.maxPositionWeight }
+        details: { ticker, resultingWeight: round3(resulting), limit: policy2.maxPositionWeight }
       });
     }
   }
@@ -35188,7 +35642,7 @@ function evaluatePolicy(policy2, input2) {
     } else {
       const next = input2.usage.notional + input2.estimatedNotional;
       const over = next > policy2.dailyNotionalLimit + 1e-9;
-      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy2.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy2.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round2(input2.usage.notional, 2), next: round2(next, 2), limit: policy2.dailyNotionalLimit, currency: account.currency ?? null } });
+      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy2.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy2.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round3(input2.usage.notional, 2), next: round3(next, 2), limit: policy2.dailyNotionalLimit, currency: account.currency ?? null } });
     }
   }
   if (!policy2.marketOrdersWhenClosed && draft.type === "market" && input2.market && input2.market.session !== "unknown" && !input2.market.isOpen) {
@@ -35232,7 +35686,7 @@ var MAX_BASKET_LEGS = 20;
 function positiveNumber(name, value) {
   if (value === void 0 || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
 }
-var round3 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round4 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function floorQuantity(value, digits = 8) {
   const factor = 10 ** digits;
   return Math.floor((value + Number.EPSILON) * factor) / factor;
@@ -35333,7 +35787,7 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     if (ratio2 >= 10 || ratio2 <= 0.1)
       fail(
         "PRICE_OUT_OF_RANGE",
-        `${name} ${value} is ${ratio2 >= 10 ? `${round3(ratio2, 1)} times` : `${round3(1 / ratio2, 1)} times below`} the last price ${last} ${instrument.currencyCode}. Check the unit (${instrument.currencyCode === "GBX" ? "this instrument is quoted in pence" : "the instrument's quote currency"}).`,
+        `${name} ${value} is ${ratio2 >= 10 ? `${round4(ratio2, 1)} times` : `${round4(1 / ratio2, 1)} times below`} the last price ${last} ${instrument.currencyCode}. Check the unit (${instrument.currencyCode === "GBX" ? "this instrument is quoted in pence" : "the instrument's quote currency"}).`,
         { field: name, price: value, last, currency: instrument.currencyCode }
       );
   }
@@ -35361,14 +35815,14 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     const capped = accountNotional ?? estimatedNotional;
     const cappedCurrency = accountCurrency || instrumentCurrency;
     if (capped > config3.maxOrderNotional)
-      fail("ORDER_NOTIONAL_LIMIT", `Estimated order value ${capped.toFixed(2)} ${cappedCurrency} exceeds MAX_ORDER_NOTIONAL (${config3.maxOrderNotional})`, { requested: round3(capped, 2), limit: config3.maxOrderNotional, currency: cappedCurrency });
+      fail("ORDER_NOTIONAL_LIMIT", `Estimated order value ${capped.toFixed(2)} ${cappedCurrency} exceeds MAX_ORDER_NOTIONAL (${config3.maxOrderNotional})`, { requested: round4(capped, 2), limit: config3.maxOrderNotional, currency: cappedCurrency });
   }
   const availableCash = account.cash?.availableToTrade;
   const cashCheckApplied = draft.side !== "buy" || sameCurrency && estimatedNotional !== void 0;
   if (draft.side === "buy" && sameCurrency && availableCash !== void 0 && estimatedNotional !== void 0 && estimatedNotional > availableCash)
-    fail("INSUFFICIENT_CASH", `Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round3(estimatedNotional, 2), available: round3(availableCash, 2), currency: accountCurrency });
+    fail("INSUFFICIENT_CASH", `Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round4(estimatedNotional, 2), available: round4(availableCash, 2), currency: accountCurrency });
   if (draft.side === "buy" && !sameCurrency && availableCash !== void 0 && accountNotional !== void 0 && accountNotional > availableCash * 1.01)
-    fail("INSUFFICIENT_CASH", `Estimated order value about ${accountNotional.toFixed(2)} ${account.currency} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round3(accountNotional, 2), available: round3(availableCash, 2), currency: accountCurrency });
+    fail("INSUFFICIENT_CASH", `Estimated order value about ${accountNotional.toFixed(2)} ${account.currency} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round4(accountNotional, 2), available: round4(availableCash, 2), currency: accountCurrency });
   return {
     ...estimatedNotional === void 0 ? {} : { estimatedNotional },
     ...accountNotional === void 0 ? {} : { accountNotional },
@@ -35648,7 +36102,7 @@ var TradingService = class {
       if (accountCurrency !== instrumentCurrency) {
         const { rate, source } = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
         quoteAmount = requestedNotional * rate;
-        converted = ` converted at ${round3(rate, 6)} ${instrumentCurrency}/${accountCurrency}${source}`;
+        converted = ` converted at ${round4(rate, 6)} ${instrumentCurrency}/${accountCurrency}${source}`;
       }
       quantity = floorQuantity(quoteAmount / pricingReference);
       if (quantity <= 0) throw new Error("The selected cash percentage is too small to produce a positive quantity");
@@ -35695,7 +36149,7 @@ var TradingService = class {
       quantity = floorQuantity(quoteAmount / pricingReference);
       if (quantity <= 0) throw new Error("The requested amount is too small to produce a positive quantity");
       estimatedQuoteNotional = pricingReference * quantity;
-      note = !conversion ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${round3(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
+      note = !conversion ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${round4(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
     }
     if (givenRate === void 0 && external) {
       givenRate = external.rate;
@@ -35994,6 +36448,48 @@ var TradingService = class {
         "Both orders stay at Trading 212 until they fill or you cancel them.",
         ...legs.length === 2 ? [this.deps.config.protectiveLinking ? "TradePilot links the two orders: about a minute after one fills, it cancels the other. Trading 212 may reject the second if the first already reserves the shares; then only the first is placed." : "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."] : [],
         "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price."
+      ]
+    };
+  }
+  /**
+   * One Good-Till-Cancel sell stop for every holding whose free shares no pending sell stop covers yet,
+   * largest uncovered value first, as a basket the user confirms once. Each stop matches the holding's
+   * existing stop, or starts `dropPercent` below the last price. Trading 212 triggers them; nothing runs here.
+   */
+  async stopsBasket(environment, input2 = {}) {
+    requireCredentials(this.deps.config, environment);
+    const drop = (input2.dropPercent ?? SUGGESTED_STOP_DROP * 100) / 100;
+    const [snapshot, orders] = await Promise.all([this.snapshot(environment), this.client(environment).getOrders()]);
+    const only = input2.tickers?.length ? new Set(input2.tickers.map((query) => resolveInstrumentFromList(snapshot.instruments, query).ticker)) : void 0;
+    const missing = [...only ?? []].filter((ticker) => !snapshot.positions.some((position) => position.instrument.ticker === ticker && position.quantity > 0));
+    if (missing.length) fail("NO_AVAILABLE_POSITION", `There is no ${missing.join(", ")} position to protect`);
+    const candidates2 = snapshot.positions.flatMap((position) => {
+      if (only && !only.has(position.instrument.ticker)) return [];
+      const guard = stopProtection(position, orders);
+      const stop = suggestedStop(position, guard, drop);
+      return stop ? [{ position, stop, matched: guard !== void 0 && stop.stopPrice === guard.stopPrice, exposure: positionValue(position) * (stop.quantity / position.quantity) }] : [];
+    }).sort((a, b) => b.exposure - a.exposure);
+    if (!candidates2.length) {
+      fail("NO_AVAILABLE_POSITION", `${only ? "None of those holdings has" : "No holding has"} shares free to sell that a pending stop-loss does not already cover`);
+    }
+    const percent = Number((drop * 100).toFixed(2));
+    const legs = candidates2.slice(0, MAX_BASKET_LEGS).map(({ position, stop, matched }) => ({
+      draft: { environment, ticker: position.instrument.ticker, side: "sell", type: "stop", quantity: stop.quantity, stopPrice: stop.stopPrice, timeValidity: "GOOD_TILL_CANCEL" },
+      // The widget translates these two reasons (src/ui/lib/messages.ts legReason).
+      reason: matched ? "Matches the existing stop" : `${percent}% below the last price`
+    }));
+    const left = candidates2.length - legs.length;
+    return {
+      kind: "basket_draft",
+      environment,
+      purpose: "protective",
+      title: STOPS_BASKET_TITLE,
+      legs,
+      notes: [
+        "Each order stays at Trading 212 until it triggers or you cancel it.",
+        `A holding that already has a stop gets one at the same price for its uncovered shares; the others start ${percent}% below the last price.`,
+        "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+        ...left > 0 ? [`${left} more holding(s) without a full stop were left out; a basket holds at most ${MAX_BASKET_LEGS} orders.`] : []
       ]
     };
   }
@@ -36392,424 +36888,6 @@ var TradingService = class {
     return result2;
   }
 };
-
-// src/core/analytics.ts
-var DEFAULT_ALLOCATION_LIMITS = {
-  maxSingleWeight: 0.2,
-  maxTop5Weight: 0.6,
-  cashHighWeight: 0.3,
-  cashLowWeight: 0.02,
-  maxCurrencyWeight: 0.85
-};
-var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
-var ratio = (part, whole) => whole > 0 ? part / whole : 0;
-function sumBy(items, key, amount2) {
-  const totals = /* @__PURE__ */ new Map();
-  for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount2(item));
-  return [...totals].map(([k, v]) => ({ key: k, amount: round4(v) })).sort((a, b) => b.amount - a.amount);
-}
-function positionValue(position) {
-  const wallet = position.walletImpact;
-  if (typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue)) return wallet.currentValue;
-  return position.quantity * position.currentPrice;
-}
-function positionPnl(position) {
-  const wallet = position.walletImpact;
-  return typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : void 0;
-}
-function analyzeAllocation(environment, account, positions, instruments = [], limits = DEFAULT_ALLOCATION_LIMITS, now = /* @__PURE__ */ new Date()) {
-  const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
-  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0) + Math.max(0, account.cash?.inPies ?? 0);
-  const holdings = positions.map((position) => {
-    const ticker = position.instrument?.ticker ?? "";
-    const meta3 = byTicker.get(ticker.toUpperCase());
-    const pnl = positionPnl(position);
-    const type = meta3?.type ?? position.instrument?.type;
-    return {
-      ticker,
-      name: position.instrument?.name ?? meta3?.name ?? ticker,
-      currency: (position.instrument?.currencyCode ?? position.instrument?.currency ?? meta3?.currencyCode ?? "?").toUpperCase(),
-      ...type ? { type } : {},
-      value: positionValue(position),
-      weight: 0,
-      ...pnl === void 0 ? {} : { unrealizedProfitLoss: pnl }
-    };
-  }).filter((item) => item.value > 0);
-  const investedValue = holdings.reduce((sum, item) => sum + item.value, 0);
-  const totalValue = investedValue + cash;
-  for (const item of holdings) item.weight = ratio(item.value, totalValue);
-  holdings.sort((a, b) => b.value - a.value);
-  const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount: amount2 }) => ({ k, value: amount2, weight: ratio(amount2, totalValue) }));
-  const holdingCurrencies = group((item) => item.currency === "GBX" ? "GBP" : item.currency);
-  const accountCurrency = (account.currency ?? "").toUpperCase();
-  const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
-  if (cash > 0 && accountCurrency) exposure.set(accountCurrency, (exposure.get(accountCurrency) ?? 0) + cash);
-  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round4(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
-  const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight: weight2 }) => ({ type: k, value, weight: weight2 }));
-  const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
-  const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
-  const largestWeight = investedWeights[0] ?? 0;
-  const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
-  const cashWeight = ratio(cash, totalValue);
-  const flags = [];
-  const pct2 = (value) => `${round4(value * 100, 1)}%`;
-  if (holdings[0] && largestWeight > limits.maxSingleWeight)
-    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct2(largestWeight)} of invested value (limit ${pct2(limits.maxSingleWeight)}).` });
-  if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
-    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct2(top5Weight)} of invested value (limit ${pct2(limits.maxTop5Weight)}).` });
-  if (totalValue > 0 && cashWeight > limits.cashHighWeight)
-    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct2(cashWeight)} of the account.` });
-  if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
-    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct2(cashWeight)} of the account.` });
-  const topCurrency = holdingCurrencies[0];
-  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight)
-    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct2(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.k}.` });
-  return {
-    kind: "allocation",
-    environment,
-    accountCurrency: account.currency ?? "",
-    totalValue: round4(totalValue),
-    investedValue: round4(investedValue),
-    cash: round4(cash),
-    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round4(account.cash.availableToTrade) } : {},
-    cashWeight,
-    holdings: holdings.map((item) => ({ ...item, value: round4(item.value) })),
-    byCurrency,
-    byType,
-    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round4(1 / herfindahl, 1) : 0 },
-    flags,
-    timestamp: now.toISOString()
-  };
-}
-var inWindow = (value, window) => {
-  if (!value) return false;
-  const time3 = Date.parse(value);
-  return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
-};
-var DEPOSIT = /* @__PURE__ */ new Set(["DEPOSIT"]);
-var WITHDRAW = /* @__PURE__ */ new Set(["WITHDRAW", "WITHDRAWAL"]);
-var INTEREST = /* @__PURE__ */ new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
-function fillTicker(item) {
-  return item.order?.ticker ?? item.order?.instrument?.ticker ?? "?";
-}
-var YEAR_MS = 365.25 * 864e5;
-function moneyWeightedReturn(flows) {
-  const usable = flows.filter((flow) => Number.isFinite(flow.at) && Number.isFinite(flow.amount) && flow.amount !== 0);
-  if (!usable.some((flow) => flow.amount < 0) || !usable.some((flow) => flow.amount > 0)) return void 0;
-  const start = Math.min(...usable.map((flow) => flow.at));
-  const value = (rate) => usable.reduce((sum, flow) => sum + flow.amount / (1 + rate) ** ((flow.at - start) / YEAR_MS), 0);
-  let low = -0.9999, high = 100;
-  let atLow = value(low), atHigh = value(high);
-  if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return void 0;
-  for (let step = 0; step < 200 && high - low > 1e-10; step++) {
-    const middle = (low + high) / 2;
-    const atMiddle = value(middle);
-    if (Math.sign(atMiddle) === Math.sign(atLow)) {
-      low = middle;
-      atLow = atMiddle;
-    } else {
-      high = middle;
-      atHigh = atMiddle;
-    }
-  }
-  return (low + high) / 2;
-}
-function summarizePerformance(input2) {
-  const { window } = input2;
-  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
-  const dividends = input2.dividends.filter((item) => inWindow(item.paidOn, window));
-  const transactions = input2.transactions.filter((item) => inWindow(item.dateTime, window));
-  let deposits = 0, withdrawals = 0, interest = 0;
-  const transactionCosts = [];
-  for (const item of transactions) {
-    const amount2 = item.amount ?? 0;
-    const type = (item.type ?? "").toUpperCase();
-    if (DEPOSIT.has(type)) deposits += Math.abs(amount2);
-    else if (WITHDRAW.has(type)) withdrawals += Math.abs(amount2);
-    else if (INTEREST.has(type)) interest += amount2;
-    else if (type === "FEE") transactionCosts.push({ key: "ACCOUNT_FEE", amount: Math.abs(amount2) });
-  }
-  const taxes = [];
-  const perTicker = /* @__PURE__ */ new Map();
-  const tickerRow = (ticker) => {
-    let row = perTicker.get(ticker);
-    if (!row) perTicker.set(ticker, row = { realizedProfitLoss: 0, dividends: 0, costs: 0 });
-    return row;
-  };
-  let realized = 0, buys = 0, sells = 0, turnover = 0;
-  for (const item of fills) {
-    const ticker = fillTicker(item);
-    const wallet = item.fill?.walletImpact;
-    const pnl = wallet?.realisedProfitLoss ?? 0;
-    realized += pnl;
-    tickerRow(ticker).realizedProfitLoss += pnl;
-    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
-    const side = (item.order?.side ?? "").toUpperCase();
-    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if (side === "SELL" || quantity < 0) sells++;
-    else buys++;
-    for (const tax of wallet?.taxes ?? []) {
-      const amount2 = Math.abs(tax.quantity ?? 0);
-      taxes.push({ key: tax.name ?? "OTHER", amount: amount2, ticker });
-      tickerRow(ticker).costs += amount2;
-    }
-  }
-  let dividendTotal = 0;
-  for (const item of dividends) {
-    const amount2 = item.amount ?? 0;
-    dividendTotal += amount2;
-    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount2;
-  }
-  const costs = [...taxes, ...transactionCosts];
-  const costTotal = costs.reduce((sum, item) => sum + item.amount, 0);
-  const net = deposits - withdrawals;
-  const currentValue = input2.account.totalValue;
-  const notes = [
-    "Amounts are in the account currency as reported by Trading 212.",
-    "Realized P/L comes from the broker's per-fill wallet impact and already reflects FX at execution."
-  ];
-  if (input2.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
-  if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
-  const endsNow = window.to.getTime() >= (input2.now ?? /* @__PURE__ */ new Date()).getTime() - 5 * 6e4;
-  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before now, because only the current account value is available.");
-  const measurable = !window.from && endsNow && !input2.truncated && currentValue !== void 0;
-  let annualized;
-  if (measurable) {
-    const flows = transactions.flatMap((item) => {
-      const type = (item.type ?? "").toUpperCase();
-      const at = Date.parse(item.dateTime ?? "");
-      const amount2 = Math.abs(item.amount ?? 0);
-      return DEPOSIT.has(type) ? [{ at, amount: -amount2 }] : WITHDRAW.has(type) ? [{ at, amount: amount2 }] : [];
-    }).filter((flow) => Number.isFinite(flow.at));
-    const deposits2 = flows.filter((flow) => flow.amount < 0);
-    const first = deposits2.length ? Math.min(...deposits2.map((flow) => flow.at)) : void 0;
-    if (first !== void 0 && window.to.getTime() - first >= 365 * 864e5) {
-      const rate = moneyWeightedReturn([...flows, { at: window.to.getTime(), amount: currentValue }]);
-      if (rate !== void 0) annualized = { rate, since: new Date(first).toISOString() };
-    } else if (first !== void 0) {
-      notes.push("annualizedReturn needs at least a year of deposits; it is omitted until then.");
-    }
-  }
-  return {
-    kind: "performance",
-    environment: input2.environment,
-    accountCurrency: input2.account.currency ?? "",
-    period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
-    coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
-    contributions: { deposits: round4(deposits), withdrawals: round4(withdrawals), net: round4(net) },
-    income: { dividends: round4(dividendTotal), interest: round4(interest) },
-    costs: { total: round4(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    realizedProfitLoss: round4(realized),
-    ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
-    ...currentValue === void 0 ? {} : { currentValue },
-    ...measurable && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
-    ...annualized ? { annualizedReturn: Math.round(annualized.rate * 1e4) / 1e4, annualizedSince: annualized.since } : {},
-    trades: { buys, sells, turnover: round4(turnover) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round4(row.realizedProfitLoss), dividends: round4(row.dividends), costs: round4(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
-    notes,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-function forwardDividends(dividends, positions, to) {
-  const yearAgo = new Date(to.getTime() - 365 * 864e5);
-  const payments = /* @__PURE__ */ new Map();
-  for (const item of dividends) {
-    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
-    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
-  }
-  const perShare = /* @__PURE__ */ new Map();
-  for (const [ticker, list2] of payments) {
-    const sum = list2.reduce((total2, item) => total2 + item.perShare, 0);
-    const times = list2.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
-    const gaps = times.slice(1).map((time3, index) => (time3 - times[index]) / 864e5).filter((days) => days > 10).sort((a, b) => a - b);
-    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
-    const frequency = gap === void 0 ? void 0 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
-    perShare.set(ticker, frequency && list2.length < frequency ? sum * frequency / list2.length : sum);
-  }
-  const byTicker = [];
-  let value = 0;
-  for (const position of positions) {
-    const ticker = position.instrument?.ticker;
-    value += positionValue(position);
-    const rate = ticker ? perShare.get(ticker) : void 0;
-    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round4(rate * position.quantity) });
-  }
-  byTicker.sort((a, b) => b.amount - a.amount);
-  const total = round4(byTicker.reduce((sum, item) => sum + item.amount, 0));
-  return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
-}
-function summarizeIncome(input2) {
-  const events = [
-    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
-    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
-  ];
-  const windowed = events.filter((item) => inWindow(item.at, input2.window));
-  const yearAgo = new Date(input2.window.to.getTime() - 365 * 864e5);
-  const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
-  const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
-  const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
-  return {
-    kind: "income",
-    environment: input2.environment,
-    accountCurrency: input2.accountCurrency,
-    period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
-    total: round4(dividends + interest),
-    dividends: round4(dividends),
-    interest: round4(interest),
-    byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
-    byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
-    trailing12Months: round4(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
-    truncated: input2.truncated,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-var SESSION_BY_EVENT = {
-  OPEN: "regular",
-  BREAK_END: "regular",
-  BREAK_START: "break",
-  PRE_MARKET_OPEN: "pre_market",
-  AFTER_HOURS_OPEN: "after_hours",
-  OVERNIGHT_OPEN: "overnight",
-  CLOSE: "closed",
-  AFTER_HOURS_CLOSE: "closed"
-};
-function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
-  const checkedAt = now.toISOString();
-  const scheduleId = instrument.workingScheduleId;
-  const exchange = exchanges.find((item) => item.workingSchedules?.some((schedule2) => schedule2.id === scheduleId));
-  const schedule = exchange?.workingSchedules.find((item) => item.id === scheduleId);
-  if (scheduleId === void 0 || !schedule?.timeEvents?.length)
-    return { ticker: instrument.ticker, ...scheduleId === void 0 ? {} : { scheduleId }, session: "unknown", isOpen: false, checkedAt };
-  const events = schedule.timeEvents.map((event) => ({ ...event, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
-  const nowTime = now.getTime();
-  const past = events.filter((event) => event.time <= nowTime);
-  const future = events.filter((event) => event.time > nowTime);
-  const last = past[past.length - 1];
-  const session = last ? SESSION_BY_EVENT[last.type] ?? "unknown" : "closed";
-  const nextOpen = future.find((event) => event.type === "OPEN");
-  const nextClose = future.find((event) => event.type === "CLOSE");
-  return {
-    ticker: instrument.ticker,
-    scheduleId,
-    ...exchange ? { exchange: exchange.name } : {},
-    session,
-    isOpen: session === "regular",
-    ...nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {},
-    ...nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {},
-    checkedAt
-  };
-}
-function parseYearStart(value) {
-  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
-  const month = Number(match?.[1]), day2 = Number(match?.[2]);
-  const valid = match && month >= 1 && month <= 12 && day2 >= 1 && day2 <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
-  return valid ? { month, day: day2, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
-}
-function validTimeZone(timeZone) {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function zoneOffset(instant, timeZone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - Math.floor(instant / 1e3) * 1e3;
-}
-function localDay(instant, timeZone) {
-  return new Date(instant + zoneOffset(instant, timeZone)).toISOString().slice(0, 10);
-}
-function localMidnight(year, month, day2, timeZone) {
-  const guess = Date.UTC(year, month - 1, day2);
-  const first = guess - zoneOffset(guess, timeZone);
-  return guess - zoneOffset(first, timeZone);
-}
-function taxYearWindow(year, start, timeZone = "UTC") {
-  return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
-}
-function currentTaxYear(start, now = /* @__PURE__ */ new Date(), timeZone = "UTC") {
-  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
-  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone) ? year : year - 1;
-}
-function summarizeTaxYear(input2) {
-  const now = input2.now ?? /* @__PURE__ */ new Date();
-  const timeZone = input2.timeZone ?? "UTC";
-  const window = taxYearWindow(input2.year, input2.yearStart, timeZone);
-  const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt, window));
-  const undated = input2.orders.filter((item) => item.fill && !Number.isFinite(Date.parse(item.fill.filledAt ?? ""))).length;
-  let count = 0, proceeds = 0, gains = 0, losses = 0, unvalued = 0;
-  const perTicker = /* @__PURE__ */ new Map();
-  const costs = [];
-  for (const item of fills) {
-    const wallet = item.fill?.walletImpact;
-    for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
-    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
-    const pnl = wallet?.realisedProfitLoss ?? 0;
-    const value = wallet?.netValue === void 0 ? 0 : Math.abs(wallet.netValue);
-    if (wallet?.netValue === void 0) unvalued++;
-    count++;
-    proceeds += value;
-    if (pnl > 0) gains += pnl;
-    else losses += pnl;
-    const ticker = fillTicker(item);
-    const row = perTicker.get(ticker) ?? { disposals: 0, proceeds: 0, realizedProfitLoss: 0 };
-    row.disposals++;
-    row.proceeds += value;
-    row.realizedProfitLoss += pnl;
-    perTicker.set(ticker, row);
-  }
-  let dividends = 0, interest = 0;
-  for (const item of input2.dividends) if (inWindow(item.paidOn, window)) dividends += item.amount ?? 0;
-  for (const item of input2.transactions) {
-    if (!inWindow(item.dateTime, window)) continue;
-    const type = (item.type ?? "").toUpperCase();
-    if (INTEREST.has(type)) interest += item.amount ?? 0;
-    else if (type === "FEE") costs.push({ key: "ACCOUNT_FEE", amount: Math.abs(item.amount ?? 0) });
-  }
-  const ended = now.getTime() > window.to.getTime();
-  const notes = [
-    "Amounts are in the account currency as reported by Trading 212.",
-    "Gains and losses are Trading 212's realised P/L per sale, worked out against your average purchase price at the exchange rate of the sale. Countries match purchases to sales in their own way (for example the UK's same-day and 30-day rules), so use these figures to prepare and check a return, not as the tax due.",
-    "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need."
-  ];
-  if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
-  if (timeZone === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
-  if (unvalued) notes.push(`${unvalued} sale(s) had no account-currency value from Trading 212; proceeds leave them out, but their realised P/L is counted.`);
-  if (undated) notes.push(`${undated} fill(s) had no fill date and are left out; check them in the Trading 212 statement.`);
-  if (input2.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
-  return {
-    kind: "tax_year",
-    environment: input2.environment,
-    accountCurrency: input2.accountCurrency,
-    year: input2.year,
-    yearStart: input2.yearStart.text,
-    timeZone,
-    firstDay: `${input2.year}-${input2.yearStart.text}`,
-    lastDay: localDay(window.to.getTime(), timeZone),
-    period: { from: window.from.toISOString(), to: window.to.toISOString() },
-    ended,
-    disposals: { count, proceeds: round4(proceeds), gains: round4(gains), losses: round4(losses), net: round4(gains + losses) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round4(row.proceeds), realizedProfitLoss: round4(row.realizedProfitLoss) })).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
-    income: { dividends: round4(dividends), interest: round4(interest) },
-    costs: { total: round4(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    truncated: input2.truncated,
-    notes,
-    timestamp: now.toISOString()
-  };
-}
 
 // src/core/insights-service.ts
 var DEFAULT_HISTORY_PAGES = 10;
@@ -37802,31 +37880,8 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.25.0"
+  version: "2.26.0"
 };
-
-// src/shared/protection.ts
-function isSellStop(order) {
-  if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
-  return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
-}
-function stopProtection(position, orders) {
-  const ticker = position.instrument.ticker;
-  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
-  if (!stops.length || !(position.quantity > 0)) return void 0;
-  const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
-  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
-  const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
-  const last = position.currentPrice;
-  return {
-    ticker,
-    stopPrice,
-    ...last > 0 ? { gap: (stopPrice - last) / last } : {},
-    covered,
-    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
-    orders: stops.length
-  };
-}
 
 // src/core/text-summary.ts
 var MAX_ROWS = 30;
@@ -39309,6 +39364,29 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         try {
           const data = { ...await trading.withInstruments(await trading.protectiveBasket(environment, instrument, input2)), credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_portfolio_stops",
+      {
+        title: "Review Stop-Losses for Unprotected Holdings",
+        description: `Draft one Good-Till-Cancel Stop sell for every holding whose shares free to sell no pending sell stop covers yet, as one basket the user confirms once (largest first, up to ${MAX_BASKET_LEGS}). A holding that already has a stop below the price gets the same stop price for its uncovered shares; the others get dropPercent below the last price. Review-only; never places an order. Use review_protective_orders for one holding with a chosen price or a take-profit.`,
+        inputSchema: external_exports.object({
+          environment: environmentWithDefault,
+          dropPercent: external_exports.number().min(1).max(50).optional().describe("Percent below the last price for holdings without a stop (default 8)"),
+          tickers: external_exports.array(external_exports.string().min(1)).min(1).max(MAX_BASKET_LEGS).optional().describe("Only these holdings; default every holding")
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, ...input2 }) => {
+        try {
+          const data = { ...await trading.withInstruments(await trading.stopsBasket(environment, input2)), credentials: credentialStatus(config3), writeEnabled: true };
+          return result(data, `Drafted ${data.legs.length} stop-loss order(s) for review. Nothing has been sent.`);
         } catch (error62) {
           return toolError(error62);
         }

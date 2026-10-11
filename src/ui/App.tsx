@@ -406,6 +406,13 @@ export default function App() {
     }, () => void rebalanceToTargets(buyOnly));
   }
 
+  /** Draft a stop for every holding without a full one; they open as a basket to review, nothing is sent. */
+  async function protectAll(): Promise<void> {
+    await run("errorTitleStops", async () => {
+      showPayload(await callTool<BasePayload>("review_portfolio_stops", { environment }));
+    }, () => void protectAll());
+  }
+
   async function loadInsight(kind: InsightKind, env = environment, range = period): Promise<void> {
     setStatus("loading");
     setProblem(null);
@@ -808,7 +815,8 @@ export default function App() {
             {base?.kind === "error" && <ErrorCard title={t("errorTitleLoad")} message={formatProblem(base.error, t, locale)} retryLabel={t("retry")} busy={loading} onRetry={() => void refresh(environment, "holdings")} />}
             {portfolioLike && <ViewTabs tab={tab} busy={loading} t={t} onSelect={(next) => void selectTab(next)} />}
             {base?.kind === "portfolio" && tab === "holdings" && (
-              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)} />
+              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
+                {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />

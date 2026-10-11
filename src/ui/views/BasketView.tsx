@@ -117,7 +117,7 @@ function BasketHeader({
   headingProps?: { id: string };
 }) {
   const title = basketTitle(basket, t, book);
-  const purpose = purposeLabel(basket.purpose, t);
+  const purpose = purposeLabel(basket.purpose, t, basket.legs);
   return (
     <div className="transactionHeader">
       <div>
@@ -285,7 +285,7 @@ function BasketConfirmation({
       <section ref={dialog.panel} className={`transactionPanel confirmationPanel basketPanel ${live ? "liveTransaction" : ""}`} {...dialog.props}>
         <div className="confirmationHero">
           <span className={`environmentTag ${preview.environment}`}>{envLabel(preview.environment, t)}</span>
-          <span className="sectionEyebrow">{t("finalConfirmation")} · {purposeLabel(preview.purpose, t)}</span>
+          <span className="sectionEyebrow">{t("finalConfirmation")} · {purposeLabel(preview.purpose, t, preview.legs)}</span>
           <h2 id={dialog.headingId} ref={dialog.heading} tabIndex={-1}>{live ? t("realBasket") : t("demoBasket")}</h2>
           <strong className="confirmationAmount basketCount">{countText("orders", preview.legs.length, t, locale)}</strong>
           <span className="basketSubtitle">{basketTitle(shape, t, book)}</span>

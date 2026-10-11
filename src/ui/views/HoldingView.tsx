@@ -223,7 +223,7 @@ function PriceLadder({ levels, last, currency, locale, t, guardNote, partial, ac
   return (
     <section className="dataPanel">
       <div className="pieHeader"><h2>{t("priceLevels")}</h2></div>
-      {guardNote && <div className={`ladderGuard${partial ? " partial" : ""}`}><span className="positionGuardMark" aria-hidden="true" /><span>{guardNote}</span>{action}</div>}
+      {guardNote && <div className={`ladderGuard${partial ? " partial" : ""}`}><span className="guardText"><span className="positionGuardMark" aria-hidden="true" />{guardNote}</span>{action}</div>}
       {levels.length >= 2 && <ol className="levelLadder">
         {levels.map((level) => {
           const gap = last && level.kind !== "last" ? (level.price - last) / last : undefined;

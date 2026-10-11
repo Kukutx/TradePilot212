@@ -47,7 +47,7 @@ Ask the model to call `get_trading_policy` to see the rules in force and today's
 
 A basket is up to 20 orders reviewed and confirmed together.
 
-1. The model opens a basket draft. It never sends anything. The draft comes from `plan_portfolio_rebalance`, `review_protective_orders`, `review_investment_plan` or `review_order_basket`.
+1. The model opens a basket draft. It never sends anything. The draft comes from `plan_portfolio_rebalance`, `review_protective_orders`, `review_portfolio_stops`, `review_investment_plan` or `review_order_basket`.
 2. You can remove legs, then press **Review**. The server validates every leg against one account snapshot, in order, with sells first. Later legs see the shares and cash that earlier legs use. The server then runs the policy for each leg and issues one short-lived token.
 3. You confirm. The server re-checks everything, then sends the orders one at a time.
 4. If a broker response is uncertain (a timeout or 5xx after a write), the remaining orders are **not sent**. The uncertain order gets a verification record, the same as a single order. Rejected orders do not stop the rest. Nothing is retried.
@@ -89,6 +89,14 @@ Targets only inform; they never place orders, so they work without order tools.
 - Between a fill and the next tick (up to about a minute) both orders exist. A fast market can fill the second in that window. If Trading 212 already reserved the shares for the first order, it rejects the second order when the pair is placed, and only the first one is placed.
 - Set `PROTECTIVE_OCO=false` to place unlinked orders.
 - A triggered Stop becomes a Market order and can fill below the stop price on a gap.
+
+`review_portfolio_stops` covers the whole portfolio at once. It drafts one Good-Till-Cancel Stop sell for each holding whose shares free to sell no pending sell stop covers yet. All of them open as one basket that you confirm once.
+- A holding that already has a stop below the price gets the same stop price for its uncovered shares, so the whole holding triggers together.
+- The others start `dropPercent` (default 8) below the last price.
+- `tickers` limits the basket to some holdings. The largest uncovered holdings come first, up to 20 orders.
+- Shares that a take-profit or another sell already reserves are not free to sell, so they get no stop.
+
+These stops are not linked to anything. The dashboard's holdings panel shows how many holdings are fully covered and the value left unprotected, and opens the same basket when order tools are on.
 
 ## Order fill notices
 

@@ -44,9 +44,12 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
 /** How far below the last price a suggested stop starts; the order editor changes it before review. */
 export const SUGGESTED_STOP_DROP = 0.08;
 
+/** The title of the basket that protects every holding without a full stop; the widget translates it. */
+export const STOPS_BASKET_TITLE = "Stop-losses for unprotected holdings";
+
 /**
  * Cents for ordinary prices; four significant digits below 1, where cents could round a stop up to the
- * price or down to zero. From 1 up, an 8% drop is at least 8 cents, so cents keep it below the price.
+ * price or down to zero. From 1 up, even a 1% drop is more than half a cent, so cents keep it below the price.
  */
 function roundPrice(price: number): number {
   return price >= 1 ? Math.round(price * 100) / 100 : Number(price.toPrecision(4));
@@ -54,15 +57,61 @@ function roundPrice(price: number): number {
 
 /**
  * A sell stop for the part of a holding no stop covers yet, up to the shares free to sell. It matches the
- * existing stop so the whole holding triggers at one price, or starts 8% below the last price when there is
- * none or the price is already under it. Undefined when every share is covered or none is free. Only a
- * starting point for the editor.
+ * existing stop so the whole holding triggers at one price, or starts `drop` (8%) below the last price when
+ * there is none or the price is already under it. Undefined when every share is covered or none is free.
+ * Only a starting point: the order editor or basket review comes before anything is sent.
  */
-export function suggestedStop(position: Position, guard: StopProtection | undefined): { quantity: number; stopPrice: number } | undefined {
+export function suggestedStop(position: Position, guard: StopProtection | undefined, drop = SUGGESTED_STOP_DROP): { quantity: number; stopPrice: number } | undefined {
   if (!(position.currentPrice > 0)) return undefined;
   const uncovered = Number((position.quantity - (guard?.covered ?? 0)).toFixed(8));
   const quantity = Math.min(uncovered, position.quantityAvailableForTrading);
   if (!(quantity > 0)) return undefined;
-  const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - SUGGESTED_STOP_DROP));
+  const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - drop));
   return { quantity, stopPrice };
+}
+
+export interface PortfolioProtection {
+  holdings: number;
+  /** Holdings whose pending sell stops cover every share. */
+  covered: number;
+  /** Holdings a sell stop covers only in part. */
+  partial: number;
+  /**
+   * Account-currency value of the shares no stop covers, and its share of all holdings. Absent when a
+   * holding has no account-currency value, since prices in other currencies cannot be added up.
+   */
+  unprotectedValue?: number;
+  unprotectedShare?: number;
+  /** Holdings with uncovered shares free to sell, which one stop basket can protect. */
+  protectable: number;
+}
+
+/** Stop-loss coverage across the portfolio, for one line above the holdings. */
+export function portfolioProtection(positions: Position[], orders: PendingOrder[]): PortfolioProtection {
+  const held = positions.filter((position) => position.quantity > 0);
+  let covered = 0;
+  let partial = 0;
+  let protectable = 0;
+  let unprotected = 0;
+  let total = 0;
+  let valued = true;
+  for (const position of held) {
+    const guard = stopProtection(position, orders);
+    if (guard?.coverage === 1) covered += 1;
+    else if (guard) partial += 1;
+    if (suggestedStop(position, guard)) protectable += 1;
+    const value = (position.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
+    if (typeof value !== "number" || !Number.isFinite(value)) valued = false;
+    else {
+      total += value;
+      unprotected += value * (1 - (guard?.coverage ?? 0));
+    }
+  }
+  return {
+    holdings: held.length,
+    covered,
+    partial,
+    protectable,
+    ...(valued && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {}),
+  };
 }

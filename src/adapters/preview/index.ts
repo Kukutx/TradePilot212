@@ -108,6 +108,10 @@ async function scenarios(): Promise<Scenario[]> {
       args: { instrument: top.instrument.ticker, stopLossPrice: round(price * 0.9), takeProfitPrice: round(price * 1.15) },
       prompt: { en: `Set a stop-loss 10% below and a take-profit 15% above on ${name}.`, zh: `给 ${name} 设置低于现价 10% 的止损和高于 15% 的止盈。` },
     });
+    list.push({
+      id: "stops", group: "orders", tool: "review_portfolio_stops", args: {},
+      prompt: { en: "Put a stop-loss on every holding that doesn't have one.", zh: "给所有还没有止损的持仓挂上止损。" },
+    });
     const targets = holdings.slice(0, 4);
     list.push({
       id: "rebalance", group: "orders", tool: "plan_portfolio_rebalance",

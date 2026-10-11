@@ -21,11 +21,13 @@ import type {
 } from "../shared/contracts.js";
 import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, ProtectiveLink, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
 import { BASKET_ORDER_NOTE } from "../shared/automation.js";
+import { stopProtection, STOPS_BASKET_TITLE, suggestedStop, SUGGESTED_STOP_DROP } from "../shared/protection.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import { crossRate, knownFxRates, toAccountCurrency, type FxRates } from "./fx.js";
 import { planRebalance, type RebalanceOptions } from "./rebalance.js";
+import { positionValue } from "./analytics.js";
 import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type DailyUsage } from "./policy.js";
 import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
@@ -1001,6 +1003,51 @@ export class TradingService {
             : "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."]
           : []),
         "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+      ],
+    };
+  }
+
+  /**
+   * One Good-Till-Cancel sell stop for every holding whose free shares no pending sell stop covers yet,
+   * largest uncovered value first, as a basket the user confirms once. Each stop matches the holding's
+   * existing stop, or starts `dropPercent` below the last price. Trading 212 triggers them; nothing runs here.
+   */
+  async stopsBasket(environment: TradingEnvironment, input: { dropPercent?: number; tickers?: string[] } = {}): Promise<Omit<BasketDraftPayload, "credentials" | "writeEnabled">> {
+    requireCredentials(this.deps.config, environment);
+    const drop = (input.dropPercent ?? SUGGESTED_STOP_DROP * 100) / 100;
+    const [snapshot, orders] = await Promise.all([this.snapshot(environment), this.client(environment).getOrders()]);
+    const only = input.tickers?.length ? new Set(input.tickers.map((query) => resolveInstrumentFromList(snapshot.instruments, query).ticker)) : undefined;
+    const missing = [...(only ?? [])].filter((ticker) => !snapshot.positions.some((position) => position.instrument.ticker === ticker && position.quantity > 0));
+    if (missing.length) fail("NO_AVAILABLE_POSITION", `There is no ${missing.join(", ")} position to protect`);
+    const candidates = snapshot.positions.flatMap((position) => {
+      if (only && !only.has(position.instrument.ticker)) return [];
+      const guard = stopProtection(position, orders);
+      const stop = suggestedStop(position, guard, drop);
+      // Ranked by the value at risk in the account currency, so a pence-quoted holding does not jump the queue.
+      return stop ? [{ position, stop, matched: guard !== undefined && stop.stopPrice === guard.stopPrice, exposure: positionValue(position) * (stop.quantity / position.quantity) }] : [];
+    }).sort((a, b) => b.exposure - a.exposure);
+    if (!candidates.length) {
+      // Shares a take-profit or another sell already reserves are not free to sell, so they cannot get a stop either.
+      fail("NO_AVAILABLE_POSITION", `${only ? "None of those holdings has" : "No holding has"} shares free to sell that a pending stop-loss does not already cover`);
+    }
+    const percent = Number((drop * 100).toFixed(2));
+    const legs: BasketDraftPayload["legs"] = candidates.slice(0, MAX_BASKET_LEGS).map(({ position, stop, matched }) => ({
+      draft: { environment, ticker: position.instrument.ticker, side: "sell", type: "stop", quantity: stop.quantity, stopPrice: stop.stopPrice, timeValidity: "GOOD_TILL_CANCEL" },
+      // The widget translates these two reasons (src/ui/lib/messages.ts legReason).
+      reason: matched ? "Matches the existing stop" : `${percent}% below the last price`,
+    }));
+    const left = candidates.length - legs.length;
+    return {
+      kind: "basket_draft",
+      environment,
+      purpose: "protective",
+      title: STOPS_BASKET_TITLE,
+      legs,
+      notes: [
+        "Each order stays at Trading 212 until it triggers or you cancel it.",
+        `A holding that already has a stop gets one at the same price for its uncovered shares; the others start ${percent}% below the last price.`,
+        "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+        ...(left > 0 ? [`${left} more holding(s) without a full stop were left out; a basket holds at most ${MAX_BASKET_LEGS} orders.`] : []),
       ],
     };
   }
