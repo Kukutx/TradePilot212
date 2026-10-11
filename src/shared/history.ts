@@ -159,6 +159,12 @@ export interface IncomeSummary {
   byMonth: MoneyBucket[];
   byTicker: MoneyBucket[];
   trailing12Months: number;
+  /**
+   * Expected dividends over the next 12 months if each holding pays what it paid per share over the
+   * last 12 months. Per-share amounts come from the broker's net payments, so they are after
+   * withholding tax and already in the account currency.
+   */
+  forwardAnnual?: { total: number; byTicker: MoneyBucket[]; yieldOnValue: number | null };
   truncated: boolean;
   timestamp: string;
 }

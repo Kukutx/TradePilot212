@@ -92,7 +92,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, pies }: Services,
+  { trading, insights, automation, alerts, pies, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -231,7 +231,7 @@ export function createMcpServer(
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
       } catch (error) {
         return toolError(error);
       }
@@ -570,6 +570,26 @@ export function createMcpServer(
 
   registerAppTool(
     server,
+    "get_automation_overview",
+    {
+      title: "Automation Overview",
+      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment }) => {
+      try {
+        const data = { ...(await automationOverview(environment)), writeEnabled: canWrite };
+        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "get_quote",
     {
       title: "Instrument Price",
@@ -827,6 +847,25 @@ export function createMcpServer(
       try {
         const data = { ...(await trading.getDashboard(environment)), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "app_get_automation",
+    {
+      title: "Refresh automation",
+      description: "App-only automation overview refresh.",
+      inputSchema: z.object({ environment: environmentEnum }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ environment }) => {
+      try {
+        return result({ ...(await automationOverview(environment)), writeEnabled: canWrite }, "Automation refreshed.");
       } catch (error) {
         return toolError(error);
       }

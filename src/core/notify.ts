@@ -17,6 +17,7 @@ export const DEFAULT_NOTIFY_EVENTS: ActivityType[] = [
   "pie_submitted",
   "pie_status_unknown",
   "price_alert_triggered",
+  "daily_digest",
 ];
 
 const LABELS: Partial<Record<ActivityType, string>> = {
@@ -31,6 +32,7 @@ const LABELS: Partial<Record<ActivityType, string>> = {
   pie_submitted: "Pie changed",
   pie_status_unknown: "Pie change result unclear, check Trading 212",
   price_alert_triggered: "Price alert",
+  daily_digest: "Daily digest",
 };
 
 export function notificationText(event: ActivityEvent): string {

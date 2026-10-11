@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round4 = 0;
+    let round5 = 0;
     while (true) {
-      round4 += 1;
-      if (round4 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round5 += 1;
+      if (round5 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34313,6 +34313,13 @@ function webhookUrl(env) {
   if (url2.protocol !== "https:" && !(local && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url2.toString();
 }
+function digestHour(env) {
+  const raw = (env.DIGEST_HOUR_UTC ?? "").trim();
+  if (!raw) return void 0;
+  const hour = Number(raw);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
+  return hour;
+}
 function quoteProvider(env) {
   const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
   if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
@@ -34340,6 +34347,7 @@ function createConfig(env, requestOrigin) {
     quoteProvider: quoteProvider(env),
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
+    ...digestHour(env) === void 0 ? {} : { digestHourUtc: digestHour(env) },
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
@@ -35788,6 +35796,26 @@ function summarizePerformance(input2) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
+function forwardDividends(dividends, positions, to) {
+  const yearAgo = new Date(to.getTime() - 365 * 864e5);
+  const perShare = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
+    perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+  }
+  const byTicker = [];
+  let value = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker?.toUpperCase();
+    value += positionValue(position);
+    const rate = ticker ? perShare.get(ticker) : void 0;
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round2(rate * position.quantity) });
+  }
+  byTicker.sort((a, b) => b.amount - a.amount);
+  const total = round2(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+}
 function summarizeIncome(input2) {
   const events = [
     ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
@@ -35809,6 +35837,7 @@ function summarizeIncome(input2) {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round2(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -35942,7 +35971,7 @@ var InsightsService = class {
   }
   async income(environment, window, maxPages) {
     const client = this.client(environment);
-    const account = await client.getAccountSummary();
+    const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
     const yearAgo = new Date(window.to.getTime() - 365 * 864e5);
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
@@ -35953,6 +35982,7 @@ var InsightsService = class {
       window,
       dividends: dividends.items,
       transactions: transactions.items,
+      positions,
       truncated: dividends.truncated || transactions.truncated
     });
   }
@@ -36478,7 +36508,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.9.0"
+  version: "2.10.0"
 };
 
 // src/core/mcp.ts
@@ -36549,7 +36579,7 @@ var windowSchema = {
   to: external_exports.string().datetime().optional(),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation, alerts, pies }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation, alerts, pies, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version });
@@ -36671,7 +36701,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies }, config
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -36990,6 +37020,25 @@ ${data.notes.join(" ")}` : ""}`);
   );
   j(
     server2,
+    "get_automation_overview",
+    {
+      title: "Automation Overview",
+      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
+      inputSchema: external_exports.object({ environment: environmentWithDefault }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment }) => {
+      try {
+        const data = { ...await automationOverview(environment), writeEnabled: canWrite };
+        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
     "get_quote",
     {
       title: "Instrument Price",
@@ -37234,6 +37283,24 @@ ${data.notes.join(" ")}` : ""}`);
       try {
         const data = { ...await trading.getDashboard(environment), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "app_get_automation",
+    {
+      title: "Refresh automation",
+      description: "App-only automation overview refresh.",
+      inputSchema: external_exports.object({ environment: environmentEnum }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async ({ environment }) => {
+      try {
+        return result({ ...await automationOverview(environment), writeEnabled: canWrite }, "Automation refreshed.");
       } catch (error62) {
         return toolError(error62);
       }
@@ -37593,6 +37660,73 @@ var PriceAlerts = class {
   }
 };
 
+// src/core/digest.ts
+var DAY_MS2 = 864e5;
+var round4 = (value) => Math.round(value * 100) / 100;
+var signed = (value) => `${value >= 0 ? "+" : ""}${round4(value)}`;
+function digestText(input2) {
+  const change = input2.previousTotalValue === void 0 ? "" : ` (${signed(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round4(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed(item.profitLoss)})`}`);
+  return [
+    `Total ${round4(input2.totalValue)} ${input2.currency}${change}`,
+    `cash ${round4(input2.cash)}`,
+    input2.unrealized === void 0 ? void 0 : `unrealized ${signed(input2.unrealized)}`,
+    top.length ? `top: ${top.join(", ")}` : void 0,
+    input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
+    input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
+    input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0
+  ].filter(Boolean).join(" \xB7 ");
+}
+var DailyDigest = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
+  async run(now = /* @__PURE__ */ new Date()) {
+    const hour = this.deps.config.digestHourUtc;
+    if (hour === void 0 || !this.deps.config.notifyWebhookUrl || now.getUTCHours() < hour) return [];
+    const day = now.toISOString().slice(0, 10);
+    const sent = [];
+    const credentials = credentialStatus(this.deps.config);
+    for (const environment of ["demo", "live"]) {
+      if (!credentials[environment]) continue;
+      const claim2 = await this.deps.store.increment(`digest:${environment}:${day}`, 2 * DAY_MS2, now.getTime());
+      if (claim2.count > 1) continue;
+      try {
+        const dashboard = await this.deps.trading.getDashboard(environment);
+        const account = dashboard.account;
+        if (!account) continue;
+        const previous = await this.deps.store.get(`digest-value:${environment}`);
+        const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS2);
+        const totalValue = account.totalValue ?? 0;
+        const text = digestText({
+          environment,
+          currency: account.currency ?? "",
+          totalValue,
+          ...previous === void 0 ? {} : { previousTotalValue: previous },
+          cash: account.cash?.availableToTrade ?? 0,
+          ...account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealized: account.investments.unrealizedProfitLoss },
+          positions: dashboard.positions.map((position) => {
+            const wallet = position.walletImpact;
+            return { ticker: position.instrument.ticker, value: positionValue(position), ...typeof wallet?.unrealizedProfitLoss === "number" ? { profitLoss: wallet.unrealizedProfitLoss } : {} };
+          }),
+          pendingOrders: dashboard.orders.length,
+          duePlans: plans.map((plan) => plan.label),
+          triggeredAlerts: alerts.length
+        });
+        await this.deps.store.put(`digest-value:${environment}`, totalValue);
+        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
+        sent.push(environment);
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+    }
+    return sent;
+  }
+};
+
 // src/core/notify.ts
 var DEFAULT_NOTIFY_EVENTS = [
   "order_submitted",
@@ -37605,7 +37739,8 @@ var DEFAULT_NOTIFY_EVENTS = [
   "protective_sibling_cancelled",
   "pie_submitted",
   "pie_status_unknown",
-  "price_alert_triggered"
+  "price_alert_triggered",
+  "daily_digest"
 ];
 var LABELS = {
   order_submitted: "Order sent",
@@ -37618,7 +37753,8 @@ var LABELS = {
   protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
   pie_submitted: "Pie changed",
   pie_status_unknown: "Pie change result unclear, check Trading 212",
-  price_alert_triggered: "Price alert"
+  price_alert_triggered: "Price alert",
+  daily_digest: "Daily digest"
 };
 function notificationText(event) {
   const parts = [
@@ -37733,8 +37869,27 @@ function createServices(deps) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check() });
-  return { trading, insights, automation, links, alerts, pies, runScheduled };
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  const automationOverview = async (environment) => ({
+    kind: "automation",
+    environment,
+    credentials: credentialStatus(deps.config),
+    plans: await automation.listPlans(environment),
+    alerts: await alerts.list(environment),
+    links: (await links.list()).filter((link) => link.environment === environment),
+    usageToday: await trading.usageToday(environment),
+    policy: deps.config.policy[environment],
+    settings: {
+      demoAutomation: deps.config.demoAutomationEnabled,
+      protectiveLinking: deps.config.protectiveLinking,
+      webhook: !!deps.config.notifyWebhookUrl,
+      digestHourUtc: deps.config.digestHourUtc ?? null,
+      quoteProvider: deps.config.quoteProvider
+    },
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import type { Exchange, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem } from "../shared/history.js";
-import { analyzeAllocation, marketStatus, summarizeIncome, summarizePerformance } from "./analytics.js";
+import { analyzeAllocation, forwardDividends, marketStatus, summarizeIncome, summarizePerformance } from "./analytics.js";
 
 const instrument = (ticker: string, currencyCode = "USD", type = "STOCK"): Instrument => ({ ticker, name: ticker, shortName: ticker, currencyCode, type });
 const position = (ticker: string, value: number, currencyCode = "USD"): Position => ({
@@ -103,5 +103,24 @@ describe("market status", () => {
 
   it("is unknown without schedule data", () => {
     expect(marketStatus(instrument("X"), exchanges).session).toBe("unknown");
+  });
+});
+
+describe("forward dividends", () => {
+  it("projects each holding's trailing per-share payments onto the current quantity", () => {
+    const instrument = { ticker: "VUSA_EQ", name: "VUSA", shortName: "VUSA", currencyCode: "EUR" };
+    const result = forwardDividends(
+      [
+        { ticker: "VUSA_EQ", amount: 5, quantity: 10, paidOn: "2026-03-01T00:00:00Z" },
+        { ticker: "VUSA_EQ", amount: 6, quantity: 12, paidOn: "2026-06-01T00:00:00Z" },
+        { ticker: "VUSA_EQ", amount: 50, quantity: 10, paidOn: "2024-06-01T00:00:00Z" },
+        { ticker: "SOLD_EQ", amount: 9, quantity: 3, paidOn: "2026-05-01T00:00:00Z" },
+      ],
+      [{ instrument, quantity: 20, quantityAvailableForTrading: 20, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 }],
+      new Date("2026-10-01T00:00:00Z"),
+    );
+    expect(result.byTicker).toEqual([{ key: "VUSA_EQ", amount: 20 }]);
+    expect(result.total).toBe(20);
+    expect(result.yieldOnValue).toBe(0.01);
   });
 });

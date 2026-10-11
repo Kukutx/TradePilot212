@@ -232,6 +232,28 @@ export function summarizePerformance(input: {
   };
 }
 
+/** Next-12-month dividends from each holding's trailing-12-month net payment per share. */
+export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date): NonNullable<IncomeSummary["forwardAnnual"]> {
+  const yearAgo = new Date(to.getTime() - 365 * 86_400_000);
+  const perShare = new Map<string, number>();
+  for (const item of dividends) {
+    const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
+    perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+  }
+  const byTicker: MoneyBucket[] = [];
+  let value = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker?.toUpperCase();
+    value += positionValue(position);
+    const rate = ticker ? perShare.get(ticker) : undefined;
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker!, amount: round(rate * position.quantity) });
+  }
+  byTicker.sort((a, b) => b.amount - a.amount);
+  const total = round(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  return { total, byTicker, yieldOnValue: value > 0 ? Math.round((total / value) * 10_000) / 10_000 : null };
+}
+
 export function summarizeIncome(input: {
   environment: TradingEnvironment;
   accountCurrency: string;
@@ -239,6 +261,7 @@ export function summarizeIncome(input: {
   transactions: HistoryTransactionItem[];
   window: HistoryWindow;
   truncated: boolean;
+  positions?: Position[];
 }): IncomeSummary {
   const events = [
     ...input.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
@@ -262,6 +285,7 @@ export function summarizeIncome(input: {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    ...(input.positions ? { forwardAnnual: forwardDividends(input.dividends, input.positions, input.window.to) } : {}),
     truncated: input.truncated,
     timestamp: new Date().toISOString(),
   };

@@ -128,7 +128,8 @@ export type ActivityType =
   | "pie_submitted"
   | "pie_rejected"
   | "pie_status_unknown"
-  | "price_alert_triggered";
+  | "price_alert_triggered"
+  | "daily_digest";
 
 export interface ActivityEvent {
   id: string;

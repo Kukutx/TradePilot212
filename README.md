@@ -28,7 +28,9 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
 - price alerts on holdings (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans and rebalancing
-- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results
+- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
+- an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
+- expected dividend income for the next 12 months from each holding's trailing payments
 - a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
@@ -243,6 +245,7 @@ Notifications are optional:
 NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
 NOTIFY_WEBHOOK_SECRET=        # optional HMAC signature
 NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
+DIGEST_HOUR_UTC=7             # optional daily digest at 07:00 UTC
 ```
 
 ## Local development

@@ -108,6 +108,7 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "pie_rejected": return t("activityPieRejected");
     case "pie_status_unknown": return t("activityPieUnknown");
     case "price_alert_triggered": return t("activityPriceAlert");
+    case "daily_digest": return t("activityDailyDigest");
     default: return String((event as ActivityEvent).type);
   }
 }

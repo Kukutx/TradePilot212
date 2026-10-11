@@ -193,6 +193,27 @@ export interface PriceAlert {
   triggeredPrice?: number;
 }
 
+/** Everything the scheduler acts on, for one environment, in one payload for the widget. */
+export interface AutomationOverview {
+  kind: "automation";
+  environment: TradingEnvironment;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
+  plans: DcaPlan[];
+  alerts: PriceAlert[];
+  links: ProtectiveLink[];
+  usageToday: { orders: number; notional: number };
+  policy: TradingPolicy;
+  settings: {
+    demoAutomation: boolean;
+    protectiveLinking: boolean;
+    webhook: boolean;
+    digestHourUtc: number | null;
+    quoteProvider: string;
+  };
+  timestamp: string;
+}
+
 export interface AlertReport {
   alertId: string;
   environment: TradingEnvironment;

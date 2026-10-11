@@ -82,7 +82,7 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 `manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency. It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
-A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts:
+A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due:
 
 - **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run sends at least one order.
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.
@@ -136,6 +136,14 @@ An external price only sizes an order; the order still goes through the usual re
 ## Notifications
 
 Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `pie_submitted`, `pie_status_unknown` and `price_alert_triggered`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+
+### Daily digest
+
+Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, and alerts that triggered in the last day. It only reads.
+
+## Seeing what runs
+
+`get_automation_overview` opens the widget on everything the scheduler acts on for an environment: plans with their next due time and last outcome, alerts with the last price seen, linked stop-loss / take-profit pairs, today's orders and value against the policy budgets, and which automation settings are on.
 
 ## Scheduled research (L0)
 

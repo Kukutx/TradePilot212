@@ -18,7 +18,7 @@ import type {
   TradePlanPayload,
   TradingEnvironment,
 } from "../shared/contracts";
-import type { BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
+import type { AutomationOverview, BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type SupportedLocale } from "./i18n";
 import { Icon } from "./components/common";
@@ -30,6 +30,7 @@ import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../s
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
+import { AutomationView } from "./views/AutomationView";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
 type BasePayload =
@@ -46,6 +47,7 @@ type BasePayload =
   | InsightPayload
   | BasketDraftView
   | PiesPayload
+  | AutomationOverview
   | PieChangeDraftPayload
   | ErrorPayload;
 
@@ -306,7 +308,9 @@ export default function App() {
     setStatus("loading");
     setErrorMessage(null);
     try {
-      if (base?.kind === "pies") {
+      if (base?.kind === "automation") {
+        setBase(await callTool<AutomationOverview>("app_get_automation", { environment: env }));
+      } else if (base?.kind === "pies") {
         setBase(await callTool<PiesPayload>("app_list_pies", { environment: env }));
       } else if (base?.kind === "trade_plan") {
         setBase(await callTool<TradePlanPayload>("app_get_trade_plan", {
@@ -676,6 +680,7 @@ export default function App() {
           />
         )}
         {base?.kind === "pies" && <PiesView payload={base} locale={locale} t={t} />}
+        {base?.kind === "automation" && <AutomationView data={base} locale={locale} t={t} />}
         {base?.kind === "order_draft" && !draft && <div className="emptyState">{t("orderLoaded")}</div>}
         {!base && <div className="emptyState">{t("waiting")}</div>}
 
