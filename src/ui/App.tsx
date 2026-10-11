@@ -577,32 +577,38 @@ export default function App() {
         </div>
 
         <div className="headerActions">
-          <div className="environmentSwitch" aria-label={t("environment")}>
+          <div className="environmentSwitch" role="group" aria-label={t("environment")}>
             <button
               type="button"
               className={environment === "demo" ? "active" : ""}
+              aria-pressed={environment === "demo"}
+              title={credentials.demo ? t("credentialsReady") : t("credentialsMissing")}
               onClick={() => void switchEnvironment("demo")}
               disabled={status === "loading" || basketActive}
             >
-              <span className={`statusDot ${credentials.demo ? "ready" : ""}`} />
+              <span className={`statusDot ${credentials.demo ? "ready" : ""}`} aria-hidden="true" />
               {t("demo")}
+              {!credentials.demo && <span className="visuallyHidden"> ({t("credentialsMissing")})</span>}
             </button>
             <button
               type="button"
               className={environment === "live" ? "active live" : "live"}
+              aria-pressed={environment === "live"}
+              title={credentials.live ? t("credentialsReady") : t("credentialsMissing")}
               onClick={() => void switchEnvironment("live")}
               disabled={status === "loading" || basketActive}
             >
-              <span className={`statusDot ${credentials.live ? "ready" : ""}`} />
+              <span className={`statusDot ${credentials.live ? "ready" : ""}`} aria-hidden="true" />
               {t("live")}
+              {!credentials.live && <span className="visuallyHidden"> ({t("credentialsMissing")})</span>}
             </button>
           </div>
 
-          <div className="languageControl" title={t("language")}>
+          <div className="languageControl" role="group" aria-label={t("language")} title={t("language")}>
             <Icon name="globe" />
-            <button className={locale === "zh-CN" ? "active" : ""} onClick={() => changeLocale("zh-CN")}>中文</button>
-            <span>/</span>
-            <button className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
+            <button type="button" lang="zh-CN" aria-pressed={locale === "zh-CN"} className={locale === "zh-CN" ? "active" : ""} onClick={() => changeLocale("zh-CN")}>中文</button>
+            <span aria-hidden="true">/</span>
+            <button type="button" lang="en" aria-pressed={locale === "en"} className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
           </div>
 
           {canToggleFullscreen && (

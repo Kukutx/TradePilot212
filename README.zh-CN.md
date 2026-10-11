@@ -8,7 +8,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 
 ## 设计目标
 
-- **以 ChatGPT 为主要入口**：平时可以直接说股票代码、公司名、金额、比例或准确股数。
+- **以对话为主**：ChatGPT、Claude 和 Claude Code 里都能用，平时直接说股票代码、公司名、金额、比例或准确股数即可。
 - **执行边界清楚**：分析和订单准备只读；真正写入 Trading 212 之前必须在应用界面里确认。
 - **默认自托管**：推荐 Cloudflare Workers，同时支持 Node.js 和 Docker/VPS。
 - **职责保持简单**：Worker 只负责账户访问、标的解析、校验、状态和执行；市场研究与定时任务不塞进券商桥接层。
@@ -23,7 +23,8 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 2. 在插件选项里打开 **Try with sample data**（样例数据）；想试下单就同时打开 **Enable order tools**。
 3. 直接问：“看一下我的持仓”“今年收益和分红怎么样”“把组合再平衡到苹果 30%、微软 30%、英伟达 20%、VUSA 20%”“英伟达设 110 止损、150 止盈”“每月 5 号定投 200 欧 VUSA”。
 4. 想用自己的账户：在 Trading 212 切到 **Practice（模拟）账户**，在 **Settings → API (Beta)** 生成 Key 和 Secret，填进插件的 Demo 选项，并关闭样例数据。Live 栏留空。
-5. 想看图形界面（仪表盘、图表、确认页）：按下方“安装与部署”部署 Worker，把 `/mcp` 地址作为自定义连接器加到 ChatGPT 或 Claude。
+5. 想先在本机看看图形界面：克隆仓库后运行 `pnpm install && pnpm preview`，浏览器打开 http://127.0.0.1:4212 ，就能在样例账户上点遍仪表盘、图表、下单确认、再平衡、Pies 和自动化页面。加 `--demo` 会改用你 `.env.local` 里的 Demo Key（Live 始终关闭）。
+6. 想在 ChatGPT 或 Claude 里用图形界面：按下方“安装与部署”部署 Worker，把 `/mcp` 地址作为自定义连接器加进去。
 
 样例数据只在内存里，重启后重置；Live 在样例模式下始终关闭，不会连接 Trading 212。
 
@@ -44,7 +45,8 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送；还可以每天推一条账户摘要
 - 界面里的“自动化”页：定投计划、价格提醒、联动的止损止盈、今日额度使用和各项设置一目了然
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入
-- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志和再平衡五个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
+- 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
 - 可展开查看核心逻辑、催化剂、风险、反方观点、来源和数据时间
@@ -70,7 +72,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - pnpm 11+
 - 已开放 Public API 的 Trading 212 Invest 账户
 - 推荐使用 Cloudflare 账户部署公网 Worker
-- 支持自定义 Apps / MCP 连接的 ChatGPT 客户端或套餐
+- 支持带 MCP Apps 的自定义连接器的 ChatGPT 或 Claude 套餐；只用本地插件时，有 Claude Code 即可
 
 没有 pnpm 时：
 
@@ -236,7 +238,15 @@ CONFIRMATION_TTL_SECONDS=90
 
 `DEFAULT_TRADING_ENV` 只在用户没有明确指定 Demo / Live 时生效。
 
+`MAX_ORDER_NOTIONAL` 按账户货币计算。其他货币的订单按持仓推算出的汇率折算，便士（GBX）按 100 便士兑 1 英镑。
+
 把 `MAX_ORDER_NOTIONAL=0` 或 `MAX_ORDER_QUANTITY=0` 可以关闭对应的 TradePilot 应用层限制。Trading 212 自身的账户/标的限制以及最终人工确认仍然保留。
+
+OAuth 客户端默认可以注册任何 HTTPS 回调地址（本机回环地址始终允许，方便本地工具）。只想接受你在用的宿主时，列出它们：
+
+```env
+OAUTH_REDIRECT_HOSTS=chatgpt.com,.claude.ai   # .claude.ai 表示 claude.ai 及其子域名
+```
 
 规则引擎（`POLICY_*`）默认只约束 Live。一个常见的 Live 配置：
 
@@ -357,10 +367,10 @@ React App UI ← MCP App Resource
 - **连接密码就是实例的钥匙。** 任何人只要用 `APP_LOGIN_PASSWORD` 完成 OAuth 登录，就能拿到全部工具的令牌；如果配置了 Live 凭据，也包括真实交易。请使用 `pnpm setup` 生成的长随机密码，不要复用。
 - **"仅 App 可见"的工具由宿主隐藏，而不是由服务器锁住。** 下单、撤单相关的 `app_*` 工具标记为 `visibility: ["app"]`，ChatGPT 这类宿主不会把它们交给模型，只有界面在你点击后才会调用。服务器只校验调用方是否持有有效的 `trade:write` 令牌。因此人工确认防的是模型擅自下单，防不了令牌被盗。
 - **按需收窄权限。** 只想看持仓时，可以创建不带下单权限的 Trading 212 API Key；允许自选权限范围的 MCP 客户端也可以只申请 `trade:read`，这样写操作工具根本不会注册。初次试用建议只配置 Demo 凭据。
-- **令牌无法单独吊销。** 访问令牌和刷新令牌都是签名 JWT，服务器不保存会话列表。如需让所有已连接客户端失效（例如密码泄露后），请同时更换 `AUTH_SIGNING_SECRET` 和 `APP_LOGIN_PASSWORD`，重新部署后再重新连接 ChatGPT。否则刷新令牌会在 `REFRESH_TOKEN_TTL_SECONDS`（默认 30 天）内一直有效。
+- **令牌无法单独吊销。** 访问令牌和刷新令牌都是签名 JWT，服务器不保存会话列表。每个刷新令牌只能用一次：用过就换发新的，旧令牌再次出现时会作废这个客户端的整条刷新链，所以被复制的刷新令牌在任一方用上新令牌后就失效。如需让所有已连接客户端失效（例如密码泄露后），请同时更换 `AUTH_SIGNING_SECRET` 和 `APP_LOGIN_PASSWORD`，重新部署后再重新连接 ChatGPT。否则刷新令牌会在 `REFRESH_TOKEN_TTL_SECONDS`（默认 30 天）内一直有效。
 - **参考价格来自调用方。** Trading 212 Public API 没有行情接口，所以按金额下单和 `MAX_ORDER_NOTIONAL` 的估算都使用模型提供的 `referencePrice`。如果 Trading 212 返回了已持仓标的的当前价，额度检查会取两者中较高的价格，偏低的参考价无法绕过上限；对于尚未持有的标的，估算只取决于提供的价格，确认时请务必核对最终股数。
 - **登录限流是全实例共享的。** 10 分钟内密码错误 8 次后，该时间窗口内所有登录都会暂停，包括你自己。
-- **OAuth 客户端注册是开放的**（ChatGPT 需要）。注册有频率限制，总数上限 200；达到上限时会优先清理从未完成登录的客户端，正在使用的连接会被保留。
+- **OAuth 客户端注册是开放的**（ChatGPT 需要）。注册有频率限制，总数上限 200；达到上限时会优先清理从未完成登录的客户端，正在使用的连接会被保留。登录页会显示客户端名称、登录后返回的地址和申请的权限；返回地址不是已知的 ChatGPT 或 Claude 地址时会给出警告。设置 `OAUTH_REDIRECT_HOSTS` 可以直接拒绝其他地址。
 
 提交代码前建议运行：
 

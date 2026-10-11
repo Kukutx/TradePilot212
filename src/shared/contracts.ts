@@ -298,6 +298,8 @@ export interface OrderPreview {
   instrument: Instrument;
   estimatedNotional?: number;
   estimatedNotionalCurrency: string;
+  /** The estimate converted to the account currency, when the instrument is quoted in another one. */
+  estimatedAccountNotional?: number;
   accountCurrency?: string;
   availableCash?: number;
   availableToSell?: number;

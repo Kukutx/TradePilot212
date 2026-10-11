@@ -104,6 +104,32 @@ describe("order baskets", () => {
   });
 });
 
+describe("funding sells", () => {
+  const basket = (independentSells?: boolean) => ({
+    environment: "demo" as const, purpose: "rebalance" as const, title: "Rebalance",
+    ...(independentSells ? { independentSells } : {}),
+    drafts: [
+      { environment: "demo" as const, ticker: "VUSA_EQ", side: "sell" as const, type: "market" as const, quantity: 2, referencePrice: 100 },
+      { environment: "demo" as const, ticker: "AGGH_EQ", side: "buy" as const, type: "market" as const, quantity: 10, referencePrice: 5 },
+    ],
+  });
+
+  it("does not send the buys when the sell that funds them is rejected", async () => {
+    const { trading, writes } = setup({}, { VUSA_EQ: 400 });
+    const result = await trading.executeBasket((await trading.prepareBasket(basket())).token);
+    expect(result.status).toBe("rejected");
+    expect(result.legs[1]?.skipped).toMatch(/sell of VUSA_EQ that funds it was rejected/);
+    expect(writes).toHaveLength(1);
+  });
+
+  it("still sends the buys when the sells were marked independent", async () => {
+    const { trading, writes } = setup({}, { VUSA_EQ: 400 });
+    const result = await trading.executeBasket((await trading.prepareBasket(basket(true))).token);
+    expect(result.status).toBe("partial");
+    expect(writes).toHaveLength(2);
+  });
+});
+
 describe("protective orders and rebalance drafts", () => {
   it("drafts GTC stop-loss and take-profit sells around the current price", async () => {
     const { trading } = setup();
@@ -217,6 +243,33 @@ describe("standing plans", () => {
     expect(weekly).toMatchObject({ frequency: "weekly", weekday: 1, hourUtc: 9, nextRunAt: "2026-10-12T09:00:00.000Z" });
     expect(weekly.dayOfMonth).toBeUndefined();
     await expect(automation.updatePlan(plan.id, { frequency: "monthly" }, now)).rejects.toThrow(/dayOfMonth/);
+  });
+
+  it("counts a plan run early as the upcoming run instead of buying twice", async () => {
+    const { automation, trading } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "Monthly", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 });
+    const review = await automation.reviewPlan(plan.id);
+    const preview = await trading.prepareBasket({ environment: review.environment, purpose: review.purpose, title: review.title, drafts: review.legs.map((leg) => leg.draft), planId: plan.id });
+    expect((await trading.executeBasket(preview.token)).status).toBe("submitted");
+    const stored = await automation.getPlan(plan.id);
+    expect(stored.nextRunAt).toBe(nextRunAt(plan, new Date(Date.parse(plan.nextRunAt) + 1)).toISOString());
+  });
+
+  it("converts a plan amount in the account currency into shares quoted in pence", async () => {
+    const vusa: Instrument = { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 (Dist)", shortName: "VUSA", currencyCode: "GBX", type: "ETF" };
+    const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/metadata/instruments")) return json([vusa]);
+      if (url.endsWith("/equity/positions")) return json([{ instrument: vusa, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 8000, currentPrice: 8475, walletImpact: { currentValue: 1000 } }]);
+      if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 2000, cash: { availableToTrade: 1000 } });
+      return json([]);
+    }) as typeof fetch;
+    const { automation } = createServices({ config: createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s" }), store: new MemoryStateStore(), fetcher });
+    const plan = await automation.createPlan({ environment: "demo", label: "VUSA", legs: [{ ticker: "VUSAl_EQ", amount: 169.5 }], frequency: "monthly", dayOfMonth: 1 });
+    // 169.50 EUR at 84.75 GBX per EUR is 14,365 GBX: 1.695 shares at 8,475 GBX.
+    const review = await automation.reviewPlan(plan.id);
+    expect(review.legs[0]?.draft.quantity).toBe(1.695);
   });
 
   it("keeps rebalance basket notes within what the review accepts", () => {

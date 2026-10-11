@@ -46,16 +46,16 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
 
   if (policy.allowedTickers.length) {
     const allowed = policy.allowedTickers.includes(ticker);
-    checks.push({ rule: "allowed_tickers", status: allowed ? "pass" : "block", message: allowed ? `${ticker} is on the allowed list.` : `${ticker} is not on the allowed ticker list.` });
+    checks.push({ rule: "allowed_tickers", status: allowed ? "pass" : "block", message: allowed ? `${ticker} is on the allowed list.` : `${ticker} is not on the allowed ticker list.`, details: { ticker } });
   }
   if (policy.blockedTickers.includes(ticker)) {
-    checks.push({ rule: "blocked_tickers", status: "block", message: `${ticker} is on the blocked ticker list.` });
+    checks.push({ rule: "blocked_tickers", status: "block", message: `${ticker} is on the blocked ticker list.`, details: { ticker } });
   }
   // Type limits only constrain new exposure; selling out of a disallowed type is always fine.
   if (policy.allowedTypes.length && draft.side === "buy") {
     const type = (instrument.type ?? "").toUpperCase();
     const allowed = policy.allowedTypes.includes(type);
-    checks.push({ rule: "allowed_types", status: allowed ? "pass" : "block", message: allowed ? `${type} instruments are allowed.` : `Buying ${type || "this instrument type"} is not allowed (allowed: ${policy.allowedTypes.join(", ")}).` });
+    checks.push({ rule: "allowed_types", status: allowed ? "pass" : "block", message: allowed ? `${type} instruments are allowed.` : `Buying ${type || "this instrument type"} is not allowed (allowed: ${policy.allowedTypes.join(", ")}).`, details: { type, allowed: policy.allowedTypes.join(", ") } });
   }
 
   if (policy.maxPositionWeight > 0 && draft.side === "buy") {
@@ -71,7 +71,7 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
         message: over
           ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy.maxPositionWeight * 100).toFixed(1)}% limit.`
           : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
-        details: { resultingWeight: round(resulting), limit: policy.maxPositionWeight },
+        details: { ticker, resultingWeight: round(resulting), limit: policy.maxPositionWeight },
       });
     }
   }
@@ -88,7 +88,7 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
     } else {
       const next = input.usage.notional + input.estimatedNotional;
       const over = next > policy.dailyNotionalLimit + 1e-9;
-      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round(input.usage.notional, 2), limit: policy.dailyNotionalLimit } });
+      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round(input.usage.notional, 2), next: round(next, 2), limit: policy.dailyNotionalLimit, currency: account.currency ?? null } });
     }
   }
 
@@ -108,7 +108,7 @@ export function evaluatePolicy(policy: TradingPolicy, input: PolicyInput): Polic
   if (policy.maxReferenceAgeSeconds > 0 && draft.type === "market" && draft.referencePrice !== undefined) {
     const age = ageSeconds(draft.referencePriceAt, now);
     const stale = age === undefined || age > policy.maxReferenceAgeSeconds;
-    checks.push({ rule: "reference_age", status: stale ? "block" : "pass", message: stale ? `The reference price is ${age === undefined ? "undated" : `${age}s old`}; the policy requires one newer than ${policy.maxReferenceAgeSeconds}s.` : `Reference price is ${age}s old.`, ...(age === undefined ? {} : { details: { ageSeconds: age } }) });
+    checks.push({ rule: "reference_age", status: stale ? "block" : "pass", message: stale ? `The reference price is ${age === undefined ? "undated" : `${age}s old`}; the policy requires one newer than ${policy.maxReferenceAgeSeconds}s.` : `Reference price is ${age}s old.`, details: { ageSeconds: age ?? null, limit: policy.maxReferenceAgeSeconds } });
   }
 
   return checks;

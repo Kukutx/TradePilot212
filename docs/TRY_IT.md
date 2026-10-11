@@ -6,6 +6,7 @@ Three ways to check that TradePilot works for you, from quickest to most complet
 |---|---|---|
 | [1. Sample data](#1-sample-data-no-account) | Claude Code and Node 22+ | Every tool, on a simulated account |
 | [2. Your Demo account](#2-your-trading-212-demo-account) | A Trading 212 practice-account API key | Your own Demo holdings and history; orders go to the practice account |
+| [Local UI preview](#preview-the-ui-locally) | A clone and Node 22+ | The real widget in your browser, on the sample account or your Demo account |
 | [3. The full UI](#3-the-full-ui-in-chatgpt-or-claude) | A deployed Worker (free Cloudflare plan) | The dashboard, charts and confirmation screens in ChatGPT or Claude |
 
 ## 1. Sample data (no account)
@@ -32,7 +33,7 @@ Then ask, for example:
 - "Alert me if Apple falls below 210."
 - "Buy 2 Apple." (with order tools on; Claude Code asks before each order)
 
-Claude Code shows the results as text. The visual dashboard needs an MCP Apps host (step 3).
+Claude Code shows the results as text. To see the visual dashboard, use the [local preview](#preview-the-ui-locally) or an MCP Apps host (step 3).
 
 From a clone instead of the plugin:
 
@@ -53,6 +54,20 @@ A Demo (practice) account uses virtual money, so orders there are safe to try.
 4. Ask for your dashboard. If something fails, `pnpm doctor` in a clone (with the same keys in `.env.local`) checks each setting and the connection.
 
 Orders on the Demo account still need your confirmation each time, unless you turn on **Run Demo plans unattended** for investment plans marked `autoExecute`.
+
+## Preview the UI locally
+
+`pnpm preview` opens the widget exactly as ChatGPT or Claude would show it, in your browser, without deploying anything:
+
+```bash
+pnpm install
+pnpm preview            # sample account
+pnpm preview --demo     # your Demo keys from .env.local
+```
+
+Open http://127.0.0.1:4212. Pick a view (dashboard, allocation, performance, income, an order, rebalance, protective orders, a basket, pies, automation), and switch the language, light or dark theme and phone, tablet or desktop width in the header. Each view also shows the text the model would read and the calls the widget made.
+
+The preview listens on 127.0.0.1 only and needs a per-run token for every call. `--demo` uses only your Demo keys: Live is switched off, Demo automation and webhooks are off, and orders still need your confirmation in the widget.
 
 ## 3. The full UI in ChatGPT or Claude
 

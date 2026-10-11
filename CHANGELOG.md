@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.12.0
+
+Currencies
+- `MAX_ORDER_NOTIONAL`, the position-weight rule and the daily value budget now work in the account currency. Before, an order for a fund quoted in pence was compared in pence, so a 500 EUR buy of VUSA counted as about 42,000 and was blocked, while orders in other currencies were left out of the weight and value rules.
+- Trading 212 reports a holding's currency as `currency`; TradePilot now reads it, so exchange rates, the currency split and the caps see the right currency.
+- Amount and cash-percentage orders in another currency are sized at the rate implied by your holdings when no rate is given, and the preview says so. A cross-currency buy is checked against your available cash at that rate.
+- Investment plan legs quoted in another currency (for example a GBX fund in a EUR account) are converted instead of skipped.
+- The confirmation screen and basket legs show the order's value in the account currency next to the instrument currency.
+- The allocation counts cash held in pies and merges GBX into GBP in the currency split.
+
+Orders and automation
+- A write that Trading 212 accepted but whose response could not be read is reported as unknown, never as rejected, and counts toward the daily budget.
+- A basket no longer sends its buys when the sell that funds them is rejected or blocked. `independentSells` keeps the old behaviour.
+- Running an investment plan before its due date counts as that run, so the due date does not buy again.
+- A failed daily digest is retried every 15 minutes for the rest of the day instead of being lost.
+- Cancelling a Live order needs the same "real money" confirmation as placing one, and the cancel screen says which order it removes.
+- Plans that wait on a closed market no longer add a "basket prepared" entry to the activity log every 10 minutes, and Demo activity no longer pushes Live entries out of the log.
+
+Hosts that show text
+- Every tool's text now carries the data a model needs when the host does not render the widget: holdings, analytics, drafts, previews with their confirmation token, results, plans, alerts and pies.
+- `review_trading212_order` defaults to the configured environment and resolves names; an unknown ticker is an error instead of an empty draft.
+- `manage_price_alerts` is available without order tools, since alerts never trade. `review_pie_change` requires `pieId` for changes to an existing pie.
+
+Sign-in
+- The sign-in page shows the client's name, the host it returns to and the permissions it asks for, and warns when the host is not a known ChatGPT or Claude address. `OAUTH_REDIRECT_HOSTS` limits which hosts clients may register.
+- Refresh tokens rotate on every use; reusing an old one ends that client's session.
+
+Analytics
+- A date-only `to` covers that whole day, `1w` is a valid period, and `get_trade_history` resolves names as well as tickers.
+- Expected dividends no longer undercount a holding bought partway through the year: a quarterly payer with two payments so far is projected at four.
+
+Widget
+- Pending orders show the instrument name, buy or sell, the order type and its prices.
+- Policy checks, rebalance notes and skipped-instrument reasons are shown in the widget's language, and the basket review no longer shows its sending-order note twice.
+- The Demo / Live switch and the language buttons tell screen readers which one is selected and whether an account has keys.
+- `pnpm preview` opens the widget in your browser on the sample account (or your Demo keys with `--demo`), with language, theme and width switches. See [docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally).
+
 ## 2.11.0
 
 - Added sample data (`TRADEPILOT_SAMPLE_DATA`, plugin option "Try with sample data"): a simulated EUR Demo account with holdings in three currencies, two pies, a year of history and a pending order, so every tool can be tried without a Trading 212 key. Market orders fill at once against it. Live is off and nothing reaches Trading 212. See [docs/TRY_IT.md](./docs/TRY_IT.md).

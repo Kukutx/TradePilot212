@@ -45,6 +45,11 @@ QUOTE_PROVIDER=stooq
 QUOTE_API_KEY=
 QUOTE_SYMBOLS=
 
+# Optional: the only OAuth redirect hosts clients may register, comma separated, e.g.
+# chatgpt.com,.claude.ai (a leading dot covers the domain and its subdomains). Empty allows any
+# HTTPS host; loopback is always allowed.
+OAUTH_REDIRECT_HOSTS=
+
 # Try TradePilot without a Trading 212 key: a simulated EUR Demo account with holdings, history and
 # pies. Market orders fill at once against the sample data. Live is off and nothing reaches Trading 212.
 TRADEPILOT_SAMPLE_DATA=false

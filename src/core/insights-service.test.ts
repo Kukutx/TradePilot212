@@ -77,4 +77,11 @@ describe("window parsing", () => {
     expect(parseWindow({ period: "all" }, now).from).toBeUndefined();
     expect(() => parseWindow({ from: "2026-12-01T00:00:00Z" }, now)).toThrow(/before to/);
   });
+
+  it("covers the whole last day of a date-only window and supports one week", () => {
+    const now = new Date("2026-10-10T12:00:00Z");
+    expect(parseWindow({ from: "2026-10-01", to: "2026-10-05" }, now).to.toISOString()).toBe("2026-10-05T23:59:59.999Z");
+    expect(parseWindow({ period: "1w" }, now).from?.toISOString()).toBe("2026-10-03T12:00:00.000Z");
+    expect(() => parseWindow({ to: "yesterday" }, now)).toThrow(/YYYY-MM-DD/);
+  });
 });

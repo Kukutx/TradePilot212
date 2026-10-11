@@ -58,14 +58,14 @@ function normalizeScope(value: string) {
   return list.join(" ");
 }
 
-/** `allowed` holds exact hosts, or ".example.com" for any subdomain of example.com. */
+/** `allowed` holds exact hosts, or ".example.com" for example.com and any of its subdomains. */
 function hostMatches(hostname: string, allowed: string[]) {
   const host = hostname.toLowerCase();
-  return allowed.some((entry) => entry.startsWith(".") ? host.endsWith(entry) : host === entry);
+  return allowed.some((entry) => entry.startsWith(".") ? host === entry.slice(1) || host.endsWith(entry) : host === entry);
 }
 
 /** Hosts of the chat apps TradePilot is built for; any other host gets a warning on the consent page. */
-const KNOWN_CLIENT_HOSTS = [".chatgpt.com", "chatgpt.com", "chat.openai.com", ".claude.ai", "claude.ai", ".claude.com", "claude.com"];
+const KNOWN_CLIENT_HOSTS = [".chatgpt.com", "chat.openai.com", ".claude.ai", ".claude.com"];
 
 /** HTTPS redirects (limited to OAUTH_REDIRECT_HOSTS when set), plus plain HTTP to loopback for local clients. */
 function validRedirect(value: string, allowedHosts: string[]) {

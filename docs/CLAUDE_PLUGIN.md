@@ -32,6 +32,8 @@ You can change these later under `/plugin` → Installed → Configure options.
 
 The plugin ships a prebuilt server (`plugin/server.mjs`) and needs only `node` 22+ on your `PATH`. State and the audit log are kept in the plugin data directory, so they survive plugin updates.
 
+The plugin ignores `.env` files in the folder you open Claude Code in, so another project's settings cannot change its policy. For settings that have no option above, such as `POLICY_*` rules, `DIGEST_HOUR_UTC` or `NOTIFY_WEBHOOK_SECRET`, put a `.env.local` in the plugin data directory. The options above take precedence over it.
+
 ### Skills included
 
 | Skill | Use it for |
@@ -50,7 +52,7 @@ In ChatGPT and other MCP Apps hosts, TradePilot's execution tools are app-only: 
 
 A terminal host may not render MCP Apps UIs. In such a host the execution tools would be ordinary tools the model could call. So in stdio mode, TradePilot registers neither the order-review tools nor the execution tools unless you enable them.
 
-If you enable them, keep Claude Code's per-call permission prompt on for `app_execute_order`, `app_execute_basket` and `app_execute_cancel`, and never add them to an allow-list. That prompt is then your confirmation step.
+If you enable them, keep Claude Code's per-call permission prompt on for `app_execute_order`, `app_execute_basket`, `app_execute_cancel` and `app_execute_pie_change`, and never add them to an allow-list. That prompt is then your confirmation step.
 
 ## Run the stdio server without the plugin
 

@@ -4,12 +4,12 @@ import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResoluti
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon } from "../components/common";
 import { dateTime, num, money, time } from "../lib/format";
-import { noticeText, policyRuleLabel, policyStatusLabel, sizingText, type Translator } from "../lib/messages";
+import { noticeText, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, type Translator } from "../lib/messages";
 
 const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
 
 /** Policy results with an icon and a status word, so the outcome never depends on color alone. */
-export function PolicyList({ checks, t }: { checks?: PolicyCheck[]; t: Translator }) {
+export function PolicyList({ checks, t, locale }: { checks?: PolicyCheck[]; t: Translator; locale: SupportedLocale }) {
   if (!checks?.length) return null;
   const order: PolicyCheck["status"][] = ["block", "warn", "skip"];
   const flagged = checks.filter((check) => check.status !== "pass").sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
@@ -19,7 +19,7 @@ export function PolicyList({ checks, t }: { checks?: PolicyCheck[]; t: Translato
       <span className="policyGlyph" aria-hidden="true">{POLICY_GLYPH[check.status] ?? "?"}</span>
       <span className="policyCopy">
         <strong>{policyStatusLabel(check.status, t)} · {policyRuleLabel(check.rule, t)}</strong>
-        {check.message && <span>{check.message}</span>}
+        {check.message && <span>{policyMessage(check, t, locale)}</span>}
       </span>
     </li>
   );
@@ -87,7 +87,7 @@ export function OrderEditor({
           {draft.type !== "market" && <Field label={t("validity")}><select value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select></Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
         </div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button type="button" className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
         <span className="visuallyHidden">{locale}</span>
       </section>
     </main>
@@ -144,23 +144,26 @@ export function OrderConfirmation({
           <span className="sectionEyebrow">{t("finalConfirmation")}</span>
           <h2>{draft.environment === "live" ? t("realOrder") : t("demoOrder")}</h2>
           <strong className="confirmationAmount">{money(preview.estimatedNotional, amountCurrency, locale)}</strong>
+          {preview.estimatedAccountNotional !== undefined && preview.accountCurrency && (
+            <span className="confirmationConverted">≈ {money(preview.estimatedAccountNotional, preview.accountCurrency, locale)} · {t("inAccountCurrency")}</span>
+          )}
         </div>
         <div className="confirmationRows">
           <DetailRow label={t("instrument")} value={`${preview.instrument.shortName || preview.instrument.name} · ${draft.ticker}`} />
           <DetailRow label={t("side")} value={draft.side === "buy" ? t("buy") : t("sell")} />
           <DetailRow label={t("type")} value={draft.type === "market" ? t("market") : draft.type === "limit" ? t("limit") : draft.type === "stop" ? t("stop") : t("stopLimit")} />
           <DetailRow label={t("quantity")} value={num(draft.quantity, locale)} />
-          {draft.limitPrice && <DetailRow label={t("limitPrice")} value={num(draft.limitPrice, locale)} />}
-          {draft.stopPrice && <DetailRow label={t("stopPrice")} value={num(draft.stopPrice, locale)} />}
+          {draft.limitPrice !== undefined && <DetailRow label={t("limitPrice")} value={money(draft.limitPrice, preview.instrument.currencyCode, locale)} />}
+          {draft.stopPrice !== undefined && <DetailRow label={t("stopPrice")} value={money(draft.stopPrice, preview.instrument.currencyCode, locale)} />}
           {draft.referencePriceAt && <DetailRow label={t("referenceAsOf")} value={dateTime(draft.referencePriceAt, locale)} />}
           {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
           <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
-        <PolicyList checks={preview.policy} t={t} />
+        <PolicyList checks={preview.policy} t={t} locale={locale} />
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
         {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button type="button" className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
   );

@@ -1,7 +1,7 @@
-import type { PolicyCheck } from "../../shared/automation";
+import type { PolicyCheck, RebalanceNote, RebalancePlan } from "../../shared/automation";
 import type { ActivityEvent, ExecutionVerificationResult, Instrument, OrderNotice, OrderSizing, StructuredError } from "../../shared/contracts";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { dateTime, num } from "./format";
+import { dateTime, money, num, pct } from "./format";
 
 export type Translator = (key: MessageKey) => string;
 
@@ -124,6 +124,92 @@ export function policyRuleLabel(rule: PolicyCheck["rule"], t: Translator): strin
     case "market_closed": return t("policyRuleMarketClosed");
     case "reference_age": return t("policyRuleReferenceAge");
     default: return String(rule);
+  }
+}
+
+function fill(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
+}
+
+/** The policy check in the widget's language, built from its details; the server's English text is the fallback. */
+export function policyMessage(check: PolicyCheck, t: Translator, locale: SupportedLocale): string {
+  const details = check.details ?? {};
+  const text = (key: string) => (typeof details[key] === "string" ? (details[key] as string) : undefined);
+  const number = (key: string) => (typeof details[key] === "number" ? (details[key] as number) : undefined);
+  const ticker = text("ticker");
+  switch (check.rule) {
+    case "allowed_tickers":
+      return ticker ? fill(t(check.status === "pass" ? "policyMsgAllowedTickerPass" : "policyMsgAllowedTickerBlock"), { ticker }) : check.message;
+    case "blocked_tickers":
+      return ticker ? fill(t("policyMsgBlockedTicker"), { ticker }) : check.message;
+    case "allowed_types": {
+      const type = text("type");
+      if (type === undefined) return check.message;
+      return fill(t(check.status === "pass" ? "policyMsgTypePass" : "policyMsgTypeBlock"), { type: type || "—", allowed: text("allowed") ?? "" });
+    }
+    case "max_position_weight": {
+      if (check.status === "skip") return t("policyMsgWeightSkip");
+      const weight = number("resultingWeight");
+      const limit = number("limit");
+      if (!ticker || weight === undefined || limit === undefined) return check.message;
+      return fill(t(check.status === "block" ? "policyMsgWeightBlock" : "policyMsgWeightPass"), { ticker, weight: pct(weight, locale), limit: pct(limit, locale) });
+    }
+    case "daily_order_limit": {
+      const today = number("ordersToday");
+      const limit = number("limit");
+      if (today === undefined || limit === undefined) return check.message;
+      return fill(t(check.status === "block" ? "policyMsgOrdersBlock" : "policyMsgOrdersPass"), { next: num(today + 1, locale, 0), limit: num(limit, locale, 0) });
+    }
+    case "daily_notional_limit": {
+      if (check.status === "warn") return t("policyMsgNotionalWarn");
+      const next = number("next");
+      const limit = number("limit");
+      const currency = text("currency");
+      if (next === undefined || limit === undefined) return check.message;
+      const amount = (value: number) => (currency ? money(value, currency, locale) : num(value, locale));
+      return fill(t(check.status === "block" ? "policyMsgNotionalBlock" : "policyMsgNotionalPass"), { next: amount(next), limit: amount(limit) });
+    }
+    case "market_closed":
+      return t("policyMsgMarketClosed");
+    case "reference_age": {
+      const limit = number("limit");
+      const age = number("ageSeconds");
+      if (limit === undefined) return check.message;
+      if (age === undefined) return fill(t("policyMsgReferenceUndated"), { limit: num(limit, locale, 0) });
+      return fill(t(check.status === "block" ? "policyMsgReferenceBlock" : "policyMsgReferencePass"), { age: num(age, locale, 0), limit: num(limit, locale, 0) });
+    }
+    default:
+      return check.message;
+  }
+}
+
+/** A rebalance note in the widget's language; notes without a known code keep the server's text. */
+export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: SupportedLocale): string {
+  const details = note.details ?? {};
+  const value = (key: string) => details[key];
+  switch (note.code) {
+    case "untargeted_kept": return fill(t("rebalanceNoteUntargeted"), { count: num(Number(value("count")), locale, 0) });
+    case "sell_limited": return fill(t("rebalanceNoteSellLimited"), { ticker: String(value("ticker") ?? ""), sellable: num(Number(value("sellable")), locale) });
+    case "buys_scaled": {
+      const currency = String(value("currency") ?? "");
+      const budget = Number(value("budget"));
+      return fill(t("rebalanceNoteScaled"), { percent: pct(Number(value("scale")), locale, 0), budget: currency ? money(budget, currency, locale) : num(budget, locale) });
+    }
+    case "implied_rates": return fill(t("rebalanceNoteImplied"), { currencies: String(value("currencies") ?? "") });
+    case "nothing_possible": return t("rebalanceNoteNothing");
+    case "within_threshold": return t("rebalanceNoteWithin");
+    case "price_source": return t("rebalanceNotePrices");
+    default: return note.message;
+  }
+}
+
+export function rebalanceSkipText(item: RebalancePlan["skipped"][number], t: Translator): string {
+  switch (item.code) {
+    case "no_fx_rate": return item.currency ? fill(t("rebalanceSkipNoFx"), { currency: item.currency }) : item.reason;
+    case "no_price": return t("rebalanceSkipNoPrice");
+    case "below_one_share": return t("rebalanceSkipOneShare");
+    case "below_minimum": return t("rebalanceSkipMinimum");
+    default: return item.reason;
   }
 }
 

@@ -16,6 +16,6 @@ Report:
 - the cash share;
 - pending orders that look stale, are far from the last known price, or will queue at the next open.
 
-If a large holding has no stop-loss and no price alert, suggest one: `review_protective_orders` for a broker-native stop, or `manage_price_alerts` with `trailing_drop` for a warning that never trades.
+If a large holding has no stop-loss and no price alert, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop.
 
 Do not compute weights yourself; quote the tool output. Do not prepare orders unless the user asks. Reply in the user's language.

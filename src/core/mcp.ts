@@ -6,7 +6,7 @@ import {
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
-import { MAX_BASKET_LEGS } from "./trading-service.js";
+import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js";
 import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
 import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
@@ -15,12 +15,28 @@ import type { Services } from "../app/services.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
+import { describePayload, num } from "./text-summary.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
+const SAMPLE_INSTRUCTIONS = "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212.";
+
+// Hosts that render the widget confirm there. In a text-only host the app_* tools are the same two
+// steps, and the host's own per-call permission prompt sits in front of each one.
+const ORDER_INSTRUCTIONS = [
+  "Orders: review_* tools and plan_portfolio_rebalance only draft; they never send anything.",
+  "Where the TradePilot widget is shown, the user edits and confirms there; do not call app_* tools yourself.",
+  "Where it is not shown (a terminal or another text-only host), show the user the draft from the tool's text.",
+  "If they want it sent, call the matching app_prepare_* tool to validate it (this sends nothing), show them its summary with the amount, notes and policy checks,",
+  "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
+  "Never resend an order whose result is unknown; check it with app_verify_unknown_execution.",
+].join(" ");
+
+/** The text carries the payload's facts too, for hosts that show the model only text. */
 function result(data: unknown, text: string) {
+  const detail = describePayload(data);
   return {
-    content: [{ type: "text" as const, text }],
+    content: [{ type: "text" as const, text: detail ? `${text}\n\n${detail}` : text }],
     structuredContent: data as Record<string, unknown>,
   };
 }
@@ -100,12 +116,11 @@ export function createMcpServer(
 ): McpServer {
   const canWrite = scopes.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config.defaultTradingEnvironment);
-  const server = new McpServer(
-    { name: "tradepilot212", version: APP_META.version },
-    config.sampleData
-      ? { instructions: "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212." }
-      : {},
-  );
+  const instructions = [
+    config.sampleData ? SAMPLE_INSTRUCTIONS : "",
+    canWrite ? ORDER_INSTRUCTIONS : "",
+  ].filter(Boolean).join("\n\n");
+  const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
 
   registerAppResource(
     server,
@@ -162,11 +177,12 @@ export function createMcpServer(
     async ({ environment, query, limit }) => {
       try {
         const instruments = await trading.searchInstruments(environment, query, limit);
+        const configured = credentialStatus(config)[environment];
         return result(
-          { environment, query, credentials: credentialStatus(config), instruments },
-          instruments.length
-            ? `Found ${instruments.length} Trading 212 instrument matches.`
-            : `No matches or ${environment.toUpperCase()} credentials are not configured.`,
+          { kind: "instrument_search", environment, query, credentials: credentialStatus(config), instruments },
+          !configured
+            ? `${environment.toUpperCase()} credentials are not configured, so instruments cannot be searched.`
+            : instruments.length ? `Found ${instruments.length} Trading 212 instrument match(es) for "${query}".` : `No Trading 212 instrument matches "${query}".`,
         );
       } catch (error) {
         return toolError(error);
@@ -217,7 +233,7 @@ export function createMcpServer(
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
-        return result(data, `Realized P/L ${data.realizedProfitLoss} ${data.accountCurrency}, income ${data.income.dividends + data.income.interest}, costs ${data.costs.total}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -305,8 +321,10 @@ export function createMcpServer(
         if (action === "request") {
           // Requesting a report is a broker write, so it needs the same write access as orders.
           if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
-          const created = await insights.requestExport(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }));
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
+          const window = parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) });
+          const created = await insights.requestExport(environment, window);
+          const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} List exports again in a minute for the download link.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
@@ -332,7 +350,7 @@ export function createMcpServer(
     async ({ environment, limit }) => {
       try {
         const activity = await trading.getActivity(environment, limit);
-        return result({ environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+        return result({ kind: "activity", environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error) {
         return toolError(error);
       }
@@ -428,15 +446,21 @@ export function createMcpServer(
         title: "Review Exact Trading 212 Order",
         description:
           "Advanced exact-order entry. Open an editable order draft when the exact Trading 212 ticker and quantity are already known. This is review-only and never places an order. Prefer review_trading212_order_intent for natural-language sizing such as money amounts, half, percentages, or all shares.",
-        inputSchema: orderDraftSchema,
+        inputSchema: orderDraftSchema.extend({ environment: environmentWithDefault }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
-      async (draft) =>
-        result(
-          { kind: "order_draft", draft: draft as OrderDraft, credentials: credentialStatus(config), writeEnabled: true },
-          "Order draft opened for human review. No order has been submitted.",
-        ),
+      async (draft) => {
+        try {
+          const instrument = resolveInstrumentFromList(await trading.instruments(draft.environment), draft.ticker);
+          return result(
+            { kind: "order_draft", draft: { ...draft, ticker: instrument.ticker } as OrderDraft, resolvedInstrument: instrument, credentials: credentialStatus(config), writeEnabled: true },
+            "Order draft opened for human review. No order has been submitted.",
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
     );
   }
 
@@ -488,9 +512,8 @@ export function createMcpServer(
     async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
       try {
         const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}) });
-        const data = { ...trading.rebalanceBasket(plan), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
-        const summary = plan.trades.map((trade) => `${trade.side} ${trade.quantity} ${trade.ticker}`).join(", ") || "no trades";
-        return result(data, `Rebalance plan: ${summary}. Cash ${plan.cashBefore} → ${plan.cashAfter} ${plan.accountCurrency}. Nothing has been sent${canWrite ? "; the user can review and confirm the basket in the widget" : ""}.`);
+        const data = { ...(await trading.withInstruments(trading.rebalanceBasket(plan))), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
+        return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -548,8 +571,7 @@ export function createMcpServer(
     async ({ environment, details, fresh }) => {
       try {
         const data = { ...(await pies.listPies(environment, { details, fresh })), writeEnabled: canWrite };
-        const lines = data.pies.map((pie) => `${pie.name} (#${pie.id}): value ${pie.value}, return ${pie.result}${pie.resultPercent === null ? "" : ` (${pie.resultPercent}%)`}${pie.drift === undefined ? "" : `, drift ${(pie.drift * 100).toFixed(1)}%`}`);
-        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).${lines.length ? `\n${lines.join("\n")}` : ""}${data.notes.length ? `\n${data.notes.join(" ")}` : ""}`);
+        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).`);
       } catch (error) {
         return toolError(error);
       }
@@ -570,7 +592,7 @@ export function createMcpServer(
       try {
         const pie = await pies.getPie(environment, pieId);
         const data = { kind: "pies", environment, credentials: credentialStatus(config), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: new Date().toISOString() };
-        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s).`);
       } catch (error) {
         return toolError(error);
       }
@@ -653,6 +675,7 @@ export function createMcpServer(
       },
       async (draft) => {
         try {
+          if (draft.action !== "create" && !draft.pieId) return toolError(new Error(`pieId is required to ${draft.action} a pie; list_pies shows the ids.`));
           const current = draft.action === "create" || !draft.pieId ? undefined : await pies.getPie(draft.environment, draft.pieId);
           const data = { kind: "pie_change_draft", draft: draft as PieChangeDraft, ...(current ? { current } : {}), credentials: credentialStatus(config), writeEnabled: true };
           return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
@@ -661,53 +684,54 @@ export function createMcpServer(
         }
       },
     );
-
-    registerAppTool(
-      server,
-      "manage_price_alerts",
-      {
-        title: "Manage Price Alerts",
-        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
-        inputSchema: z.object({
-          action: z.enum(["create", "delete", "rearm"]),
-          alertId: z.string().optional().describe("Required for delete and rearm"),
-          environment: environmentWithDefault,
-          instrument: z.string().min(1).optional(),
-          condition: z.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
-          price: z.number().positive().optional(),
-          percent: z.number().positive().optional(),
-          note: z.string().max(200).optional(),
-        }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-        _meta: {},
-      },
-      async (input) => {
-        try {
-          if (input.action === "create") {
-            if (!input.instrument || !input.condition) return toolError(new Error("instrument and condition are required to create an alert"));
-            const alert = await alerts.create({
-              environment: input.environment,
-              instrument: input.instrument,
-              condition: input.condition,
-              ...(input.price === undefined ? {} : { price: input.price }),
-              ...(input.percent === undefined ? {} : { percent: input.percent }),
-              ...(input.note ? { note: input.note } : {}),
-            });
-            return result({ kind: "price_alert", alert }, `Saved alert ${alert.id} on ${alert.ticker}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
-          }
-          if (!input.alertId) return toolError(new Error("alertId is required"));
-          if (input.action === "delete") {
-            await alerts.delete(input.alertId);
-            return result({ kind: "price_alert", deleted: input.alertId }, `Deleted alert ${input.alertId}.`);
-          }
-          const alert = await alerts.rearm(input.alertId);
-          return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
-        } catch (error) {
-          return toolError(error);
-        }
-      },
-    );
   }
+
+  // Alerts only notify; they never place orders, so they work without order tools.
+  registerAppTool(
+    server,
+    "manage_price_alerts",
+    {
+      title: "Manage Price Alerts",
+      description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      inputSchema: z.object({
+        action: z.enum(["create", "delete", "rearm"]),
+        alertId: z.string().optional().describe("Required for delete and rearm"),
+        environment: environmentWithDefault,
+        instrument: z.string().min(1).optional(),
+        condition: z.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+        price: z.number().positive().optional(),
+        percent: z.number().positive().optional(),
+        note: z.string().max(200).optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      _meta: {},
+    },
+    async (input) => {
+      try {
+        if (input.action === "create") {
+          if (!input.instrument || !input.condition) return toolError(new Error("instrument and condition are required to create an alert"));
+          const alert = await alerts.create({
+            environment: input.environment,
+            instrument: input.instrument,
+            condition: input.condition,
+            ...(input.price === undefined ? {} : { price: input.price }),
+            ...(input.percent === undefined ? {} : { percent: input.percent }),
+            ...(input.note ? { note: input.note } : {}),
+          });
+          return result({ kind: "price_alert", alert }, `Saved alert ${alert.id} on ${alert.ticker}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+        }
+        if (!input.alertId) return toolError(new Error("alertId is required"));
+        if (input.action === "delete") {
+          await alerts.delete(input.alertId);
+          return result({ kind: "price_alert", deleted: input.alertId }, `Deleted alert ${input.alertId}.`);
+        }
+        const alert = await alerts.rearm(input.alertId);
+        return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
 
   if (canWrite) {
     registerAppTool(
@@ -789,7 +813,7 @@ export function createMcpServer(
       },
       async ({ planId }) => {
         try {
-          const data = { ...(await automation.reviewPlan(planId)), credentials: credentialStatus(config), writeEnabled: true };
+          const data = { ...(await trading.withInstruments(await automation.reviewPlan(planId))), credentials: credentialStatus(config), writeEnabled: true };
           return result(data, `Opened ${data.legs.length} order(s) from plan "${data.title}" for review. Nothing has been sent.`);
         } catch (error) {
           return toolError(error);
@@ -815,7 +839,7 @@ export function createMcpServer(
       },
       async ({ environment, instrument, ...input }) => {
         try {
-          const data = { ...(await trading.protectiveBasket(environment, instrument, input)), credentials: credentialStatus(config), writeEnabled: true };
+          const data = { ...(await trading.withInstruments(await trading.protectiveBasket(environment, instrument, input))), credentials: credentialStatus(config), writeEnabled: true };
           return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
         } catch (error) {
           return toolError(error);
@@ -837,11 +861,13 @@ export function createMcpServer(
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         _meta: { ui: { resourceUri: WIDGET_URI } },
       },
-      async ({ environment, title, orders }) =>
-        result(
-          { kind: "basket_draft", environment, purpose: "custom", title, legs: orders.map((order) => ({ draft: { ...order, environment } as OrderDraft })), notes: [], credentials: credentialStatus(config), writeEnabled: true },
+      async ({ environment, title, orders }) => {
+        const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } as OrderDraft })) });
+        return result(
+          { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config), writeEnabled: true },
           `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`,
-        ),
+        );
+      },
     );
   }
 

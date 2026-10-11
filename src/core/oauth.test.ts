@@ -92,6 +92,8 @@ describe("OAuth endpoints", () => {
     expect(await status("https://evil.example/cb")).toBe(400);
     expect(await status("https://chatgpt.com/cb")).toBe(201);
     expect(await status("https://app.claude.ai/cb")).toBe(201);
+    expect(await status("https://claude.ai/api/mcp/auth_callback")).toBe(201);
+    expect(await status("https://notclaude.ai/cb")).toBe(400);
     expect(await status("http://[::1]:33418/callback")).toBe(201);
   });
 

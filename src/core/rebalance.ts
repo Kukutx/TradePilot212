@@ -2,7 +2,7 @@
 // the cash on hand. It never places orders; the result becomes a basket the user reviews.
 
 import type { AccountSummary, Position, TradingEnvironment } from "../shared/contracts.js";
-import type { RebalancePlan, RebalanceTarget, RebalanceTrade } from "../shared/automation.js";
+import type { RebalanceNote, RebalancePlan, RebalanceTarget, RebalanceTrade } from "../shared/automation.js";
 import { fail } from "./errors.js";
 import { knownFxRates } from "./fx.js";
 
@@ -68,6 +68,11 @@ export function planRebalance(
   }
 
   const notes: string[] = [];
+  const noteDetails: RebalanceNote[] = [];
+  const note = (code: RebalanceNote["code"], message: string, details?: RebalanceNote["details"]) => {
+    notes.push(message);
+    noteDetails.push({ code, message, ...(details ? { details } : {}) });
+  };
   const skipped: RebalancePlan["skipped"] = [];
   const byTicker = new Map(positions.map((position) => [position.instrument.ticker.toUpperCase(), position]));
   const wanted = new Map(targets.map((target) => [target.ticker.toUpperCase(), target]));
@@ -78,7 +83,7 @@ export function planRebalance(
     }
   } else {
     const untouched = positions.filter((position) => !wanted.has(position.instrument.ticker.toUpperCase()) && position.quantity > 0);
-    if (untouched.length) notes.push(`${untouched.length} holding(s) without a target are left as they are.`);
+    if (untouched.length) note("untargeted_kept", `${untouched.length} holding(s) without a target are left as they are.`, { count: untouched.length });
   }
 
   // Rates you pass win; otherwise they come from the broker's valuation of your holdings.
@@ -92,11 +97,11 @@ export function planRebalance(
     if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) usedImplied.add(currency);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
     if (!fx || fx <= 0) {
-      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      skipped.push({ ticker: target.ticker, code: "no_fx_rate", currency, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
       continue;
     }
     if (!price || price <= 0) {
-      skipped.push({ ticker: target.ticker, reason: "No price: Trading 212 only reports prices for held instruments, so pass referencePrice." });
+      skipped.push({ ticker: target.ticker, code: "no_price", reason: "No price: it is not held and the quote source has none for it, so pass referencePrice." });
       continue;
     }
     const heldQuantity = Math.max(0, position?.quantity ?? 0);
@@ -125,7 +130,7 @@ export function planRebalance(
     if (excess < minTradeValue) continue;
     const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
     const quantity = Math.min(wantedQuantity, line.sellable);
-    if (quantity < wantedQuantity) notes.push(`${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`);
+    if (quantity < wantedQuantity) note("sell_limited", `${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`, { ticker: line.ticker, sellable: line.sellable });
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
@@ -141,12 +146,12 @@ export function planRebalance(
   const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
   const budget = Math.max(0, cash - reserve);
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  if (wantedCash > 0 && scale < 1) notes.push(`Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`);
+  if (wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) {
-      if (scale > 0) skipped.push({ ticker: line.ticker, reason: decimals === 0 ? "The buy is smaller than one whole share." : "The buy is below the minimum trade value." });
+      if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
       continue;
     }
     cash -= value;
@@ -155,9 +160,12 @@ export function planRebalance(
   }
 
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
-  if (usedImplied.size) notes.push(`Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`);
-  if (!trades.length) notes.push(skipped.length && !lines.length ? "No trades could be planned: every target was skipped." : "The portfolio is already within the minimum trade value of every target.");
-  notes.push("Prices are the broker's last position prices or the reference prices you supplied; Market orders can fill elsewhere.");
+  if (usedImplied.size) note("implied_rates", `Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`, { currencies: [...usedImplied].sort().join(", ") });
+  if (!trades.length) {
+    if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
+  }
+  note("price_source", "Prices are the broker's last position prices, quotes from the quote source, or the reference prices you supplied; Market orders can fill elsewhere.");
 
   return {
     kind: "rebalance_plan",
@@ -169,5 +177,6 @@ export function planRebalance(
     trades,
     skipped,
     notes,
+    noteDetails,
   };
 }

@@ -256,6 +256,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .orderIdentity strong, .orderIdentity span { display: block; }
 .orderIdentity strong { font-size: 11px; }
 .orderIdentity span { margin-top: 2px; color: var(--tp-muted); font-size: 10px; }
+.orderSide { font-weight: 760; }
+.orderSide.buy { color: var(--tp-green); }
+.orderSide.sell { color: var(--tp-red); }
 .orderQuantity { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .activityPanel details > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; font-size: 12px; font-weight: 730; }
 .activityPanel details > summary::-webkit-details-marker { display: none; }
@@ -408,6 +411,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .confirmationHero .sectionEyebrow { margin-top: 14px; margin-bottom: 4px; }
 .confirmationHero h2 { margin: 0; font-size: 21px; letter-spacing: -.035em; }
 .confirmationAmount { margin-top: 10px; font-size: 34px; letter-spacing: -.05em; }
+.confirmationConverted { margin-top: 4px; color: var(--tp-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .confirmationRows { overflow: hidden; border: 1px solid var(--tp-border); border-radius: 13px; }
 .confirmationRows > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border-bottom: 1px solid var(--tp-border); font-size: 10px; }
 .confirmationRows > div:last-child { border-bottom: 0; }

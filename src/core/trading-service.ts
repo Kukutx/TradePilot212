@@ -20,6 +20,7 @@ import type {
   TradingEnvironment,
 } from "../shared/contracts.js";
 import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, ProtectiveLink, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
+import { BASKET_ORDER_NOTE } from "../shared/automation.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
@@ -283,6 +284,20 @@ export class TradingService {
     return instruments;
   }
 
+  /**
+   * Pending orders carry only a ticker. Name them from the holdings or from instrument metadata already
+   * cached, without fetching the (rate-limited) instrument list just for the dashboard.
+   */
+  private namedOrders(environment: TradingEnvironment, orders: PendingOrder[], positions: Position[]): PendingOrder[] {
+    const cached = this.cache.get(environment);
+    const known = cached && cached.expiresAt > Date.now() ? cached.instruments : [];
+    return orders.map((order) => {
+      if (order.instrument || typeof order.ticker !== "string") return order;
+      const instrument = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument ?? known.find((item) => item.ticker === order.ticker);
+      return instrument ? { ...order, instrument: { ticker: instrument.ticker, name: instrument.name, shortName: instrument.shortName, currencyCode: instrument.currencyCode } } : order;
+    });
+  }
+
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
   externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
     return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
@@ -384,7 +399,7 @@ export class TradingService {
     }
     const client = this.client(environment);
     const [account, positions, orders, activity] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders(), this.getActivity(environment)]);
-    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders, activity, timestamp: new Date().toISOString() };
+    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: new Date().toISOString() };
   }
 
   async getTradePlan(environment: TradingEnvironment, candidates: TradeCandidate[]): Promise<TradePlanPayload> {
@@ -686,6 +701,7 @@ export class TradingService {
       instrument: current.instrument,
       ...(current.estimatedNotional === undefined ? {} : { estimatedNotional: current.estimatedNotional }),
       estimatedNotionalCurrency: current.estimatedNotionalCurrency,
+      ...(current.accountNotional === undefined || current.estimatedNotionalCurrency === current.accountCurrency ? {} : { estimatedAccountNotional: current.accountNotional }),
       ...(current.accountCurrency ? { accountCurrency: current.accountCurrency } : {}),
       ...(current.availableCash === undefined ? {} : { availableCash: current.availableCash }),
       ...(current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {}),
@@ -740,6 +756,28 @@ export class TradingService {
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
+  }
+
+  /** Attach each leg's instrument so a review can show names; legs that do not resolve stay as they are. */
+  async withInstruments<T extends { environment: TradingEnvironment; legs: BasketDraftPayload["legs"] }>(basket: T): Promise<T> {
+    let instruments: Instrument[];
+    try {
+      instruments = await this.instruments(basket.environment);
+    } catch {
+      return basket;
+    }
+    return {
+      ...basket,
+      legs: basket.legs.map((leg) => {
+        if (leg.instrument) return leg;
+        try {
+          const instrument = resolveInstrumentFromList(instruments, leg.draft.ticker);
+          return { ...leg, instrument, draft: { ...leg.draft, ticker: instrument.ticker } };
+        } catch {
+          return leg;
+        }
+      }),
+    };
   }
 
   rebalanceBasket(plan: RebalancePlan): Omit<BasketDraftPayload, "credentials" | "writeEnabled"> {
@@ -869,17 +907,19 @@ export class TradingService {
       environment: request.environment,
       purpose: request.purpose,
       title: request.title,
+      ...(legs[0]?.checked.accountCurrency ? { accountCurrency: legs[0].checked.accountCurrency } : {}),
       legs: legs.map((leg) => ({
         draft: leg.draft,
         instrument: leg.instrument,
         ...(leg.checked.estimatedNotional === undefined ? {} : { estimatedNotional: leg.checked.estimatedNotional }),
         estimatedNotionalCurrency: leg.checked.estimatedNotionalCurrency,
+        ...(leg.checked.accountNotional === undefined || leg.checked.estimatedNotionalCurrency === leg.checked.accountCurrency ? {} : { estimatedAccountNotional: leg.checked.accountNotional }),
         notices: this.orderNotices(leg.draft, leg.checked, leg.market),
         policy: leg.policy,
       })),
       notes: [
         ...(request.notes ?? []),
-        "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.",
+        BASKET_ORDER_NOTE,
       ],
       ...(request.planId ? { planId: request.planId } : {}),
     };
