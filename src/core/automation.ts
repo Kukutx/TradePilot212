@@ -7,11 +7,13 @@
 // Live plans are never executed unattended; nothing in this file can change that per plan.
 
 import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
-import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport } from "../shared/automation.js";
+import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport, TargetAllocation } from "../shared/automation.js";
+import { positionValue } from "./analytics.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import { crossRate } from "./fx.js";
 import type { StateStore } from "./state-store.js";
+import { contributionSplit } from "./targets.js";
 import { resolveInstrumentFromList, type BasketRequest, type TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
 
@@ -19,12 +21,16 @@ export interface AutomationDeps {
   config: RuntimeConfig;
   store: StateStore;
   trading: TradingService;
+  /** The saved target weights, for plans that invest across them. */
+  targets?: (environment: TradingEnvironment) => Promise<TargetAllocation | undefined>;
 }
 
 export interface PlanInput {
   environment: TradingEnvironment;
   label: string;
+  /** Fixed buys; leave empty and give targetAmount to invest across the saved targets instead. */
   legs: DcaLeg[];
+  targetAmount?: number;
   frequency: PlanFrequency;
   dayOfMonth?: number;
   weekday?: number;
@@ -34,7 +40,10 @@ export interface PlanInput {
 
 export interface PlanPatch {
   label?: string;
+  /** Switches the plan to fixed buys. */
   legs?: DcaLeg[];
+  /** Switches the plan to investing this amount across the saved targets. */
+  targetAmount?: number;
   paused?: boolean;
   autoExecute?: boolean;
   frequency?: PlanFrequency;
@@ -51,6 +60,12 @@ const DAY_MS = 86_400_000;
 
 const planKey = (id: string) => `plan:${id}`;
 const floorTo = (value: number, digits: number) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
+/** Target splits below this, in the account currency, are left in cash rather than sent as a tiny order. */
+export const MIN_TARGET_LEG = 1;
+
+function validateTargetAmount(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) fail("INVALID_INPUT", "targetAmount must be a positive amount in the account currency", { field: "targetAmount" });
+}
 export const DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
 export const MAX_LIMIT_OFFSET_PERCENT = 10;
 
@@ -138,6 +153,9 @@ export class AutomationService {
     assertAutoExecuteAllowed(input.environment, input.autoExecute);
     requireCredentials(this.deps.config, input.environment);
     if ((await this.listPlans()).length >= MAX_PLANS) fail("INVALID_INPUT", `At most ${MAX_PLANS} plans can be stored`);
+    const byTargets = input.targetAmount !== undefined;
+    if (byTargets && input.legs.length) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
+    if (byTargets) validateTargetAmount(input.targetAmount!);
     const schedule = {
       frequency: input.frequency,
       ...(input.frequency === "monthly" ? { dayOfMonth: input.dayOfMonth! } : { weekday: input.weekday! }),
@@ -147,7 +165,8 @@ export class AutomationService {
       id: `dca_${randomToken(12)}`,
       environment: input.environment,
       label: input.label.trim().slice(0, 80) || "DCA plan",
-      legs: await this.resolveLegs(input.environment, input.legs),
+      legs: byTargets ? [] : await this.resolveLegs(input.environment, input.legs),
+      ...(byTargets ? { targetAmount: input.targetAmount! } : {}),
       ...schedule,
       autoExecute: !!input.autoExecute,
       paused: false,
@@ -175,6 +194,8 @@ export class AutomationService {
       const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
       base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...(plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {}) }, now).toISOString() };
     }
+    if (patch.legs !== undefined && patch.targetAmount !== undefined) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
+    if (patch.targetAmount !== undefined) validateTargetAmount(patch.targetAmount);
     const legs = patch.legs === undefined ? undefined : await this.resolveLegs(plan.environment, patch.legs);
     // Unpausing schedules from now instead of firing a due date that passed while paused.
     const resumed = patch.paused === false && plan.paused && Date.parse(base.nextRunAt) <= now.getTime();
@@ -187,10 +208,12 @@ export class AutomationService {
       ...(changed ? (base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth! } : { weekday: base.weekday! }) : {}),
       ...(patch.label === undefined ? {} : { label: patch.label.trim().slice(0, 80) || plan.label }),
       ...(legs === undefined ? {} : { legs }),
+      ...(patch.targetAmount === undefined ? {} : { legs: [], targetAmount: patch.targetAmount }),
       ...(patch.paused === undefined ? {} : { paused: patch.paused }),
       ...(patch.autoExecute === undefined ? {} : { autoExecute: patch.autoExecute }),
     };
     if (changed) { if (updated.frequency === "monthly") delete updated.weekday; else delete updated.dayOfMonth; }
+    if (legs !== undefined) delete updated.targetAmount;
     if (resumed) updated.nextRunAt = scheduleFrom(updated, now).toISOString();
     await this.deps.store.put(planKey(id), updated);
     return updated;
@@ -206,7 +229,7 @@ export class AutomationService {
    * Limit orders capped at the last price plus an offset so a gap cannot fill them higher.
    * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
    */
-  async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[] }> {
+  async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[]; targetsSavedAt?: string }> {
     const dashboard = await this.deps.trading.getDashboard(plan.environment);
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const converted = new Set<string>();
@@ -217,9 +240,21 @@ export class AutomationService {
       const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
       return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
     };
+    // A plan by targets works out its buys from the account now: the largest gaps get the most.
+    let legs = plan.legs;
+    let targetsSavedAt: string | undefined;
+    if (plan.targetAmount !== undefined) {
+      const saved = await this.deps.targets?.(plan.environment);
+      targetsSavedAt = saved?.updatedAt;
+      if (!saved) skipped.push(`No target weights are saved for ${plan.environment.toUpperCase()}; save them with manage_target_allocation.`);
+      const values = new Map(dashboard.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
+      const split = saved ? contributionSplit(saved.targets, values, plan.targetAmount) : [];
+      for (const item of split.filter((leg) => leg.amount < MIN_TARGET_LEG)) skipped.push(`${item.ticker}: ${item.amount} ${accountCurrency} is too small to send; it stays in cash.`);
+      legs = split.filter((leg) => leg.amount >= MIN_TARGET_LEG);
+    }
     // Holdings imply most rates; a currency none of them is priced in takes the quote provider's.
-    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, plan.legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
-    for (const leg of plan.legs) {
+    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
+    for (const leg of legs) {
       const { position, instrument } = find(leg.ticker);
       if (!instrument) { skipped.push(`${leg.ticker}: no longer listed by Trading 212.`); continue; }
       // Held legs use the broker's last price; others the external quote provider, when one can price them.
@@ -249,11 +284,13 @@ export class AutomationService {
       drafts,
       planId: plan.id,
       notes: [
-        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
+        ...(plan.targetAmount === undefined ? [] : [`${plan.targetAmount} ${accountCurrency} split across the saved targets, most to the ones furthest below their weight; nothing is sold.`]),
+        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
         ...(converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0]!.source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : []),
         ...skipped,
       ],
       skipped,
+      ...(targetsSavedAt ? { targetsSavedAt } : {}),
     };
   }
 
@@ -340,7 +377,9 @@ export class AutomationService {
         const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
         // Legs edited while the basket was being priced: the next run lock window rebuilds it.
-        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || !current.autoExecute) continue;
+        if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
+        // Targets changed or cleared while a plan by targets was being priced: the split is rebuilt next time.
+        if (current.targetAmount !== undefined && (await this.deps.targets?.(plan.environment))?.updatedAt !== basket.targetsSavedAt) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);

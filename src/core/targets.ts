@@ -51,6 +51,26 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
   };
 }
 
+/**
+ * Split new money across targets so it closes the largest gaps first. Each target's goal is its share
+ * (of the target weights) of the targeted value after the contribution; the money goes to the targets
+ * below their goal in proportion to how far below they are. Nothing is sold. Values and the result are
+ * in the account currency; amounts are rounded down to cents.
+ */
+export function contributionSplit(targets: Array<{ ticker: string; weight: number }>, values: ReadonlyMap<string, number>, amount: number): Array<{ ticker: string; amount: number }> {
+  const totalWeight = targets.reduce((sum, target) => sum + target.weight, 0);
+  if (!(totalWeight > 0) || !(amount > 0)) return [];
+  const after = targets.reduce((sum, target) => sum + Math.max(0, values.get(target.ticker) ?? 0), 0) + amount;
+  const gaps = targets.map((target) => ({ ticker: target.ticker, gap: Math.max(0, (target.weight / totalWeight) * after - Math.max(0, values.get(target.ticker) ?? 0)) }));
+  // The gaps add up to at least the amount, because the goals add up to everything held plus the amount.
+  const totalGap = gaps.reduce((sum, item) => sum + item.gap, 0);
+  if (!(totalGap > 0)) return [];
+  return gaps
+    .map((item) => ({ ticker: item.ticker, amount: Math.floor((amount * item.gap / totalGap) * 100 + 1e-6) / 100 }))
+    .filter((item) => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+}
+
 /** One sentence naming the largest drift, for notifications and flags. */
 export function driftSummary(drift: AllocationDrift): string {
   const points = (value: number) => `${value > 0 ? "+" : ""}${(value * 100).toFixed(1)} points`;

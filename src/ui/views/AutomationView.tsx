@@ -58,7 +58,9 @@ export function AutomationView({ data, book, locale, t }: { data: AutomationOver
                   <strong>{plan.label}</strong>
                   <span className={`statusPill ${plan.paused ? "muted" : plan.autoExecute ? "auto" : ""}`}>{plan.paused ? t("planPaused") : plan.autoExecute ? t("planAuto") : t("planConfirm")}</span>
                 </div>
-                <small>{plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
+                <small>{plan.targetAmount !== undefined
+                  ? fill(t("planByTargets"), { amount: sum(plan.targetAmount) })
+                  : plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
                 <small>{schedule(plan, t, locale)} · {t("nextRun")} {dateTime(plan.nextRunAt, locale)}</small>
                 {plan.lastOutcome && <small className="mutedInline">{plan.lastOutcome}</small>}
               </li>

@@ -196,6 +196,7 @@ export const zhCN: Record<MessageKey, string> = {
   flagCashLow: "现金很少。",
   flagCurrency: "大部分投资集中在同一种货币。",
   flagDrift: "持仓已偏离你设定的目标比例。",
+  planByTargets: "每次投入 {amount}，按目标配置分配，低于目标最多的买得最多",
   targetsTitle: "目标配置",
   targetsNote: "保存于 {date}。任一持仓或现金偏离目标超过 {points} 个百分点时提醒。",
   driftTitle: "目标配置偏离",

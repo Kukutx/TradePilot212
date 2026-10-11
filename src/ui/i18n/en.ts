@@ -194,6 +194,7 @@ export const en = {
   flagCashLow: "Cash is very low.",
   flagCurrency: "Most invested value is in one currency.",
   flagDrift: "Holdings have drifted from your target weights.",
+  planByTargets: "{amount} across your target weights, most to the furthest below",
   targetsTitle: "Target weights",
   targetsNote: "Saved {date}. You're notified when a holding or cash drifts more than {points} points from its target.",
   driftTitle: "Against your targets",

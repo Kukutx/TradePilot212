@@ -3,7 +3,7 @@ import type { TargetAllocation } from "../shared/automation.js";
 import { createServices } from "../app/services.js";
 import { createConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
-import { allocationDrift, driftSummary } from "./targets.js";
+import { allocationDrift, contributionSplit, driftSummary } from "./targets.js";
 
 const saved = (patch: Partial<TargetAllocation> = {}): TargetAllocation => ({
   environment: "demo",
@@ -63,6 +63,20 @@ describe("allocation drift", () => {
     const drift = allocationDrift(saved({ driftThreshold: 0.5 }), { cashWeight: 0.1, holdings: [{ ticker: "AAPL_US_EQ", name: "Apple", currency: "USD", value: 1, weight: 0.9 }] });
     expect(drift.rows.find((row) => row.ticker === "VUSAl_EQ")).toEqual({ ticker: "VUSAl_EQ", target: 0.4, current: 0, drift: -0.4 });
     expect(drift.over).toBe(false);
+  });
+});
+
+describe("contribution split", () => {
+  const weights = [{ ticker: "A", weight: 0.6 }, { ticker: "B", weight: 0.3 }, { ticker: "C", weight: 0.1 }];
+  it("closes the largest gaps first and never needs a sale", () => {
+    // After 100 more, 1000 is wanted as 600 / 300 / 100; A is over its goal and gets nothing.
+    expect(contributionSplit(weights, new Map([["A", 700], ["B", 150], ["C", 50]]), 100)).toEqual([{ ticker: "B", amount: 75 }, { ticker: "C", amount: 25 }]);
+  });
+
+  it("follows the weights when every target is on goal, and covers a target not held yet", () => {
+    expect(contributionSplit(weights, new Map([["A", 540], ["B", 270], ["C", 90]]), 100)).toEqual([{ ticker: "A", amount: 60 }, { ticker: "B", amount: 30 }, { ticker: "C", amount: 10 }]);
+    expect(contributionSplit([{ ticker: "A", weight: 0.5 }, { ticker: "B", weight: 0.5 }], new Map([["A", 100]]), 50)).toEqual([{ ticker: "B", amount: 50 }]);
+    expect(contributionSplit(weights, new Map(), 0)).toEqual([]);
   });
 });
 

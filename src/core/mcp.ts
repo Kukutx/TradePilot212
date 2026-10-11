@@ -874,7 +874,7 @@ export function createMcpServer(
       {
         title: "Manage Investment Plans",
         description:
-          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
+          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent. Instead of legs, targetAmount invests that amount each run across the target weights saved with manage_target_allocation, most to the targets furthest below their weight, as Market buys; nothing is sold.",
         inputSchema: z.object({
           action: z.enum(["create", "update", "delete"]),
           planId: z.string().optional().describe("Required for update and delete"),
@@ -886,6 +886,7 @@ export function createMcpServer(
             orderType: z.enum(["market", "limit"]).optional().describe("limit = Day Limit buy at the last price plus limitOffsetPercent, so a gap cannot fill it higher. Limit legs can also be placed while the market is closed."),
             limitOffsetPercent: z.number().min(0).max(MAX_LIMIT_OFFSET_PERCENT).optional().describe("Limit legs: percent above the last broker price (default 0.5)"),
           })).min(1).max(MAX_PLAN_LEGS).optional(),
+          targetAmount: z.number().positive().optional().describe("Instead of legs: amount in the account currency to invest each run across the saved target weights"),
           frequency: z.enum(["weekly", "monthly"]).optional(),
           dayOfMonth: z.number().int().min(1).max(28).optional(),
           weekday: z.number().int().min(1).max(7).optional().describe("1 = Monday … 7 = Sunday"),
@@ -899,11 +900,12 @@ export function createMcpServer(
       async (input) => {
         try {
           if (input.action === "create") {
-            if (!input.legs || !input.frequency) return toolError(new Error("legs and frequency are required to create a plan"));
+            if ((!input.legs && input.targetAmount === undefined) || !input.frequency) return toolError(new Error("frequency and either legs or targetAmount are required to create a plan"));
             const plan = await automation.createPlan({
               environment: input.environment,
-              label: input.label ?? "DCA plan",
-              legs: input.legs,
+              label: input.label ?? (input.targetAmount === undefined ? "DCA plan" : "Invest by targets"),
+              legs: input.legs ?? [],
+              ...(input.targetAmount === undefined ? {} : { targetAmount: input.targetAmount }),
               frequency: input.frequency,
               ...(input.dayOfMonth === undefined ? {} : { dayOfMonth: input.dayOfMonth }),
               ...(input.weekday === undefined ? {} : { weekday: input.weekday }),
@@ -911,7 +913,8 @@ export function createMcpServer(
               ...(input.autoExecute === undefined ? {} : { autoExecute: input.autoExecute }),
             });
             const unattended = plan.autoExecute && !config.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
-            return result({ kind: "investment_plan", plan }, `Saved plan ${plan.id}; next due ${plan.nextRunAt}. No order was placed.${unattended}`);
+            const noTargets = plan.targetAmount !== undefined && !(await targetAllocations.get(plan.environment)) ? " No target weights are saved yet; save them with manage_target_allocation before it is due." : "";
+            return result({ kind: "investment_plan", plan }, `Saved plan ${plan.id}; next due ${plan.nextRunAt}. No order was placed.${unattended}${noTargets}`);
           }
           if (!input.planId) return toolError(new Error("planId is required"));
           if (input.action === "delete") {
@@ -921,6 +924,7 @@ export function createMcpServer(
           const plan = await automation.updatePlan(input.planId, {
             ...(input.label === undefined ? {} : { label: input.label }),
             ...(input.legs === undefined ? {} : { legs: input.legs }),
+            ...(input.targetAmount === undefined ? {} : { targetAmount: input.targetAmount }),
             ...(input.paused === undefined ? {} : { paused: input.paused }),
             ...(input.autoExecute === undefined ? {} : { autoExecute: input.autoExecute }),
             ...(input.frequency === undefined ? {} : { frequency: input.frequency }),

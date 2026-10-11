@@ -306,7 +306,9 @@ const WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "S
 
 function planLine(plan: DcaPlan): string {
   const schedule = plan.frequency === "monthly" ? `monthly on day ${plan.dayOfMonth}` : `weekly on ${WEEKDAYS[plan.weekday ?? 1]}`;
-  const legs = plan.legs.map((leg) => `${num(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
+  const legs = plan.targetAmount !== undefined
+    ? `${num(plan.targetAmount)} across the saved targets, most to the furthest below`
+    : plan.legs.map((leg) => `${num(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
   return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}`
     + `${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
 }

@@ -35,7 +35,8 @@ async function session(extraEnv, calls = []) {
   const tools = (await wait(2)).result.tools.map((tool) => tool.name);
   const results = [];
   for (const [index, [name, args]] of calls.entries()) {
-    send({ jsonrpc: "2.0", id: 10 + index, method: "tools/call", params: { name, arguments: args } });
+    // Arguments can be worked out from the earlier results, such as an id a previous call returned.
+    send({ jsonrpc: "2.0", id: 10 + index, method: "tools/call", params: { name, arguments: typeof args === "function" ? args(results) : args } });
     results.push((await wait(10 + index)).result);
   }
   child.kill();
@@ -68,5 +69,14 @@ const [saved, allocation, rebalance] = targets.results;
 if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
 if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
 if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
+// A plan by targets opens a basket of buys split across the saved targets, without placing anything.
+const byTargets = await session({ TRADEPILOT_SAMPLE_DATA: "true", TRADEPILOT_ALLOW_WRITES: "true" }, [
+  ["manage_investment_plans", { action: "create", targetAmount: 500, frequency: "monthly", dayOfMonth: 20 }],
+  ["review_investment_plan", (previous) => ({ planId: previous[0].structuredContent?.plan?.id ?? "missing" })],
+]);
+const [planSaved, planBasket] = byTargets.results;
+if (planSaved.isError || planSaved.structuredContent?.plan?.targetAmount !== 500) throw new Error(`Saving a plan by targets failed: ${JSON.stringify(planSaved).slice(0, 300)}`);
+const legTickers = planBasket.structuredContent?.legs?.map((leg) => leg.draft?.ticker) ?? [];
+if (planBasket.isError || !legTickers.length || !legTickers.every((ticker) => ["AAPL_US_EQ", "KO_US_EQ"].includes(ticker))) throw new Error(`Plan by targets basket failed: ${JSON.stringify(planBasket).slice(0, 300)}`);
 await fs.rm(work, { recursive: true, force: true });
 console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled, sample data serves ${dashboard.structuredContent.positions.length} holdings`);

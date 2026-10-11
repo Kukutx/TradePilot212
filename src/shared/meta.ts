@@ -1,5 +1,5 @@
 export const APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.16.0",
+  version: "2.17.0",
 } as const;

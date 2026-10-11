@@ -91,7 +91,7 @@ Targets only inform; they never place orders, so they work without order tools.
 
 ## Standing plans (L2 and L3)
 
-`manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency. It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
+`manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency, or instead gives a `targetAmount` to invest across the [saved targets](#saved-targets-and-drift-notices). It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
 A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due. Each step runs even when an earlier one fails, and a tick that is still running when the next one starts is joined rather than run twice:
 
@@ -100,6 +100,8 @@ A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval
 - **A due plan blocked before anything is sent**, by the policy, because the market is closed, or because the market hours could not be read this tick: the plan stays due and is tried again about every 10 minutes, when its run lock expires. The reason is logged once per due date.
 - **An unattended run that reached the broker**, even with a rejected or unclear result: the plan moves to its next date and is never re-sent automatically. Check `lastOutcome` and the activity log.
 - **An unattended run cut off before its result was recorded** (a crash or restart mid-send): the plan marks its due date before sending, so the next tick sees the mark, logs one `plan_due` event asking you to check Trading 212, and waits for you instead of sending again.
+
+A plan with `targetAmount` works out its buys when it runs. Each target's goal is its share of the target weights applied to what the targets hold plus the new money; the money goes to the targets below their goal, in proportion to how far below they are. So the most underweight holdings get the most, and nothing is sold. Splits under 1 in the account currency stay in cash, and a plan with no saved targets is skipped with that reason. Its buys are Market orders and go through the same review, policy and confirmation as any other plan.
 
 Changing a plan's day, weekday or hour schedules it from now, but a period that already ran is not run again because its time moved. Unpausing a plan whose due date passed while it was paused schedules the next date from now instead of running at once.
 
@@ -158,7 +160,7 @@ Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each 
 
 ### Daily digest
 
-Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, and alerts that triggered in the last day. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
+Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, plans that are due, alerts that triggered in the last day and, with saved targets, the largest drift from them. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
 
 ## Seeing what runs
 

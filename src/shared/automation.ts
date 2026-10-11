@@ -156,7 +156,13 @@ export interface DcaPlan {
   id: string;
   environment: TradingEnvironment;
   label: string;
+  /** Fixed buys per run; empty when the plan invests targetAmount across the saved targets. */
   legs: DcaLeg[];
+  /**
+   * Amount in the account currency to invest each run across the saved target weights, most
+   * underweight first. The split is worked out from the account when the plan runs.
+   */
+  targetAmount?: number;
   frequency: PlanFrequency;
   /** 1-28 for monthly plans. */
   dayOfMonth?: number;
