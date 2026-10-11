@@ -61,6 +61,12 @@ export function time(value: string | undefined, locale: SupportedLocale): string
   }).format(date);
 }
 
+/** A calendar day such as "Oct 11, 2026" (or "Oct 11" without the year), read in UTC. */
+export function dayLabel(value: string, locale: SupportedLocale, { year = true }: { year?: boolean } = {}): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : new Intl.DateTimeFormat(localeTag(locale), { ...(year ? { year: "numeric" } : {}), month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
+
 export function dateTime(value: string | undefined, locale: SupportedLocale): string {
   if (!value) return "—";
   const date = new Date(value);

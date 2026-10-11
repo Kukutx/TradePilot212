@@ -1,8 +1,8 @@
 import type { PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
-import { amount } from "./format";
+import { amount, pct } from "./format";
 import { instrumentLabel, orderCurrency, type InstrumentBook } from "./instruments";
-import { orderStatusLabel, orderTypeLabel, type Translator } from "./messages";
+import { fill, orderStatusLabel, orderTypeLabel, type Translator } from "./messages";
 
 export interface PendingOrderSummary {
   ticker: string;
@@ -15,12 +15,15 @@ export interface PendingOrderSummary {
   prices: string[];
   status?: string;
   quantity?: number;
+  /** How far the trigger (stop) or limit price is from the holding's last price, e.g. "2.7% below the last price ($185.20)". */
+  distance?: string;
 }
 
 /** A pending order as people read it: the instrument's name, the side, the order type with priced amounts, the status. */
 export function summarizeOrder(order: PendingOrder, t: Translator, locale: SupportedLocale, positions: Position[] = [], book?: InstrumentBook): PendingOrderSummary {
   const ticker = typeof order.ticker === "string" ? order.ticker : "";
-  const held = positions.find((position) => position.instrument.ticker === ticker)?.instrument;
+  const holding = positions.find((position) => position.instrument.ticker === ticker);
+  const held = holding?.instrument;
   const embedded = order.instrument as { name?: unknown } | undefined;
   const label = instrumentLabel(ticker, book, held ?? (typeof embedded?.name === "string" ? { name: embedded.name } : undefined));
   const currency = orderCurrency(order, positions, book);
@@ -33,6 +36,12 @@ export function summarizeOrder(order: PendingOrder, t: Translator, locale: Suppo
   // A plain Limit or Stop order reads "Limit $215.00"; a Stop-Limit names both prices.
   const type = stop && limit ? typeName : [typeName, stop ?? limit].filter(Boolean).join(" ");
   const prices = stop && limit ? [`${t("stopPrice")} ${stop}`, `${t("limitPrice")} ${limit}`] : [];
+  // Only held instruments have a last price: Trading 212 has no quote endpoint.
+  const last = holding?.currentPrice;
+  const trigger = typeof order.stopPrice === "number" ? order.stopPrice : typeof order.limitPrice === "number" ? order.limitPrice : undefined;
+  const gap = trigger !== undefined && last && last > 0 ? (trigger - last) / last : undefined;
+  const distance = gap === undefined ? undefined
+    : fill(t(Math.abs(gap) < 0.0005 ? "orderAtLast" : gap < 0 ? "orderBelowLast" : "orderAboveLast"), { percent: pct(Math.abs(gap), locale, 1), price: amount(last, currency, locale) });
   return {
     ticker,
     name: label.name || ticker || "—",
@@ -42,5 +51,6 @@ export function summarizeOrder(order: PendingOrder, t: Translator, locale: Suppo
     prices,
     ...(typeof order.status === "string" && order.status ? { status: orderStatusLabel(order.status, t) } : {}),
     ...(quantity === undefined ? {} : { quantity: Math.abs(quantity) }),
+    ...(distance ? { distance } : {}),
   };
 }

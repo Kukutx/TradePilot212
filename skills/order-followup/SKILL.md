@@ -5,7 +5,7 @@ description: Follow up Trading 212 orders with TradePilot - whether an order fil
 
 # Order follow-up
 
-1. Call `get_portfolio_dashboard` for the environment to list pending orders, with their ids, types, prices and how much has filled.
+1. Call `get_portfolio_dashboard` for the environment to list pending orders, with their ids, types, prices and how much has filled. For instruments the user holds, each order's text also says how far its stop or limit is from the last price.
 2. For one order, call `get_order_status` with its id. For an order that has ended (filled, partly filled, cancelled, rejected or closed), it lists each fill with its price. For an order that is still open, it gives only the filled quantity so far; the individual fills appear once the order ends.
 3. If the user names an instrument rather than an id, match it against the pending orders. If more than one order matches, list them with side, type, price and id, and ask which one they mean before going on. For an order that is no longer pending, call `get_trade_history` for that instrument with `includeUnfilled`.
 4. To cancel, call `review_order_cancel` with the order id. If the order is a stop-loss, say that cancelling it leaves the position unprotected.

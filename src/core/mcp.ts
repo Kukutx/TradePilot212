@@ -12,7 +12,7 @@ import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import type { PieChangeDraft } from "../shared/pies.js";
 import type { Services } from "../app/services.js";
-import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
+import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
@@ -125,6 +125,13 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
+  const dashboard = async (environment: TradingEnvironment) => {
+    const data = await trading.getDashboard(environment);
+    const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const trend = await values.points(environment, { from }).catch(() => []);
+    return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}) };
+  };
 
   registerAppResource(
     server,
@@ -148,14 +155,14 @@ export function createMcpServer(
     {
       title: "Trading 212 Portfolio Dashboard",
       description:
-        "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
+        "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment }) => {
       try {
-        const data = { ...(await trading.getDashboard(environment)), writeEnabled: canWrite };
+        const data = await dashboard(environment);
         return result(data, `Rendered ${environment.toUpperCase()} Trading 212 portfolio dashboard.`);
       } catch (error) {
         return toolError(error);
@@ -1055,7 +1062,7 @@ export function createMcpServer(
     },
     async ({ environment }) => {
       try {
-        const data = { ...(await trading.getDashboard(environment)), writeEnabled: canWrite };
+        const data = await dashboard(environment);
         return result(data, "Dashboard refreshed.");
       } catch (error) {
         return toolError(error);

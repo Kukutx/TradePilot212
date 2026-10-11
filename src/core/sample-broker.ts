@@ -68,6 +68,8 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   let nextId = 90_000;
   const pending: Json[] = [
     { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
+    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
   ];
   /** Cash held back for a pending buy, in EUR; released when the order is cancelled. */
   const reservation = (order: Json) => (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0);

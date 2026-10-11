@@ -51,7 +51,7 @@ function policyLines(checks: PolicyCheck[] | undefined): string[] {
   return (checks ?? []).filter((check) => check.status !== "pass" && check.status !== "skip").map((check) => `  policy ${check.status}: ${check.message}`);
 }
 
-function orderLine(order: PendingOrder): string {
+function orderLine(order: PendingOrder, positions: Position[] = []): string {
   const quantity = order.quantity ?? 0;
   const value = typeof order.value === "number" ? order.value : undefined;
   const side = String(order.side ?? "").toUpperCase() || (quantity < 0 || (value ?? 0) < 0 ? "SELL" : "BUY");
@@ -63,7 +63,15 @@ function orderLine(order: PendingOrder): string {
   const validity = order.timeInForce ?? order.timeValidity;
   // Sells report negative quantities, filled ones included.
   const filled = typeof order.filledQuantity === "number" && order.filledQuantity !== 0 ? `, filled ${num(Math.abs(order.filledQuantity), 8)}` : "";
-  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
+  // How far the trigger (or limit) is from the last price, for held instruments only.
+  const last = positions.find((position) => position.instrument.ticker === order.ticker)?.currentPrice;
+  const trigger = order.stopPrice ?? order.limitPrice;
+  const gap = typeof trigger === "number" && last && last > 0 ? (trigger - last) / last : undefined;
+  const distance = gap === undefined ? "" : `, ${pct(Math.abs(gap))} ${gap < 0 ? "below" : "above"} the last price ${num(last, 6)}`;
+  // "limit 215" rather than "limit limit 215"; a stop-limit names both prices.
+  const kind = String(order.type ?? "").toLowerCase();
+  const typed = (kind === "limit" || kind === "stop") && prices ? prices.trim() : `${kind}${prices}`;
+  return `#${order.id ?? "?"} ${side} ${size} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${typed}${distance}${typeof validity === "string" ? ` ${validity}` : ""}${order.status ? ` (${order.status}${filled})` : ""}`;
 }
 
 function positionLine(position: Position): string {
@@ -103,8 +111,9 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...credentialsLine(data.environment, data.credentials),
     ...(data.warning ? [data.warning] : []),
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
+    ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
-    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, orderLine)),
+    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine)),
   ];
 }

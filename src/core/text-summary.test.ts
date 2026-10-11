@@ -16,6 +16,9 @@ describe("text summaries for hosts that only show text", () => {
     const text = describePayload(dashboard);
     expect(text).toMatch(/EUR/);
     for (const position of dashboard.positions.slice(0, 5)) expect(text).toContain(position.instrument.ticker);
+    // The sample stop-loss on NVIDIA sits below its last price; the Tesla buy limit has no last price.
+    expect(text).toMatch(/#81235 SELL 5 NVDA_US_EQ \(NVIDIA\) stop 118, [\d.]+% below the last price [\d.]+/);
+    expect(text).toMatch(/#81234 BUY 3 TSLA_US_EQ limit 215 GOOD_TILL_CANCEL \(NEW\)$/m);
   });
 
   it("gives an order preview's amount in the account currency and says when the token may be used", async () => {

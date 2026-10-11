@@ -1,7 +1,9 @@
 import type { ActivityEvent, DashboardPayload, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
+import type { ValuePoint } from "../../shared/history";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
-import { amount, money, num, qty, signedClass, time, walletNumber } from "../lib/format";
+import { Sparkline } from "../components/charts";
+import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
 import { summarizeOrder } from "../lib/orders";
@@ -32,6 +34,7 @@ export function PortfolioView({
           <span className="sectionEyebrow">{t("accountOverview")}</span>
           <strong className="heroValue">{money(payload.account?.totalValue, currency, locale)}</strong>
           <div className={`pnlBadge ${signedClass(pnl)}`}>{t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}</div>
+          {payload.valueTrend && payload.valueTrend.length >= 2 && <ValueTrend points={payload.valueTrend} currency={currency} locale={locale} t={t} />}
         </div>
         <div className="metricGrid">
           <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />
@@ -92,6 +95,7 @@ export function PortfolioView({
                   <div className="orderIdentity" title={row.ticker}>
                     <strong>{row.name}</strong>
                     <span><b className={`orderSide ${row.side}`}>{row.side === "sell" ? t("sell") : t("buy")}</b> · {detail}</span>
+                    {row.distance && <span className="orderDistance">{row.distance}</span>}
                   </div>
                   <div className="orderQuantity">{qty(row.quantity, locale)}</div>
                   {writeEnabled && <button className="secondaryButton danger" type="button" data-focus-id={`cancel-${id}`} disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
@@ -171,5 +175,22 @@ export function PositionCard({
         <div><span>{t("averagePrice")}</span><strong>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</strong></div>
       </div>
     </article>
+  );
+}
+
+/** The recorded account value of the last 30 days: a small line and the change since the first day. */
+function ValueTrend({ points, currency, locale, t }: { points: ValuePoint[]; currency: string; locale: SupportedLocale; t: Translator }) {
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const change = last.totalValue - first.totalValue;
+  // The window is at most 30 days, so the day and month are enough.
+  const since = dayLabel(first.date, locale, { year: false });
+  const changeText = `${money(change, currency, locale, { signed: true })}${first.totalValue ? ` (${pct(change / first.totalValue, locale, 1, { signed: true })})` : ""}`;
+  return (
+    <div className="valueTrend">
+      <Sparkline points={points.map((point) => ({ time: Date.parse(`${point.date}T00:00:00Z`), value: point.totalValue }))}
+        label={fill(t("valueTrendLabel"), { date: since, first: money(first.totalValue, currency, locale), last: money(last.totalValue, currency, locale) })} />
+      <span><b className={signedClass(change)}>{changeText}</b> {fill(t("valueTrendSince"), { date: since })}</span>
+    </div>
   );
 }
