@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
 import { nextRunAt, planLimitPrice } from "./automation.js";
+import { basketNotes } from "./trading-service.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 
@@ -195,5 +196,34 @@ describe("standing plans", () => {
     expect(planLimitPrice(0.123456, 1)).toBe(0.1247);
     const { automation } = setup();
     await expect(automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100, orderType: "limit", limitOffsetPercent: 25 }], frequency: "monthly", dayOfMonth: 1 })).rejects.toThrow(/limitOffsetPercent/);
+  });
+  it("never re-sends an unattended plan after an unclear or rejected result", async () => {
+    const { automation, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" }, { VUSA_EQ: 503 });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    const due = Date.parse(plan.nextRunAt);
+    expect((await automation.runDuePlans(new Date(due + 60_000)))[0]?.mode).toBe("auto");
+    for (const minutes of [12, 25, 60]) await automation.runDuePlans(new Date(due + minutes * 60_000));
+    expect(writes).toHaveLength(1);
+    const stored = await automation.getPlan(plan.id);
+    expect(Date.parse(stored.nextRunAt)).toBeGreaterThan(due);
+  });
+
+  it("changes a plan's schedule on update and recomputes the due date", async () => {
+    const { automation } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 });
+    const now = new Date("2026-10-11T12:00:00Z");
+    expect((await automation.updatePlan(plan.id, { dayOfMonth: 15 }, now)).nextRunAt).toBe("2026-10-15T15:00:00.000Z");
+    const weekly = await automation.updatePlan(plan.id, { frequency: "weekly", weekday: 1, hourUtc: 9 }, now);
+    expect(weekly).toMatchObject({ frequency: "weekly", weekday: 1, hourUtc: 9, nextRunAt: "2026-10-12T09:00:00.000Z" });
+    expect(weekly.dayOfMonth).toBeUndefined();
+    await expect(automation.updatePlan(plan.id, { frequency: "monthly" }, now)).rejects.toThrow(/dayOfMonth/);
+  });
+
+  it("keeps rebalance basket notes within what the review accepts", () => {
+    const skipped = Array.from({ length: 30 }, (_, i) => ({ ticker: `T${i}`, reason: "Quoted in USD; pass fxRates.USD." }));
+    const notes = basketNotes({ notes: ["a", "b"], skipped });
+    expect(notes).toHaveLength(3);
+    expect(notes[2]).toMatch(/Skipped 30 instrument/);
+    expect(notes.every((note) => note.length <= 500)).toBe(true);
   });
 });

@@ -34475,7 +34475,10 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       continue;
     }
     const heldQuantity = Math.max(0, position?.quantity ?? 0);
+    const brokerPrice = !!(position?.currentPrice && position.currentPrice > 0);
+    const priceAt = brokerPrice ? (/* @__PURE__ */ new Date()).toISOString() : target.referencePriceAt;
     lines.push({
+      ...priceAt ? { priceAt } : {},
       ticker: position?.instrument.ticker ?? target.ticker,
       currency,
       price,
@@ -34499,7 +34502,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   const reserve = cashWeight * totalValue;
   const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
@@ -34516,7 +34519,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     }
     cash -= value;
     valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
   if (!trades.length) notes.push("The portfolio is already within the minimum trade value of every target.");
@@ -34818,6 +34821,12 @@ function closeQuantity(a, b) {
 }
 function orderQuantity(order) {
   return typeof order.quantity === "number" && Number.isFinite(order.quantity) ? Math.abs(order.quantity) : void 0;
+}
+function basketNotes(plan) {
+  const clip = (note) => note.length > 500 ? `${note.slice(0, 497)}...` : note;
+  const skipped = plan.skipped.map((item) => `${item.ticker}: ${item.reason}`);
+  if (plan.notes.length + skipped.length <= 20) return [...plan.notes, ...skipped].map(clip);
+  return [...plan.notes.slice(0, 18), `Skipped ${plan.skipped.length} instrument(s) with no usable price or FX rate: ${plan.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
 }
 function resolveInstrumentFromList(instruments, query) {
   const norm = (value) => value.trim().toUpperCase();
@@ -35292,23 +35301,23 @@ var TradingService = class {
       const instrument = resolveInstrumentFromList(snapshot.instruments, target.ticker);
       const held = this.positionFor(snapshot.positions, instrument.ticker)?.currentPrice;
       const quote = !held && target.referencePrice === void 0 ? await this.externalQuote(instrument) : void 0;
-      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price } : {} });
+      resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price, referencePriceAt: quote.asOf } : {} });
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
     return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
   }
   rebalanceBasket(plan) {
-    const at = (/* @__PURE__ */ new Date()).toISOString();
     return {
       kind: "basket_draft",
       environment: plan.environment,
       purpose: "rebalance",
       title: "Rebalance",
       legs: plan.trades.map((trade) => ({
-        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, referencePriceAt: at },
+        // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
+        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...trade.priceAt ? { referencePriceAt: trade.priceAt } : {} },
         reason: `${(trade.currentWeight * 100).toFixed(1)}% \u2192 ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`
       })),
-      notes: [...plan.notes, ...plan.skipped.map((item) => `${item.ticker}: ${item.reason}`)]
+      notes: basketNotes(plan)
     };
   }
   /**
@@ -35986,8 +35995,8 @@ var InsightsService = class {
       truncated: dividends.truncated || transactions.truncated
     });
   }
-  async tradeHistory(environment, window, ticker, limit = 50) {
-    const collected = await this.collect(environment, "orders", window);
+  async tradeHistory(environment, window, ticker, limit = 50, maxPages) {
+    const collected = await this.collect(environment, "orders", window, maxPages);
     const wanted = ticker?.trim().toUpperCase();
     const fills = collected.items.filter((item) => item.fill).filter((item) => !wanted || (item.order?.ticker ?? "").toUpperCase() === wanted || (item.order?.ticker ?? "").toUpperCase().startsWith(`${wanted}_`)).filter((item) => {
       const time3 = itemTime("orders", item);
@@ -36130,11 +36139,23 @@ var AutomationService = class {
     await this.deps.store.put(planKey(plan.id), plan);
     return plan;
   }
-  async updatePlan(id, patch) {
+  async updatePlan(id, patch, now = /* @__PURE__ */ new Date()) {
     const plan = await this.getPlan(id);
     assertAutoExecuteAllowed(plan.environment, patch.autoExecute);
+    let base = plan;
+    if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hourUtc].some((value) => value !== void 0)) {
+      const frequency = patch.frequency ?? plan.frequency;
+      const schedule = {
+        frequency,
+        ...frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan.dayOfMonth } : { weekday: patch.weekday ?? plan.weekday },
+        hourUtc: patch.hourUtc ?? plan.hourUtc
+      };
+      validateSchedule(schedule);
+      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
+      base = { ...rest, ...schedule, nextRunAt: nextRunAt(schedule, now).toISOString() };
+    }
     const updated = {
-      ...plan,
+      ...base,
       ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
       ...patch.legs === void 0 ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
@@ -36211,19 +36232,19 @@ var AutomationService = class {
   async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
     const plan = await this.deps.store.get(planKey(planId));
     if (!plan) return;
-    const anySent = result2.legs.some((leg) => leg.result?.ok);
+    const attempted = result2.legs.some((leg) => leg.result);
     await this.deps.store.put(planKey(planId), {
       ...plan,
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
-      // Only a run that sent something moves the plan on; otherwise it stays due.
-      ...anySent ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+      ...attempted ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
     });
   }
   /**
    * One scheduler tick. Due Live plans and Demo plans without autoExecute are announced once in
    * the activity log for the user to confirm. Due Demo autoExecute plans run when Demo automation
-   * is enabled. A plan blocked by policy (for example a closed market) stays due for the next tick.
+   * is enabled. A plan blocked before sending (policy, closed market) stays due and is tried again
+   * when its run lock expires, about every 10 minutes.
    */
   async runDuePlans(now = /* @__PURE__ */ new Date()) {
     const reports = [];
@@ -36260,10 +36281,12 @@ var AutomationService = class {
     return reports;
   }
   async skip(plan, now, message, advance) {
+    const current = await this.deps.store.get(planKey(plan.id));
+    if (!current) return;
     await this.deps.store.put(planKey(plan.id), {
-      ...plan,
+      ...current,
       lastOutcome: message,
-      ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+      ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
     const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
     if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
@@ -36722,9 +36745,9 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
       annotations: readOnly,
       _meta: {}
     },
-    async ({ environment, ticker, limit, period, from, to }) => {
+    async ({ environment, ticker, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit);
+        const data = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages);
         return result(data, `Returned ${data.fills.length} fills${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -36763,6 +36786,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     async ({ environment, action, period, from, to }) => {
       try {
         if (action === "request") {
+          if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
           const created = await insights.requestExport(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }));
           return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
         }
@@ -36920,7 +36944,8 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
         targets: external_exports.array(external_exports.object({
           ticker: external_exports.string().min(1).describe("Trading 212 ticker, symbol or name"),
           weight: external_exports.number().min(0).max(1),
-          referencePrice: external_exports.number().positive().optional()
+          referencePrice: external_exports.number().positive().optional(),
+          referencePriceAt: external_exports.string().datetime().optional().describe("When referencePrice is from")
         })).min(1).max(MAX_BASKET_LEGS),
         cashWeight: external_exports.number().min(0).max(1).default(0).describe("Share of total value to keep in cash"),
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
@@ -37149,7 +37174,7 @@ ${data.notes.join(" ")}` : ""}`);
       "manage_investment_plans",
       {
         title: "Manage Investment Plans",
-        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
+        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
         inputSchema: external_exports.object({
           action: external_exports.enum(["create", "update", "delete"]),
           planId: external_exports.string().optional().describe("Required for update and delete"),
@@ -37197,9 +37222,13 @@ ${data.notes.join(" ")}` : ""}`);
             ...input2.label === void 0 ? {} : { label: input2.label },
             ...input2.legs === void 0 ? {} : { legs: input2.legs },
             ...input2.paused === void 0 ? {} : { paused: input2.paused },
-            ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
+            ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute },
+            ...input2.frequency === void 0 ? {} : { frequency: input2.frequency },
+            ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
+            ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
+            ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc }
           });
-          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}.`);
+          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}; next due ${plan.nextRunAt}.`);
         } catch (error62) {
           return toolError(error62);
         }
@@ -37560,6 +37589,10 @@ function evaluateAlert(alert, position) {
     }
   }
 }
+function pickTickFields(alert) {
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice }).filter(([, value]) => value !== void 0));
+}
 var PriceAlerts = class {
   constructor(deps) {
     this.deps = deps;
@@ -37643,7 +37676,11 @@ var PriceAlerts = class {
         ...outcome.highWatermark === void 0 ? {} : { highWatermark: outcome.highWatermark },
         ...outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: position.currentPrice } : {}
       };
-      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) await this.deps.store.put(alertKey(alert.id), updated);
+      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) {
+        const current = await this.deps.store.get(alertKey(alert.id));
+        if (!current || current.createdAt !== alert.createdAt || current.triggeredAt) continue;
+        await this.deps.store.put(alertKey(alert.id), { ...current, ...pickTickFields(updated) });
+      }
       if (outcome.fired) {
         await this.deps.trading.recordActivity("price_alert_triggered", alert.environment, {
           ticker: alert.ticker,
@@ -37976,27 +38013,73 @@ var MemoryStateStore = class {
 };
 
 // src/adapters/node/file-state-store.ts
+var LOCK_STALE_MS = 1e4;
+var LOCK_WAIT_MS = 5e3;
+var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var FileStateStore = class _FileStateStore extends MemoryStateStore {
   constructor(file2) {
     super();
     this.file = file2;
   }
   file;
+  loadedVersion = "";
   static async open(file2) {
     const store2 = new _FileStateStore(file2);
-    try {
-      const parsed = JSON.parse(await fs.readFile(file2, "utf8"));
-      for (const [k, v] of Object.entries(parsed)) store2.values.set(k, v);
-    } catch (error62) {
-      if (error62.code !== "ENOENT") throw error62;
-    }
+    await fs.mkdir(path.dirname(file2), { recursive: true });
+    await store2.withFileLock(() => store2.reloadIfChanged());
     return store2;
   }
+  async version() {
+    try {
+      const stat = await fs.stat(this.file);
+      return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+    } catch (error62) {
+      if (error62.code === "ENOENT") return "";
+      throw error62;
+    }
+  }
+  async reloadIfChanged() {
+    const version2 = await this.version();
+    if (version2 === this.loadedVersion) return;
+    this.values.clear();
+    if (version2) {
+      const parsed = JSON.parse(await fs.readFile(this.file, "utf8"));
+      for (const [key, value] of Object.entries(parsed)) this.values.set(key, value);
+    }
+    this.loadedVersion = version2;
+  }
+  async withFileLock(operation) {
+    const lock = `${this.file}.lock`;
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    for (; ; ) {
+      try {
+        await (await fs.open(lock, "wx")).close();
+        break;
+      } catch (error62) {
+        if (error62.code !== "EEXIST") throw error62;
+        const stat = await fs.stat(lock).catch(() => void 0);
+        if (stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) await fs.rm(lock, { force: true });
+        else if (Date.now() > deadline) throw new Error(`TradePilot state is locked by another process (${lock})`);
+        else await sleep3(15);
+      }
+    }
+    try {
+      return await operation();
+    } finally {
+      await fs.rm(lock, { force: true });
+    }
+  }
+  serialize(operation) {
+    return super.serialize(() => this.withFileLock(async () => {
+      await this.reloadIfChanged();
+      return operation();
+    }));
+  }
   async changed() {
-    await fs.mkdir(path.dirname(this.file), { recursive: true });
     const temp = `${this.file}.${process.pid}.tmp`;
     await fs.writeFile(temp, JSON.stringify(Object.fromEntries(this.values)), "utf8");
     await fs.rename(temp, this.file);
+    this.loadedVersion = await this.version();
   }
 };
 

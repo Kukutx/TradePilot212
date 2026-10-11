@@ -60,6 +60,8 @@ pnpm install
 pnpm stdio            # reads .env.local, writes are disabled
 ```
 
+Several clients (for example Claude Desktop and Claude Code) can run the server on the same data directory at once. The state file is locked for every change and reloaded when another process wrote it, so plans, alerts, linked orders and confirmation tokens stay consistent and a due plan is sent by only one of them.
+
 Any MCP client config can point at the bundled file:
 
 ```json

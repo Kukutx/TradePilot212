@@ -34,6 +34,8 @@ interface Line {
   sellable: number;
   currentValue: number;
   targetWeight: number;
+  /** When the price is from; undefined for a caller-supplied price without a timestamp. */
+  priceAt?: string;
 }
 
 export function planRebalance(
@@ -91,7 +93,10 @@ export function planRebalance(
       continue;
     }
     const heldQuantity = Math.max(0, position?.quantity ?? 0);
+    const brokerPrice = !!(position?.currentPrice && position.currentPrice > 0);
+    const priceAt = brokerPrice ? new Date().toISOString() : target.referencePriceAt;
     lines.push({
+      ...(priceAt ? { priceAt } : {}),
       ticker: position?.instrument.ticker ?? target.ticker,
       currency,
       price,
@@ -118,7 +123,7 @@ export function planRebalance(
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
 
   // Buys share whatever cash is left above the reserve, in proportion to their shortfall.
@@ -139,7 +144,7 @@ export function planRebalance(
     }
     cash -= value;
     valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
 
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);

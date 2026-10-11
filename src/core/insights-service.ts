@@ -130,8 +130,8 @@ export class InsightsService {
     });
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50) {
-    const collected = await this.collect(environment, "orders", window);
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number) {
+    const collected = await this.collect(environment, "orders", window, maxPages);
     const wanted = ticker?.trim().toUpperCase();
     const fills = collected.items
       .filter((item) => item.fill)

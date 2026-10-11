@@ -47,6 +47,12 @@ export function evaluateAlert(alert: PriceAlert, position: Pick<Position, "curre
   }
 }
 
+/** The fields a scheduler tick owns; everything else stays as the user last saved it. */
+function pickTickFields(alert: PriceAlert): Partial<PriceAlert> {
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice }).filter(([, value]) => value !== undefined));
+}
+
 export class PriceAlerts {
   constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: TradingService }) {}
 
@@ -136,7 +142,12 @@ export class PriceAlerts {
         ...(outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: position.currentPrice } : {}),
       };
       // Only write when something a reader would see changed, to keep ticks cheap.
-      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) await this.deps.store.put(alertKey(alert.id), updated);
+      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) {
+        // Re-read: the alert may have been deleted or re-armed while this tick fetched prices.
+        const current = await this.deps.store.get<PriceAlert>(alertKey(alert.id));
+        if (!current || current.createdAt !== alert.createdAt || current.triggeredAt) continue;
+        await this.deps.store.put(alertKey(alert.id), { ...current, ...pickTickFields(updated) });
+      }
       if (outcome.fired) {
         await this.deps.trading.recordActivity("price_alert_triggered", alert.environment, {
           ticker: alert.ticker,

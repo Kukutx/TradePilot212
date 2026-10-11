@@ -36,6 +36,10 @@ export interface PlanPatch {
   legs?: DcaLeg[];
   paused?: boolean;
   autoExecute?: boolean;
+  frequency?: PlanFrequency;
+  dayOfMonth?: number;
+  weekday?: number;
+  hourUtc?: number;
 }
 
 export const MAX_PLANS = 20;
@@ -140,11 +144,24 @@ export class AutomationService {
     return plan;
   }
 
-  async updatePlan(id: string, patch: PlanPatch): Promise<DcaPlan> {
+  async updatePlan(id: string, patch: PlanPatch, now = new Date()): Promise<DcaPlan> {
     const plan = await this.getPlan(id);
     assertAutoExecuteAllowed(plan.environment, patch.autoExecute);
+    let base: DcaPlan = plan;
+    if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hourUtc].some((value) => value !== undefined)) {
+      const frequency = patch.frequency ?? plan.frequency;
+      const schedule = {
+        frequency,
+        ...(frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan.dayOfMonth } : { weekday: patch.weekday ?? plan.weekday }),
+        hourUtc: patch.hourUtc ?? plan.hourUtc,
+      };
+      validateSchedule(schedule);
+      // A new schedule starts from now; the old due date no longer applies.
+      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
+      base = { ...rest, ...schedule, nextRunAt: nextRunAt(schedule, now).toISOString() };
+    }
     const updated: DcaPlan = {
-      ...plan,
+      ...base,
       ...(patch.label === undefined ? {} : { label: patch.label.trim().slice(0, 80) || plan.label }),
       ...(patch.legs === undefined ? {} : { legs: await this.resolveLegs(plan.environment, patch.legs) }),
       ...(patch.paused === undefined ? {} : { paused: patch.paused }),
@@ -215,20 +232,22 @@ export class AutomationService {
   async recordRun(planId: string, result: BasketExecutionResult, now = new Date()): Promise<void> {
     const plan = await this.deps.store.get<DcaPlan>(planKey(planId));
     if (!plan) return;
-    const anySent = result.legs.some((leg) => leg.result?.ok);
+    // Any leg that reached the broker (submitted, rejected or unclear) uses up this due date, so a
+    // scheduler tick never sends the plan again. Only a run stopped before sending stays due.
+    const attempted = result.legs.some((leg) => leg.result);
     await this.deps.store.put(planKey(planId), {
       ...plan,
       lastRunAt: now.toISOString(),
       lastOutcome: result.message,
-      // Only a run that sent something moves the plan on; otherwise it stays due.
-      ...(anySent ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}),
+      ...(attempted ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}),
     });
   }
 
   /**
    * One scheduler tick. Due Live plans and Demo plans without autoExecute are announced once in
    * the activity log for the user to confirm. Due Demo autoExecute plans run when Demo automation
-   * is enabled. A plan blocked by policy (for example a closed market) stays due for the next tick.
+   * is enabled. A plan blocked before sending (policy, closed market) stays due and is tried again
+   * when its run lock expires, about every 10 minutes.
    */
   async runDuePlans(now = new Date()): Promise<PlanRunReport[]> {
     const reports: PlanRunReport[] = [];
@@ -268,10 +287,13 @@ export class AutomationService {
   }
 
   private async skip(plan: DcaPlan, now: Date, message: string, advance: boolean) {
+    // Re-read: the user may have paused, changed or deleted the plan while this tick was working.
+    const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
+    if (!current) return;
     await this.deps.store.put(planKey(plan.id), {
-      ...plan,
+      ...current,
       lastOutcome: message,
-      ...(advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(plan, now).toISOString() } : {}),
+      ...(advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}),
     });
     // A blocked plan is retried every tick; log the reason once per due date, not every tick.
     const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());

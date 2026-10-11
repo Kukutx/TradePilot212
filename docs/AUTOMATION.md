@@ -62,7 +62,7 @@ Protective baskets are the exception to cumulative checks. A stop-loss and a tak
 - Buys share the cash above an optional `cashWeight` reserve, in proportion to how far each is below its target. When cash is short they are scaled down, and the plan says so.
 - Trades smaller than `minTradeValue` are dropped. `wholeSharesOnly` disables fractional quantities.
 - Holdings without a target are left alone unless `sellUntargeted` is set.
-- An instrument you do not hold needs a `referencePrice`. An instrument quoted in another currency needs an `fxRates` entry. Otherwise it is listed under `skipped` with the reason.
+- An instrument you do not hold is priced from the external quote source when it can map it; otherwise it needs a `referencePrice` (add `referencePriceAt` so the review can check its age). An instrument quoted in another currency needs an `fxRates` entry. Otherwise it is listed under `skipped` with the reason.
 
 The math is pure and tested (`src/core/rebalance.ts`), so the model never computes order sizes in its head.
 
@@ -84,9 +84,10 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due, then checks price alerts and sends the daily digest when one is due:
 
-- **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run sends at least one order.
+- **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run reaches the broker, whether the orders were accepted, rejected or unclear, so nothing is sent twice for one due date.
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.
-- **A due plan blocked by the policy**, for example because the market is closed: the plan stays due and is tried at the next tick. The reason is logged once per due date.
+- **A due plan blocked before anything is sent**, by the policy or because the market is closed: the plan stays due and is tried again about every 10 minutes, when its run lock expires. The reason is logged once per due date.
+- **An unattended run that reached the broker**, even with a rejected or unclear result: the plan moves to its next date and is never re-sent automatically. Check `lastOutcome` and the activity log.
 
 Orders are sized from each holding's last broker price and floored to four decimals. A leg you do not hold yet is priced from the external quote source (see below) and skipped with a note when it cannot be priced. A leg quoted in another currency than the account is skipped.
 
@@ -107,7 +108,7 @@ The stdio server also needs `TRADEPILOT_ALLOW_WRITES=true`. Without it, Demo aut
 
 ## Price alerts
 
-`manage_price_alerts` creates, deletes and re-arms alerts on holdings; `list_price_alerts` shows them with the last price seen. Every scheduler tick reads positions once per environment and checks each armed alert:
+`manage_price_alerts` creates, deletes and re-arms price alerts, on holdings or on instruments the external quote source can price; `list_price_alerts` shows them with the last price seen. Every scheduler tick reads positions once per environment and checks each armed alert:
 
 | Condition | Fires when |
 |---|---|
