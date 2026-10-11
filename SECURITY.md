@@ -27,7 +27,7 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 ## Trading safeguards
 
 - Demo and Live credentials are stored separately.
-- Live orders require explicit user confirmation in the UI.
+- Orders and cancellations require explicit user confirmation in the UI (see the threat model below for how this is enforced).
 - Confirmation tokens are short-lived and one-time.
 - Trading 212 write requests are never automatically retried after an ambiguous network/write failure.
 - Unknown write outcomes can be checked through a read-only verification flow; verification never resubmits the original write.
@@ -36,6 +36,22 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 - Server-side quantity and notional caps are configurable per self-hosted instance; positive values are enforced before submission. Setting a cap to `0` deliberately disables only that app-level cap.
 
 These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.
+
+## Threat model and known limits
+
+Read this before connecting a Live account. It describes where each safeguard is actually enforced.
+
+- **The connection password is the key to the instance.** Anyone who completes the OAuth login with `APP_LOGIN_PASSWORD` receives tokens for every tool, including Live trading if Live credentials are configured. Use a long random password (`pnpm setup` generates one) and never reuse it.
+- **"App-only" tools are hidden by the host, not locked by the server.** `app_prepare_order`, `app_execute_order`, and the cancellation tools are marked `visibility: ["app"]`, so a compliant host such as ChatGPT keeps them away from the model and only the widget calls them after a click. The server itself only checks that the caller holds a valid `trade:write` token. A client that holds such a token can call these tools directly, so the human-confirmation step protects against the model acting on its own, not against a stolen token.
+- **Limit what a token can do.** If you only want portfolio views, create the Trading 212 API key without order permissions. MCP clients that let you choose scopes can request only `trade:read`, in which case the write tools are not registered at all. Starting with Demo-only credentials is the safest way to try the project.
+- **Tokens cannot be revoked one by one.** Access and refresh tokens are signed JWTs with no server-side session list. To cut off every connected client (for example after a password leak), rotate `AUTH_SIGNING_SECRET` and `APP_LOGIN_PASSWORD`, redeploy, and reconnect ChatGPT. Refresh tokens otherwise stay valid for `REFRESH_TOKEN_TTL_SECONDS` (30 days by default).
+- **Reference prices come from the caller.** Market-order sizing and the `MAX_ORDER_NOTIONAL` estimate use the `referencePrice` the model supplies, because the Trading 212 Public API has no quote endpoint. When Trading 212 reports a current price for a held position, the cap uses the higher of the two prices, so an understated reference price cannot slip past it. For an instrument you do not hold yet, the estimate is only as good as the supplied price; always read the quantity on the confirmation screen.
+- **Login throttling is instance-wide.** After 8 failed password attempts in 10 minutes, all logins are paused for the rest of that window, including yours. This protects the password but means an attacker who knows your URL can briefly delay a reconnect.
+- **Dynamic client registration is open.** Any caller may register an OAuth client, which is what ChatGPT needs. Registrations are rate-limited and capped at 200; when the cap is reached, clients that never completed a login are removed first, so the client you actually use is kept.
+
+## Local stdio and the Claude plugin
+
+The stdio server has no OAuth layer: anyone who can start the process already holds the Trading 212 keys in its environment. The order-review and execution tools are not registered unless `TRADEPILOT_ALLOW_WRITES=true`. This is because a terminal host may not hide app-only tools from the model. If you enable writes, keep the host's per-call permission prompt for the execution tools. The plugin stores API keys in the system credential store, not in settings files.
 
 ## Deployment guidance
 

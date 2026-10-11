@@ -42,13 +42,18 @@ src/
 │  ├─ node/
 │  │  ├─ index.ts
 │  │  └─ file-state-store.ts
+│  ├─ stdio/
+│  │  └─ index.ts          local MCP over stdio (Claude Code plugin)
 │  └─ cloudflare/
 │     └─ index.ts
 ├─ app/
-│  └─ create-app.ts
+│  ├─ create-app.ts
+│  └─ services.ts          shared service wiring for every transport
 ├─ core/
+│  ├─ analytics.ts         pure portfolio, income, cost and market-hours math
 │  ├─ config.ts
 │  ├─ errors.ts
+│  ├─ insights-service.ts  paginated history reads feeding analytics
 │  ├─ mcp.ts
 │  ├─ oauth.ts
 │  ├─ state-store.ts
@@ -57,6 +62,7 @@ src/
 │  └─ web-utils.ts
 ├─ shared/
 │  ├─ contracts.ts
+│  ├─ history.ts
 │  └─ meta.ts
 └─ ui/
    ├─ i18n/
@@ -87,6 +93,10 @@ Owns application rules.
 - performs read-back verification after an ambiguous write.
 
 `TradingService` does not perform market research and does not schedule work.
+
+### `InsightsService` and `analytics`
+
+Read-only. `InsightsService` walks Trading 212's newest-first history pages within a page budget and caches them briefly. `analytics.ts` turns that data into allocation, performance, income and market-session results with pure, unit-tested functions. Nothing on this path can write to the broker.
 
 ### `StateStore`
 

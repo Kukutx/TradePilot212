@@ -38,7 +38,7 @@ function nonNegative(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number):
 }
 
 function tradingEnvironment(env: RuntimeEnv): TradingEnvironment {
-  const value = (env.DEFAULT_TRADING_ENV ?? "demo").trim().toLowerCase();
+  const value = (env.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
   if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
   return value;
 }

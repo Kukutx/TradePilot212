@@ -52,6 +52,17 @@ describe("trade safety", () => {
     )).toThrow(/available quantity/i);
   });
 
+  it("does not let an understated Market reference price bypass the notional cap", () => {
+    const position = { instrument, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 90, currentPrice: 400 };
+    expect(() => validateOrderAgainstSnapshot(
+      { ...draft, quantity: 2, referencePrice: 1 },
+      instrument,
+      position,
+      { currency: "USD", cash: { availableToTrade: 10_000 } },
+      { maxOrderNotional: 500, maxOrderQuantity: 10 },
+    )).toThrow(/MAX_ORDER_NOTIONAL/);
+  });
+
   it("allows self-hosters to disable app-level caps with zero", () => {
     const result = validateOrderAgainstSnapshot(
       { environment: "demo", ticker: instrument.ticker, side: "buy", type: "market", quantity: 2 },
@@ -187,6 +198,16 @@ describe("flexible order intent", () => {
     expect(activity[0]?.type).toBe("order_prepared");
     expect(activity[0]?.ticker).toBe("AAPL_US_EQ");
     expect(activity[0]?.quantity).toBe(1);
+  });
+
+  it("warns that a Market order placed while the market is closed will be queued", async () => {
+    const service = new TradingService({
+      config: config(), store: new MemoryStateStore(), fetcher: fakeFetch(),
+      marketStatus: async () => ({ ticker: "AAPL_US_EQ", session: "closed", isOpen: false, nextOpen: "2026-10-12T13:30:00.000Z", checkedAt: new Date().toISOString() }),
+    });
+    const preview = await service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "sell", type: "market", quantity: 1, referencePrice: 100 });
+    const notice = preview.notices.find((item) => item.code === "MARKET_CLOSED_QUEUED");
+    expect(notice?.details?.nextOpen).toBe("2026-10-12T13:30:00.000Z");
   });
 
   it("flags a stale FX timestamp when cross-currency sizing metadata is present", async () => {

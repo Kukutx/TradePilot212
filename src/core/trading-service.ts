@@ -19,6 +19,7 @@ import type {
   TradePlanPayload,
   TradingEnvironment,
 } from "../shared/contracts.js";
+import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
@@ -32,7 +33,15 @@ type VerificationRecord =
   | { kind: "cancel"; environment: TradingEnvironment; orderId: string; createdAt: string };
 export interface InstrumentCacheEntry { expiresAt: number; instruments: Instrument[] }
 export type InstrumentCache = Map<TradingEnvironment, InstrumentCacheEntry>;
-export interface TradingServiceDeps { config: RuntimeConfig; store: StateStore; audit?: Audit; fetcher?: typeof fetch; instrumentCache?: InstrumentCache }
+export interface TradingServiceDeps {
+  config: RuntimeConfig;
+  store: StateStore;
+  audit?: Audit;
+  fetcher?: typeof fetch;
+  instrumentCache?: InstrumentCache;
+  /** Optional exchange-session lookup used to warn about orders placed while the market is closed. */
+  marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
+}
 
 function positiveNumber(name: string, value?: number): asserts value is number {
   if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
@@ -131,11 +140,14 @@ export function validateOrderAgainstSnapshot(
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
     throw new Error(`Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`);
 
+  // A Market order's referencePrice comes from the caller, so it must not be able to talk the
+  // notional cap down: when the broker reports a current price, the higher of the two is used.
+  const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value): value is number => value !== undefined && value > 0);
   const price = draft.type === "limit" || draft.type === "stop_limit"
     ? draft.limitPrice
     : draft.type === "stop"
       ? draft.stopPrice
-      : draft.referencePrice ?? position?.currentPrice;
+      : marketPrices.length ? Math.max(...marketPrices) : undefined;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : undefined;
 
   if (config.maxOrderNotional > 0) {
@@ -172,7 +184,7 @@ export class TradingService {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
 
-  private async instruments(environment: TradingEnvironment) {
+  async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;
     const instruments = await this.client(environment).getInstruments();
@@ -457,6 +469,17 @@ export class TradingService {
       if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    const market = await this.deps.marketStatus?.(draft.environment, current.instrument);
+    if (market && market.session !== "unknown" && !market.isOpen) {
+      const queued = draft.type === "market" && !(draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(market.session));
+      notices.push({
+        code: queued ? "MARKET_CLOSED_QUEUED" : "MARKET_CLOSED",
+        message: queued
+          ? "The market is closed. Trading 212 queues this Market order and fills it at the next open, possibly at a gap price."
+          : "The regular market session is closed for this instrument.",
+        details: { session: market.session, nextOpen: market.nextOpen ?? null },
+      });
+    }
     if (draft.referencePrice !== undefined) {
       const ageSeconds = dateAgeSeconds(draft.referencePriceAt);
       if (ageSeconds === undefined) notices.push({ code: "REFERENCE_PRICE_TIME_UNKNOWN", message: "The reference price has no timestamp." });

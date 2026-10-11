@@ -51,6 +51,8 @@ export interface Instrument {
   type?: string;
   maxOpenQuantity?: number;
   extendedHours?: boolean;
+  workingScheduleId?: number;
+  addedOn?: string;
 }
 
 export interface PositionWalletImpact {
@@ -249,7 +251,9 @@ export type OrderNoticeCode =
   | "REFERENCE_PRICE_TIME_UNKNOWN"
   | "FX_RATE_STALE"
   | "CROSS_CURRENCY_FUNDS_CHECK"
-  | "NOTIONAL_ESTIMATE_UNAVAILABLE";
+  | "NOTIONAL_ESTIMATE_UNAVAILABLE"
+  | "MARKET_CLOSED"
+  | "MARKET_CLOSED_QUEUED";
 
 export interface OrderNotice {
   code: OrderNoticeCode;

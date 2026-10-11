@@ -2,7 +2,7 @@
 
 简体中文 · [English](./README.md)
 
-TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT，提供简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
+TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它把个人 Trading 212 账户接入 ChatGPT 或 Claude，提供确定性的收益、分红、费用和仓位配置分析，以及简洁的持仓与交易计划界面，并把所有券商写操作保留在明确的人工确认之后。
 
 每个部署实例只属于一个用户。Trading 212 凭据保存在用户自己的环境里，仓库维护者不提供共享券商后端，也不接触其他用户的 API 密钥。
 
@@ -18,6 +18,9 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 ## 功能
 
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
+- 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录以及仓位集中度（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 交易时段感知：休市时下市价单会提示订单将排队到下次开盘
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
 - 可展开查看核心逻辑、催化剂、风险、反方观点、来源和数据时间
@@ -130,16 +133,28 @@ pnpm deploy -- --dry-run
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 5. 接入 ChatGPT
+### 5. 接入 ChatGPT 或 Claude
 
-在 ChatGPT 的 Apps 设置中创建自定义 MCP 连接，填入部署脚本输出的 `/mcp` 地址。
+在 ChatGPT 的 Apps 设置中创建自定义 MCP 连接，或在 Claude 中添加自定义连接器，填入部署脚本输出的 `/mcp` 地址。
 
 OAuth 页面要求输入你自己 `.env.local` 里的 `APP_LOGIN_PASSWORD`。不要把 Trading 212 API Key 或 Secret 粘贴到 ChatGPT 对话里。
+
+如果只在自己电脑上的 Claude Code 里使用，可以跳过部署，直接安装插件：
+
+```text
+/plugin install tradepilot212 --marketplace Kukutx/TradePilot212
+```
+
+安装时会提示填写 Trading 212 API Key（保存在系统凭据库中）。下单工具默认关闭，原因和用法见 [docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)。
 
 连接后可以直接用自然语言：
 
 ```text
 打开我的 Trading 212 Live 持仓。
+今年扣掉费用后我赚了多少？汇兑费交了多少？
+过去 12 个月分红收入多少？
+我的仓位是不是太集中了？超过 15% 的都标出来。
+美股现在开盘了吗？
 结合我现在的仓位分析英伟达。
 比较 AMD、Nvidia 和 Broadcom 的一个月机会。
 DEMO 准备买 0.2 股 NVDA。
@@ -284,6 +299,16 @@ React App UI ← MCP App Resource
 - 写请求出现不确定结果时不会自动重试。
 - 真正提交前会再次检查订单约束。
 - 最近操作记录只保存订单元数据，不保存 API 凭据。
+
+### 安全边界（接入 Live 账户前请阅读）
+
+- **连接密码就是实例的钥匙。** 任何人只要用 `APP_LOGIN_PASSWORD` 完成 OAuth 登录，就能拿到全部工具的令牌；如果配置了 Live 凭据，也包括真实交易。请使用 `pnpm setup` 生成的长随机密码，不要复用。
+- **"仅 App 可见"的工具由宿主隐藏，而不是由服务器锁住。** 下单、撤单相关的 `app_*` 工具标记为 `visibility: ["app"]`，ChatGPT 这类宿主不会把它们交给模型，只有界面在你点击后才会调用。服务器只校验调用方是否持有有效的 `trade:write` 令牌。因此人工确认防的是模型擅自下单，防不了令牌被盗。
+- **按需收窄权限。** 只想看持仓时，可以创建不带下单权限的 Trading 212 API Key；允许自选权限范围的 MCP 客户端也可以只申请 `trade:read`，这样写操作工具根本不会注册。初次试用建议只配置 Demo 凭据。
+- **令牌无法单独吊销。** 访问令牌和刷新令牌都是签名 JWT，服务器不保存会话列表。如需让所有已连接客户端失效（例如密码泄露后），请同时更换 `AUTH_SIGNING_SECRET` 和 `APP_LOGIN_PASSWORD`，重新部署后再重新连接 ChatGPT。否则刷新令牌会在 `REFRESH_TOKEN_TTL_SECONDS`（默认 30 天）内一直有效。
+- **参考价格来自调用方。** Trading 212 Public API 没有行情接口，所以按金额下单和 `MAX_ORDER_NOTIONAL` 的估算都使用模型提供的 `referencePrice`。如果 Trading 212 返回了已持仓标的的当前价，额度检查会取两者中较高的价格，偏低的参考价无法绕过上限；对于尚未持有的标的，估算只取决于提供的价格，确认时请务必核对最终股数。
+- **登录限流是全实例共享的。** 10 分钟内密码错误 8 次后，该时间窗口内所有登录都会暂停，包括你自己。
+- **OAuth 客户端注册是开放的**（ChatGPT 需要）。注册有频率限制，总数上限 200；达到上限时会优先清理从未完成登录的客户端，正在使用的连接会被保留。
 
 提交代码前建议运行：
 

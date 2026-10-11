@@ -2,13 +2,13 @@
 
 [简体中文](./README.zh-CN.md) · English
 
-TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
+TradePilot 212 is a self-hosted MCP application for Trading 212 Invest. It connects a personal Trading 212 account to ChatGPT or Claude, adds deterministic performance, income, cost and allocation analytics, provides a compact portfolio and trade-plan UI, and keeps every broker write behind an explicit confirmation step.
 
 Each deployment belongs to one user. Your Trading 212 credentials stay in your own environment; the repository owner does not run a shared brokerage backend.
 
 ## Design goals
 
-- **ChatGPT-first workflow** — use symbols, company names, amounts, percentages, or exact quantities in normal conversation.
+- **Conversation-first workflow** — works in ChatGPT, Claude, and Claude Code; use symbols, company names, amounts, percentages, or exact quantities in normal conversation.
 - **Explicit execution boundary** — analysis and order preparation are read-only; a broker write happens only after confirmation in the app UI.
 - **Self-hosted by default** — Cloudflare Workers is the recommended hosted path; Node.js and Docker/VPS are also supported.
 - **Small runtime surface** — the Worker handles account access, instrument resolution, validation, state, and execution. Research and scheduling stay outside the broker bridge.
@@ -18,6 +18,9 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 ## What is included
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
+- performance, dividend/interest income, trading costs, trade history, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
+- market-hours awareness, including a warning when a Market order would queue until the next open
+- a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
 - expandable thesis, catalysts, risks, counter-case, sources, and data timestamps
@@ -43,7 +46,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - pnpm 11+
 - a Trading 212 Invest account with Public API access
 - a Cloudflare account for the recommended hosted deployment
-- a ChatGPT plan/client that supports custom Apps / MCP connections
+- a ChatGPT or Claude plan that supports custom connectors with MCP Apps, or Claude Code for the local plugin
 
 Install pnpm if needed:
 
@@ -130,16 +133,28 @@ Use a different Worker name:
 pnpm deploy -- --name=my-tradepilot
 ```
 
-### 5. Connect ChatGPT
+### 5. Connect ChatGPT or Claude
 
-In ChatGPT, open the Apps settings and create a custom MCP connection. Use the `/mcp` URL printed by the deployment command.
+In ChatGPT, open the Apps settings and create a custom MCP connection. In Claude, add a custom connector. Use the `/mcp` URL printed by the deployment command.
 
 The OAuth page asks for the `APP_LOGIN_PASSWORD` stored in your own `.env.local`. Do not paste Trading 212 API credentials into ChatGPT.
+
+To use TradePilot only from Claude Code on your own computer, skip the deployment and install the plugin instead:
+
+```text
+/plugin install tradepilot212 --marketplace Kukutx/TradePilot212
+```
+
+See [docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md).
 
 After the connection is established, normal prompts can be simple:
 
 ```text
 Show my Trading 212 Live portfolio.
+How much have I made this year, after fees? How much did I pay in FX fees?
+How much dividend income did I get in the last 12 months?
+Am I too concentrated? Flag anything above 15%.
+Is the US market open right now?
 Analyze Nvidia in the context of my current positions.
 Compare AMD, Nvidia, and Broadcom for a one-month horizon.
 Prepare a Demo order for 0.2 shares of NVDA.
@@ -286,6 +301,7 @@ See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 - write requests are never automatically retried after an ambiguous response.
 - order constraints are revalidated immediately before submission.
 - recent activity stores order metadata only; it does not store API credentials.
+- the confirmation step stops the model from trading on its own, but anyone holding your connection password can trade; read the [threat model](./SECURITY.md#threat-model-and-known-limits) before adding Live credentials.
 
 Run `pnpm release:check` before publishing changes.
 

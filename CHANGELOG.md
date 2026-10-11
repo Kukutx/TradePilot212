@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.0
+
+- Added read-only analytics tools backed by Trading 212 history: `analyze_portfolio_allocation`, `get_portfolio_performance`, `get_income_summary`, `get_trade_history`, `get_market_hours`, and `manage_history_export`. See `docs/ANALYTICS.md`.
+- Order review warns when the market is closed, and specifically when a Market order would be queued until the next open.
+- Added a local stdio transport (`pnpm stdio`) and a Claude Code plugin with four skills: portfolio review, daily brief, risk check, and trade journal. Order tools are off by default in stdio mode. See `docs/CLAUDE_PLUGIN.md`.
+- The widget gains Allocation, Performance and Income tabs with period switching, accessible bar and column charts, and a table view for each chart.
+- The broker client now covers exchange schedules, paginated order, dividend and transaction history, and CSV exports.
+- Market-order notional checks now use the higher of the supplied reference price and the broker's current position price, so an understated reference price cannot bypass `MAX_ORDER_NOTIONAL`.
+- The OAuth password page now refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`).
+- When the OAuth client registry is full, registrations that never completed a login are evicted before clients in use.
+- Documented the threat model: where confirmation is enforced, token revocation, reference-price trust, and login throttling.
+
 ## 2.4.0
 
 - Replaced fixed order-review modals with an in-flow transaction workspace that can resize with the ChatGPT host.

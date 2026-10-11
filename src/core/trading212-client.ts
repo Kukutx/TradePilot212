@@ -1,5 +1,9 @@
 import type { AccountSummary, Instrument, OrderDraft, PendingOrder, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { RuntimeConfig } from "./config.js";
+import type { Exchange, ExportReport, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, Page } from "../shared/history.js";
+
+export type HistoryKind = "orders" | "dividends" | "transactions";
+type HistoryItem<K extends HistoryKind> = K extends "orders" ? HistoryOrderItem : K extends "dividends" ? HistoryDividendItem : HistoryTransactionItem;
 
 export class Trading212ApiError extends Error {
   constructor(message: string, readonly status: number, readonly responseBody: unknown) { super(message); this.name = "Trading212ApiError"; }
@@ -24,6 +28,13 @@ async function readBody(response: Response): Promise<unknown> {
   const text = await response.text(); if (!text) return null;
   try { return JSON.parse(text) as unknown; } catch { return text; }
 }
+/** `nextPagePath` may include the `/api/v0` prefix; the client's base URL already ends with it. */
+export function relativeApiPath(pagePath: string): string {
+  const path = pagePath.startsWith("http") ? new URL(pagePath).pathname + new URL(pagePath).search : pagePath;
+  if (!path.startsWith("/")) throw new Error("Unexpected Trading 212 page path");
+  return path.replace(/^\/api\/v0(?=\/)/, "");
+}
+
 export function retryDelayMs(response: Response, attempt: number, now = Date.now()): number {
   const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
@@ -81,4 +92,18 @@ export class Trading212Client {
     return this.request("POST", "/equity/orders/stop_limit", { ticker: draft.ticker, quantity, limitPrice: draft.limitPrice, stopPrice: draft.stopPrice, timeValidity });
   }
   cancelOrder(id: string) { return this.request<unknown>("DELETE", `/equity/orders/${encodeURIComponent(id)}`); }
+
+  async getExchanges() { return unwrapArray<Exchange>(await this.request("GET", "/equity/metadata/exchanges")); }
+
+  /** One page of history. `pagePath` is the broker's `nextPagePath` from the previous page. */
+  async getHistoryPage<K extends HistoryKind>(kind: K, pagePath?: string): Promise<Page<HistoryItem<K>>> {
+    const path = pagePath ? relativeApiPath(pagePath) : `/equity/history/${kind}?limit=50`;
+    const page = await this.request<Page<HistoryItem<K>> | HistoryItem<K>[]>("GET", path);
+    return Array.isArray(page) ? { items: page, nextPagePath: null } : { items: page?.items ?? [], nextPagePath: page?.nextPagePath ?? null };
+  }
+
+  listExports() { return this.request<ExportReport[]>("GET", "/equity/history/exports"); }
+  requestExport(body: { timeFrom: string; timeTo: string; dataIncluded: { includeDividends: boolean; includeInterest: boolean; includeOrders: boolean; includeTransactions: boolean } }) {
+    return this.request<{ reportId: number }>("POST", "/equity/history/exports", body);
+  }
 }
