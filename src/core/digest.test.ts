@@ -33,6 +33,8 @@ describe("daily digest", () => {
   it("formats a compact summary", () => {
     expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, previousTotalValue: 2000, cash: 10, unrealized: -5, positions: [{ ticker: "A", value: 5, profitLoss: 1 }], pendingOrders: 1, duePlans: ["Monthly"], triggeredAlerts: 0 }))
       .toBe("Total 2010 EUR (+10 since the last digest) · cash 10 · unrealized -5 · top: A 5 (+1) · 1 pending order(s) · due plans: Monthly");
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, maxDrift: 0.0712 }))
+      .toBe("Total 2010 EUR · cash 10 · largest drift from targets 7.1 points");
   });
 
   it("sends once per day at the configured hour and reports the change since the last one", async () => {

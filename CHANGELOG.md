@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.17.0
+
+- Investment plans can invest one amount across your saved targets instead of fixed legs (`targetAmount` in `manage_investment_plans`). Each run works out the split from the account at that moment: the new money goes to the targets below their share, most to the furthest below, so regular contributions move the account toward its targets without selling. Splits under 1 in the account currency stay in cash, and a plan with no saved targets is skipped with that reason. The automation page and plan list say how the plan invests.
+- The daily digest adds the largest drift from the saved targets, from the same account read.
+- The rebalance skill offers a plan by targets for moving toward the targets with new money.
+
 ## 2.16.0
 
 Target allocation

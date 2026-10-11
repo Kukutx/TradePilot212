@@ -3,11 +3,12 @@
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
 import type { TradingEnvironment } from "../shared/contracts.js";
-import type { DcaPlan, PriceAlert } from "../shared/automation.js";
-import { positionValue } from "./analytics.js";
+import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
+import { analyzeAllocation, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
+import { allocationDrift } from "./targets.js";
 import type { TradingService } from "./trading-service.js";
 
 const DAY_MS = 86_400_000;
@@ -25,6 +26,8 @@ export interface DigestInput {
   pendingOrders: number;
   duePlans: string[];
   triggeredAlerts: number;
+  /** Largest drift from the saved targets, in weight points, when targets are saved. */
+  maxDrift?: number;
 }
 
 /** Plain-text digest; kept short so it reads well in a chat notification. */
@@ -40,13 +43,17 @@ export function digestText(input: DigestInput): string {
     input.pendingOrders ? `${input.pendingOrders} pending order(s)` : undefined,
     input.duePlans.length ? `due plans: ${input.duePlans.join(", ")}` : undefined,
     input.triggeredAlerts ? `${input.triggeredAlerts} alert(s) triggered in the last day` : undefined,
+    input.maxDrift === undefined ? undefined : `largest drift from targets ${(input.maxDrift * 100).toFixed(1)} points`,
   ].filter(Boolean).join(" · ");
 }
 
 const RETRY_MS = 15 * 60_000;
 
 export class DailyDigest {
-  constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: TradingService; notify?: Notifier }) {}
+  constructor(private readonly deps: {
+    config: RuntimeConfig; store: StateStore; trading: TradingService; notify?: Notifier;
+    targets?: (environment: TradingEnvironment) => Promise<TargetAllocation | undefined>;
+  }) {}
 
   /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
   async run(now = new Date()): Promise<string[]> {
@@ -76,6 +83,9 @@ export class DailyDigest {
         const alerts = (await this.deps.store.list<PriceAlert>("alert:")).map((entry) => entry.value)
           .filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS);
         const totalValue = account.totalValue ?? 0;
+        // Drift from the same account read, so the digest costs no extra request.
+        const saved = await this.deps.targets?.(environment);
+        const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : undefined;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -90,6 +100,7 @@ export class DailyDigest {
           pendingOrders: dashboard.orders.length,
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length,
+          ...(maxDrift === undefined ? {} : { maxDrift }),
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };
         if (!(await this.deps.notify!(event, { force: true }))) {

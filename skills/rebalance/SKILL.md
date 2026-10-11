@@ -15,5 +15,6 @@ description: Rebalance a Trading 212 portfolio toward target weights with TradeP
 5. Explain the result from the tool output: each trade, current → resulting weight, cash before and after, and every skipped item with its reason. Do not recompute quantities yourself.
 
 6. If the user wants to keep these targets, save them with `manage_target_allocation` (`set`, with `cashWeight` and optionally `driftThreshold`). TradePilot then shows the drift in the Allocation tab and notifies when it grows past the threshold (default 5 points).
+7. To move toward the targets with new money instead of selling, offer a standing plan with `manage_investment_plans` and `targetAmount`: each run puts that amount into the targets furthest below their weight.
 
 The plan opens as a basket in the TradePilot widget. Nothing is sent until the user reviews it there and confirms. Never claim an order was placed unless the widget reports it. Reply in the user's language.

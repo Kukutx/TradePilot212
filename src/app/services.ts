@@ -43,12 +43,12 @@ export function createServices(input: ServiceDependencies) {
     afterBasket: (planId, result) => automation.recordRun(planId, result),
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
-  const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
+  const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...(notify ? { notify } : {}) });
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
   /** One scheduler tick: settle protective pairs first, then due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {

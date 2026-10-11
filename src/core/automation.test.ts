@@ -186,6 +186,24 @@ describe("standing plans", () => {
     expect(review.legs[0]?.draft).toMatchObject({ ticker: "VUSA_EQ", side: "buy", quantity: 2.5 });
   });
 
+  it("invests a plan's amount across the saved targets, most to the furthest below", async () => {
+    const { automation, targets } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "By targets", legs: [], targetAmount: 1000, frequency: "monthly", dayOfMonth: 1 });
+    expect(plan.legs).toEqual([]);
+    // Nothing saved yet: nothing to buy, and the plan says why.
+    expect((await automation.buildBasket(plan)).skipped.join(" ")).toMatch(/No target weights are saved for DEMO/);
+    // VUSA holds 3000 and AGGH 500; with 1000 more, an even split wants 2250 each, so AGGH gets it all.
+    await targets.set("demo", { targets: [{ instrument: "VUSA_EQ", weight: 0.5 }, { instrument: "AGGH_EQ", weight: 0.5 }] });
+    expect((await automation.reviewPlan(plan.id)).legs.map((leg) => [leg.draft.ticker, leg.draft.quantity])).toEqual([["AGGH_EQ", 200]]);
+    // 80/20 wants 3600 and 900: 600 to VUSA and 400 to AGGH.
+    await targets.set("demo", { targets: [{ instrument: "VUSA_EQ", weight: 0.8 }, { instrument: "AGGH_EQ", weight: 0.2 }] });
+    expect((await automation.reviewPlan(plan.id)).legs.map((leg) => [leg.draft.ticker, leg.draft.quantity])).toEqual([["VUSA_EQ", 6], ["AGGH_EQ", 80]]);
+    await expect(automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 1 }], targetAmount: 10, frequency: "monthly", dayOfMonth: 1 })).rejects.toThrow(/either legs or targetAmount/);
+    const switched = await automation.updatePlan(plan.id, { legs: [{ ticker: "VUSA", amount: 50 }] });
+    expect(switched.targetAmount).toBeUndefined();
+    expect((await automation.updatePlan(plan.id, { targetAmount: 300 }))).toMatchObject({ legs: [], targetAmount: 300 });
+  });
+
   it("runs a due Demo plan unattended when enabled and moves it to the next date", async () => {
     const { automation, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
     const plan = await automation.createPlan({ environment: "demo", label: "Weekly", legs: [{ ticker: "VUSA", amount: 100 }, { ticker: "EQQQ", amount: 100 }], frequency: "weekly", weekday: 1, autoExecute: true }, new Date("2026-10-01T00:00:00Z"));
