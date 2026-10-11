@@ -149,9 +149,22 @@ function performance(data: PerformanceSummary): string[] {
     ...(data.currentValue === undefined ? [] : [`Current value ${num(data.currentValue)}${data.unrealizedProfitLoss === undefined ? "" : `, unrealized P/L ${signed(data.unrealizedProfitLoss)}`}${data.simpleReturn === undefined ? "" : `, simple return on net deposits ${signed(data.simpleReturn * 100, 1)}%`}.`]),
     ...(data.annualizedReturn === undefined ? [] : [`Annualized return (money-weighted, since ${day(data.annualizedSince)}) ${signed(data.annualizedReturn * 100, 1)}% a year.`]),
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num(data.trades.turnover)}.`,
+    ...valueHistoryLines(data.valueHistory),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
     ...data.notes,
+  ];
+}
+
+function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[] {
+  if (!points || points.length < 2) return [];
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const change = last.totalValue - first.totalValue;
+  const low = points.reduce((min, point) => (point.totalValue < min.totalValue ? point : min));
+  const high = points.reduce((max, point) => (point.totalValue > max.totalValue ? point : max));
+  return [
+    `Account value recorded on ${points.length} day(s): ${num(first.totalValue)} on ${first.date} to ${num(last.totalValue)} on ${last.date} (${signed(change)}${first.totalValue ? `, ${signed((change / first.totalValue) * 100, 1)}%` : ""}; includes deposits and withdrawals). Low ${num(low.totalValue)} on ${low.date}, high ${num(high.totalValue)} on ${high.date}.`,
   ];
 }
 

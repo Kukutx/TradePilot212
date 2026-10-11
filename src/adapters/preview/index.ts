@@ -165,6 +165,23 @@ async function seedSample(): Promise<void> {
   }
 }
 
+/** Six months of made-up daily values ending at today's sample value, so the performance tab shows its chart. */
+async function seedValueHistory(): Promise<void> {
+  const account = await services.trading.accountSummary("demo");
+  const total = account.totalValue ?? 0;
+  if (!(total > 0)) return;
+  const days = 180;
+  const today = Date.now();
+  for (let index = 0; index < days; index++) {
+    const progress = index / (days - 1);
+    // A steady climb with a wobble and a dip two thirds of the way in; the last point is today's value.
+    const wobble = index === days - 1 ? 0 : 0.018 * Math.sin(index / 6) + 0.01 * Math.sin(index / 1.7) - 0.05 * Math.exp(-(((progress - 0.66) / 0.05) ** 2));
+    const value = round(total * (0.8 + 0.2 * progress + wobble));
+    const at = new Date(today - (days - 1 - index) * 86_400_000);
+    await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
+  }
+}
+
 async function hostScript(): Promise<string> {
   const bundle = await build({ entryPoints: [path.join(here, "host.ts")], bundle: true, format: "iife", platform: "browser", target: "es2022", write: false, logLevel: "silent" });
   return bundle.outputFiles[0]!.text;
@@ -176,7 +193,7 @@ try {
   console.error("The widget is not built. Run `pnpm build:widget` first, or start with `pnpm preview`, which builds it.");
   process.exit(1);
 }
-if (!demo) await seedSample();
+if (!demo) { await seedSample(); await seedValueHistory(); }
 const views = await scenarios();
 const script = await hostScript();
 const page = await fs.readFile(path.join(here, "page.html"), "utf8");

@@ -352,6 +352,13 @@ export class TradingService {
     }
   }
 
+  /** The account summary alone: one request, for the scheduler's daily value record. */
+  async accountSummary(environment: TradingEnvironment): Promise<AccountSummary> {
+    const account = await this.client(environment).getAccountSummary();
+    if (account.currency) this.currencies.set(environment, account.currency);
+    return account;
+  }
+
   async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;

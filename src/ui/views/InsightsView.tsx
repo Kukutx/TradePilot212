@@ -1,8 +1,8 @@
-import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary, ValuePoint } from "../../shared/history";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
-import { BarList, ColumnChart, type ChartLabels } from "../components/charts";
+import { BarList, ColumnChart, LineChart, type ChartLabels } from "../components/charts";
 import { money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -181,6 +181,24 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
   );
 }
 
+/** The account value TradePilot recorded each day, with the change over the window. */
+function ValueHistoryPanel({ points, currency, locale, t }: { points: ValuePoint[]; currency: string; locale: SupportedLocale; t: Translator }) {
+  const first = points[0]!;
+  const last = points[points.length - 1]!;
+  const change = last.totalValue - first.totalValue;
+  const compact = new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 });
+  return (
+    <section className="dataPanel">
+      <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={(value) => compact.format(value)}
+        data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale), time: Date.parse(`${point.date}T00:00:00Z`) }))} />
+      <p className="panelNote">
+        <strong className={signedClass(change)}>{money(change, currency, locale, { signed: true })}{first.totalValue ? ` (${pct(change / first.totalValue, locale, 1, { signed: true })})` : ""}</strong>
+        {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}
+      </p>
+    </section>
+  );
+}
+
 export function PerformanceView({ data, book, locale, t, period, onPeriod, busy }: {
   data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; onPeriod: (next: InsightPeriod) => void; busy: boolean;
 }) {
@@ -211,6 +229,8 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, busy 
           <Metric label={data.simpleReturn === undefined ? t("tradesCount") : t("simpleReturn")} value={data.simpleReturn === undefined ? `${data.trades.buys + data.trades.sells}` : pct(data.simpleReturn, locale, 1, { signed: true })} tone={data.simpleReturn === undefined ? undefined : signedClass(data.simpleReturn)} />
         </div>
       </section>
+
+      {data.valueHistory && data.valueHistory.length >= 2 && <ValueHistoryPanel points={data.valueHistory} currency={currency} locale={locale} t={t} />}
 
       <div className="twoColumn">
         <section className="dataPanel">

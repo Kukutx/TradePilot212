@@ -113,7 +113,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, targets: targetAllocations, pies, automationOverview }: Services,
+  { trading, insights, automation, alerts, targets: targetAllocations, values, pies, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -229,14 +229,17 @@ export function createMcpServer(
     {
       title: "Portfolio Performance",
       description:
-        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. Read-only.",
+        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals). Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
+        const summary = await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        // The value TradePilot recorded each day; Trading 212 itself has no value history.
+        const points = await values.points(environment, { ...(summary.period.from ? { from: summary.period.from } : {}), to: summary.period.to }).catch(() => []);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary, ...(points.length >= 2 ? { valueHistory: points } : {}) };
         return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);

@@ -152,6 +152,18 @@ export interface AllocationDrift {
 
 export interface MoneyBucket { key: string; amount: number }
 
+/** The account's total value on one UTC day, as TradePilot last saw it that day. */
+export interface ValuePoint {
+  date: string;
+  totalValue: number;
+  /** Cash available to trade. */
+  cash?: number;
+  /** Value of the holdings. */
+  invested?: number;
+  /** When the value was read. */
+  at: string;
+}
+
 export interface PerformanceSummary {
   kind: "performance";
   environment: TradingEnvironment;
@@ -175,6 +187,8 @@ export interface PerformanceSummary {
   annualizedSince?: string;
   trades: { buys: number; sells: number; turnover: number };
   byTicker: Array<{ ticker: string; realizedProfitLoss: number; dividends: number; costs: number }>;
+  /** The account value TradePilot recorded each day in the window, when it has two days or more. */
+  valueHistory?: ValuePoint[];
   notes: string[];
   timestamp: string;
 }

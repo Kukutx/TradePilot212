@@ -550,6 +550,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .columnValue { position: absolute; top: -16px; color: var(--tp-text); font-size: 12px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .columnLabel { position: absolute; bottom: -18px; color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
 .chartFigure:has(.columnChart) { padding-bottom: 20px; }
+.lineChart { position: relative; width: 100%; }
+.lineChart svg { display: block; overflow: visible; touch-action: pan-y; }
+.lineChart svg:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: 4px; border-radius: 6px; }
+.lineGrid line { stroke: var(--tp-border); stroke-width: 1; }
+.lineGrid text, .lineAxis { fill: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lineArea { fill: color-mix(in srgb, var(--tp-chart) 12%, transparent); }
+.linePath { fill: none; stroke: var(--tp-chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lineFocus line { stroke: var(--tp-border-strong); stroke-width: 1; }
+.lineFocus circle { fill: var(--tp-chart); stroke: var(--tp-bg); stroke-width: 2; }
+.lineTip { position: absolute; top: 0; width: 150px; padding: 6px 9px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); box-shadow: var(--tp-shadow); pointer-events: none; font-size: 12px; }
+.lineTip span { display: block; color: var(--tp-muted); }
+.lineTip strong { display: block; font-variant-numeric: tabular-nums; }
 
 .panelHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 .panelActions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
