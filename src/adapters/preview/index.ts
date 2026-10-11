@@ -207,7 +207,9 @@ const httpServer = http.createServer(async (request, response) => {
     }
     send(response, 404, "text/plain", "Not found");
   } catch (error) {
-    send(response, 500, "text/plain", error instanceof Error ? error.message : String(error));
+    // The details go to the terminal, not to the page.
+    console.error("Preview request failed:", error);
+    send(response, 500, "text/plain", "The preview could not handle this request; see the terminal for details.");
   }
 });
 
