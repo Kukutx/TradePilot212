@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.23.0
+
+- Price alerts from the widget. A holding's page has an **Add alert** form:
+  - above or below a price, starting 5% either side of the last price;
+  - for a holding, also a drop from the high, a loss or a gain against the cost;
+  - an optional note.
+
+  The new alert's level appears on the price ladder at once.
+- Each alert on the holding page and the automation overview has **Re-arm** (once triggered) and **Delete**, which asks once more in place. Alerts only notify and never place orders, so these work with order tools off too, as `manage_price_alerts` does.
+
 ## 2.22.0
 
 - A holding page. `get_holding_detail` shows one instrument in one account, held or not:
