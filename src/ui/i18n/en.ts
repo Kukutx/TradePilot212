@@ -463,6 +463,8 @@ export const en = {
   stopCoversAll: "Covers the whole holding",
   stopCovers: "Covers {covered} of {quantity}",
   noStopLoss: "No stop-loss",
+  addStopLoss: "Add a stop-loss",
+  addStopForRest: "Cover the rest",
   takeProfit: "Take-profit",
   countCandidatesOne: "{count} candidate",
   countCandidatesOther: "{count} candidates",

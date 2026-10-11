@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.25.0
+
+- A stop-loss from the holding page. When order tools are on and some shares of a holding have no sell stop, the line above the price ladder has **Add a stop-loss** (or **Cover the rest** when a stop covers part of it). It opens the order editor with a good-till-cancelled sell stop:
+  - for the uncovered shares, up to what is free to sell;
+  - at the existing stop's price, so the whole holding triggers together, or 8% below the last price when there is no stop yet.
+
+  Change anything there; nothing is sent until you review and confirm it, as with every order.
+- The daily digest names the holdings that no sell stop fully covers, once any holding has a stop. Someone who never uses stops doesn't get the same list every day.
+
 ## 2.24.0
 
 - Stop-loss coverage per holding. When a pending sell stop or stop-limit protects a holding, the dashboard shows it:

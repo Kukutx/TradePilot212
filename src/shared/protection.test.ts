@@ -4,7 +4,7 @@ import { createConfig } from "../core/config.js";
 import { MemoryStateStore } from "../core/state-store.js";
 import { describePayload } from "../core/text-summary.js";
 import type { PendingOrder, Position } from "./contracts.js";
-import { isSellStop, stopProtection } from "./protection.js";
+import { isSellStop, stopProtection, suggestedStop } from "./protection.js";
 
 const position = (fields: Partial<Position> = {}): Position => ({
   instrument: { ticker: "NVDA_US_EQ", name: "NVIDIA", currencyCode: "USD" },
@@ -36,6 +36,25 @@ describe("stop-loss protection", () => {
       { ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.7, stopPrice: 110 },
     ]);
     expect(fractional).toMatchObject({ covered: 0.8, coverage: 1 });
+  });
+
+  it("suggests a stop for the shares no stop covers, up to what is free to sell, at the existing stop or 8% below the last price", () => {
+    expect(suggestedStop(position(), undefined)).toEqual({ quantity: 15, stopPrice: 115 });
+    const partly = stopProtection(position(), [{ ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -12, stopPrice: 110 }]);
+    expect(suggestedStop(position(), partly)).toEqual({ quantity: 8, stopPrice: 110 });
+    // A stop the price already fell through would sell at once, so the suggestion goes back to 8% below.
+    const passed = stopProtection(position(), [{ ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -12, stopPrice: 130 }]);
+    expect(suggestedStop(position(), passed)).toEqual({ quantity: 8, stopPrice: 115 });
+    const fully = stopProtection(position(), [{ ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -20, stopPrice: 110 }]);
+    expect(suggestedStop(position(), fully)).toBeUndefined();
+    expect(suggestedStop(position({ quantityAvailableForTrading: 0 }), undefined)).toBeUndefined();
+    expect(suggestedStop(position({ quantity: 0.3, quantityAvailableForTrading: 0.3, currentPrice: 9175 }), stopProtection(position({ quantity: 0.3 }), [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -0.1, stopPrice: 8000 }]))).toEqual({ quantity: 0.2, stopPrice: 8000 });
+  });
+
+  it("keeps a suggested stop under 1 positive and below the price instead of rounding it to cents", () => {
+    expect(suggestedStop(position({ currentPrice: 0.05 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.046 });
+    expect(suggestedStop(position({ currentPrice: 0.004 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.00368 });
+    expect(suggestedStop(position({ currentPrice: 1 }), undefined)).toEqual({ quantity: 15, stopPrice: 0.92 });
   });
 
   it("lists covered and uncovered holdings in the dashboard summary", async () => {

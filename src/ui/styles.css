@@ -265,7 +265,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .positionGuard small { margin-left: auto; font-size: 12px; }
 .positionGuard.partial small { color: var(--tp-amber-text); }
 .positionGuardMark { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 2px; background: var(--tp-red); }
-.ladderGuard { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; color: var(--tp-muted); font-size: 12px; }
+.ladderGuard { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 10px; color: var(--tp-muted); font-size: 12px; }
+.ladderGuard .compactButton { margin-left: auto; }
 .ladderGuard.partial { color: var(--tp-amber-text); }
 .stopCell strong, .stopCell small { display: block; white-space: nowrap; }
 .stopCell small { margin-top: 2px; color: var(--tp-muted); font-size: 12px; }

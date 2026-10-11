@@ -37802,7 +37802,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.24.0"
+  version: "2.25.0"
 };
 
 // src/shared/protection.ts
@@ -39926,7 +39926,8 @@ function digestText(input2) {
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
     input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
-    input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`
+    input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
+    input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
   ].filter(Boolean).join(" \xB7 ");
 }
 var RETRY_MS = 15 * 6e4;
@@ -39963,6 +39964,8 @@ var DailyDigest = class {
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
         const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : void 0;
+        const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
+        const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -39978,7 +39981,8 @@ var DailyDigest = class {
           duePlans: plans.map((plan) => plan.label),
           triggeredAlerts: alerts.length,
           filledOrders,
-          ...maxDrift === void 0 ? {} : { maxDrift }
+          ...maxDrift === void 0 ? {} : { maxDrift },
+          ...uncovered.length ? { uncovered } : {}
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {

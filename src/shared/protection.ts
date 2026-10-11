@@ -40,3 +40,29 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
     orders: stops.length,
   };
 }
+
+/** How far below the last price a suggested stop starts; the order editor changes it before review. */
+export const SUGGESTED_STOP_DROP = 0.08;
+
+/**
+ * Cents for ordinary prices; four significant digits below 1, where cents could round a stop up to the
+ * price or down to zero. From 1 up, an 8% drop is at least 8 cents, so cents keep it below the price.
+ */
+function roundPrice(price: number): number {
+  return price >= 1 ? Math.round(price * 100) / 100 : Number(price.toPrecision(4));
+}
+
+/**
+ * A sell stop for the part of a holding no stop covers yet, up to the shares free to sell. It matches the
+ * existing stop so the whole holding triggers at one price, or starts 8% below the last price when there is
+ * none or the price is already under it. Undefined when every share is covered or none is free. Only a
+ * starting point for the editor.
+ */
+export function suggestedStop(position: Position, guard: StopProtection | undefined): { quantity: number; stopPrice: number } | undefined {
+  if (!(position.currentPrice > 0)) return undefined;
+  const uncovered = Number((position.quantity - (guard?.covered ?? 0)).toFixed(8));
+  const quantity = Math.min(uncovered, position.quantityAvailableForTrading);
+  if (!(quantity > 0)) return undefined;
+  const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - SUGGESTED_STOP_DROP));
+  return { quantity, stopPrice };
+}
