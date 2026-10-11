@@ -15,6 +15,28 @@ export interface StopProtection {
   orders: number;
 }
 
+export interface StopOutcome {
+  /** What the covered shares would lose falling from the last price to the stop, in the account currency. */
+  drop: number;
+  /** Their unrealized P/L once at the stop, in the account currency; absent without the broker's P/L. */
+  pnlAtStop?: number;
+}
+
+/**
+ * What a stop means if it triggers at its price, converted at the rate the broker's valuation of the
+ * holding implies. Undefined without that valuation, or when the stop is not below the last price (it
+ * would trigger at once). A gap can fill a triggered stop lower, so this is the best case.
+ */
+export function stopOutcome(position: Position, guard: StopProtection): StopOutcome | undefined {
+  const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown } | undefined;
+  const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : undefined;
+  if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
+  const rate = value / (position.quantity * position.currentPrice);
+  const drop = (position.currentPrice - guard.stopPrice) * guard.covered * rate;
+  const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : undefined;
+  return { drop, ...(pnl === undefined ? {} : { pnlAtStop: pnl * guard.coverage - drop }) };
+}
+
 /** A stop or stop-limit that sells: the orders that protect a holding against a fall. */
 export function isSellStop(order: PendingOrder): boolean {
   if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;

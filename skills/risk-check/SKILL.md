@@ -6,7 +6,7 @@ description: Check a Trading 212 portfolio for concentration, currency exposure,
 # Risk check
 
 1. Call `analyze_portfolio_allocation`. If the user states their own limits, such as "no position above 10%", pass them as `maxSingleWeight` and the other limits.
-2. Call `get_portfolio_dashboard` to see pending orders. Its "Stop-loss orders" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. It also names the holdings without one.
+2. Call `get_portfolio_dashboard` to see pending orders. Its "Stop-loss orders" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. Where the broker values the holding, it also says what reaching the stop would cost from now and the P/L left then, in the account currency (a gap can fill a stop lower). It also names the holdings without one.
 3. For each pending order, call `get_market_hours` when its market is closed or in an extended session. A Market order placed while the market is closed is queued and fills at the next open, possibly at a gap price.
 
 Report:

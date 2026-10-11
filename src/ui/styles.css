@@ -273,6 +273,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .guardText { flex: 1 1 auto; min-width: 0; }
 .guardText .positionGuardMark { display: inline-block; margin-right: 8px; vertical-align: 1px; }
 .guardPart { display: inline-block; }
+.guardDetail { display: block; margin: 3px 0 0 16px; color: var(--tp-muted); font-size: 12px; }
 .ladderGuard.partial { color: var(--tp-amber-text); }
 .stopCell strong, .stopCell small { display: block; white-space: nowrap; }
 .stopCell small { margin-top: 2px; color: var(--tp-muted); font-size: 12px; }

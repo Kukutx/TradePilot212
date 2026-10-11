@@ -7,7 +7,7 @@ import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, 
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
-import { stopProtection } from "../shared/protection.js";
+import { stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
 const MAX_ROWS = 30;
@@ -104,14 +104,20 @@ function activityLine(event: ActivityEvent): string {
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
 
+/** "NVDA_US_EQ 5 of 20 (25%) from 118, 8.3% below the last price", plus what reaching the stop costs when the broker values the holding. */
+function stopText(position: Position, guard: StopProtection, currency: string | undefined): string {
+  const gap = guard.gap === undefined ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const outcome = stopOutcome(position, guard);
+  const cost = outcome ? `; at the stop ${money(-outcome.drop, currency)} from now${outcome.pnlAtStop === undefined ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${gap}${cost}`;
+}
+
 /** Which holdings a pending sell stop covers, how much of each and how far below the last price; and every holding without one. */
-function protectionLines(positions: Position[], orders: PendingOrder[]): string[] {
+function protectionLines(positions: Position[], orders: PendingOrder[], currency: string | undefined): string[] {
   if (!positions.length) return [];
   const guarded = positions.flatMap((position) => {
     const guard = stopProtection(position, orders);
-    if (!guard) return [];
-    const gap = guard.gap === undefined ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
-    return [`${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${gap}`];
+    return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
   return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
@@ -128,7 +134,7 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
     ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
-    ...protectionLines(holdings, data.orders),
+    ...protectionLines(holdings, data.orders, data.account?.currency),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine)),
   ];
@@ -193,6 +199,11 @@ function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[]
   ];
 }
 
+function holdingStopLine(position: Position, orders: PendingOrder[], currency: string | undefined): string {
+  const guard = stopProtection(position, orders);
+  return guard ? `Stop-loss: ${stopText(position, guard, currency)}.` : "Stop-loss: none.";
+}
+
 function holding(data: HoldingDetail): string[] {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -203,6 +214,7 @@ function holding(data: HoldingDetail): string[] {
     ...credentialsLine(data.environment, data.credentials),
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
+    ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...(history

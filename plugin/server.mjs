@@ -34943,6 +34943,15 @@ var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
 // src/shared/protection.ts
+function stopOutcome(position, guard) {
+  const wallet = position.walletImpact;
+  const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
+  if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
+  const rate = value / (position.quantity * position.currentPrice);
+  const drop = (position.currentPrice - guard.stopPrice) * guard.covered * rate;
+  const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : void 0;
+  return { drop, ...pnl === void 0 ? {} : { pnlAtStop: pnl * guard.coverage - drop } };
+}
 function isSellStop(order) {
   if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
   return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
@@ -37955,13 +37964,17 @@ function activityLine(event) {
   const details = [event.side, event.quantity === void 0 ? void 0 : num2(event.quantity, 8), event.ticker, event.orderType, event.orderId ? `order ${event.orderId}` : void 0, event.planId ? `plan ${event.planId}` : void 0, event.outcome].filter((item) => item !== void 0 && item !== "").join(" ");
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
-function protectionLines(positions, orders) {
+function stopText(position, guard, currency) {
+  const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const outcome = stopOutcome(position, guard);
+  const cost = outcome ? `; at the stop ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}${cost}`;
+}
+function protectionLines(positions, orders, currency) {
   if (!positions.length) return [];
   const guarded = positions.flatMap((position) => {
     const guard = stopProtection(position, orders);
-    if (!guard) return [];
-    const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
-    return [`${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}`];
+    return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
   return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
@@ -37977,7 +37990,7 @@ function portfolio(data) {
     ...data.account ? [accountLine(data.environment, data.account)] : [],
     ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
-    ...protectionLines(holdings, data.orders),
+    ...protectionLines(holdings, data.orders, data.account?.currency),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine))
   ];
@@ -38035,6 +38048,10 @@ function valueHistoryLines(points2) {
     `Account value recorded on ${points2.length} day(s): ${num2(first.totalValue)} on ${first.date} to ${num2(last.totalValue)} on ${last.date} (${signed(change)}${first.totalValue ? `, ${signed(change / first.totalValue * 100, 1)}%` : ""}; includes deposits and withdrawals). Low ${num2(low.totalValue)} on ${low.date}, high ${num2(high.totalValue)} on ${high.date}.`
   ];
 }
+function holdingStopLine(position, orders, currency) {
+  const guard = stopProtection(position, orders);
+  return guard ? `Stop-loss: ${stopText(position, guard, currency)}.` : "Stop-loss: none.";
+}
 function holding(data) {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -38045,6 +38062,7 @@ function holding(data) {
     ...credentialsLine(data.environment, data.credentials),
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight2}.` : `Not held${data.targetWeight === void 0 ? "" : `; target ${pct(data.targetWeight)}`}.`,
+    ...data.position ? [holdingStopLine(data.position, data.orders, c)] : [],
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...history ? [

@@ -466,6 +466,8 @@ export const en = {
   noStopLoss: "No stop-loss",
   addStopLoss: "Add a stop-loss",
   addStopForRest: "Cover the rest",
+  stopOutcome: "If it triggers: {change} from now · P/L then {pnl}",
+  stopOutcomeShort: "If it triggers: {change} from now",
   protectionAll: "Every holding has a full stop-loss",
   protectionSummary: "{covered} of {holdings} holdings fully covered by stop-losses",
   protectionUnprotected: "Unprotected {value} ({share} of holdings)",

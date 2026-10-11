@@ -4,7 +4,7 @@ import { createConfig } from "../core/config.js";
 import { MemoryStateStore } from "../core/state-store.js";
 import { describePayload } from "../core/text-summary.js";
 import type { PendingOrder, Position } from "./contracts.js";
-import { isSellStop, portfolioProtection, stopProtection, suggestedStop } from "./protection.js";
+import { isSellStop, portfolioProtection, stopOutcome, stopProtection, suggestedStop } from "./protection.js";
 
 const position = (fields: Partial<Position> = {}): Position => ({
   instrument: { ticker: "NVDA_US_EQ", name: "NVIDIA", currencyCode: "USD" },
@@ -60,6 +60,17 @@ describe("stop-loss protection", () => {
     expect(suggestedStop(position(), undefined, 0.1)).toEqual({ quantity: 15, stopPrice: 112.5 });
   });
 
+  it("says what reaching the stop costs in the account currency, and nothing for a stop the price is already under", () => {
+    // 20 shares at 125 valued at 2000 EUR (0.8 EUR per USD), 300 EUR up; a stop at 110 on 10 of them.
+    const held = position({ walletImpact: { currentValue: 2000, unrealizedProfitLoss: 300 } });
+    const guard = stopProtection(held, [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -10, stopPrice: 110 }])!;
+    expect(stopOutcome(held, guard)).toEqual({ drop: 120, pnlAtStop: 30 });
+    expect(stopOutcome(position({ walletImpact: { currentValue: 2000 } }), guard)).toEqual({ drop: 120 });
+    expect(stopOutcome(position(), guard)).toBeUndefined();
+    const above = stopProtection(held, [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -10, stopPrice: 130 }])!;
+    expect(stopOutcome(held, above)).toBeUndefined();
+  });
+
   it("sums coverage across the portfolio in the account currency", () => {
     const amd = position({ instrument: { ticker: "AMD_US_EQ", name: "AMD", currencyCode: "USD" } as Position["instrument"], quantity: 10, quantityAvailableForTrading: 10, walletImpact: { currentValue: 1000 } });
     const nvda = position({ walletImpact: { currentValue: 3000 } });
@@ -76,7 +87,8 @@ describe("stop-loss protection", () => {
     const services = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
     const text = describePayload(await services.trading.getDashboard("demo"));
     // The sample account has one sell stop: 5 of 20 NVIDIA at 118.
-    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price\. No stop on [A-Za-z_, ]+\.$/m);
+    // 10.75 USD a share to the stop on 5 shares, at the 0.92 EUR the valuation implies; a quarter of the 597.08 P/L stays.
+    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; at the stop -49\.45 EUR from now, P\/L \+99\.82\. No stop on [A-Za-z_, ]+\.$/m);
     const bare = describePayload({ ...(await services.trading.getDashboard("demo")), orders: [] });
     // With no stop anywhere, the line still names every holding without one.
     expect(bare).toMatch(/^Stop-loss orders: none\. No stop on (?=.*NVDA_US_EQ)(?=.*AAPL_US_EQ)[A-Za-z_, ]+\.$/m);
