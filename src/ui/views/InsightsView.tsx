@@ -1,4 +1,4 @@
-import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary } from "../../shared/history";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
@@ -37,6 +37,7 @@ const FLAG_KEYS: Record<AllocationAnalysis["flags"][number]["code"], MessageKey>
   CASH_HIGH: "flagCashHigh",
   CASH_LOW: "flagCashLow",
   CURRENCY_CONCENTRATED: "flagCurrency",
+  DRIFT_OVER_THRESHOLD: "flagDrift",
 };
 
 const chartLabels = (t: Translator): ChartLabels => ({ table: t("tableView"), chart: t("chartView") });
@@ -58,7 +59,61 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
   );
 }
 
-export function AllocationView({ data, book, locale, t }: { data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
+/**
+ * Each target as a bullet bar: the fill is today's weight, the tick the target, on one scale for all rows
+ * so lengths compare. The drift is in weight points; past the notice threshold it turns amber.
+ */
+function DriftPanel({ drift, book, locale, t, onRebalance, busy }: {
+  drift: AllocationDrift; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; busy?: boolean;
+}) {
+  const rows = [
+    ...drift.rows.map((row) => ({ key: row.ticker, ...instrumentDatum(row.ticker, book), ...row })),
+    { key: "CASH", label: instrumentTypeLabel("CASH", t), title: "CASH", ...drift.cash },
+  ];
+  const scale = Math.max(0.01, ...rows.map((row) => Math.max(row.current, row.target)));
+  const points = new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
+  const share = (value: number) => `${Math.min(100, (value / scale) * 100)}%`;
+  return (
+    <section className="dataPanel">
+      <div className="panelHeading">
+        <h2 className="panelTitle">{t("driftTitle")}</h2>
+        {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onRebalance}>{t("rebalanceToTargets")}</button>}
+      </div>
+      <p className="panelNote">{fill(t("driftNote"), { points: points.format(drift.threshold * 100).replace(/^\+/, "") })}</p>
+      <ul className="driftList" aria-label={t("driftTitle")}>
+        {rows.map((row) => {
+          const over = Math.abs(row.drift) > drift.threshold + 1e-9;
+          return (
+            <li key={row.key} className={over ? "over" : undefined}>
+              <div className="driftHead">
+                <span className="barLabel" title={row.title}>
+                  <strong>{row.label}</strong>
+                  {"sublabel" in row && row.sublabel && <small>{row.sublabel}</small>}
+                </span>
+                <span className={`driftValue ${over ? "over" : ""}`} aria-label={`${t("driftPointsHeader")} ${points.format(row.drift * 100)}`}>{points.format(row.drift * 100)}</span>
+              </div>
+              <div className="driftTrack" aria-hidden="true">
+                <span className="driftFill" style={{ width: share(row.current) }} />
+                <span className="driftTarget" style={{ left: share(row.target) }} />
+              </div>
+              <div className="driftFacts">
+                <span>{fill(t("driftNow"), { value: pct(row.current, locale) })}</span>
+                <span>{fill(t("driftTarget"), { value: pct(row.target, locale) })}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {drift.untargeted.length > 0 && (
+        <p className="panelNote">{fill(t(drift.sellUntargeted ? "driftUntargetedSold" : "driftUntargeted"), { list: drift.untargeted.map((item) => `${instrumentLabel(item.ticker, book).name} ${pct(item.current, locale)}`).join(locale === "zh-CN" ? "、" : ", ") })}</p>
+      )}
+    </section>
+  );
+}
+
+export function AllocationView({ data, book, locale, t, onRebalance, busy }: {
+  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; busy?: boolean;
+}) {
   const currency = data.accountCurrency || "EUR";
   const tableProps = { labels: chartLabels(t), valueHeader: t("weightColumn") };
   // The bars are shares of the total account value, cash included, so the parts add up to 100%.
@@ -87,6 +142,8 @@ export function AllocationView({ data, book, locale, t }: { data: AllocationAnal
           ? <div className="emptyState compact">{t("noFlags")}</div>
           : <ul className="flagList">{data.flags.map((flag) => <li key={flag.code}><span className="flagIcon" aria-hidden="true">!</span>{t(FLAG_KEYS[flag.code])}</li>)}</ul>}
       </section>
+
+      {data.drift && <DriftPanel drift={data.drift} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(busy === undefined ? {} : { busy })} />}
 
       <section className="dataPanel">
         {data.holdings.length === 0 ? <div className="emptyState compact">{t("noPositions")}</div> : (

@@ -55,6 +55,17 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toMatch(/not as the tax due/);
   });
 
+  it("lists each saved target against today's weight", async () => {
+    const services = sample();
+    await services.targets.set("demo", { targets: [{ instrument: "AAPL_US_EQ", weight: 0.5 }, { instrument: "KO_US_EQ", weight: 0.4 }] });
+    const text = describePayload(await services.targets.withDrift(await services.insights.allocation("demo")));
+    expect(text).toMatch(/Against targets \(largest drift [\d.]+ points; notices above 5 points\):/);
+    expect(text).toMatch(/- AAPL_US_EQ: [\d.]+% now, target 50%, [+-][\d.]+ pts/);
+    expect(text).toMatch(/- Cash: [\d.]+% now, target 10%/);
+    expect(text).toMatch(/No target \(kept by a rebalance\): .*MSFT_US_EQ/);
+    expect(text).toMatch(/- AAPL_US_EQ is [\d.]+% against a 50.0% target/);
+  });
+
   it("returns nothing for payloads the summary already covers", () => {
     expect(describePayload({ kind: "unknown" })).toBe("");
     expect(describePayload(null)).toBe("");

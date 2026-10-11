@@ -10,6 +10,7 @@ import { PiesService } from "../core/pies.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
+import { TargetAllocations } from "../core/targets.js";
 import type { StateStore } from "../core/state-store.js";
 import { TradingService, type InstrumentCache } from "../core/trading-service.js";
 
@@ -46,8 +47,9 @@ export function createServices(input: ServiceDependencies) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
+  const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, ...(notify ? { notify } : {}) });
-  /** One scheduler tick: settle protective pairs first, then due plans, price alerts and the daily digest. */
+  /** One scheduler tick: settle protective pairs first, then due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -61,6 +63,7 @@ export function createServices(input: ServiceDependencies) {
     links: await stage("protective links", () => links.reconcile()),
     plans: await stage("plans", () => automation.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
+    targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run()),
   });
   // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
@@ -79,7 +82,11 @@ export function createServices(input: ServiceDependencies) {
     const plans = await automation.listPlans(environment);
     const priceAlerts = await alerts.list(environment);
     const pairs = (await links.list()).filter((link) => link.environment === environment);
-    const instruments = await namedInstruments(environment, [...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)), ...priceAlerts.map((alert) => alert.ticker), ...pairs.map((link) => link.ticker)]);
+    const saved = await targets.get(environment);
+    const instruments = await namedInstruments(environment, [
+      ...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)), ...priceAlerts.map((alert) => alert.ticker), ...pairs.map((link) => link.ticker),
+      ...(saved?.targets.map((target) => target.ticker) ?? []),
+    ]);
     return {
       kind: "automation",
       environment,
@@ -87,6 +94,7 @@ export function createServices(input: ServiceDependencies) {
       plans,
       alerts: priceAlerts,
       links: pairs,
+      ...(saved ? { targets: saved } : {}),
       ...(instruments.length ? { instruments } : {}),
       usageToday: await trading.usageToday(environment),
       ...await trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {})),
@@ -101,5 +109,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
+  return { trading, insights, automation, links, alerts, targets, pies, digest, runScheduled, automationOverview };
 }

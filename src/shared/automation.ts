@@ -224,6 +224,25 @@ export interface PriceAlert {
   triggeredPrice?: number;
 }
 
+/**
+ * Target weights saved for one environment. The scheduler compares them with the account and notifies
+ * when a holding or cash drifts too far; plan_portfolio_rebalance uses them when no targets are passed.
+ */
+export interface TargetAllocation {
+  environment: TradingEnvironment;
+  /** Shares of total account value, by exact Trading 212 ticker. */
+  targets: Array<{ ticker: string; weight: number }>;
+  /** Share of total account value meant to stay in cash. */
+  cashWeight: number;
+  /** Drift in weight points (0.05 = 5 points) above which the scheduler notifies. */
+  driftThreshold: number;
+  /** Holdings without a target are sold by a rebalance to these targets, and count as drift; kept by default. */
+  sellUntargeted?: boolean;
+  updatedAt: string;
+  /** When the scheduler last sent a drift notice; at most one a day while the drift lasts. */
+  lastNotifiedAt?: string;
+}
+
 /** Everything the scheduler acts on, for one environment, in one payload for the widget. */
 export interface AutomationOverview {
   kind: "automation";
@@ -233,7 +252,9 @@ export interface AutomationOverview {
   plans: DcaPlan[];
   alerts: PriceAlert[];
   links: ProtectiveLink[];
-  /** The instruments the plans, alerts and links name, for their names and quote currencies. */
+  /** Saved target weights, when there are any. */
+  targets?: TargetAllocation;
+  /** The instruments the plans, alerts, links and targets name, for their names and quote currencies. */
   instruments?: Array<Pick<Instrument, "ticker"> & Partial<Pick<Instrument, "name" | "shortName" | "currencyCode" | "type">>>;
   usageToday: { orders: number; notional: number };
   /** Account currency of plan amounts and daily value, when known. */

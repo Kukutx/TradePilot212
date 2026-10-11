@@ -44,7 +44,7 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "get_quote", "get_automation_overview"])
+for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
@@ -58,5 +58,15 @@ if (!live.isError && live.structuredContent?.credentials?.live) throw new Error(
 // Hosts that show only text get the holdings in the tool text too.
 const text = dashboard.content?.map((item) => item.text ?? "").join("\n") ?? "";
 if (!dashboard.structuredContent.positions.every((position) => text.includes(position.instrument.ticker))) throw new Error(`Dashboard text lacks the holdings: ${text.slice(0, 300)}`);
+// Saved targets: the allocation shows their drift and a rebalance without targets uses them.
+const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
+  ["manage_target_allocation", { action: "set", targets: [{ instrument: "AAPL_US_EQ", weight: 0.5 }, { instrument: "KO_US_EQ", weight: 0.4 }] }],
+  ["analyze_portfolio_allocation", {}],
+  ["plan_portfolio_rebalance", {}],
+]);
+const [saved, allocation, rebalance] = targets.results;
+if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
+if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
+if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
 await fs.rm(work, { recursive: true, force: true });
 console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled, sample data serves ${dashboard.structuredContent.positions.length} holdings`);

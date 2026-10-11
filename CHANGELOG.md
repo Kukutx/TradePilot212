@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.16.0
+
+Target allocation
+- New `manage_target_allocation` tool saves target weights per environment (with a cash weight, a drift threshold and whether a rebalance sells holdings without a target), shows them against today's weights, and clears them. It never places orders and works without order tools.
+- The Allocation tab shows each target and cash as a bar with a target mark and the drift in percentage points, highlighted past the threshold, and lists holdings without a target. `analyze_portfolio_allocation` returns the same as `drift`, with a flag when it is over the threshold.
+- **Rebalance to targets** in the Allocation tab, and `plan_portfolio_rebalance` called without `targets`, plan the trades from the saved targets as a basket you review and confirm.
+- The scheduler compares the account with the targets about once an hour and, while the drift is over the threshold (5 points by default), writes an `allocation_drift` activity event and sends it to the webhook, at most once a day.
+- The automation overview lists the saved targets; the rebalance skill offers to save targets and to rebalance to saved ones.
+
 ## 2.15.0
 
 - New `get_tax_year_summary` tool and `tax-year` skill: one tax year's sales with realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 1 January unless `yearStart` says otherwise (`04-06` for the UK), and its days are counted in `timeZone` (`Europe/London`), so a trade just after local midnight lands in the right year. The figures are Trading 212's average-cost results; the notes say how country rules can differ and where to get the filing documents.

@@ -25,7 +25,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - market-hours awareness, including a warning when a Market order would queue until the next open
 - a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
-- target-weight rebalancing that sizes the trades from broker prices and available cash
+- target-weight rebalancing that sizes the trades from broker prices and available cash; saved targets show their drift in the widget, notify when it grows past a threshold and rebalance in one click ([docs/AUTOMATION.md](./docs/AUTOMATION.md#saved-targets-and-drift-notices))
 - broker-native stop-loss and take-profit orders (Good-Till-Cancel), linked so that when one fills TradePilot cancels the other
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs; Demo plans can optionally run unattended
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
@@ -35,6 +35,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments
+- an annualized money-weighted return (XIRR) and a tax-year summary with realised gains and losses kept apart, dividends, interest and costs ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - a Claude Code plugin with a local stdio server and review, brief, risk, journal, order follow-up, rebalance and tax-year skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - a local preview of the widget on the sample account (`pnpm preview`), with language, theme and screen-width switches ([docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally))
 - separate Demo and Live credentials and UI states

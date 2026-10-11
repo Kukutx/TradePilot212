@@ -1,9 +1,9 @@
 import type { AlertCondition, AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
 import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { DetailRow, InstrumentName } from "../components/common";
-import { amount, dateTime, num } from "../lib/format";
+import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { quoteProviderLabel, type Translator } from "../lib/messages";
+import { fill, instrumentTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
 
 const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
   above: "alertAbove",
@@ -85,6 +85,23 @@ export function AutomationView({ data, book, locale, t }: { data: AutomationOver
           </ul>
         )}
       </section>
+
+      {data.targets && (
+        <section className="dataPanel" aria-label={t("targetsTitle")}>
+          <div className="pieHeader"><h2>{t("targetsTitle")}</h2></div>
+          <ul className="automationList">
+            {data.targets.targets.map((target) => (
+              <li key={target.ticker}>
+                <div className="automationRow"><InstrumentName ticker={target.ticker} book={book} /><strong>{pct(target.weight, locale)}</strong></div>
+              </li>
+            ))}
+            <li>
+              <div className="automationRow"><strong>{instrumentTypeLabel("CASH", t)}</strong><strong>{pct(data.targets.cashWeight, locale)}</strong></div>
+            </li>
+          </ul>
+          <p className="panelNote">{fill(t("targetsNote"), { points: num(data.targets.driftThreshold * 100, locale, 1), date: dateTime(data.targets.updatedAt, locale) })} {t(data.targets.sellUntargeted ? "targetsSellUntargeted" : "targetsKeepUntargeted")}</p>
+        </section>
+      )}
 
       <section className="dataPanel" aria-label={t("linksTitle")}>
         <div className="pieHeader"><h2>{t("linksTitle")}</h2></div>

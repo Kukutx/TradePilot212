@@ -281,42 +281,46 @@ export default function App() {
       createdApp.onhostcontextchanged = syncHostContext;
       createdApp.ontoolresult = (toolResult) => {
         const payload = toolResult.structuredContent as unknown as BasePayload;
-        if (!payload) return;
-        learn(payload);
-        setBase(payload);
-        setProblem(null);
-        setInsightError(null);
-        const env = initialEnvironment(payload);
-        setEnvironment(env);
-        if (isInsight(payload)) {
-          setInsights({ [payload.kind]: payload });
-          setTab(payload.kind);
-          if (payload.kind !== "allocation") setPeriod(periodOf(payload.period));
-        } else if (payload.kind === "portfolio") {
-          setInsights({});
-          setTab("holdings");
-        }
-        if (payload.kind === "order_draft") setDraft(payload.draft);
-        if (payload.kind === "pie_change_draft") {
-          setPiePreview(null);
-          setPieResult(null);
-        }
-        if (payload.kind === "basket_draft") {
-          setBasketLegs(payload.legs ?? []);
-          setBasketPreview(null);
-          setBasketResult(null);
-          setBasketVerifications({});
-          setExecution(null);
-        }
-        if (payload.kind === "cancel_draft") {
-          cancelDraftRequested.current = null;
-          setCancelDraftClosed(false);
-          setCancelPreview(null);
-          setExecution(null);
-        }
+        if (payload) showPayload(payload);
       };
     },
   });
+
+  /** Show a tool result as the widget's main view, as when the host hands one over. Uses only state setters and refs. */
+  function showPayload(payload: BasePayload): void {
+    learn(payload);
+    setBase(payload);
+    setProblem(null);
+    setInsightError(null);
+    const env = initialEnvironment(payload);
+    setEnvironment(env);
+    if (isInsight(payload)) {
+      setInsights({ [payload.kind]: payload });
+      setTab(payload.kind);
+      if (payload.kind !== "allocation") setPeriod(periodOf(payload.period));
+    } else if (payload.kind === "portfolio") {
+      setInsights({});
+      setTab("holdings");
+    }
+    if (payload.kind === "order_draft") setDraft(payload.draft);
+    if (payload.kind === "pie_change_draft") {
+      setPiePreview(null);
+      setPieResult(null);
+    }
+    if (payload.kind === "basket_draft") {
+      setBasketLegs(payload.legs ?? []);
+      setBasketPreview(null);
+      setBasketResult(null);
+      setBasketVerifications({});
+      setExecution(null);
+    }
+    if (payload.kind === "cancel_draft") {
+      cancelDraftRequested.current = null;
+      setCancelDraftClosed(false);
+      setCancelPreview(null);
+      setExecution(null);
+    }
+  }
 
   useHostStyles(app, app?.getHostContext());
   // The host's initial context (locale, display modes) is only available after connecting.
@@ -386,6 +390,13 @@ export default function App() {
     } finally {
       setStatus("idle");
     }
+  }
+
+  /** Plan a rebalance from the saved targets; the trades open as a basket to review, nothing is sent. */
+  async function rebalanceToTargets(): Promise<void> {
+    await run("errorTitleRebalance", async () => {
+      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment }));
+    }, () => void rebalanceToTargets());
   }
 
   async function loadInsight(kind: InsightKind, env = environment, range = period): Promise<void> {
@@ -762,7 +773,10 @@ export default function App() {
                 : insightError?.kind === tab ? <ErrorCard title={t(insightError.problem.title)} message={insightError.problem.message} retryLabel={t("retry")} busy={loading} {...(insightError.problem.retry ? { onRetry: insightError.problem.retry } : {})} />
                 : <EmptyRetry text={t("noData")} retryLabel={t("retry")} onRetry={() => void loadInsight(tab)} />
             )}
-            {tab === "allocation" && insights.allocation && <AllocationView data={insights.allocation} book={book} locale={locale} t={t} />}
+            {tab === "allocation" && insights.allocation && (
+              <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
+                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets() } : {})} />
+            )}
             {tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
             )}
