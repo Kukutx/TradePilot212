@@ -76,6 +76,8 @@ export interface PieOverview {
   resultPercent: number | null;
   progress: number | null;
   goal?: number;
+  /** Account currency of every amount in this pie (value, invested, result, cash, goal, dividends), when known. */
+  currency?: string;
   dividends: { gained: number; reinvested: number; inCash: number };
   /** Sum of |current - target| / 2: the share of the pie that would have to move to match its targets. */
   drift?: number;

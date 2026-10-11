@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
 import { createConfig, credentialStatus } from "./config.js";
+import { asStructuredError } from "./errors.js";
 import { SAMPLE_BASE_URL } from "./sample-broker.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
@@ -85,5 +86,16 @@ describe("sample data mode", () => {
     const deposits = await insights.cashHistory("demo", { to: new Date() }, { types: ["deposit"] });
     expect(deposits.totals).toEqual({ DEPOSIT: 14_000 });
     expect(describePayload(deposits)).toContain("deposit +14000");
+  });
+
+  it("names the instruments on the automation page and says which accounts are set up", async () => {
+    const services = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
+    await services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "below", price: 8_500 });
+    const overview = await services.automationOverview("demo");
+    expect(overview.instruments).toEqual([{ ticker: "VUSAl_EQ", name: "Vanguard S&P 500 UCITS ETF (Dist)", shortName: "VUSA", currencyCode: "GBX", type: "ETF" }]);
+    expect((await services.automationOverview("live")).instruments).toBeUndefined();
+
+    const missing = await services.insights.allocation("live").catch((error: unknown) => error);
+    expect(asStructuredError(missing)).toMatchObject({ code: "CREDENTIALS_NOT_CONFIGURED", details: { environment: "live", demo: true, live: false } });
   });
 });

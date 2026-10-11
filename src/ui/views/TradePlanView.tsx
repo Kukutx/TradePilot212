@@ -2,17 +2,20 @@ import { useEffect, useState } from "react";
 import type { EnrichedTradeCandidate, Horizon, TradePlanPayload } from "../../shared/contracts";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { DetailList, DetailSection, Icon, Metric } from "../components/common";
-import { dateTime, money, num, time } from "../lib/format";
-import type { Translator } from "../lib/messages";
+import { dateTime, money, qty, signedClass, time } from "../lib/format";
+import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
+import { countText, envLabel, type Translator } from "../lib/messages";
 
 export function TradePlanView({
   payload,
+  book,
   locale,
   t,
   writeEnabled,
   onTrade,
 }: {
   payload: TradePlanPayload;
+  book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
   writeEnabled: boolean;
@@ -36,34 +39,35 @@ export function TradePlanView({
       <section className="overviewPanel tradeOverview">
         <div className="overviewLead">
           <span className="sectionEyebrow">{t("tradePlan")}</span>
-          <strong className="heroValue small">{payload.candidates.length} {t("candidates")}</strong>
-          <span className="overviewSubline">{t("account")} · {payload.environment.toUpperCase()}</span>
+          <strong className="heroValue small">{countText("candidates", payload.candidates.length, t, locale)}</strong>
+          <span className="overviewSubline">{t("account")} · {envLabel(payload.environment, t)}</span>
         </div>
         <div className="metricGrid">
           <Metric label={t("totalValue")} value={money(payload.account?.totalValue, currency, locale)} />
           <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />
-          <Metric label={t("unrealizedPnL")} value={money(payload.account?.investments?.unrealizedProfitLoss, currency, locale)} />
+          <Metric label={t("unrealizedPnL")} value={money(payload.account?.investments?.unrealizedProfitLoss, currency, locale, { signed: true })} tone={signedClass(payload.account?.investments?.unrealizedProfitLoss)} />
           <Metric label={t("lastUpdated")} value={time(payload.timestamp, locale)} compact />
         </div>
       </section>
 
       <section className="dataPanel tradePanel">
-        <div className="horizonTabs" role="tablist">
+        <div className="horizonTabs" role="tablist" aria-label={t("tradePlan")}>
           {groups.map((group) => {
             const count = payload.candidates.filter((candidate) => candidate.horizon === group.key).length;
             return (
               <button key={group.key} type="button" role="tab" aria-selected={activeHorizon === group.key} className={activeHorizon === group.key ? "active" : ""} onClick={() => setActiveHorizon(group.key)}>
-                <span>{group.label}</span><small>{group.hint}</small><b>{count}</b>
+                <span className="horizonLabel"><span>{group.label}</span><b aria-label={countText("candidates", count, t, locale)}>{count}</b></span><small>{group.hint}</small>
               </button>
             );
           })}
         </div>
-        {visible.length === 0 ? <div className="emptyState compact">{t("candidates")} · 0</div> : (
+        {visible.length === 0 ? <div className="emptyState compact">{t("noCandidates")}</div> : (
           <div className="candidateGrid">
             {visible.map((candidate, index) => (
               <CandidateCard
                 key={`${candidate.resolvedInstrument?.ticker ?? candidate.ticker ?? candidate.symbol}-${index}`}
                 candidate={candidate}
+                book={book}
                 locale={locale}
                 t={t}
                 writeEnabled={writeEnabled}
@@ -79,12 +83,14 @@ export function TradePlanView({
 
 export function CandidateCard({
   candidate,
+  book,
   locale,
   t,
   writeEnabled,
   onTrade,
 }: {
   candidate: EnrichedTradeCandidate;
+  book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
   writeEnabled: boolean;
@@ -94,19 +100,22 @@ export function CandidateCard({
   const actionKey: MessageKey = candidate.action === "buy" ? "buy" : candidate.action === "sell" ? "sell" : "watch";
   const riskKey: MessageKey = candidate.risk === "low" ? "low" : candidate.risk === "high" ? "high" : "mediumRisk";
   const actionClass = candidate.action === "buy" ? "buy" : candidate.action === "sell" ? "sell" : "watch";
+  const ticker = instrument?.ticker || candidate.ticker;
+  const label = ticker ? instrumentLabel(ticker, book, instrument) : { name: candidate.name || candidate.symbol || "?", detail: candidate.symbol && candidate.name ? candidate.symbol : "", ticker: "" };
+  const priceCurrency = ticker ? instrumentCurrency(ticker, book, instrument) : undefined;
   return (
     <article className="candidateCard">
       <div className="candidateTopline">
         <div className="candidateIdentity">
-          <span className="assetAvatar">{(instrument?.shortName || candidate.symbol || candidate.ticker || candidate.name || "?").slice(0, 2).toUpperCase()}</span>
-          <div><strong>{instrument?.shortName || candidate.symbol || candidate.ticker || candidate.name}</strong><small>{instrument?.ticker || candidate.ticker || "—"}</small></div>
+          <span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span>
+          <div title={label.ticker || undefined}><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div>
         </div>
         <div className={`scoreRing ${candidate.score >= 80 ? "high" : candidate.score >= 65 ? "medium" : "low"}`}><strong>{candidate.score}</strong><span>{t("score")}</span></div>
       </div>
       <div className="candidateBadges">
         <span className={`actionBadge ${actionClass}`}>{t(actionKey)}</span>
         <span>{t("risk")} · {t(riskKey)}</span>
-        {candidate.referencePrice && <span>{t("reference")} · {money(candidate.referencePrice, instrument?.currencyCode ?? "USD", locale)}</span>}
+        {candidate.referencePrice && <span>{t("reference")} · {priceCurrency ? money(candidate.referencePrice, priceCurrency, locale) : candidate.referencePrice}</span>}
       </div>
       <p className="candidateRationale">{candidate.rationale}</p>
       {(candidate.thesis || candidate.catalysts?.length || candidate.risks?.length || candidate.counterCase || candidate.sources?.length) && (
@@ -129,17 +138,21 @@ export function CandidateCard({
       )}
       {candidate.resolutionError && <div className="inlineError">{candidate.resolutionError}</div>}
       {(candidate.heldQuantity !== undefined || candidate.availableToSell !== undefined) && (
-        <div className="candidateHolding"><span>{t("holding")}</span><strong>{num(candidate.heldQuantity, locale)}</strong><span>· {t("availableToSell")}</span><strong>{num(candidate.availableToSell, locale)}</strong></div>
+        <div className="candidateHolding"><span>{t("holding")}</span><strong>{qty(candidate.heldQuantity, locale)}</strong><span>· {t("availableToSell")}</span><strong>{qty(candidate.availableToSell, locale)}</strong></div>
       )}
-      <button
-        className={`tradeButton ${actionClass}`}
-        type="button"
-        disabled={!writeEnabled || candidate.action === "watch" || !instrument}
-        onClick={() => onTrade(candidate)}
-      >
-        <span>{candidate.action === "watch" ? t("keepWatching") : candidate.action === "sell" ? t("prepareSell") : t("prepareBuy")}</span>
-        {candidate.action !== "watch" && <Icon name="arrow" />}
-      </button>
+      {candidate.action === "watch" ? (
+        <span className="watchChip">{t("watchOnly")}</span>
+      ) : (
+        <button
+          className={`tradeButton ${actionClass}`}
+          type="button"
+          disabled={!writeEnabled || !instrument}
+          onClick={() => onTrade(candidate)}
+        >
+          <span>{candidate.action === "sell" ? t("prepareSell") : t("prepareBuy")}</span>
+          <Icon name="arrow" />
+        </button>
+      )}
     </article>
   );
 }

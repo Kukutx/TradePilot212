@@ -1,22 +1,54 @@
 import type { Position } from "../../shared/contracts";
 import { localeTag, type SupportedLocale } from "../i18n";
 
-export function money(value: number | undefined, currency: string, locale: SupportedLocale): string {
+export interface MoneyOptions {
+  /** Show "+" on gains and "−" on losses, never on zero. For P/L and changes only, not for balances. */
+  signed?: boolean;
+}
+
+export function money(value: number | undefined, currency: string, locale: SupportedLocale, options: MoneyOptions = {}): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
+  const signDisplay = options.signed ? "exceptZero" : "auto";
   try {
     return new Intl.NumberFormat(localeTag(locale), {
       style: "currency",
       currency,
       maximumFractionDigits: 2,
+      signDisplay,
     }).format(value);
   } catch {
-    return `${value.toFixed(2)} ${currency}`;
+    const sign = options.signed && value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(2)} ${currency}`;
   }
+}
+
+/** A price or amount in its currency when one is known, otherwise a plain number. */
+export function amount(value: number | undefined, currency: string | undefined, locale: SupportedLocale, options: MoneyOptions = {}): string {
+  if (currency) return money(value, currency, locale, options);
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: 2, signDisplay: options.signed ? "exceptZero" : "auto" }).format(value);
+}
+
+/**
+ * An order's total value. London prices are quoted in pence (GBX); a total in pence runs to six
+ * digits, so it is shown in pounds, which is exact (100 GBX = 1 GBP).
+ */
+export function notional(value: number | undefined, currency: string | undefined, locale: SupportedLocale): string {
+  if (currency === "GBX" && value !== undefined) return money(value / 100, "GBP", locale);
+  return amount(value, currency, locale);
 }
 
 export function num(value: number | undefined, locale: SupportedLocale, digits = 4): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: digits }).format(value);
+}
+
+/**
+ * Share quantities exactly as they are sent: Trading 212 takes up to 8 decimals, so a calculated
+ * quantity and the one in the order editor always read the same.
+ */
+export function qty(value: number | undefined, locale: SupportedLocale): string {
+  return num(value, locale, 8);
 }
 
 export function time(value: string | undefined, locale: SupportedLocale): string {
@@ -51,7 +83,12 @@ export function walletNumber(position: Position, key: string): number | undefine
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export function pct(value: number | undefined, locale: SupportedLocale, digits = 1): string {
+export function pct(value: number | undefined, locale: SupportedLocale, digits = 1, options: MoneyOptions = {}): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat(localeTag(locale), { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+  return new Intl.NumberFormat(localeTag(locale), {
+    style: "percent",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: options.signed ? "exceptZero" : "auto",
+  }).format(value);
 }

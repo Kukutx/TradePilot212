@@ -2,6 +2,7 @@ import { SAMPLE_BASE_URL } from "./sample-broker.js";
 import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.js";
 import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
+import { fail } from "./errors.js";
 
 /** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -185,6 +186,12 @@ export function credentialStatus(config: RuntimeConfig): CredentialStatus {
     live: Boolean(config.trading212.live.apiKey && config.trading212.live.apiSecret),
     ...(config.sampleData ? { sample: true } : {}),
   };
+}
+
+/** Stops when an environment has no API key. The error names the environment and which ones are set up, so the widget can show the right setup card and offer the other one. */
+export function requireCredentials(config: RuntimeConfig, environment: TradingEnvironment): void {
+  const status = credentialStatus(config);
+  if (!status[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`, { environment, demo: status.demo, live: status.live });
 }
 
 export function assertAuthConfigured(config: RuntimeConfig): void {

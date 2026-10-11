@@ -1,8 +1,10 @@
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import type { Position } from "../../shared/contracts";
+import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 
-export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow";
+export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert";
 
-export function Icon({ name }: { name: IconName }) {
+export function Icon({ name, className }: { name: IconName; className?: string }) {
   const paths = {
     refresh: <><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></>,
     expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="M3 8l6-6M21 8l-6-6M3 16l6 6M21 16l-6 6"/></>,
@@ -10,8 +12,9 @@ export function Icon({ name }: { name: IconName }) {
     globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
     close: <path d="M6 6l12 12M18 6L6 18"/>,
     arrow: <path d="M5 12h14M13 6l6 6-6 6"/>,
+    alert: <><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></>,
   } as const;
-  return <svg viewBox="0 0 24 24" aria-hidden="true" className="icon" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className={`icon${className ? ` ${className}` : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
 export function DetailSection({ title, text }: { title: string; text: string }) {
@@ -22,23 +25,154 @@ export function DetailList({ title, items }: { title: string; items: string[] })
   return <section><h3>{title}</h3><ul>{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>;
 }
 
-export function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
-  return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong>{value}</strong></div>;
+export function Metric({ label, value, compact = false, tone }: { label: string; value: string; compact?: boolean; tone?: string }) {
+  return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong className={tone}>{value}</strong></div>;
 }
 
 export function SectionHeader({ title, count }: { title: string; count: number }) {
   return <div className="sectionHeader"><h2>{title}</h2><span>{count}</span></div>;
 }
 
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
+/**
+ * A labelled form control. The hint and the error are tied to the control with aria-describedby, the
+ * error sets aria-invalid, and a unit (a currency code) sits inside the input's right edge.
+ */
+export function Field({ label, children, hint, error, unit }: {
+  label: string;
+  children: (props: { id: string; "aria-describedby"?: string; "aria-invalid"?: boolean }) => ReactNode;
+  hint?: string;
+  error?: string;
+  unit?: string;
+}) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
+  return (
+    <div className={`field${error ? " invalid" : ""}`}>
+      <label htmlFor={id}>{label}</label>
+      <div className={unit ? "fieldControl withUnit" : "fieldControl"}>
+        {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
+        {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}
+      </div>
+      {error && <span className="fieldError" id={errorId}><Icon name="alert" />{error}</span>}
+      {hint && <span className="fieldHint" id={hintId}>{hint}</span>}
+    </div>
+  );
 }
 
-export function DetailRow({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><strong>{value}</strong></div>;
+export function DetailRow({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return <div><span>{label}</span><strong className={tone}>{value}</strong></div>;
 }
 
-export function AssetIdentity({ position }: { position: Position }) {
-  const name = position.instrument.shortName || position.instrument.name || position.instrument.ticker;
-  return <div className="assetIdentity"><span className="assetAvatar">{name.slice(0, 2).toUpperCase()}</span><div><strong>{name}</strong><small>{position.instrument.ticker}</small></div></div>;
+/** Name first, symbol second; the exact Trading 212 ticker is the tooltip. */
+export function InstrumentName({ ticker, book, instrument, className }: { ticker: string; book?: InstrumentBook; instrument?: { name?: string; shortName?: string }; className?: string }) {
+  const label = instrumentLabel(ticker, book, instrument);
+  return (
+    <span className={`instrumentName${className ? ` ${className}` : ""}`} title={label.ticker}>
+      <strong>{label.name}</strong>
+      {label.detail && <small>{label.detail}</small>}
+    </span>
+  );
+}
+
+export function AssetIdentity({ position, book }: { position: Position; book?: InstrumentBook }) {
+  const label = instrumentLabel(position.instrument.ticker, book, position.instrument);
+  return <div className="assetIdentity" title={label.ticker}><span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span><div><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div></div>;
+}
+
+/** Grey blocks in the shape of the view that is loading. */
+export function SkeletonView({ label }: { label: string }) {
+  return (
+    <main className="contentStack skeletonView" aria-busy="true" aria-label={label}>
+      <span className="visuallyHidden" role="status">{label}</span>
+      <section className="overviewPanel" aria-hidden="true">
+        <div className="overviewLead"><span className="skeleton line short" /><span className="skeleton hero" /><span className="skeleton line" /></div>
+        <div className="metricGrid">{[0, 1, 2, 3].map((index) => <div className="metric" key={index}><span className="skeleton line short" /><span className="skeleton line" /></div>)}</div>
+      </section>
+      <section className="dataPanel" aria-hidden="true">
+        {[0, 1, 2, 3].map((index) => <div className="skeletonRow" key={index}><span className="skeleton line" /><span className="skeleton bar" /></div>)}
+      </section>
+    </main>
+  );
+}
+
+/** An error in place of the content it stopped, with a way to try again. */
+export function ErrorCard({ title, message, retryLabel, onRetry, busy }: { title: string; message: string; retryLabel: string; onRetry?: () => void; busy?: boolean }) {
+  return (
+    <section className="stateCard errorCard" role="alert">
+      <Icon name="alert" />
+      <div className="stateCopy">
+        <h2>{title}</h2>
+        <p>{message}</p>
+      </div>
+      {onRetry && <button type="button" className="secondaryButton" disabled={busy} onClick={onRetry}>{retryLabel}</button>}
+    </section>
+  );
+}
+
+// The control that last received focus, and when. Captured before React re-renders, so a dialog can
+// still find the button that opened it after that button was replaced.
+const OPENER_WINDOW_MS = 30_000;
+let lastFocus: { element: HTMLElement; at: number } | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (event) => {
+    if (event.target instanceof HTMLElement) lastFocus = { element: event.target, at: Date.now() };
+  }, true);
+}
+
+const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+
+/**
+ * Dialog behaviour for the in-flow confirmation panels: focus moves to the heading on open, Tab and
+ * Shift+Tab stay inside the panel, and on close focus returns to the control that opened it. When that
+ * control was re-rendered meanwhile, its replacement is found by its data-focus-id.
+ */
+export function useDialogFocus(panel: RefObject<HTMLElement | null>, heading: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    // The review button that opens a dialog is usually unmounted in the same render, so focus has already
+    // fallen back to the body here. A review button focused shortly before (it carries a data-focus-id)
+    // stands in for it; the wait covers the broker check that runs between the click and the dialog.
+    const recent = lastFocus && Date.now() - lastFocus.at < OPENER_WINDOW_MS && lastFocus.element.hasAttribute("data-focus-id") ? lastFocus.element : null;
+    const opener = active ?? recent;
+    const openerId = opener?.getAttribute("data-focus-id") ?? null;
+    heading.current?.focus({ preventScroll: false });
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panel.current) return;
+      const items = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => element.offsetParent !== null || element === document.activeElement);
+      if (!items.length) { event.preventDefault(); heading.current?.focus(); return; }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      const inside = active instanceof Node && panel.current.contains(active);
+      if (event.shiftKey && (active === first || active === heading.current || !inside)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (active === last || !inside)) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // Let the next view render before looking for the opener or its replacement.
+      requestAnimationFrame(() => {
+        if (opener?.isConnected) { opener.focus(); return; }
+        if (!openerId) return;
+        const replacement = [...document.querySelectorAll<HTMLElement>("[data-focus-id]")].find((element) => element.getAttribute("data-focus-id") === openerId);
+        replacement?.focus();
+      });
+    };
+  }, [panel, heading]);
+}
+
+/** Props for a panel that behaves as a modal dialog while it is open. */
+export function dialogProps(headingId: string) {
+  return { role: "dialog" as const, "aria-modal": true as const, "aria-labelledby": headingId };
+}
+
+export function useDialog() {
+  const panel = useRef<HTMLElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const headingId = useId();
+  useDialogFocus(panel, heading);
+  return { panel, heading, headingId, props: dialogProps(headingId) };
 }

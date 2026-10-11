@@ -233,6 +233,8 @@ export interface AutomationOverview {
   plans: DcaPlan[];
   alerts: PriceAlert[];
   links: ProtectiveLink[];
+  /** The instruments the plans, alerts and links name, for their names and quote currencies. */
+  instruments?: Array<Pick<Instrument, "ticker"> & Partial<Pick<Instrument, "name" | "shortName" | "currencyCode" | "type">>>;
   usageToday: { orders: number; notional: number };
   /** Account currency of plan amounts and daily value, when known. */
   currency?: string;

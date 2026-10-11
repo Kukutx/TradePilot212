@@ -12,7 +12,7 @@ import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import type { PieChangeDraft } from "../shared/pies.js";
 import type { Services } from "../app/services.js";
-import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
+import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
@@ -919,6 +919,29 @@ export function createMcpServer(
           return result(
             { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config), writeEnabled: true },
             `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`,
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "review_order_cancel",
+      {
+        title: "Review an Order Cancellation",
+        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
+        inputSchema: z.object({ environment: environmentWithDefault, orderId: z.string().min(1).max(24) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, orderId }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          return result(
+            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...(order ? { order } : {}), credentials: credentialStatus(config), writeEnabled: true } satisfies CancelDraftPayload,
+            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`,
           );
         } catch (error) {
           return toolError(error);

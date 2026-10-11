@@ -376,3 +376,13 @@ export interface CancelPreview {
 export interface DashboardPayload extends PortfolioSnapshot {
   appName: "TradePilot 212";
 }
+
+export interface CancelDraftPayload {
+  kind: "cancel_draft";
+  environment: TradingEnvironment;
+  orderId: string;
+  /** The pending order as Trading 212 lists it, when it is still open. */
+  order?: PendingOrder;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
+}

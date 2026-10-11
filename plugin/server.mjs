@@ -34552,141 +34552,6 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   };
 }
 
-// src/core/config.ts
-function isLoopbackHost(hostname3) {
-  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
-}
-function positive2(env2, name, fallback) {
-  const raw = env2[name];
-  if (!raw) return fallback;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
-  return value;
-}
-function nonNegative(env2, name, fallback) {
-  const raw = env2[name];
-  if (raw === void 0 || raw === "") return fallback;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
-  return value;
-}
-function tradingEnvironment(env2) {
-  const value = (env2.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
-  if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
-  return value;
-}
-function list(env2, name) {
-  return (env2[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
-}
-function flag(env2, name) {
-  return /^(1|true|yes|on)$/i.test(env2[name] ?? "");
-}
-function weight(env2, name, fallback) {
-  const value = nonNegative(env2, name, fallback);
-  if (value > 1) throw new Error(`${name} must be a fraction between 0 and 1`);
-  return value;
-}
-function createPolicy(env2) {
-  const configured = {
-    maxPositionWeight: weight(env2, "POLICY_MAX_POSITION_WEIGHT", 0.25),
-    dailyOrderLimit: Math.floor(nonNegative(env2, "POLICY_DAILY_ORDER_LIMIT", 20)),
-    dailyNotionalLimit: nonNegative(env2, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
-    allowedTickers: list(env2, "POLICY_ALLOWED_TICKERS"),
-    blockedTickers: list(env2, "POLICY_BLOCKED_TICKERS"),
-    allowedTypes: list(env2, "POLICY_ALLOWED_TYPES"),
-    marketOrdersWhenClosed: env2.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env2, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
-    maxReferenceAgeSeconds: Math.floor(nonNegative(env2, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0))
-  };
-  const relaxed = { ...configured, maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 };
-  const applyTo = (env2.POLICY_APPLY_TO || "live").trim().toLowerCase();
-  if (!["live", "demo", "both", "none"].includes(applyTo)) throw new Error("POLICY_APPLY_TO must be live, demo, both, or none");
-  return {
-    demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
-    live: applyTo === "live" || applyTo === "both" ? configured : relaxed
-  };
-}
-function webhookUrl(env2) {
-  const raw = (env2.NOTIFY_WEBHOOK_URL ?? "").trim();
-  if (!raw) return "";
-  const url2 = new URL(raw);
-  if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
-  return url2.toString();
-}
-function digestHour(env2) {
-  const raw = (env2.DIGEST_HOUR_UTC ?? "").trim();
-  if (!raw) return void 0;
-  const hour = Number(raw);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
-  return hour;
-}
-function quoteProvider(env2) {
-  const value = (env2.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
-  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
-  return value;
-}
-function createConfig(env2, requestOrigin) {
-  const publicBaseUrl = (env2.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
-  const policy2 = createPolicy(env2);
-  const sampleData = flag(env2, "TRADEPILOT_SAMPLE_DATA");
-  return {
-    publicBaseUrl,
-    loginPassword: env2.APP_LOGIN_PASSWORD ?? "",
-    signingSecret: env2.AUTH_SIGNING_SECRET ?? "",
-    accessTokenTtlSeconds: Math.floor(positive2(env2, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
-    refreshTokenTtlSeconds: Math.floor(positive2(env2, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
-    confirmationTtlSeconds: Math.floor(positive2(env2, "CONFIRMATION_TTL_SECONDS", 90)),
-    maxOrderNotional: nonNegative(env2, "MAX_ORDER_NOTIONAL", 5e3),
-    maxOrderQuantity: nonNegative(env2, "MAX_ORDER_QUANTITY", 1e5),
-    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env2),
-    policy: policy2,
-    demoAutomationEnabled: flag(env2, "AUTOMATION_DEMO_ENABLED"),
-    protectiveLinking: env2.PROTECTIVE_OCO ? flag(env2, "PROTECTIVE_OCO") : true,
-    notifyWebhookUrl: webhookUrl(env2),
-    notifyWebhookSecret: env2.NOTIFY_WEBHOOK_SECRET ?? "",
-    notifyEvents: list(env2, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
-    quoteProvider: sampleData ? "none" : quoteProvider(env2),
-    quoteApiKey: env2.QUOTE_API_KEY ?? "",
-    quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
-    ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
-    sampleData,
-    oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
-    // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
-    trading212: sampleData ? {
-      demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
-      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" }
-    } : {
-      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env2.T212_DEMO_API_KEY ?? "", apiSecret: env2.T212_DEMO_API_SECRET ?? "" },
-      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env2.T212_LIVE_API_KEY ?? "", apiSecret: env2.T212_LIVE_API_SECRET ?? "" }
-    }
-  };
-}
-function credentialStatus(config3) {
-  return {
-    demo: Boolean(config3.trading212.demo.apiKey && config3.trading212.demo.apiSecret),
-    live: Boolean(config3.trading212.live.apiKey && config3.trading212.live.apiSecret),
-    ...config3.sampleData ? { sample: true } : {}
-  };
-}
-
-// node_modules/.pnpm/@modelcontextprotocol+ext-apps@2.0.3_@modelcontextprotocol+client@2.3.1_@modelcontextpr_9de50035f2396420f2ec25a9475dc61b/node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
-var D = "ui/resourceUri";
-var L = "text/html;profile=mcp-app";
-function j(B, Q, F, V) {
-  let q = F._meta, J = q.ui, Z = q[D], $ = q;
-  if (J?.resourceUri && !Z) $ = { ...q, [D]: J.resourceUri };
-  else if (Z && !J?.resourceUri) $ = { ...q, ui: { ...J, resourceUri: Z } };
-  return B.registerTool(Q, { ...F, _meta: $ }, V);
-}
-function G(B, Q, F, V, q) {
-  return B.registerResource(Q, F, { mimeType: L, ...V }, q);
-}
-
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
-var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
-
-// src/shared/automation.ts
-var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
-
 // src/core/trading212-client.ts
 var Trading212ApiError = class extends Error {
   constructor(message, status, responseBody) {
@@ -34930,6 +34795,145 @@ function asStructuredError(error62) {
 function fail(code, message, details) {
   throw new TradePilotError(code, message, details);
 }
+
+// src/core/config.ts
+function isLoopbackHost(hostname3) {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
+}
+function positive2(env2, name, fallback) {
+  const raw = env2[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
+  return value;
+}
+function nonNegative(env2, name, fallback) {
+  const raw = env2[name];
+  if (raw === void 0 || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
+  return value;
+}
+function tradingEnvironment(env2) {
+  const value = (env2.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
+  if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
+  return value;
+}
+function list(env2, name) {
+  return (env2[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
+}
+function flag(env2, name) {
+  return /^(1|true|yes|on)$/i.test(env2[name] ?? "");
+}
+function weight(env2, name, fallback) {
+  const value = nonNegative(env2, name, fallback);
+  if (value > 1) throw new Error(`${name} must be a fraction between 0 and 1`);
+  return value;
+}
+function createPolicy(env2) {
+  const configured = {
+    maxPositionWeight: weight(env2, "POLICY_MAX_POSITION_WEIGHT", 0.25),
+    dailyOrderLimit: Math.floor(nonNegative(env2, "POLICY_DAILY_ORDER_LIMIT", 20)),
+    dailyNotionalLimit: nonNegative(env2, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
+    allowedTickers: list(env2, "POLICY_ALLOWED_TICKERS"),
+    blockedTickers: list(env2, "POLICY_BLOCKED_TICKERS"),
+    allowedTypes: list(env2, "POLICY_ALLOWED_TYPES"),
+    marketOrdersWhenClosed: env2.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env2, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
+    maxReferenceAgeSeconds: Math.floor(nonNegative(env2, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0))
+  };
+  const relaxed = { ...configured, maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 };
+  const applyTo = (env2.POLICY_APPLY_TO || "live").trim().toLowerCase();
+  if (!["live", "demo", "both", "none"].includes(applyTo)) throw new Error("POLICY_APPLY_TO must be live, demo, both, or none");
+  return {
+    demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
+    live: applyTo === "live" || applyTo === "both" ? configured : relaxed
+  };
+}
+function webhookUrl(env2) {
+  const raw = (env2.NOTIFY_WEBHOOK_URL ?? "").trim();
+  if (!raw) return "";
+  const url2 = new URL(raw);
+  if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
+  return url2.toString();
+}
+function digestHour(env2) {
+  const raw = (env2.DIGEST_HOUR_UTC ?? "").trim();
+  if (!raw) return void 0;
+  const hour = Number(raw);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
+  return hour;
+}
+function quoteProvider(env2) {
+  const value = (env2.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
+  if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
+  return value;
+}
+function createConfig(env2, requestOrigin) {
+  const publicBaseUrl = (env2.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
+  const policy2 = createPolicy(env2);
+  const sampleData = flag(env2, "TRADEPILOT_SAMPLE_DATA");
+  return {
+    publicBaseUrl,
+    loginPassword: env2.APP_LOGIN_PASSWORD ?? "",
+    signingSecret: env2.AUTH_SIGNING_SECRET ?? "",
+    accessTokenTtlSeconds: Math.floor(positive2(env2, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
+    refreshTokenTtlSeconds: Math.floor(positive2(env2, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
+    confirmationTtlSeconds: Math.floor(positive2(env2, "CONFIRMATION_TTL_SECONDS", 90)),
+    maxOrderNotional: nonNegative(env2, "MAX_ORDER_NOTIONAL", 5e3),
+    maxOrderQuantity: nonNegative(env2, "MAX_ORDER_QUANTITY", 1e5),
+    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env2),
+    policy: policy2,
+    demoAutomationEnabled: flag(env2, "AUTOMATION_DEMO_ENABLED"),
+    protectiveLinking: env2.PROTECTIVE_OCO ? flag(env2, "PROTECTIVE_OCO") : true,
+    notifyWebhookUrl: webhookUrl(env2),
+    notifyWebhookSecret: env2.NOTIFY_WEBHOOK_SECRET ?? "",
+    notifyEvents: list(env2, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: sampleData ? "none" : quoteProvider(env2),
+    quoteApiKey: env2.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
+    ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
+    sampleData,
+    oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
+    // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
+    trading212: sampleData ? {
+      demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
+      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" }
+    } : {
+      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env2.T212_DEMO_API_KEY ?? "", apiSecret: env2.T212_DEMO_API_SECRET ?? "" },
+      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env2.T212_LIVE_API_KEY ?? "", apiSecret: env2.T212_LIVE_API_SECRET ?? "" }
+    }
+  };
+}
+function credentialStatus(config3) {
+  return {
+    demo: Boolean(config3.trading212.demo.apiKey && config3.trading212.demo.apiSecret),
+    live: Boolean(config3.trading212.live.apiKey && config3.trading212.live.apiSecret),
+    ...config3.sampleData ? { sample: true } : {}
+  };
+}
+function requireCredentials(config3, environment) {
+  const status = credentialStatus(config3);
+  if (!status[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`, { environment, demo: status.demo, live: status.live });
+}
+
+// node_modules/.pnpm/@modelcontextprotocol+ext-apps@2.0.3_@modelcontextprotocol+client@2.3.1_@modelcontextpr_9de50035f2396420f2ec25a9475dc61b/node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
+var D = "ui/resourceUri";
+var L = "text/html;profile=mcp-app";
+function j(B, Q, F, V) {
+  let q = F._meta, J = q.ui, Z = q[D], $ = q;
+  if (J?.resourceUri && !Z) $ = { ...q, [D]: J.resourceUri };
+  else if (Z && !J?.resourceUri) $ = { ...q, ui: { ...J, resourceUri: Z } };
+  return B.registerTool(Q, { ...F, _meta: $ }, V);
+}
+function G(B, Q, F, V, q) {
+  return B.registerResource(Q, F, { mimeType: L, ...V }, q);
+}
+
+// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
+var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
+
+// src/shared/automation.ts
+var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
@@ -35891,7 +35895,7 @@ var TradingService = class {
   }
   /** Compute (but never send) the trades that move the account toward target weights. */
   async planRebalance(environment, targets, options = {}) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     const snapshot = await this.snapshot(environment);
     const resolved = [];
     for (const target of targets) {
@@ -35947,7 +35951,7 @@ var TradingService = class {
    */
   async protectiveBasket(environment, instrumentQuery, input2) {
     if (input2.stopLossPrice === void 0 && input2.takeProfitPrice === void 0) fail("INVALID_INPUT", "Give a stopLossPrice, a takeProfitPrice, or both");
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     const snapshot = await this.snapshot(environment);
     const instrument = resolveInstrumentFromList(snapshot.instruments, instrumentQuery);
     const position = this.positionFor(snapshot.positions, instrument.ticker);
@@ -36034,7 +36038,7 @@ var TradingService = class {
   }
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
   async prepareBasket(request, options = {}) {
-    if (!credentialStatus(this.deps.config)[request.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${request.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
     const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -36656,7 +36660,7 @@ var InsightsService = class {
   historyCache = /* @__PURE__ */ new Map();
   exchangeCache = /* @__PURE__ */ new Map();
   client(environment) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
   /** Walk newest-first history pages until the window start or the page budget is reached. */
@@ -36941,7 +36945,7 @@ var AutomationService = class {
   async createPlan(input2, now = /* @__PURE__ */ new Date()) {
     validateSchedule(input2);
     assertAutoExecuteAllowed(input2.environment, input2.autoExecute);
-    if (!credentialStatus(this.deps.config)[input2.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input2.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, input2.environment);
     if ((await this.listPlans()).length >= MAX_PLANS) fail("INVALID_INPUT", `At most ${MAX_PLANS} plans can be stored`);
     const schedule = {
       frequency: input2.frequency,
@@ -37239,7 +37243,7 @@ var PiesService = class {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
   assertCredentials(environment) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
   }
   async summaries(environment, fresh = false) {
     const key = `pies-cache:${environment}`;
@@ -37294,12 +37298,21 @@ var PiesService = class {
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
     const totals = pies2.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
     const currency = await this.deps.trading.accountCurrency(environment);
-    return { ...base, pies: pies2, totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) }, ...currency ? { currency } : {}, notes };
+    return {
+      ...base,
+      pies: currency ? pies2.map((pie) => ({ ...pie, currency })) : pies2,
+      totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) },
+      ...currency ? { currency } : {},
+      notes
+    };
   }
+  /** One pie; its amounts carry the account currency, so a single-pie view never shows bare numbers. */
   async getPie(environment, id) {
     this.assertCredentials(environment);
     const [summaries, detail] = [await this.summaries(environment), await this.detail(environment, id)];
-    return pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const pie = pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const currency = await this.deps.trading.accountCurrency(environment);
+    return currency ? { ...pie, currency } : pie;
   }
   /** Resolve tickers, normalise shares and fill unchanged settings so the broker gets a full body. */
   async buildRequest(draft, current) {
@@ -37411,7 +37424,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.13.0"
+  version: "2.14.0"
 };
 
 // src/core/text-summary.ts
@@ -37733,6 +37746,11 @@ function describePayload(data) {
     case "order_execution":
       lines = orderExecution(payload);
       break;
+    case "cancel_draft": {
+      const draft = payload;
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
     case "cancel_preview":
       lines = cancelPreview(payload);
       break;
@@ -38633,6 +38651,28 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, p
         }
       }
     );
+    j(
+      server2,
+      "review_order_cancel",
+      {
+        title: "Review an Order Cancellation",
+        description: "Open a pending order's cancellation for the user to confirm in the widget. Review-only; never cancels. Cancelling a stop-loss leaves the position unprotected, which the confirmation says.",
+        inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, orderId }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          return result(
+            { kind: "cancel_draft", environment, orderId: orderId.trim(), ...order ? { order } : {}, credentials: credentialStatus(config3), writeEnabled: true },
+            order ? "Cancellation opened for review. Nothing has been cancelled." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
   }
   j(
     server2,
@@ -38938,7 +38978,7 @@ var PriceAlerts = class {
     return (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => !environment || alert.environment === environment).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
   async create(input2, now = /* @__PURE__ */ new Date()) {
-    if (!credentialStatus(this.deps.config)[input2.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input2.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, input2.environment);
     if ((await this.list()).length >= MAX_ALERTS) fail("INVALID_INPUT", `At most ${MAX_ALERTS} alerts can be stored`);
     const byPrice = input2.condition === "above" || input2.condition === "below";
     if (byPrice && !(input2.price > 0)) fail("INVALID_INPUT", `A ${input2.condition} alert needs a positive price`, { field: "price" });
@@ -39317,25 +39357,38 @@ function createServices(input2) {
   const runScheduled = () => running ??= tick2().finally(() => {
     running = void 0;
   });
-  const automationOverview = async (environment) => ({
-    kind: "automation",
-    environment,
-    credentials: credentialStatus(deps.config),
-    plans: await automation2.listPlans(environment),
-    alerts: await alerts.list(environment),
-    links: (await links.list()).filter((link) => link.environment === environment),
-    usageToday: await trading.usageToday(environment),
-    ...await trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}),
-    policy: deps.config.policy[environment],
-    settings: {
-      demoAutomation: deps.config.demoAutomationEnabled,
-      protectiveLinking: deps.config.protectiveLinking,
-      webhook: !!deps.config.notifyWebhookUrl,
-      digestHourUtc: deps.config.digestHourUtc ?? null,
-      quoteProvider: deps.config.quoteProvider
-    },
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
+  const namedInstruments = async (environment, tickers) => {
+    const wanted = new Set(tickers);
+    if (!wanted.size) return [];
+    const all = await trading.instruments(environment).catch(() => []);
+    return all.filter((instrument) => wanted.has(instrument.ticker)).map(({ ticker, name, shortName, currencyCode: currencyCode3, type }) => ({ ticker, ...name ? { name } : {}, ...shortName ? { shortName } : {}, ...currencyCode3 ? { currencyCode: currencyCode3 } : {}, ...type ? { type } : {} }));
+  };
+  const automationOverview = async (environment) => {
+    const plans = await automation2.listPlans(environment);
+    const priceAlerts = await alerts.list(environment);
+    const pairs = (await links.list()).filter((link) => link.environment === environment);
+    const instruments = await namedInstruments(environment, [...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)), ...priceAlerts.map((alert) => alert.ticker), ...pairs.map((link) => link.ticker)]);
+    return {
+      kind: "automation",
+      environment,
+      credentials: credentialStatus(deps.config),
+      plans,
+      alerts: priceAlerts,
+      links: pairs,
+      ...instruments.length ? { instruments } : {},
+      usageToday: await trading.usageToday(environment),
+      ...await trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}),
+      policy: deps.config.policy[environment],
+      settings: {
+        demoAutomation: deps.config.demoAutomationEnabled,
+        protectiveLinking: deps.config.protectiveLinking,
+        webhook: !!deps.config.notifyWebhookUrl,
+        digestHourUtc: deps.config.digestHourUtc ?? null,
+        quoteProvider: deps.config.quoteProvider
+      },
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  };
   return { trading, insights, automation: automation2, links, alerts, pies: pies2, digest, runScheduled, automationOverview };
 }
 

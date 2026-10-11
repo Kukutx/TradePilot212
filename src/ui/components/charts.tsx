@@ -3,32 +3,42 @@
 
 import { useState } from "react";
 
-export interface BarDatum { key: string; label: string; value: number; display: string; sublabel?: string }
+export interface BarDatum { key: string; label: string; value: number; display: string; sublabel?: string; title?: string }
+
+/** Labels for the chart/table switch; the button names the view it switches to. */
+export interface ChartLabels { table: string; chart: string }
+
+function ViewSwitch({ asTable, labels, onToggle }: { asTable: boolean; labels: ChartLabels; onToggle: () => void }) {
+  return <button type="button" className="linkButton" onClick={onToggle}>{asTable ? labels.chart : labels.table}</button>;
+}
 
 /** Horizontal bars for shares of a whole (weights) or ranked amounts. */
-export function BarList({ data, max, title, tableLabel, valueHeader, nameHeader }: {
+export function BarList({ data, max, title, labels, valueHeader, nameHeader, tone }: {
   data: BarDatum[];
   max?: number;
   title: string;
-  tableLabel: string;
+  labels: ChartLabels;
   nameHeader: string;
   valueHeader: string;
+  /** "signed" colours negative values and their bars red. */
+  tone?: "signed";
 }) {
   const [asTable, setAsTable] = useState(false);
   const top = max ?? Math.max(...data.map((item) => Math.abs(item.value)), 0);
+  const valueClass = (value: number) => (tone === "signed" ? (value > 0 ? "positive" : value < 0 ? "negative" : "") : "");
   return (
     <figure className="chartFigure">
-      <figcaption><span>{title}</span><button type="button" className="linkButton" onClick={() => setAsTable(!asTable)} aria-pressed={asTable}>{tableLabel}</button></figcaption>
+      <figcaption><span>{title}</span><ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} /></figcaption>
       {asTable ? (
         <table className="chartTable"><thead><tr><th>{nameHeader}</th><th>{valueHeader}</th></tr></thead>
-          <tbody>{data.map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.display}</td></tr>)}</tbody></table>
+          <tbody>{data.map((item) => <tr key={item.key}><td title={item.title}>{item.label}{item.sublabel && <small> · {item.sublabel}</small>}</td><td className={valueClass(item.value)}>{item.display}</td></tr>)}</tbody></table>
       ) : (
         <ul className="barList">
           {data.map((item) => (
-            <li key={item.key} title={`${item.label}: ${item.display}`}>
+            <li key={item.key} title={`${item.title ?? item.label}: ${item.display}`}>
               <span className="barLabel"><strong>{item.label}</strong>{item.sublabel && <small>{item.sublabel}</small>}</span>
-              <span className="barTrack"><span className={`barFill ${item.value < 0 ? "negative" : ""}`} style={{ width: `${top > 0 ? Math.max(1.5, (Math.abs(item.value) / top) * 100) : 0}%` }} /></span>
-              <span className="barValue">{item.display}</span>
+              <span className="barTrack" aria-hidden="true"><span className={`barFill ${item.value < 0 ? "negative" : ""}`} style={{ width: `${top > 0 ? Math.max(1.5, (Math.abs(item.value) / top) * 100) : 0}%` }} /></span>
+              <span className={`barValue ${valueClass(item.value)}`}>{item.display}</span>
             </li>
           ))}
         </ul>
@@ -38,10 +48,10 @@ export function BarList({ data, max, title, tableLabel, valueHeader, nameHeader 
 }
 
 /** Vertical bars over time (e.g. monthly income). Labels only the latest and the largest bar. */
-export function ColumnChart({ data, title, tableLabel, nameHeader, valueHeader }: {
+export function ColumnChart({ data, title, labels, nameHeader, valueHeader }: {
   data: BarDatum[];
   title: string;
-  tableLabel: string;
+  labels: ChartLabels;
   nameHeader: string;
   valueHeader: string;
 }) {
@@ -51,12 +61,12 @@ export function ColumnChart({ data, title, tableLabel, nameHeader, valueHeader }
   const latest = data[data.length - 1];
   return (
     <figure className="chartFigure">
-      <figcaption><span>{title}</span><button type="button" className="linkButton" onClick={() => setAsTable(!asTable)} aria-pressed={asTable}>{tableLabel}</button></figcaption>
+      <figcaption><span>{title}</span><ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} /></figcaption>
       {asTable ? (
         <table className="chartTable"><thead><tr><th>{nameHeader}</th><th>{valueHeader}</th></tr></thead>
           <tbody>{data.map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.display}</td></tr>)}</tbody></table>
       ) : (
-        <div className="columnChart" role="img" aria-label={title}>
+        <div className="columnChart" role="img" aria-label={`${title}: ${data.map((item) => `${item.label} ${item.display}`).join(", ")}`}>
           {data.map((item) => (
             <div className="column" key={item.key} title={`${item.label}: ${item.display}`}>
               <span className="columnValue">{item === largest || item === latest ? item.display : ""}</span>

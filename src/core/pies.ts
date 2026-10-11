@@ -15,7 +15,7 @@ import type {
   PiesPayload,
   PieSummary,
 } from "../shared/pies.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
@@ -111,7 +111,7 @@ export class PiesService {
   }
 
   private assertCredentials(environment: TradingEnvironment) {
-    if (!credentialStatus(this.deps.config)[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, environment);
   }
 
   private async summaries(environment: TradingEnvironment, fresh = false): Promise<PieSummary[]> {
@@ -170,13 +170,22 @@ export class PiesService {
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
     const totals = pies.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
     const currency = await this.deps.trading.accountCurrency(environment);
-    return { ...base, pies, totals: { value: round(totals.value), invested: round(totals.invested), result: round(totals.result), cash: round(totals.cash) }, ...(currency ? { currency } : {}), notes };
+    return {
+      ...base,
+      pies: currency ? pies.map((pie) => ({ ...pie, currency })) : pies,
+      totals: { value: round(totals.value), invested: round(totals.invested), result: round(totals.result), cash: round(totals.cash) },
+      ...(currency ? { currency } : {}),
+      notes,
+    };
   }
 
+  /** One pie; its amounts carry the account currency, so a single-pie view never shows bare numbers. */
   async getPie(environment: TradingEnvironment, id: number): Promise<PieOverview> {
     this.assertCredentials(environment);
     const [summaries, detail] = [await this.summaries(environment), await this.detail(environment, id)];
-    return pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const pie = pieOverview(summaries.find((item) => item.id === id), detail, id);
+    const currency = await this.deps.trading.accountCurrency(environment);
+    return currency ? { ...pie, currency } : pie;
   }
 
   /** Resolve tickers, normalise shares and fill unchanged settings so the broker gets a full body. */

@@ -8,7 +8,7 @@
 
 import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
 import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport } from "../shared/automation.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import { crossRate } from "./fx.js";
 import type { StateStore } from "./state-store.js";
@@ -136,7 +136,7 @@ export class AutomationService {
   async createPlan(input: PlanInput, now = new Date()): Promise<DcaPlan> {
     validateSchedule(input);
     assertAutoExecuteAllowed(input.environment, input.autoExecute);
-    if (!credentialStatus(this.deps.config)[input.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${input.environment.toUpperCase()} credentials are not configured`);
+    requireCredentials(this.deps.config, input.environment);
     if ((await this.listPlans()).length >= MAX_PLANS) fail("INVALID_INPUT", `At most ${MAX_PLANS} plans can be stored`);
     const schedule = {
       frequency: input.frequency,
