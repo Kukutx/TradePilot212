@@ -7,6 +7,7 @@ import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, 
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
+import { stopProtection } from "../shared/protection.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
 const MAX_ROWS = 30;
@@ -103,6 +104,19 @@ function activityLine(event: ActivityEvent): string {
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
 
+/** Which holdings a pending sell stop covers, how much of each and how far below the last price; and which have none. */
+function protectionLines(positions: Position[], orders: PendingOrder[]): string[] {
+  if (!positions.length) return [];
+  const guarded = positions.flatMap((position) => {
+    const guard = stopProtection(position, orders);
+    if (!guard) return [];
+    const gap = guard.gap === undefined ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+    return [`${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${gap}`];
+  });
+  const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${guarded.length && bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+}
+
 function portfolio(data: PortfolioSnapshot): string[] {
   const holdings = [...data.positions].sort((a, b) => {
     const value = (position: Position) => (position.walletImpact as { currentValue?: number } | undefined)?.currentValue ?? position.quantity * position.currentPrice;
@@ -114,6 +128,7 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
     ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
+    ...protectionLines(holdings, data.orders),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine)),
   ];

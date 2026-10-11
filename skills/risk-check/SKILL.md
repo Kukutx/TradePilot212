@@ -6,7 +6,7 @@ description: Check a Trading 212 portfolio for concentration, currency exposure,
 # Risk check
 
 1. Call `analyze_portfolio_allocation`. If the user states their own limits, such as "no position above 10%", pass them as `maxSingleWeight` and the other limits.
-2. Call `get_portfolio_dashboard` to see pending orders.
+2. Call `get_portfolio_dashboard` to see pending orders. Its "Stop-loss orders" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. It also names the holdings without one.
 3. For each pending order, call `get_market_hours` when its market is closed or in an extended session. A Market order placed while the market is closed is queued and fills at the next open, possibly at a gap price.
 
 Report:
@@ -16,7 +16,7 @@ Report:
 - the cash share;
 - pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.
 
-If a large holding has no stop-loss and no price alert, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop.
+If a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop.
 
 If the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.
 

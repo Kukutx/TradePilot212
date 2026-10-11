@@ -37802,8 +37802,31 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.23.0"
+  version: "2.24.0"
 };
+
+// src/shared/protection.ts
+function isSellStop(order) {
+  if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
+  return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
+}
+function stopProtection(position, orders) {
+  const ticker = position.instrument.ticker;
+  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
+  if (!stops.length || !(position.quantity > 0)) return void 0;
+  const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
+  const covered = Math.min(position.quantity, stops.reduce((sum, order) => sum + remaining(order), 0));
+  const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
+  const last = position.currentPrice;
+  return {
+    ticker,
+    stopPrice,
+    ...last > 0 ? { gap: (stopPrice - last) / last } : {},
+    covered,
+    coverage: covered / position.quantity,
+    orders: stops.length
+  };
+}
 
 // src/core/text-summary.ts
 var MAX_ROWS = 30;
@@ -37877,6 +37900,17 @@ function activityLine(event) {
   const details = [event.side, event.quantity === void 0 ? void 0 : num2(event.quantity, 8), event.ticker, event.orderType, event.orderId ? `order ${event.orderId}` : void 0, event.planId ? `plan ${event.planId}` : void 0, event.outcome].filter((item) => item !== void 0 && item !== "").join(" ");
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
+function protectionLines(positions, orders) {
+  if (!positions.length) return [];
+  const guarded = positions.flatMap((position) => {
+    const guard = stopProtection(position, orders);
+    if (!guard) return [];
+    const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+    return [`${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}`];
+  });
+  const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${guarded.length && bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+}
 function portfolio(data) {
   const holdings = [...data.positions].sort((a, b) => {
     const value = (position) => position.walletImpact?.currentValue ?? position.quantity * position.currentPrice;
@@ -37888,6 +37922,7 @@ function portfolio(data) {
     ...data.account ? [accountLine(data.environment, data.account)] : [],
     ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
+    ...protectionLines(holdings, data.orders),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine))
   ];

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.24.0
+
+- Stop-loss coverage per holding. When a pending sell stop or stop-limit protects a holding, the dashboard shows it:
+  - the highest stop and how far below the last price it is;
+  - how much of the holding it covers.
+
+  It appears under the holding's card on narrow screens, in a **Stop-loss** column on wide ones, and under the name in between. A holding's page says the same above its price ladder, or that no stop protects it. The text summary adds a "Stop-loss orders" line that also names the holdings without one. The risk-check skill uses it.
+- The holdings table keeps each number on one line.
+
 ## 2.23.0
 
 - Price alerts from the widget. A holding's page has an **Add alert** form:

@@ -1,12 +1,13 @@
 import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
+import { stopProtection } from "../../shared/protection";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Sparkline } from "../components/charts";
 import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
-import { summarizeOrder } from "../lib/orders";
+import { stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
 
 export function PortfolioView({
   payload,
@@ -55,19 +56,25 @@ export function PortfolioView({
           <>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th></tr></thead>
+                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th><th className="optionalColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
                   {payload.positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
+                    const guard = stopProtection(position, payload.orders);
                     return (
                       <tr key={position.instrument.ticker}>
-                        <td>{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}</td>
+                        <td>
+                          {onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}
+                          {/* Where the stop-loss column is hidden, the stop shows under the name. */}
+                          {guard && <small className="stopInline">{t("stopLoss")} {stopGuardText(guard, position, locale, t)}{guard.coverage < 1 ? ` · ${stopCoverageText(guard, position, locale, t)}` : ""}</small>}
+                        </td>
                         <td>{qty(position.quantity, locale)}</td>
                         <td>{money(position.currentPrice, position.instrument.currencyCode, locale)}</td>
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
                         <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}</td>
                         <td className="optionalColumn">{qty(position.quantityAvailableForTrading, locale)}</td>
+                        <td className="optionalColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
                       </tr>
                     );
                   })}
@@ -76,7 +83,7 @@ export function PortfolioView({
             </div>
             <div className="mobilePositionList">
               {payload.positions.map((position) => (
-                <PositionCard key={position.instrument.ticker} position={position} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})} />
+                <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})} />
               ))}
             </div>
           </>
@@ -178,6 +185,7 @@ export function ActivityPanel({ activity, book, locale, t }: { activity: Activit
 
 export function PositionCard({
   position,
+  orders = [],
   accountCurrency,
   book,
   locale,
@@ -185,6 +193,8 @@ export function PositionCard({
   onOpen,
 }: {
   position: Position;
+  /** Pending orders; a sell stop on this holding shows under its facts. */
+  orders?: PendingOrder[];
   accountCurrency: string;
   book?: InstrumentBook;
   locale: SupportedLocale;
@@ -193,6 +203,7 @@ export function PositionCard({
 }) {
   const positionPnl = walletNumber(position, "unrealizedProfitLoss");
   const positionValue = walletNumber(position, "currentValue");
+  const guard = stopProtection(position, orders);
   return (
     <article className="positionCard">
       <div className="positionCardHeader">{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}<span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span></div>
@@ -202,6 +213,13 @@ export function PositionCard({
         <div><span>{t("quantity")}</span><strong>{qty(position.quantity, locale)}</strong></div>
         <div><span>{t("averagePrice")}</span><strong>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</strong></div>
       </div>
+      {guard && (
+        <div className={`positionGuard${guard.coverage < 1 ? " partial" : ""}`}>
+          <span className="positionGuardMark" aria-hidden="true" />
+          <span>{t("stopLoss")} <strong>{stopGuardText(guard, position, locale, t)}</strong></span>
+          <small>{stopCoverageText(guard, position, locale, t)}</small>
+        </div>
+      )}
     </article>
   );
 }
