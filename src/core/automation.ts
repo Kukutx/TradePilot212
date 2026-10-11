@@ -335,15 +335,19 @@ export class AutomationService {
           notice.code === "MARKET_CLOSED_QUEUED" || (notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable")));
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
         // Mark the due date before sending: if the result is never recorded, it is not sent again.
-        await this.deps.store.put(planKey(plan.id), { ...latest, inFlightDueAt: latest.nextRunAt });
+        // Read once more, so a change made while the basket was being priced is kept and respected.
+        const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
+        if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result.legs.length, outcome: result.status });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result.message, result });
       } catch (error) {
-        const message = asStructuredError(error).message;
-        // executeBasket throws only before anything is sent (busy, expired), so the mark can go.
-        if (marked) {
+        const { code, message } = asStructuredError(error);
+        // These are refused before anything is sent, so the mark can go; after any other error the
+        // orders may have reached the broker and the plan waits for the user.
+        if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
           const current = await this.deps.store.get<DcaPlan>(planKey(plan.id));
           if (current?.inFlightDueAt) { const { inFlightDueAt: _f, ...rest } = current; await this.deps.store.put(planKey(plan.id), rest); }
         }
