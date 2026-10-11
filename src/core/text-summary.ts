@@ -4,7 +4,7 @@
 
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, ExportReport, IncomeSummary, PerformanceSummary } from "../shared/history.js";
+import type { AllocationAnalysis, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -128,9 +128,21 @@ function performance(data: PerformanceSummary): string[] {
     `Realized P/L ${signed(data.realizedProfitLoss)}; dividends ${num(data.income.dividends)}; interest ${num(data.income.interest)}; costs ${num(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num(item.amount)}`).join(", ")})` : ""}.`,
     `Deposits ${num(data.contributions.deposits)}, withdrawals ${num(data.contributions.withdrawals)}, net ${num(data.contributions.net)}.`,
     ...(data.currentValue === undefined ? [] : [`Current value ${num(data.currentValue)}${data.unrealizedProfitLoss === undefined ? "" : `, unrealized P/L ${signed(data.unrealizedProfitLoss)}`}${data.simpleReturn === undefined ? "" : `, simple return on net deposits ${signed(data.simpleReturn * 100, 1)}%`}.`]),
+    ...(data.annualizedReturn === undefined ? [] : [`Annualized return (money-weighted, since ${day(data.annualizedSince)}) ${signed(data.annualizedReturn * 100, 1)}% a year.`]),
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num(data.trades.turnover)}.`,
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
+    ...data.notes,
+  ];
+}
+
+function taxYear(data: TaxYearSummary): string[] {
+  const c = data.accountCurrency;
+  return [
+    `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}, amounts in ${c}.`,
+    `Sales: ${data.disposals.count}, proceeds ${num(data.disposals.proceeds)}; gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${signed(data.disposals.net)}.`,
+    `Dividends ${num(data.income.dividends)}; interest ${num(data.income.interest)}; costs ${num(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num(item.amount)}`).join(", ")})` : ""}.`,
+    ...section("Sales by instrument", rows(data.byTicker, (item) => `${item.ticker}: ${item.disposals} sale(s), proceeds ${num(item.proceeds)}, realized ${signed(item.realizedProfitLoss)}`)),
     ...data.notes,
   ];
 }
@@ -368,6 +380,7 @@ export function describePayload(data: unknown): string {
     case "allocation": lines = allocation(payload as unknown as AllocationAnalysis); break;
     case "performance": lines = performance(payload as unknown as PerformanceSummary); break;
     case "income": lines = income(payload as unknown as IncomeSummary); break;
+    case "tax_year": lines = taxYear(payload as unknown as TaxYearSummary); break;
     case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;
     case "basket_preview": lines = basketPreview(payload as unknown as BasketPreview); break;

@@ -203,6 +203,8 @@ export const zhCN: Record<MessageKey, string> = {
   interest: "利息",
   costs: "费用",
   costBreakdown: "费用构成",
+  annualizedReturn: "年化收益率（资金加权）",
+  annualizedSince: "自 {date} 起",
   simpleReturn: "投入回报率",
   tradesCount: "成交笔数",
   buys: "买入",

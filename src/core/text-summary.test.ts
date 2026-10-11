@@ -38,6 +38,23 @@ describe("text summaries for hosts that only show text", () => {
     expect(policy).toContain("quantity 50 shares");
   });
 
+  it("gives the money-weighted yearly return and keeps tickers as Trading 212 spells them", async () => {
+    const services = sample();
+    const performance = await services.insights.performance("demo", { to: new Date() });
+    expect(performance.annualizedReturn).toBeTypeOf("number");
+    expect(performance.byTicker.map((item) => item.ticker)).toContain("VUSAl_EQ");
+    expect(describePayload(performance)).toMatch(/Annualized return \(money-weighted, since \d{4}-\d{2}-\d{2}\) [+-]?\d/);
+  });
+
+  it("summarizes a tax year with gains and losses apart and says it is not a tax calculation", async () => {
+    const services = sample();
+    const year = await services.insights.taxYear("demo", { yearStart: "04-06", timeZone: "Europe/London" });
+    const text = describePayload(year);
+    expect(text).toMatch(/^Tax year \d{4}-04-06 to \d{4}-04-05 \(Europe\/London\)/);
+    expect(text).toMatch(/Sales: \d+, proceeds/);
+    expect(text).toMatch(/not as the tax due/);
+  });
+
   it("returns nothing for payloads the summary already covers", () => {
     expect(describePayload({ kind: "unknown" })).toBe("");
     expect(describePayload(null)).toBe("");

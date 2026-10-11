@@ -17,12 +17,13 @@ Produce a factual review of the user's Trading 212 account. Every number must co
 6. If the user asks what made up a total, list the items for the same window:
    - dividends, interest, deposits and withdrawals: `get_cash_history`, filtered by `types` or `ticker`;
    - trading costs (FX conversion fees, commissions, stamp duty): `get_trade_history`, whose fills carry their `costItems`, plus any account-level fees from `get_cash_history` with type `FEE`.
+7. For gains, losses and income per tax year, use `get_tax_year_summary` (see the tax-year skill).
 
 ## Report shape
 
 Lead with three numbers: realized P/L, unrealized P/L, and income for the period, in the account currency. Then cover, briefly:
 
-- **Contributions:** deposits, withdrawals, and net. Report `simpleReturn` only when the tool returned it (all-time, untruncated), and call it a simple return on net contributions, not an annualized or time-weighted return.
+- **Contributions:** deposits, withdrawals, and net. Report `simpleReturn` only when the tool returned it (all-time, untruncated), and call it a simple return on net contributions. Report `annualizedReturn` only when the tool returned it, as the money-weighted yearly return since `annualizedSince`; it counts when each deposit was made, so it differs from the simple return.
 - **Costs:** total and the two largest cost types. FX conversion fees are often the biggest; point that out when true.
 - **Winners and losers:** the top contributors from `byTicker`.
 - **Allocation:** cash share, largest holding, top-5 share, effective number of holdings, currency exposure, and every flag the tool raised.

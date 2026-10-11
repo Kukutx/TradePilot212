@@ -12,6 +12,7 @@ import type {
   MarketStatus,
   MoneyBucket,
   PerformanceSummary,
+  TaxYearSummary,
 } from "../shared/history.js";
 
 export interface AllocationLimits {
@@ -145,7 +146,30 @@ const WITHDRAW = new Set(["WITHDRAW", "WITHDRAWAL"]);
 const INTEREST = new Set(["INTEREST_ON_FREE_CASH", "LENDING_INTEREST", "INTEREST"]);
 
 function fillTicker(item: HistoryOrderItem): string {
-  return (item.order?.ticker ?? item.order?.instrument?.ticker ?? "?").toUpperCase();
+  return item.order?.ticker ?? item.order?.instrument?.ticker ?? "?";
+}
+
+const YEAR_MS = 365.25 * 86_400_000;
+
+/**
+ * Money-weighted annual return (XIRR): the yearly rate at which the dated cash flows net to zero.
+ * Money paid in is negative and money taken out (including today's value) positive. Undefined when
+ * the flows do not change sign or no rate between -99.99% and +10,000% fits.
+ */
+export function moneyWeightedReturn(flows: Array<{ at: number; amount: number }>): number | undefined {
+  const usable = flows.filter((flow) => Number.isFinite(flow.at) && Number.isFinite(flow.amount) && flow.amount !== 0);
+  if (!usable.some((flow) => flow.amount < 0) || !usable.some((flow) => flow.amount > 0)) return undefined;
+  const start = Math.min(...usable.map((flow) => flow.at));
+  const value = (rate: number) => usable.reduce((sum, flow) => sum + flow.amount / (1 + rate) ** ((flow.at - start) / YEAR_MS), 0);
+  let low = -0.9999, high = 100;
+  let atLow = value(low), atHigh = value(high);
+  if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return undefined;
+  for (let step = 0; step < 200 && high - low > 1e-10; step++) {
+    const middle = (low + high) / 2;
+    const atMiddle = value(middle);
+    if (Math.sign(atMiddle) === Math.sign(atLow)) { low = middle; atLow = atMiddle; } else { high = middle; atHigh = atMiddle; }
+  }
+  return (low + high) / 2;
 }
 
 export function summarizePerformance(input: {
@@ -156,6 +180,8 @@ export function summarizePerformance(input: {
   transactions: HistoryTransactionItem[];
   window: HistoryWindow;
   truncated: boolean;
+  /** When the account value was read; returns need a window that ends then. */
+  now?: Date;
 }): PerformanceSummary {
   const { window } = input;
   const fills = input.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
@@ -202,7 +228,7 @@ export function summarizePerformance(input: {
   for (const item of dividends) {
     const amount = item.amount ?? 0;
     dividendTotal += amount;
-    tickerRow((item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase()).dividends += amount;
+    tickerRow(item.ticker ?? item.instrument?.ticker ?? "?").dividends += amount;
   }
 
   const costs = [...taxes, ...transactionCosts];
@@ -215,6 +241,32 @@ export function summarizePerformance(input: {
   ];
   if (input.truncated) notes.push("History was truncated at the page limit; totals cover only the most recent records.");
   if (window.from) notes.push("simpleReturn is omitted for bounded periods because the starting value is not available from the API.");
+  // Only the account value at `now` is known, so the window must reach it: one that ends earlier would
+  // leave out deposits and withdrawals the value already reflects. A few minutes cover reading the history.
+  const endsNow = window.to.getTime() >= (input.now ?? new Date()).getTime() - 5 * 60_000;
+  if (!window.from && !endsNow) notes.push("simpleReturn and annualizedReturn are omitted for windows that end before now, because only the current account value is available.");
+  const measurable = !window.from && endsNow && !input.truncated && currentValue !== undefined;
+
+  // The annual return weighs each deposit and withdrawal by how long it was invested. It needs the
+  // whole history, and a year of it, so a few weeks of luck are not annualised into a headline number.
+  let annualized: { rate: number; since: string } | undefined;
+  if (measurable) {
+    const flows = transactions.flatMap((item) => {
+      const type = (item.type ?? "").toUpperCase();
+      const at = Date.parse(item.dateTime ?? "");
+      const amount = Math.abs(item.amount ?? 0);
+      return DEPOSIT.has(type) ? [{ at, amount: -amount }] : WITHDRAW.has(type) ? [{ at, amount }] : [];
+    }).filter((flow) => Number.isFinite(flow.at));
+    // The year is counted from the first deposit; an earlier withdrawal (after a transfer in) still counts as a flow.
+    const deposits = flows.filter((flow) => flow.amount < 0);
+    const first = deposits.length ? Math.min(...deposits.map((flow) => flow.at)) : undefined;
+    if (first !== undefined && window.to.getTime() - first >= 365 * 86_400_000) {
+      const rate = moneyWeightedReturn([...flows, { at: window.to.getTime(), amount: currentValue! }]);
+      if (rate !== undefined) annualized = { rate, since: new Date(first).toISOString() };
+    } else if (first !== undefined) {
+      notes.push("annualizedReturn needs at least a year of deposits; it is omitted until then.");
+    }
+  }
 
   return {
     kind: "performance",
@@ -228,7 +280,8 @@ export function summarizePerformance(input: {
     realizedProfitLoss: round(realized),
     ...(input.account.investments?.unrealizedProfitLoss === undefined ? {} : { unrealizedProfitLoss: input.account.investments.unrealizedProfitLoss }),
     ...(currentValue === undefined ? {} : { currentValue }),
-    ...(!window.from && !input.truncated && currentValue !== undefined && net > 0 ? { simpleReturn: (currentValue - net) / net } : {}),
+    ...(measurable && net > 0 ? { simpleReturn: (currentValue! - net) / net } : {}),
+    ...(annualized ? { annualizedReturn: Math.round(annualized.rate * 10_000) / 10_000, annualizedSince: annualized.since } : {}),
     trades: { buys, sells, turnover: round(turnover) },
     byTicker: [...perTicker]
       .map(([ticker, row]) => ({ ticker, realizedProfitLoss: round(row.realizedProfitLoss), dividends: round(row.dividends), costs: round(row.costs) }))
@@ -247,7 +300,7 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
   const yearAgo = new Date(to.getTime() - 365 * 86_400_000);
   const payments = new Map<string, Array<{ at: number; perShare: number }>>();
   for (const item of dividends) {
-    const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
+    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
     payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity }]);
   }
@@ -263,7 +316,7 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
   const byTicker: MoneyBucket[] = [];
   let value = 0;
   for (const position of positions) {
-    const ticker = position.instrument?.ticker?.toUpperCase();
+    const ticker = position.instrument?.ticker;
     value += positionValue(position);
     const rate = ticker ? perShare.get(ticker) : undefined;
     if (rate && position.quantity > 0) byTicker.push({ key: ticker!, amount: round(rate * position.quantity) });
@@ -283,7 +336,7 @@ export function summarizeIncome(input: {
   positions?: Position[];
 }): IncomeSummary {
   const events = [
-    ...input.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: (item.ticker ?? item.instrument?.ticker ?? "?").toUpperCase(), dividend: true })),
+    ...input.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
     ...input.transactions
       .filter((item) => INTEREST.has((item.type ?? "").toUpperCase()))
       .map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false })),
@@ -350,5 +403,137 @@ export function marketStatus(instrument: Instrument & { workingScheduleId?: numb
     ...(nextOpen ? { nextOpen: new Date(nextOpen.time).toISOString() } : {}),
     ...(nextClose ? { nextClose: new Date(nextClose.time).toISOString() } : {}),
     checkedAt,
+  };
+}
+
+/** "MM-DD" → month and day; the default is the calendar year. */
+export function parseYearStart(value: string | undefined): { month: number; day: number; text: string } {
+  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
+  const month = Number(match?.[1]), day = Number(match?.[2]);
+  const valid = match && month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
+  return valid ? { month, day, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
+}
+
+/** Whether `timeZone` is an IANA zone this runtime knows, such as Europe/London. */
+export function validTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Milliseconds that local time in `timeZone` is ahead of UTC at `instant`. */
+function zoneOffset(instant: number, timeZone: string): number {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+  return Date.UTC(parts.year!, parts.month! - 1, parts.day!, parts.hour!, parts.minute!, parts.second!) - Math.floor(instant / 1000) * 1000;
+}
+
+/** The local calendar date of an instant in `timeZone`, as YYYY-MM-DD. */
+function localDay(instant: number, timeZone: string): string {
+  return new Date(instant + zoneOffset(instant, timeZone)).toISOString().slice(0, 10);
+}
+
+/** The instant a local calendar day starts in `timeZone`. */
+function localMidnight(year: number, month: number, day: number, timeZone: string): number {
+  const guess = Date.UTC(year, month - 1, day);
+  const first = guess - zoneOffset(guess, timeZone);
+  // A second pass settles days where the offset changes between the guess and local midnight.
+  return guess - zoneOffset(first, timeZone);
+}
+
+/** The tax year that starts in `year`, from its first to its last millisecond in `timeZone` (UTC by default). */
+export function taxYearWindow(year: number, start: { month: number; day: number }, timeZone = "UTC"): { from: Date; to: Date } {
+  return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
+}
+
+/** The latest tax year that has started by `now` in `timeZone`. */
+export function currentTaxYear(start: { month: number; day: number }, now = new Date(), timeZone = "UTC"): number {
+  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
+  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone) ? year : year - 1;
+}
+
+export function summarizeTaxYear(input: {
+  environment: TradingEnvironment;
+  accountCurrency: string;
+  orders: HistoryOrderItem[];
+  dividends: HistoryDividendItem[];
+  transactions: HistoryTransactionItem[];
+  year: number;
+  yearStart: { month: number; day: number; text: string };
+  /** IANA zone the tax year's days are counted in; UTC by default. */
+  timeZone?: string;
+  truncated: boolean;
+  now?: Date;
+}): TaxYearSummary {
+  const now = input.now ?? new Date();
+  const timeZone = input.timeZone ?? "UTC";
+  const window = taxYearWindow(input.year, input.yearStart, timeZone);
+  // A sale belongs to the year it filled in; the order's creation date could fall in an earlier year.
+  const fills = input.orders.filter((item) => item.fill && inWindow(item.fill.filledAt, window));
+  const undated = input.orders.filter((item) => item.fill && !Number.isFinite(Date.parse(item.fill.filledAt ?? ""))).length;
+  let count = 0, proceeds = 0, gains = 0, losses = 0, unvalued = 0;
+  const perTicker = new Map<string, { disposals: number; proceeds: number; realizedProfitLoss: number }>();
+  const costs: Array<{ key: string; amount: number }> = [];
+  for (const item of fills) {
+    const wallet = item.fill?.walletImpact;
+    for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
+    const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
+    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
+    const pnl = wallet?.realisedProfitLoss ?? 0;
+    // Only Trading 212's account-currency value counts; price × quantity would be in the instrument's currency.
+    const value = wallet?.netValue === undefined ? 0 : Math.abs(wallet.netValue);
+    if (wallet?.netValue === undefined) unvalued++;
+    count++;
+    proceeds += value;
+    if (pnl > 0) gains += pnl; else losses += pnl;
+    const ticker = fillTicker(item);
+    const row = perTicker.get(ticker) ?? { disposals: 0, proceeds: 0, realizedProfitLoss: 0 };
+    row.disposals++;
+    row.proceeds += value;
+    row.realizedProfitLoss += pnl;
+    perTicker.set(ticker, row);
+  }
+  let dividends = 0, interest = 0;
+  for (const item of input.dividends) if (inWindow(item.paidOn, window)) dividends += item.amount ?? 0;
+  for (const item of input.transactions) {
+    if (!inWindow(item.dateTime, window)) continue;
+    const type = (item.type ?? "").toUpperCase();
+    if (INTEREST.has(type)) interest += item.amount ?? 0;
+    else if (type === "FEE") costs.push({ key: "ACCOUNT_FEE", amount: Math.abs(item.amount ?? 0) });
+  }
+  const ended = now.getTime() > window.to.getTime();
+  const notes = [
+    "Amounts are in the account currency as reported by Trading 212.",
+    "Gains and losses are Trading 212's realised P/L per sale, worked out against your average purchase price at the exchange rate of the sale. Countries match purchases to sales in their own way (for example the UK's same-day and 30-day rules), so use these figures to prepare and check a return, not as the tax due.",
+    "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need.",
+  ];
+  if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
+  if (timeZone === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
+  if (unvalued) notes.push(`${unvalued} sale(s) had no account-currency value from Trading 212; proceeds leave them out, but their realised P/L is counted.`);
+  if (undated) notes.push(`${undated} fill(s) had no fill date and are left out; check them in the Trading 212 statement.`);
+  if (input.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
+  return {
+    kind: "tax_year",
+    environment: input.environment,
+    accountCurrency: input.accountCurrency,
+    year: input.year,
+    yearStart: input.yearStart.text,
+    timeZone,
+    firstDay: `${input.year}-${input.yearStart.text}`,
+    lastDay: localDay(window.to.getTime(), timeZone),
+    period: { from: window.from.toISOString(), to: window.to.toISOString() },
+    ended,
+    disposals: { count, proceeds: round(proceeds), gains: round(gains), losses: round(losses), net: round(gains + losses) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round(row.proceeds), realizedProfitLoss: round(row.realizedProfitLoss) }))
+      .sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
+    income: { dividends: round(dividends), interest: round(interest) },
+    costs: { total: round(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    truncated: input.truncated,
+    notes,
+    timestamp: now.toISOString(),
   };
 }
