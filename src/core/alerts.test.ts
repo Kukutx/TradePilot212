@@ -16,7 +16,7 @@ function setup(env: RuntimeEnv = {}) {
   const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    if (url.startsWith("https://hooks.example")) {
+    if (new URL(url).host === "hooks.example") {
       webhooks.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown>, headers: init?.headers as Record<string, string> });
       return new Response("ok");
     }
