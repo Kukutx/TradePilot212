@@ -229,7 +229,7 @@ export class AutomationService {
    * Limit orders capped at the last price plus an offset so a gap cannot fill them higher.
    * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
    */
-  async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[] }> {
+  async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[]; targetsSavedAt?: string }> {
     const dashboard = await this.deps.trading.getDashboard(plan.environment);
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
     const converted = new Set<string>();
@@ -242,8 +242,10 @@ export class AutomationService {
     };
     // A plan by targets works out its buys from the account now: the largest gaps get the most.
     let legs = plan.legs;
+    let targetsSavedAt: string | undefined;
     if (plan.targetAmount !== undefined) {
       const saved = await this.deps.targets?.(plan.environment);
+      targetsSavedAt = saved?.updatedAt;
       if (!saved) skipped.push(`No target weights are saved for ${plan.environment.toUpperCase()}; save them with manage_target_allocation.`);
       const values = new Map(dashboard.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
       const split = saved ? contributionSplit(saved.targets, values, plan.targetAmount) : [];
@@ -288,6 +290,7 @@ export class AutomationService {
         ...skipped,
       ],
       skipped,
+      ...(targetsSavedAt ? { targetsSavedAt } : {}),
     };
   }
 
@@ -375,6 +378,8 @@ export class AutomationService {
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
         // Legs edited while the basket was being priced: the next run lock window rebuilds it.
         if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
+        // Targets changed or cleared while a plan by targets was being priced: the split is rebuilt next time.
+        if (current.targetAmount !== undefined && (await this.deps.targets?.(plan.environment))?.updatedAt !== basket.targetsSavedAt) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);

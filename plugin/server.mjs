@@ -37336,8 +37336,10 @@ var AutomationService = class {
       return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
     };
     let legs = plan.legs;
+    let targetsSavedAt;
     if (plan.targetAmount !== void 0) {
       const saved = await this.deps.targets?.(plan.environment);
+      targetsSavedAt = saved?.updatedAt;
       if (!saved) skipped.push(`No target weights are saved for ${plan.environment.toUpperCase()}; save them with manage_target_allocation.`);
       const values = new Map(dashboard.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
       const split = saved ? contributionSplit(saved.targets, values, plan.targetAmount) : [];
@@ -37394,7 +37396,8 @@ var AutomationService = class {
         ...converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0].source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : [],
         ...skipped
       ],
-      skipped
+      skipped,
+      ...targetsSavedAt ? { targetsSavedAt } : {}
     };
   }
   async reviewPlan(id) {
@@ -37466,6 +37469,7 @@ var AutomationService = class {
         const current = await this.deps.store.get(planKey(plan.id));
         if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
         if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
+        if (current.targetAmount !== void 0 && (await this.deps.targets?.(plan.environment))?.updatedAt !== basket.targetsSavedAt) continue;
         await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);

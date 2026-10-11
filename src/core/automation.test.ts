@@ -204,6 +204,26 @@ describe("standing plans", () => {
     expect((await automation.updatePlan(plan.id, { targetAmount: 300 }))).toMatchObject({ legs: [], targetAmount: 300 });
   });
 
+  it("does not send a plan by targets when the targets change while it is priced", async () => {
+    const { automation, targets, trading, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    await targets.set("demo", { targets: [{ instrument: "VUSA_EQ", weight: 0.5 }, { instrument: "AGGH_EQ", weight: 0.5 }] }, new Date("2026-09-01T00:00:00Z"));
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [], targetAmount: 1000, frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    const due = Date.parse(plan.nextRunAt) + 60_000;
+    const prepare = trading.prepareBasket.bind(trading);
+    trading.prepareBasket = async (...args) => {
+      const preview = await prepare(...args);
+      await targets.set("demo", { targets: [{ instrument: "VUSA_EQ", weight: 0.8 }, { instrument: "AGGH_EQ", weight: 0.2 }] }, new Date("2026-09-30T00:00:00Z"));
+      return preview;
+    };
+    expect(await automation.runDuePlans(new Date(due))).toEqual([]);
+    expect(writes).toHaveLength(0);
+    // The next run window splits the amount by the new targets.
+    trading.prepareBasket = prepare;
+    const [report] = await automation.runDuePlans(new Date(due + 11 * 60_000));
+    expect(report?.mode).toBe("auto");
+    expect(writes.map((write) => write.body.ticker)).toEqual(["VUSA_EQ", "AGGH_EQ"]);
+  });
+
   it("runs a due Demo plan unattended when enabled and moves it to the next date", async () => {
     const { automation, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
     const plan = await automation.createPlan({ environment: "demo", label: "Weekly", legs: [{ ticker: "VUSA", amount: 100 }, { ticker: "EQQQ", amount: 100 }], frequency: "weekly", weekday: 1, autoExecute: true }, new Date("2026-10-01T00:00:00Z"));
