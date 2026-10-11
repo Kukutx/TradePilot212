@@ -14,6 +14,8 @@ export interface RuntimeConfig {
   policy: Record<TradingEnvironment, TradingPolicy>;
   /** Lets due Demo plans place orders without a person (L3). Live plans never execute unattended. */
   demoAutomationEnabled: boolean;
+  /** Cancel the other half of a stop-loss / take-profit pair once one fills (default on). */
+  protectiveLinking: boolean;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -25,7 +27,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MAX_POSITION_WEIGHT" | "POLICY_DAILY_ORDER_LIMIT" | "POLICY_DAILY_NOTIONAL_LIMIT"
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
-  | "AUTOMATION_DEMO_ENABLED",
+  | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO",
   string
 >>;
 
@@ -103,6 +105,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     defaultTradingEnvironment: tradingEnvironment(env),
     policy: createPolicy(env),
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
+    protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
     trading212: {
       demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },

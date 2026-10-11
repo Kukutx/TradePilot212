@@ -58,6 +58,7 @@ src/
 │  ├─ mcp.ts
 │  ├─ oauth.ts
 │  ├─ policy.ts            pure policy rules shared by every order path
+│  ├─ protective-links.ts  one-cancels-other emulation for stop-loss / take-profit pairs
 │  ├─ rebalance.ts         pure target-weight rebalance planner
 │  ├─ state-store.ts
 │  ├─ trading-service.ts
@@ -128,7 +129,7 @@ Broker writes remain app-only.
 
 These rules are deliberate and should remain true when extending the project:
 
-1. No scheduled or unattended path may submit a Live broker write. The one unattended path, due Demo plans with `autoExecute` and `AUTOMATION_DEMO_ENABLED=true`, uses the same validation, policy and no-retry rules as a confirmed basket.
+1. No scheduled or unattended path may submit a Live order. The only unattended Live write is cancelling the surviving half of a linked protective pair after the other half filled. The one unattended path, due Demo plans with `autoExecute` and `AUTOMATION_DEMO_ENABLED=true`, uses the same validation, policy and no-retry rules as a confirmed basket.
 2. Preparing an order must not submit it.
 3. Every order, basket and cancellation write consumes a one-time confirmation.
 4. A Trading 212 write request is never retried automatically.

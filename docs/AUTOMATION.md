@@ -5,11 +5,17 @@ TradePilot automates in levels. Each level adds capability without weakening the
 | Level | What happens | Who confirms | Environments |
 |---|---|---|---|
 | L0 | Scheduled **read-only** analysis: briefs, performance, allocation | Nobody needs to; nothing is sent | Demo and Live |
-| L1 | **Broker-native** protective orders: Stop and Limit sells, Good-Till-Cancel | You, once, when placing them; Trading 212 triggers them | Demo and Live |
+| L1 | **Broker-native** protective orders: Stop and Limit sells, Good-Till-Cancel, linked so a fill cancels the other | You, once, when placing them; Trading 212 triggers them | Demo and Live |
 | L2 | **Standing plans** (dollar-cost averaging). When a plan is due, TradePilot announces it and builds the basket | You, once per run, in the widget | Demo and Live |
 | L3 | **Unattended** execution of due plans | Nobody; the policy engine is the only gate | **Demo only**, opt-in |
 
-Live never runs unattended. That is enforced in code (`src/core/automation.ts`): a Live plan cannot be saved or updated with `autoExecute`, and the scheduler only executes plans whose environment is `demo` while `AUTOMATION_DEMO_ENABLED=true`.
+Live never places an order unattended. That is enforced in code (`src/core/automation.ts`): a Live plan cannot be saved or updated with `autoExecute`, and the scheduler only executes plans whose environment is `demo` while `AUTOMATION_DEMO_ENABLED=true`.
+
+The one unattended write the scheduler makes on Live is a **cancellation**: after one half of a linked stop-loss / take-profit pair fills, it cancels the other half (see below). That can only remove an order that would sell shares you no longer hold.
+
+## Second confirmation for Live
+
+A Live order or Live basket needs two explicit steps in the widget: tick "I understand this sends a real order with real money" and then press the red confirm button. The server enforces it too. `app_execute_order` and `app_execute_basket` refuse a Live token without `liveAcknowledged: true` (`LIVE_ACK_REQUIRED`). The token is left unused, so you can tick the box and confirm again. Demo orders keep the single confirmation.
 
 Why L3 stops at Demo:
 
@@ -64,14 +70,19 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 `review_protective_orders` drafts a **Stop** sell below the current price, a **Limit** sell above it, or both, as Good-Till-Cancel orders. After you confirm, they live at Trading 212, which triggers them without TradePilot.
 
-- The two orders are **not linked** (not one-cancels-other). When one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares.
+- Trading 212 has no one-cancels-other order, so TradePilot **links the pair** itself (`src/core/protective-links.ts`). Every scheduler tick (once a minute) reads the order book. When one half has left it, the tick reads recent order history:
+  - **filled** (fully or partly): the other half is cancelled, once. An unclear cancel result is logged, never retried;
+  - **cancelled, rejected or expired without a fill:** the link is dropped and the other half stays;
+  - **not in history yet:** the tick waits for the next one.
+- Between a fill and the next tick (up to about a minute) both orders exist. A fast market can fill the second in that window. If Trading 212 already reserved the shares for the first order, it rejects the second order when the pair is placed, and only the first one is placed.
+- Set `PROTECTIVE_OCO=false` to place unlinked orders.
 - A triggered Stop becomes a Market order and can fill below the stop price on a gap.
 
 ## Standing plans (L2 and L3)
 
 `manage_investment_plans` creates, updates, pauses and deletes plans. A plan lists up to 10 legs, each a ticker and an amount in the account currency. It runs weekly on a weekday or monthly on a day from 1 to 28, at an hour in UTC (default 15:00, which falls inside both the US and the main EU sessions). Saving a plan places no order. `list_investment_plans` shows each plan's next due time and last outcome.
 
-A scheduler tick runs every 15 minutes: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. At each tick:
+A scheduler tick runs every minute: a Cron Trigger on Cloudflare, or an interval in the Node and stdio servers. It first settles linked protective orders, then handles plans that are due:
 
 - **A due Live plan, or a Demo plan without `autoExecute`:** the tick writes one `plan_due` activity event for that due date. Open the plan with `review_investment_plan` (or ask "run my monthly plan") and confirm the basket as usual. The plan moves to its next date once a run sends at least one order.
 - **A due Demo plan with `autoExecute` while `AUTOMATION_DEMO_ENABLED=true`:** the tick builds the basket, runs the full validation and policy, and sends it. A short lock stops overlapping ticks from sending twice.

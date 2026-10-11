@@ -23,7 +23,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
 - target-weight rebalancing that sizes the trades from broker prices and available cash
-- broker-native stop-loss and take-profit orders (Good-Till-Cancel)
+- broker-native stop-loss and take-profit orders (Good-Till-Cancel), linked so that when one fills TradePilot cancels the other
 - weekly or monthly investment plans that wait for your confirmation when due; Demo plans can optionally run unattended
 - a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states
@@ -198,11 +198,11 @@ See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 | Level | What it does | Confirmation |
 |---|---|---|
 | L0 | Scheduled read-only briefs and analytics | none needed |
-| L1 | Broker-native stop-loss / take-profit orders | once, when placed |
+| L1 | Broker-native stop-loss / take-profit orders, linked so a fill cancels the other | once, when placed |
 | L2 | Investment plans: due runs are announced and opened as a basket | once per run |
 | L3 | Unattended runs of due plans | **Demo only**, opt-in with `AUTOMATION_DEMO_ENABLED=true` |
 
-Live never runs unattended; that is enforced in code, not configuration. Research and news stay in a scheduled ChatGPT or Claude task. See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
+Live never places an order unattended; that is enforced in code, not configuration. The only unattended Live write is cancelling the other half of a stop-loss / take-profit pair after one fills (turn off with `PROTECTIVE_OCO=false`). Live orders and baskets also need a second, explicit confirmation that real money is used. Research and news stay in a scheduled ChatGPT or Claude task. See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
 
 ## Configuration
 

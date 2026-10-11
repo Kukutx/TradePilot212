@@ -37,6 +37,8 @@ The repository's `.gitignore` excludes these files. Run `pnpm release:check` bef
 
 - A policy engine (`POLICY_*`, binding Live by default) can cap position weight, daily orders and daily value, restrict tickers and instrument types, and block Market orders while a market is closed. It runs at review and again before every write, including each leg of a basket.
 - Baskets are confirmed once with a one-time token; an uncertain leg stops the remaining legs.
+- Live orders and baskets need a second, explicit acknowledgement that real money is used; the server rejects a Live execution without it and keeps the token unused.
+- Linked stop-loss / take-profit pairs: after one half fills, the scheduler cancels the other. This cancellation is the only unattended Live write, it is sent once and never retried, and `PROTECTIVE_OCO=false` disables it.
 - Unattended execution exists only for Demo investment plans, only with `AUTOMATION_DEMO_ENABLED=true`, and goes through the same validation and policy. Live plans cannot be marked for unattended runs; this is enforced in code.
 
 These controls reduce accidental execution risk; they do not eliminate market, broker, API or operational risk.

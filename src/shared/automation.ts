@@ -153,3 +153,12 @@ export interface PlanRunReport {
   message: string;
   result?: BasketExecutionResult;
 }
+
+/** A stop-loss and take-profit pair; when one fills, the scheduler cancels the other. */
+export interface ProtectiveLink {
+  id: string;
+  environment: TradingEnvironment;
+  ticker: string;
+  orders: [{ orderId: string; role: "stop_loss" | "take_profit" }, { orderId: string; role: "stop_loss" | "take_profit" }];
+  createdAt: string;
+}

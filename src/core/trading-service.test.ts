@@ -89,6 +89,7 @@ function config(): RuntimeConfig {
     defaultTradingEnvironment: "demo",
     policy: createConfig({}).policy,
     demoAutomationEnabled: false,
+    protectiveLinking: true,
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },

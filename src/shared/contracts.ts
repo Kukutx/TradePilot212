@@ -23,6 +23,7 @@ export type TradePilotErrorCode =
   | "CONFIRMATION_EXPIRED"
   | "VERIFICATION_NOT_FOUND"
   | "POLICY_BLOCKED"
+  | "LIVE_ACK_REQUIRED"
   | "PLAN_NOT_FOUND"
   | "BROKER_RATE_LIMITED"
   | "BROKER_REQUEST_FAILED"
@@ -117,7 +118,10 @@ export type ActivityType =
   | "basket_submitted"
   | "plan_due"
   | "plan_auto_executed"
-  | "plan_skipped";
+  | "plan_skipped"
+  | "protective_linked"
+  | "protective_sibling_cancelled"
+  | "protective_unlinked";
 
 export interface ActivityEvent {
   id: string;

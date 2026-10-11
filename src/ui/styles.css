@@ -598,3 +598,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .sideBadge, .resultBadge { margin-left: 41px; }
   .basketCount { font-size: 24px; }
 }
+
+/* Second confirmation for Live writes */
+.liveAck { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--tp-red) 35%, transparent); border-radius: 12px; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.liveAck input { margin-top: 2px; flex: none; width: 16px; height: 16px; }

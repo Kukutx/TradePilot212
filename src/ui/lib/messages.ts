@@ -27,6 +27,7 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
     case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
+    case "LIVE_ACK_REQUIRED": return t("errorLiveAckRequired");
     case "INVALID_INPUT": return problem.message;
     default: return problem.message || t("errorInternal");
   }
@@ -97,6 +98,9 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "plan_due": return t("activityPlanDue");
     case "plan_auto_executed": return t("activityPlanAutoExecuted");
     case "plan_skipped": return t("activityPlanSkipped");
+    case "protective_linked": return t("activityProtectiveLinked");
+    case "protective_sibling_cancelled": return t("activityProtectiveCancelled");
+    case "protective_unlinked": return t("activityProtectiveUnlinked");
     default: return String((event as ActivityEvent).type);
   }
 }

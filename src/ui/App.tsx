@@ -360,13 +360,13 @@ export default function App() {
     }
   }
 
-  async function confirmOrder(): Promise<void> {
+  async function confirmOrder(liveAcknowledged = false): Promise<void> {
     if (!preview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = preview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode });
+      const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
       setExecution(result);
       setVerification(null);
       setPreview(null);
@@ -412,13 +412,13 @@ export default function App() {
     }
   }
 
-  async function confirmBasket(): Promise<void> {
+  async function confirmBasket(liveAcknowledged = false): Promise<void> {
     if (!basketPreview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = basketPreview["token"];
-      const result = await callTool<BasketExecutionResult>("app_execute_basket", { ["token"]: confirmationCode });
+      const result = await callTool<BasketExecutionResult>("app_execute_basket", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
       setBasketResult(result);
       setBasketVerifications({});
     } catch (requestError) {
@@ -647,7 +647,7 @@ export default function App() {
           onRemoveLeg={(index) => { if (!basketPreview && !basketResult) setBasketLegs((current) => current.filter((_, i) => i !== index)); }}
           onReview={() => void reviewBasket()}
           onBack={() => setBasketPreview(null)}
-          onConfirm={() => void confirmBasket()}
+          onConfirm={(liveAcknowledged) => void confirmBasket(liveAcknowledged)}
           onClose={() => void closeBasket()}
           onVerify={(id) => void verifyBasketLeg(id)}
         />
@@ -675,7 +675,7 @@ export default function App() {
           t={t}
           busy={status === "loading"}
           onBack={() => setPreview(null)}
-          onConfirm={() => void confirmOrder()}
+          onConfirm={(liveAcknowledged) => void confirmOrder(liveAcknowledged)}
         />
       )}
 
