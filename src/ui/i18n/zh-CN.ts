@@ -266,6 +266,7 @@ export const zhCN: Record<MessageKey, string> = {
   holdingNoFills: "近 12 个月没有成交。",
   holdingRealized: "已实现 {amount}",
   holdingHistoryTruncated: "更早的记录没有读取。",
+  holdingDividendsTruncated: "更早的派息没有读取，合计只含较新的部分。",
   holdingDividendsTitle: "近 12 个月股息",
   holdingDividendsTotal: "共 {total}",
   holdingNoDividends: "近 12 个月没有股息。",

@@ -264,6 +264,7 @@ export const en = {
   holdingNoFills: "No fills in the last 12 months.",
   holdingRealized: "Realized {amount}",
   holdingHistoryTruncated: "Older records weren't read.",
+  holdingDividendsTruncated: "Older payments weren't read, so the total covers only the newer ones.",
   holdingDividendsTitle: "Dividends, last 12 months",
   holdingDividendsTotal: "{total} in total",
   holdingNoDividends: "No dividends in the last 12 months.",

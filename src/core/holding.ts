@@ -95,7 +95,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             })),
             dividendTotal: history[1].totals.DIVIDEND ?? 0,
             dividendCount: history[1].count,
-            truncated: history[0].truncated || history[1].truncated,
+            fillsTruncated: history[0].truncated,
+            dividendsTruncated: history[1].truncated,
           },
         }
       : { historyProblem: history.message }),

@@ -37958,8 +37958,8 @@ function holding(data) {
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...history ? [
-      ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.truncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
-      `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}.`
+      ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+      `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
 }
@@ -38335,7 +38335,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
         })),
         dividendTotal: history[1].totals.DIVIDEND ?? 0,
         dividendCount: history[1].count,
-        truncated: history[0].truncated || history[1].truncated
+        fillsTruncated: history[0].truncated,
+        dividendsTruncated: history[1].truncated
       }
     } : { historyProblem: history.message },
     timestamp: (/* @__PURE__ */ new Date()).toISOString()

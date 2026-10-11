@@ -50,6 +50,25 @@ describe("holding detail", () => {
     expect(describePayload(detail)).toMatch(/^Not held\.$/m);
   });
 
+  it("says which history ran out of pages, so a partial dividend total is not read as the year's", async () => {
+    const services = sample();
+    const cash = services.insights.cashHistory.bind(services.insights);
+    services.insights.cashHistory = async (...args) => ({ ...(await cash(...args)), truncated: true });
+    const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");
+    expect(detail.history).toMatchObject({ fillsTruncated: false, dividendsTruncated: true });
+    const text = describePayload(detail);
+    expect(text).toMatch(/older payments were not read, so the total covers only the newer part of the window\./);
+    expect(text).not.toMatch(/Fills since .*more not read/);
+  });
+
+  it("shows the saved target of an instrument that is not held", async () => {
+    const services = sample();
+    await services.targets.set("demo", { targets: [{ instrument: "TSLA_US_EQ", weight: 0.05 }] });
+    const detail = await holdingDetail(services, "demo", "TSLA_US_EQ");
+    expect(detail.targetWeight).toBe(0.05);
+    expect(describePayload(detail)).toMatch(/^Not held; target 5%\.$/m);
+  });
+
   it("keeps the rest when the history cannot be read", async () => {
     const services = sample();
     services.insights.tradeHistory = async () => { throw new Error("Trading 212 rate limit reached (429)"); };

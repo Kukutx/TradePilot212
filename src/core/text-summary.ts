@@ -192,8 +192,8 @@ function holding(data: HoldingDetail): string[] {
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...(history
       ? [
-          ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.truncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
-          `Dividends since ${history.from.slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}.`,
+          ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+          `Dividends since ${history.from.slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
         ]
       : [`History not read: ${data.historyProblem ?? "unknown error"}.`]),
   ];

@@ -54,8 +54,10 @@ export interface HoldingDetail {
     /** Dividends received in the window, in the account currency, and how many payments; `dividends` lists the newest. */
     dividendTotal: number;
     dividendCount: number;
-    /** The page budget ended before the window start, so older records are missing. */
-    truncated: boolean;
+    /** The page budget ended before the window start, so older fills are missing. */
+    fillsTruncated: boolean;
+    /** The same for dividends; dividendTotal and dividendCount then cover only the newer part of the window. */
+    dividendsTruncated: boolean;
   };
   /** Why the history is missing, e.g. Trading 212's rate limit; everything else is still current. */
   historyProblem?: string;

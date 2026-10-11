@@ -538,6 +538,8 @@ export default function App() {
       setVerification(null);
       setPreview(null);
       setDraft(null);
+      // The saved dashboard no longer matches the account; Back from a holding reads it again.
+      setHoldingFrom(null);
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -664,6 +666,7 @@ export default function App() {
       setVerification(null);
       setCancelPreview(null);
       if (base?.kind === "cancel_draft") setCancelDraftClosed(true);
+      setHoldingFrom(null);
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -673,6 +676,7 @@ export default function App() {
     const verificationId = execution.verificationId;
     const checked = await run("errorTitleVerify", async () => {
       setVerification(await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId }));
+      setHoldingFrom(null);
     });
     if (checked) await refresh(environment, "holdings");
   }
@@ -838,6 +842,7 @@ export default function App() {
                 locale={locale}
                 t={t}
                 writeEnabled={writeEnabled}
+                busy={loading}
                 onBack={() => void backFromHolding()}
                 onCancel={(id) => void startCancel(id)}
                 onTrade={(side) => {

@@ -69,6 +69,7 @@ export function HoldingView({
   locale,
   t,
   writeEnabled,
+  busy = false,
   onBack,
   onTrade,
   onCancel,
@@ -78,6 +79,8 @@ export function HoldingView({
   locale: SupportedLocale;
   t: Translator;
   writeEnabled: boolean;
+  /** While a read or write is running, Back waits so the result can't replace the page it returns to. */
+  busy?: boolean;
   onBack: () => void;
   onTrade: (side: "buy" | "sell") => void;
   onCancel: (orderId: string) => void;
@@ -94,7 +97,7 @@ export function HoldingView({
   const share = data.weight === undefined ? "—" : data.targetWeight === undefined ? pct(data.weight, locale) : `${pct(data.weight, locale)} / ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`;
   return (
     <main className="contentStack">
-      <nav className="holdingNav"><button type="button" className="linkButton" onClick={onBack}>‹ {t("backToHoldings")}</button></nav>
+      <nav className="holdingNav"><button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {t("backToHoldings")}</button></nav>
 
       <section className="overviewPanel holdingHero">
         <div className="overviewLead">
@@ -108,7 +111,7 @@ export function HoldingView({
                 {t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}{cost && pnl !== undefined ? ` (${pct(pnl / cost, locale, 1, { signed: true })})` : ""}
               </div>
             </>
-          ) : <div className="pnlBadge">{t("notHeld")}</div>}
+          ) : <div className="pnlBadge">{t("notHeld")}{data.targetWeight === undefined ? "" : ` · ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`}</div>}
           {writeEnabled && (
             <div className="holdingActions">
               <button type="button" className="primaryButton" onClick={() => onTrade("buy")}>{t("buy")}</button>
@@ -155,7 +158,7 @@ export function HoldingView({
 
       {data.history ? (
         <>
-          <FillsPanel fills={data.history.fills} truncated={data.history.truncated} locale={locale} t={t} />
+          <FillsPanel fills={data.history.fills} truncated={data.history.fillsTruncated} locale={locale} t={t} />
           <section className="dataPanel">
             <div className="pieHeader">
               <h2>{t("holdingDividendsTitle")}</h2>
@@ -171,6 +174,7 @@ export function HoldingView({
                 ))}
               </ul>
             )}
+            {data.history.dividendsTruncated && <p className="panelNote">{t("holdingDividendsTruncated")}</p>}
           </section>
         </>
       ) : (
