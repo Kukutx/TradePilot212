@@ -393,10 +393,10 @@ export default function App() {
   }
 
   /** Plan a rebalance from the saved targets; the trades open as a basket to review, nothing is sent. */
-  async function rebalanceToTargets(): Promise<void> {
+  async function rebalanceToTargets(buyOnly = false): Promise<void> {
     await run("errorTitleRebalance", async () => {
-      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment }));
-    }, () => void rebalanceToTargets());
+      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment, ...(buyOnly ? { buyOnly } : {}) }));
+    }, () => void rebalanceToTargets(buyOnly));
   }
 
   async function loadInsight(kind: InsightKind, env = environment, range = period): Promise<void> {
@@ -775,7 +775,7 @@ export default function App() {
             )}
             {tab === "allocation" && insights.allocation && (
               <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
-                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets() } : {})} />
+                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})} />
             )}
             {tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />

@@ -25,7 +25,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - market-hours awareness, including a warning when a Market order would queue until the next open
 - a policy engine: position-weight cap, daily order and value budgets, ticker and instrument-type lists, closed-market Market-order blocking, reference-price age ([docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine))
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
-- target-weight rebalancing that sizes the trades from broker prices and available cash; saved targets show their drift in the widget, notify when it grows past a threshold and rebalance in one click ([docs/AUTOMATION.md](./docs/AUTOMATION.md#saved-targets-and-drift-notices))
+- target-weight rebalancing that sizes the trades from broker prices and available cash; saved targets show their drift in the widget, notify when it grows past a threshold and rebalance in one click, or invest spare cash in the underweight targets without selling ([docs/AUTOMATION.md](./docs/AUTOMATION.md#saved-targets-and-drift-notices))
 - broker-native stop-loss and take-profit orders (Good-Till-Cancel), linked so that when one fills TradePilot cancels the other
 - fill notices for open orders, including ones placed in the Trading 212 app: filled (with the average price), partly filled, or closed without a fill, in the activity log and to the webhook ([docs/AUTOMATION.md](./docs/AUTOMATION.md#order-fill-notices))
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs, or one amount split across your saved targets so the most underweight holdings get the most; Demo plans can optionally run unattended

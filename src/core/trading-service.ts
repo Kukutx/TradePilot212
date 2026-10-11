@@ -950,7 +950,7 @@ export class TradingService {
       kind: "basket_draft",
       environment: plan.environment,
       purpose: "rebalance",
-      title: "Rebalance",
+      title: plan.buyOnly ? "Invest cash by targets" : "Rebalance",
       legs: plan.trades.map((trade) => ({
         // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
         draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...(trade.priceAt ? { referencePriceAt: trade.priceAt } : {}) },

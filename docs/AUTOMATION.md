@@ -62,6 +62,7 @@ Protective baskets are the exception to cumulative checks. A stop-loss and a tak
 - Buys share the cash above an optional `cashWeight` reserve, in proportion to how far each is below its target. When cash is short they are scaled down, and the plan says so.
 - Trades smaller than `minTradeValue` are dropped. `wholeSharesOnly` disables fractional quantities.
 - Holdings without a target are left alone unless `sellUntargeted` is set.
+- With `buyOnly`, nothing is sold. Only the cash above the reserve is invested, in the targets below their weight and most in the furthest below; overweight holdings stay as they are. `investAmount` caps the amount (and implies `buyOnly`), for example to invest a deposit and no more. When less cash is free than asked, the plan says so.
 - An instrument you do not hold is priced from the external quote source when it can map it; otherwise it needs a `referencePrice` (add `referencePriceAt` so the review can check its age). An instrument quoted in another currency is converted at the rate implied by a holding in that currency (pence and pounds at 100:1), else at the quote source's rate; with neither it needs an `fxRates` entry. Otherwise it is listed under `skipped` with the reason.
 
 The math is pure and tested (`src/core/rebalance.ts`), so the model never computes order sizes in its head.
@@ -70,8 +71,8 @@ The math is pure and tested (`src/core/rebalance.ts`), so the model never comput
 
 `manage_target_allocation` saves target weights for an environment (`set`), shows them with today's drift (`get`) and removes them (`clear`). Weights are shares of total account value; `cashWeight` is the share meant to stay in cash and defaults to whatever the targets leave over. `sellUntargeted` says whether a rebalance to these targets sells holdings that have none (default: they are kept, and then they do not count as drift). Once targets are saved:
 
-- `analyze_portfolio_allocation` and the widget's Allocation tab show each target and cash against today's weight, with the drift in percentage points. Holdings without a target are listed but do not count.
-- `plan_portfolio_rebalance` without `targets` uses the saved ones, their cash weight and their `sellUntargeted` choice. In the widget, **Rebalance to targets** opens that plan as a basket to review; nothing is sent until you confirm it.
+- `analyze_portfolio_allocation` and the widget's Allocation tab show each target and cash against today's weight, with the drift in percentage points. Holdings without a target are listed; they count toward the drift only when `sellUntargeted` is set.
+- `plan_portfolio_rebalance` without `targets` uses the saved ones, their cash weight and their `sellUntargeted` choice. In the widget, **Rebalance to targets** opens that plan as a basket to review. When cash is above its target, **Invest spare cash** opens the buy-only version, which sells nothing. Nothing is sent until you confirm the basket.
 - The scheduler compares the account with the targets about once an hour. While any target or cash is more than `driftThreshold` (default `0.05`, 5 points) away, it writes an `allocation_drift` activity event and sends it to the webhook, at most once a day.
 
 Targets only inform; they never place orders, so they work without order tools.

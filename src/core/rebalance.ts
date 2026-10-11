@@ -12,8 +12,12 @@ export interface RebalanceOptions {
   cashWeight?: number;
   /** Skip trades smaller than this, in the account currency. */
   minTradeValue?: number;
-  /** Sell holdings that have no target down to zero. */
+  /** Sell holdings that have no target down to zero. Ignored with buyOnly. */
   sellUntargeted?: boolean;
+  /** Sell nothing: invest only the cash above the reserve, in the targets below their weight. */
+  buyOnly?: boolean;
+  /** With buyOnly, invest at most this much, in the account currency. */
+  investAmount?: number;
   /** Decimal places allowed for quantities; 0 means whole shares only. */
   quantityDecimals?: number;
   /** Instrument-currency units per 1 account-currency unit, keyed by currency code. */
@@ -58,6 +62,8 @@ export function planRebalance(
   if (!accountCurrency || totalValue <= 0) fail("INVALID_INPUT", "The account value is unavailable, so a rebalance cannot be computed");
 
   const cashWeight = options.cashWeight ?? 0;
+  const buyOnly = !!options.buyOnly || options.investAmount !== undefined;
+  if (options.investAmount !== undefined && !(options.investAmount > 0)) fail("INVALID_INPUT", "investAmount must be a positive amount in the account currency", { field: "investAmount" });
   const minTradeValue = options.minTradeValue ?? 1;
   const decimals = options.quantityDecimals ?? 4;
   const targetSum = targets.reduce((sum, target) => sum + target.weight, 0);
@@ -79,7 +85,7 @@ export function planRebalance(
   const skipped: RebalancePlan["skipped"] = [];
   const byTicker = new Map(positions.map((position) => [position.instrument.ticker.toUpperCase(), position]));
   const wanted = new Map(targets.map((target) => [target.ticker.toUpperCase(), target]));
-  if (options.sellUntargeted) {
+  if (options.sellUntargeted && !buyOnly) {
     for (const position of positions) {
       const key = position.instrument.ticker.toUpperCase();
       if (!wanted.has(key) && position.quantity > 0) wanted.set(key, { ticker: position.instrument.ticker, weight: 0 });
@@ -131,7 +137,7 @@ export function planRebalance(
   let cash = cashBefore;
 
   // Sells first: they fund the buys.
-  for (const line of lines) {
+  for (const line of buyOnly ? [] : lines) {
     const excess = line.currentValue - line.targetWeight * totalValue;
     if (excess < minTradeValue) continue;
     const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
@@ -150,9 +156,13 @@ export function planRebalance(
     .map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue }))
     .filter((item) => item.gap >= minTradeValue);
   const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
-  const budget = Math.max(0, cash - reserve);
+  const available = Math.max(0, cash - reserve);
+  const budget = options.investAmount === undefined ? available : Math.min(options.investAmount, available);
+  if (buyOnly) note("buy_only", `Nothing is sold: up to ${money(budget)} ${accountCurrency} of the cash above the reserve goes to the targets below their weight, most to the furthest below.`, { budget: money(budget), currency: accountCurrency });
+  if (options.investAmount !== undefined && options.investAmount > available + 0.005) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  if (wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  // In buy-only mode the buy_only note already gives the amount being invested.
+  if (!buyOnly && wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
@@ -176,6 +186,7 @@ export function planRebalance(
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else if (wantedCash > 0 && scale === 0) note("no_cash", `Some targets are below their weight, but no cash is available above the reserve to buy with${buyOnly ? " and nothing is sold" : ""}.`);
     else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
   }
   note("price_source", "Prices are the broker's last position prices, quotes from the quote source, or the reference prices you supplied; Market orders can fill elsewhere.");
@@ -187,6 +198,7 @@ export function planRebalance(
     totalValue: money(totalValue),
     cashBefore: money(cashBefore),
     cashAfter: money(cash),
+    ...(buyOnly ? { buyOnly: true } : {}),
     trades,
     skipped,
     notes,

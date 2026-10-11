@@ -335,6 +335,15 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
     }
     case "implied_rates": return fill(t("rebalanceNoteImplied"), { currencies: String(value("currencies") ?? "") });
     case "quoted_rates": return fill(t("rebalanceNoteQuoted"), { currencies: String(value("currencies") ?? ""), source: String(value("source") ?? ""), asOf: dateTime(String(value("asOf") ?? ""), locale) });
+    case "buy_only": {
+      const currency = String(value("currency") ?? "");
+      return fill(t("rebalanceNoteBuyOnly"), { budget: amount(Number(value("budget")), currency || undefined, locale) });
+    }
+    case "amount_capped": {
+      const currency = String(value("currency") ?? "") || undefined;
+      return fill(t("rebalanceNoteCapped"), { available: amount(Number(value("available")), currency, locale), amount: amount(Number(value("amount")), currency, locale) });
+    }
+    case "no_cash": return t("rebalanceNoteNoCash");
     case "nothing_possible": return t("rebalanceNoteNothing");
     case "within_threshold": return t("rebalanceNoteWithin");
     case "price_source": return t("rebalanceNotePrices");
@@ -370,6 +379,7 @@ type BasketShape = Pick<BasketDraftPayload, "purpose" | "title"> & { legs: Baske
 export function basketTitle(basket: BasketShape, t: Translator, book?: InstrumentBook): string {
   const title = basket.title.trim();
   if (basket.purpose === "rebalance" && (title === "Rebalance" || !title)) return t("basketTitleRebalance");
+  if (basket.purpose === "rebalance" && title === "Invest cash by targets") return t("basketTitleInvestCash");
   if (basket.purpose === "protective" && (title.startsWith("Protect ") || !title)) {
     const leg = basket.legs[0];
     const name = leg ? instrumentLabel(leg.draft.ticker, book, leg.instrument).name : title.slice("Protect ".length);
