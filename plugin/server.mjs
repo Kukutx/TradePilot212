@@ -34405,9 +34405,16 @@ function parseSymbolMap(raw) {
   for (const entry of raw.split(/[\s,]+/).filter(Boolean)) {
     const [ticker, symbol2] = entry.split("=");
     if (!ticker || !symbol2) throw new Error(`QUOTE_SYMBOLS entry "${entry}" must look like TICKER=SYMBOL`);
+    if (symbol2.includes("*") && !symbolScale(symbol2.trim())) throw new Error(`QUOTE_SYMBOLS entry "${entry}": the factor after * must be a positive number`);
     map2.set(ticker.trim().toUpperCase(), symbol2.trim());
   }
   return map2;
+}
+function symbolScale(mapped) {
+  const [symbol2, factor] = mapped.split("*");
+  if (factor === void 0) return symbol2 ? { symbol: symbol2, factor: 1 } : void 0;
+  const value = Number(factor);
+  return symbol2 && Number.isFinite(value) && value > 0 ? { symbol: symbol2, factor: value } : void 0;
 }
 var positive = (value) => {
   const number4 = typeof value === "string" ? Number(value) : value;
@@ -34500,9 +34507,13 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
     return rate;
   };
-  const symbolFor = (instrument) => {
+  const mapping = (instrument) => {
     const mapped = config3.quoteSymbols.get(instrument.ticker.toUpperCase());
-    if (mapped) return mapped;
+    return mapped ? symbolScale(mapped) : void 0;
+  };
+  const symbolFor = (instrument) => {
+    const mapped = mapping(instrument);
+    if (mapped) return mapped.symbol;
     const us = usSymbol(instrument.ticker);
     if (!us) return void 0;
     return name === "stooq" ? `${us}.US` : us;
@@ -34513,16 +34524,18 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     async quote(instrument) {
       const symbol2 = symbolFor(instrument);
       if (!symbol2) return void 0;
-      const cached2 = cache.get(symbol2);
+      const factor = mapping(instrument)?.factor ?? 1;
+      const key = `${symbol2}*${factor}`;
+      const cached2 = cache.get(key);
       if (cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
       let quote;
       try {
         const result2 = await fetchQuote(symbol2);
-        if (result2) quote = { ticker: instrument.ticker, symbol: symbol2, price: result2.price, asOf: result2.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), source: name };
+        if (result2) quote = { ticker: instrument.ticker, symbol: symbol2, price: Math.round(result2.price * factor * 1e6) / 1e6, asOf: result2.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), source: name };
       } catch (error62) {
         console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
-      cache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, quote });
+      cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
     },
     async fxRate(from, to) {
@@ -37123,14 +37136,16 @@ var AutomationService = class {
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
         const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED" || notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable"));
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
-        await this.deps.store.put(planKey(plan.id), { ...latest, inFlightDueAt: latest.nextRunAt });
+        const current = await this.deps.store.get(planKey(plan.id));
+        if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result2.legs.length, outcome: result2.status });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result2.message, result: result2 });
       } catch (error62) {
-        const message = asStructuredError(error62).message;
-        if (marked) {
+        const { code, message } = asStructuredError(error62);
+        if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
           const current = await this.deps.store.get(planKey(plan.id));
           if (current?.inFlightDueAt) {
             const { inFlightDueAt: _f, ...rest } = current;
@@ -37395,7 +37410,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.12.1"
+  version: "2.13.0"
 };
 
 // src/core/text-summary.ts
