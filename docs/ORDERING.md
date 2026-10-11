@@ -105,4 +105,4 @@ MAX_ORDER_QUANTITY=100000
 
 `DEFAULT_TRADING_ENV` applies only when the request does not explicitly select Demo or Live.
 
-Set either application-level cap to `0` to disable that specific TradePilot limit. Trading 212 instrument/account constraints and explicit confirmation still apply.
+`MAX_ORDER_NOTIONAL` is in the account currency; an order in another currency is converted at the rate implied by your holdings, or at the quote source's rate for a currency none of them is priced in. With no rate at all the order is blocked while the cap is on; pass `fxRate` with `fxRateAt` from a dated source. Set either application-level cap to `0` to disable that specific TradePilot limit. Trading 212 instrument/account constraints and explicit confirmation still apply.

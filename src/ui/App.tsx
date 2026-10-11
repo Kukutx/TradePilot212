@@ -23,7 +23,7 @@ import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type SupportedLocale } from "./i18n";
 import { Icon } from "./components/common";
 import { formatProblem, verificationText } from "./lib/messages";
-import { ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
+import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
 import { PortfolioView } from "./views/PortfolioView";
 import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
@@ -513,13 +513,13 @@ export default function App() {
     }
   }
 
-  async function confirmCancel(): Promise<void> {
+  async function confirmCancel(liveAcknowledged = false): Promise<void> {
     if (!cancelPreview) return;
     setStatus("loading");
     setErrorMessage(null);
     try {
       const confirmationCode = cancelPreview["token"];
-      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode });
+      const result = await callTool<OrderExecutionResult>("app_execute_cancel", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
       setExecution(result);
       setVerification(null);
       setCancelPreview(null);
@@ -577,32 +577,38 @@ export default function App() {
         </div>
 
         <div className="headerActions">
-          <div className="environmentSwitch" aria-label={t("environment")}>
+          <div className="environmentSwitch" role="group" aria-label={t("environment")}>
             <button
               type="button"
               className={environment === "demo" ? "active" : ""}
+              aria-pressed={environment === "demo"}
+              title={credentials.demo ? t("credentialsReady") : t("credentialsMissing")}
               onClick={() => void switchEnvironment("demo")}
               disabled={status === "loading" || basketActive}
             >
-              <span className={`statusDot ${credentials.demo ? "ready" : ""}`} />
+              <span className={`statusDot ${credentials.demo ? "ready" : ""}`} aria-hidden="true" />
               {t("demo")}
+              {!credentials.demo && <span className="visuallyHidden"> ({t("credentialsMissing")})</span>}
             </button>
             <button
               type="button"
               className={environment === "live" ? "active live" : "live"}
+              aria-pressed={environment === "live"}
+              title={credentials.live ? t("credentialsReady") : t("credentialsMissing")}
               onClick={() => void switchEnvironment("live")}
               disabled={status === "loading" || basketActive}
             >
-              <span className={`statusDot ${credentials.live ? "ready" : ""}`} />
+              <span className={`statusDot ${credentials.live ? "ready" : ""}`} aria-hidden="true" />
               {t("live")}
+              {!credentials.live && <span className="visuallyHidden"> ({t("credentialsMissing")})</span>}
             </button>
           </div>
 
-          <div className="languageControl" title={t("language")}>
+          <div className="languageControl" role="group" aria-label={t("language")} title={t("language")}>
             <Icon name="globe" />
-            <button className={locale === "zh-CN" ? "active" : ""} onClick={() => changeLocale("zh-CN")}>中文</button>
-            <span>/</span>
-            <button className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
+            <button type="button" lang="zh-CN" aria-pressed={locale === "zh-CN"} className={locale === "zh-CN" ? "active" : ""} onClick={() => changeLocale("zh-CN")}>中文</button>
+            <span aria-hidden="true">/</span>
+            <button type="button" lang="en" aria-pressed={locale === "en"} className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
           </div>
 
           {canToggleFullscreen && (
@@ -759,13 +765,14 @@ export default function App() {
       {cancelPreview && (
         <ConfirmModal
           title={cancelPreview.environment === "live" ? t("confirmCancelTitleLive") : t("confirmCancelTitleDemo")}
-          body={`${t("order")} ${cancelPreview.orderId}`}
+          body={cancelDescription(cancelPreview, t, locale)}
           danger={cancelPreview.environment === "live"}
           confirmLabel={t("confirmCancel")}
           busy={status === "loading"}
           t={t}
+          {...(cancelPreview.environment === "live" ? { acknowledgement: t("liveCancelAckLabel") } : {})}
           onCancel={() => setCancelPreview(null)}
-          onConfirm={() => void confirmCancel()}
+          onConfirm={(acknowledged) => void confirmCancel(acknowledged)}
         />
       )}
     </div>

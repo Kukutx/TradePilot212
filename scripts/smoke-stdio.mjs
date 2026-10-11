@@ -44,9 +44,9 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "get_quote", "get_automation_overview"])
+for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "get_quote", "get_automation_overview"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
-if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || ["manage_investment_plans", "manage_price_alerts"].includes(name)))
+if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
 const writable = await listTools({ TRADEPILOT_ALLOW_WRITES: "true" });
 if (!["app_execute_order", "app_execute_basket", "app_execute_pie_change", "manage_investment_plans", "manage_price_alerts", "review_protective_orders", "review_pie_change"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
@@ -55,5 +55,8 @@ const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY
 const [dashboard, live] = sample.results;
 if (dashboard.isError || !dashboard.structuredContent?.credentials?.sample || !(dashboard.structuredContent.positions?.length > 0)) throw new Error(`Sample dashboard failed: ${JSON.stringify(dashboard).slice(0, 300)}`);
 if (!live.isError && live.structuredContent?.credentials?.live) throw new Error("Live must stay off in sample mode");
+// Hosts that show only text get the holdings in the tool text too.
+const text = dashboard.content?.map((item) => item.text ?? "").join("\n") ?? "";
+if (!dashboard.structuredContent.positions.every((position) => text.includes(position.instrument.ticker))) throw new Error(`Dashboard text lacks the holdings: ${text.slice(0, 300)}`);
 await fs.rm(work, { recursive: true, force: true });
 console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled, sample data serves ${dashboard.structuredContent.positions.length} holdings`);

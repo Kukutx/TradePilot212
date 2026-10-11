@@ -1,15 +1,15 @@
 import { useState } from "react";
 import type { PolicyCheck } from "../../shared/automation";
-import type { Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
+import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon } from "../components/common";
 import { dateTime, num, money, time } from "../lib/format";
-import { noticeText, policyRuleLabel, policyStatusLabel, sizingText, type Translator } from "../lib/messages";
+import { noticeText, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, type Translator } from "../lib/messages";
 
 const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
 
 /** Policy results with an icon and a status word, so the outcome never depends on color alone. */
-export function PolicyList({ checks, t }: { checks?: PolicyCheck[]; t: Translator }) {
+export function PolicyList({ checks, t, locale }: { checks?: PolicyCheck[]; t: Translator; locale: SupportedLocale }) {
   if (!checks?.length) return null;
   const order: PolicyCheck["status"][] = ["block", "warn", "skip"];
   const flagged = checks.filter((check) => check.status !== "pass").sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
@@ -19,7 +19,7 @@ export function PolicyList({ checks, t }: { checks?: PolicyCheck[]; t: Translato
       <span className="policyGlyph" aria-hidden="true">{POLICY_GLYPH[check.status] ?? "?"}</span>
       <span className="policyCopy">
         <strong>{policyStatusLabel(check.status, t)} · {policyRuleLabel(check.rule, t)}</strong>
-        {check.message && <span>{check.message}</span>}
+        {check.message && <span>{policyMessage(check, t, locale)}</span>}
       </span>
     </li>
   );
@@ -87,11 +87,24 @@ export function OrderEditor({
           {draft.type !== "market" && <Field label={t("validity")}><select value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select></Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
         </div>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onClose}>{t("cancel")}</button><button type="button" className="primaryButton" disabled={busy} onClick={onReview}>{busy ? t("checking") : t("reviewOrder")}</button></div>
         <span className="visuallyHidden">{locale}</span>
       </section>
     </main>
   );
+}
+
+/** What a cancellation removes, e.g. "Sell 5 NVDA_US_EQ · Stop · @ 110 · Order 123". */
+export function cancelDescription(preview: CancelPreview, t: Translator, locale: SupportedLocale): string {
+  const order = preview.order;
+  if (!order?.ticker) return `${t("order")} ${preview.orderId}`;
+  const quantity = order.quantity ?? 0;
+  const sell = String(order.side ?? "").toUpperCase() === "SELL" || quantity < 0;
+  const type = String(order.type ?? "").toUpperCase();
+  const typeLabel = type === "LIMIT" ? t("limit") : type === "STOP" ? t("stop") : type === "STOP_LIMIT" ? t("stopLimit") : type === "MARKET" ? t("market") : type;
+  const price = order.limitPrice ?? order.stopPrice;
+  return [`${sell ? t("sell") : t("buy")} ${num(Math.abs(quantity), locale)} ${order.ticker}`, typeLabel, price ? `@ ${num(price, locale)}` : "", `${t("order")} ${preview.orderId}`]
+    .filter(Boolean).join(" · ");
 }
 
 /** Second, explicit step for Live writes: the confirm button stays disabled until this is ticked. */
@@ -131,23 +144,26 @@ export function OrderConfirmation({
           <span className="sectionEyebrow">{t("finalConfirmation")}</span>
           <h2>{draft.environment === "live" ? t("realOrder") : t("demoOrder")}</h2>
           <strong className="confirmationAmount">{money(preview.estimatedNotional, amountCurrency, locale)}</strong>
+          {preview.estimatedAccountNotional !== undefined && preview.accountCurrency && (
+            <span className="confirmationConverted">≈ {money(preview.estimatedAccountNotional, preview.accountCurrency, locale)} · {t("inAccountCurrency")}</span>
+          )}
         </div>
         <div className="confirmationRows">
           <DetailRow label={t("instrument")} value={`${preview.instrument.shortName || preview.instrument.name} · ${draft.ticker}`} />
           <DetailRow label={t("side")} value={draft.side === "buy" ? t("buy") : t("sell")} />
           <DetailRow label={t("type")} value={draft.type === "market" ? t("market") : draft.type === "limit" ? t("limit") : draft.type === "stop" ? t("stop") : t("stopLimit")} />
           <DetailRow label={t("quantity")} value={num(draft.quantity, locale)} />
-          {draft.limitPrice && <DetailRow label={t("limitPrice")} value={num(draft.limitPrice, locale)} />}
-          {draft.stopPrice && <DetailRow label={t("stopPrice")} value={num(draft.stopPrice, locale)} />}
+          {draft.limitPrice !== undefined && <DetailRow label={t("limitPrice")} value={money(draft.limitPrice, preview.instrument.currencyCode, locale)} />}
+          {draft.stopPrice !== undefined && <DetailRow label={t("stopPrice")} value={money(draft.stopPrice, preview.instrument.currencyCode, locale)} />}
           {draft.referencePriceAt && <DetailRow label={t("referenceAsOf")} value={dateTime(draft.referencePriceAt, locale)} />}
           {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
           <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
-        <PolicyList checks={preview.policy} t={t} />
+        <PolicyList checks={preview.policy} t={t} locale={locale} />
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
         {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button type="button" className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : draft.environment === "live" ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
   );
@@ -160,6 +176,7 @@ export function ConfirmModal({
   confirmLabel,
   busy,
   t,
+  acknowledgement,
   onCancel,
   onConfirm,
 }: {
@@ -169,14 +186,23 @@ export function ConfirmModal({
   confirmLabel: string;
   busy: boolean;
   t: Translator;
+  /** When set, a checkbox with this text must be ticked before confirming. */
+  acknowledgement?: string;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (acknowledged: boolean) => void;
 }) {
+  const [acknowledged, setAcknowledged] = useState(false);
   return (
     <main className="transactionStage">
       <section className={`transactionPanel smallDialog ${danger ? "liveTransaction" : ""}`} aria-label={title}>
         <h2>{title}</h2><p>{body}</p>
-        <div className="transactionFooter"><button className="secondaryButton" onClick={onCancel}>{t("back")}</button><button className={danger ? "dangerButton" : "primaryButton"} disabled={busy} onClick={onConfirm}>{busy ? t("processing") : confirmLabel}</button></div>
+        {acknowledgement && (
+          <label className="liveAck">
+            <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
+            <span>{acknowledgement}</span>
+          </label>
+        )}
+        <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onCancel}>{t("back")}</button><button type="button" className={danger ? "dangerButton" : "primaryButton"} disabled={busy || (!!acknowledgement && !acknowledged)} onClick={() => onConfirm(!!acknowledgement && acknowledged)}>{busy ? t("processing") : confirmLabel}</button></div>
       </section>
     </main>
   );

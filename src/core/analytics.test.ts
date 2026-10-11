@@ -119,8 +119,17 @@ describe("forward dividends", () => {
       [{ instrument, quantity: 20, quantityAvailableForTrading: 20, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 }],
       new Date("2026-10-01T00:00:00Z"),
     );
-    expect(result.byTicker).toEqual([{ key: "VUSA_EQ", amount: 20 }]);
-    expect(result.total).toBe(20);
-    expect(result.yieldOnValue).toBe(0.01);
+    // Two payments three months apart: a quarterly payer held for half a year, so the year has four.
+    expect(result.byTicker).toEqual([{ key: "VUSA_EQ", amount: 40 }]);
+    expect(result.total).toBe(40);
+    expect(result.yieldOnValue).toBe(0.02);
+  });
+
+  it("does not scale a full year of payments or a single payment", () => {
+    const instrument = { ticker: "KO_US_EQ", name: "Coca-Cola", shortName: "KO", currencyCode: "EUR" };
+    const holding = [{ instrument, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 50, currentPrice: 60 }];
+    const quarterly = ["2025-12-01", "2026-03-01", "2026-06-01", "2026-09-01"].map((day) => ({ ticker: "KO_US_EQ", amount: 5, quantity: 10, paidOn: `${day}T00:00:00Z` }));
+    expect(forwardDividends(quarterly, holding, new Date("2026-10-01T00:00:00Z")).total).toBe(20);
+    expect(forwardDividends(quarterly.slice(-1), holding, new Date("2026-10-01T00:00:00Z")).total).toBe(5);
   });
 });

@@ -10,6 +10,7 @@ import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
 import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport } from "../shared/automation.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
+import { crossRate } from "./fx.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type BasketRequest, type TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
@@ -184,23 +185,37 @@ export class AutomationService {
   async buildBasket(plan: DcaPlan, now = new Date()): Promise<BasketRequest & { skipped: string[] }> {
     const dashboard = await this.deps.trading.getDashboard(plan.environment);
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
+    const converted = new Set<string>();
     const drafts: OrderDraft[] = [];
     const skipped: string[] = [];
     const instruments = await this.deps.trading.instruments(plan.environment);
+    const find = (ticker: string) => {
+      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
+      return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
+    };
+    // Holdings imply most rates; a currency none of them is priced in takes the quote provider's.
+    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, plan.legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
     for (const leg of plan.legs) {
-      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      const { position, instrument } = find(leg.ticker);
       if (!instrument) { skipped.push(`${leg.ticker}: no longer listed by Trading 212.`); continue; }
       // Held legs use the broker's last price; others the external quote provider, when one can price them.
       const quote = position?.currentPrice ? undefined : await this.deps.trading.externalQuote(instrument);
       const price = position?.currentPrice || quote?.price;
       if (!price) { skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`); continue; }
-      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) { skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`); continue; }
+      // Leg amounts are in the account currency; other quote currencies use the rate your holdings imply.
+      const currency = instrument.currencyCode.toUpperCase();
+      const fx = accountCurrency ? crossRate(rates, accountCurrency, currency) : undefined;
+      if (!fx) { skipped.push(`${leg.ticker}: quoted in ${currency}; no holding in ${currency} gives an exchange rate from ${accountCurrency || "the account currency"} and the quote source has none.`); continue; }
+      const external = quoted.get(currency);
+      if (currency !== accountCurrency) converted.add(currency);
       const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : undefined;
       // A limit leg is sized at its limit, so it never spends more than the leg amount.
-      const quantity = floorTo(leg.amount / (limitPrice ?? price), 4);
+      const quantity = floorTo(leg.amount * fx / (limitPrice ?? price), 4);
       if (quantity <= 0) { skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`); continue; }
-      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
+      const base = {
+        environment: plan.environment, ticker: instrument.ticker, side: "buy" as const, quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString(),
+        ...(external ? { fxRate: external.rate, fxRateAt: external.asOf } : {}),
+      };
       drafts.push(limitPrice === undefined ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
@@ -209,7 +224,11 @@ export class AutomationService {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [
+        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
+        ...(converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0]!.source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : []),
+        ...skipped,
+      ],
       skipped,
     };
   }
@@ -233,13 +252,15 @@ export class AutomationService {
     const plan = await this.deps.store.get<DcaPlan>(planKey(planId));
     if (!plan) return;
     // Any leg that reached the broker (submitted, rejected or unclear) uses up this due date, so a
-    // scheduler tick never sends the plan again. Only a run stopped before sending stays due.
+    // scheduler tick never sends the plan again. Only a run stopped before sending stays due. A run
+    // before the due date counts as that period's run, so the next one is the date after it.
     const attempted = result.legs.some((leg) => leg.result);
+    const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
     await this.deps.store.put(planKey(planId), {
       ...plan,
       lastRunAt: now.toISOString(),
       lastOutcome: result.message,
-      ...(attempted ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}),
+      ...(attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}),
     });
   }
 
@@ -270,7 +291,7 @@ export class AutomationService {
           reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
           continue;
         }
-        const preview = await this.deps.trading.prepareBasket(basket);
+        const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
         // Unattended Market orders must not queue for a gap fill at the next open, whatever the policy says.
         const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED"));
         if (closed.length) throw new Error(`Market closed for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until the next tick inside the session.`);

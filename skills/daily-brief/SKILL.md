@@ -24,5 +24,5 @@ This brief is read-only. Never prepare, confirm or submit an order from it. Sche
 ## Rules
 
 - Use the broker ticker returned by TradePilot. Resolve ambiguous names with `search_trading212_instruments`.
-- Never present a guess as a current price. Trading 212's API has no quote endpoint, so prices must come from a dated source or from a held position.
+- Never present a guess as a current price. Trading 212's API has no quote endpoint, so a price comes from a held position, from `get_quote` (TradePilot's quote source, with the time of the price), or from a dated source.
 - Reply in the user's language.

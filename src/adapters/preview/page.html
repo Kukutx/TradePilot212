@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradePilot preview</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4;
+  --surface: #ffffff;
+  --line: #e3e2de;
+  --text: #1f1f1d;
+  --muted: #6b6a66;
+  --accent: #0f6e56;
+  --accent-soft: #e2f2ec;
+  --bubble: #ecebe7;
+  --pressed: #1f1f1d;
+  --pressed-text: #ffffff;
+  --amber-soft: #fdf1d8;
+  --amber-text: #7a4e05;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a1a19;
+  --surface: #232322;
+  --line: #3a3a37;
+  --text: #ecebe7;
+  --muted: #a3a29d;
+  --accent: #5cc8a4;
+  --accent-soft: #173a30;
+  --bubble: #2f2f2d;
+  --pressed: #ecebe7;
+  --pressed-text: #1a1a19;
+  --amber-soft: #3b2c0e;
+  --amber-text: #f2c66b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  min-height: 100vh;
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-right: auto; }
+.logo {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--accent); color: var(--surface); font-size: 12px; font-weight: 700; letter-spacing: .02em;
+}
+.badge { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.badge[data-mode="demo"] { background: var(--amber-soft); color: var(--amber-text); }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.control { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+select, .seg button {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; min-height: 32px;
+}
+select { padding-right: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--pressed); color: var(--pressed-text); }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { max-width: 1072px; margin: 0 auto; padding: 24px 16px 40px; }
+#chat { display: flex; flex-direction: column; gap: 14px; }
+.user { align-self: flex-end; max-width: min(560px, 85%); padding: 10px 14px; border-radius: 16px 16px 4px 16px; background: var(--bubble); }
+.assistant { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.who { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.who code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 6px; border-radius: 6px; background: var(--bubble); color: var(--text); }
+#frame iframe { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: height .15s ease; }
+details { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+summary { cursor: pointer; padding: 9px 12px; color: var(--muted); font-size: 13px; }
+pre, #calls { margin: 0; padding: 0 12px 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#calls { padding-left: 32px; }
+#foot { margin: 22px 0 0; color: var(--muted); font-size: 12px; }
+#exit-fullscreen { display: none; }
+:root[data-display="fullscreen"] body { overflow: hidden; }
+:root[data-display="fullscreen"] #frame iframe {
+  position: fixed; inset: 0; z-index: 10; width: 100% !important; height: 100% !important; max-width: none; border: 0; border-radius: 0;
+}
+:root[data-display="fullscreen"] #exit-fullscreen {
+  display: grid; place-items: center; position: fixed; top: 10px; right: 10px; z-index: 11; width: 32px; height: 32px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 16px; cursor: pointer;
+}
+@media (max-width: 640px) {
+  header { gap: 8px; padding: 8px 12px; }
+  .controls { width: 100%; }
+  main { padding: 16px 12px 32px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo" aria-hidden="true">TP</span><span id="title">TradePilot preview</span><span class="badge" id="mode"></span></div>
+  <div class="controls">
+    <label class="control"><span id="label-view">View</span> <select id="view-select"></select></label>
+    <div class="control"><span id="label-theme">Theme</span>
+      <span class="seg"><button type="button" id="theme-light" data-set="theme:light">Light</button><button type="button" id="theme-dark" data-set="theme:dark">Dark</button></span>
+    </div>
+    <div class="control"><span id="label-language">Language</span>
+      <span class="seg"><button type="button" data-set="lang:en">English</button><button type="button" data-set="lang:zh-CN" lang="zh-CN">中文</button></span>
+    </div>
+    <div class="control"><span id="label-width">Width</span>
+      <span class="seg"><button type="button" id="width-375" data-set="width:375">Phone</button><button type="button" id="width-720" data-set="width:720">Chat</button><button type="button" id="width-1040" data-set="width:1040">Wide</button></span>
+    </div>
+  </div>
+</header>
+<main>
+  <div id="chat">
+    <div class="user" id="prompt"></div>
+    <div class="assistant">
+      <div class="who"><span>TradePilot</span><code id="tool"></code></div>
+      <div id="frame"></div>
+      <details><summary id="model-summary">What the model reads</summary><pre id="text"></pre></details>
+      <details><summary id="calls-summary">Calls from the widget</summary><ol id="calls"></ol></details>
+    </div>
+  </div>
+  <p id="foot"></p>
+</main>
+<button type="button" id="exit-fullscreen">×</button>
+<script>window.PREVIEW = /*BOOT*/null;</script>
+<script src="/host.js"></script>
+</body>
+</html>

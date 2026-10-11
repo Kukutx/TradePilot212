@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BASKET_ORDER_NOTE } from "../../shared/automation";
 import type {
   BasketDraftPayload,
   BasketExecutionResult,
@@ -12,7 +13,7 @@ import type { ExecutionVerificationResult, OrderDraft, OrderNotice } from "../..
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { DetailRow, Icon } from "../components/common";
 import { dateTime, money, num, pct, time } from "../lib/format";
-import { formatProblem, noticeText, verificationText, type Translator } from "../lib/messages";
+import { formatProblem, noticeText, rebalanceNoteText, rebalanceSkipText, verificationText, type Translator } from "../lib/messages";
 import { LiveAcknowledgement, PolicyList } from "./OrderViews";
 
 export type BasketDraftView = BasketDraftPayload & { rebalance?: RebalancePlan };
@@ -33,17 +34,21 @@ function typeLabel(draft: OrderDraft, t: Translator): string {
 }
 
 function legName(leg: BasketLeg): string {
-  return leg.instrument?.shortName || leg.instrument?.name || leg.draft.ticker;
+  return leg.instrument?.name || leg.instrument?.shortName || leg.draft.ticker;
+}
+
+function legSymbol(leg: BasketLeg): string {
+  return leg.instrument?.shortName || leg.draft.ticker;
 }
 
 function LegHeading({ leg, t, locale }: { leg: BasketLeg; t: Translator; locale: SupportedLocale }) {
   const draft = leg.draft;
   return (
     <div className="basketLegHeading">
-      <span className="assetAvatar">{legName(leg).slice(0, 2).toUpperCase()}</span>
+      <span className="assetAvatar" aria-hidden="true">{legSymbol(leg).slice(0, 2).toUpperCase()}</span>
       <div>
         <strong>{legName(leg)}</strong>
-        {legName(leg) !== draft.ticker && <small>{draft.ticker}</small>}
+        {legName(leg) !== draft.ticker && <small>{legSymbol(leg) !== draft.ticker ? `${legSymbol(leg)} · ${draft.ticker}` : draft.ticker}</small>}
       </div>
       <span className={`sideBadge ${draft.side}`}>{sideLabel(draft, t)} · {num(draft.quantity, locale)}</span>
     </div>
@@ -61,7 +66,13 @@ function LegFacts({ leg, trade, currency, t, locale }: { leg: BasketLeg; trade?:
       {draft.stopPrice !== undefined && <div><dt>{t("stopPrice")}</dt><dd>{price(draft.stopPrice)}</dd></div>}
       {draft.referencePrice !== undefined && <div><dt>{t("referencePrice")}</dt><dd>{price(draft.referencePrice)}</dd></div>}
       {leg.estimatedNotional !== undefined ? (
-        <div><dt>{t("estimatedAmount")}</dt><dd>{money(leg.estimatedNotional, leg.estimatedNotionalCurrency ?? priceCurrency ?? currency ?? "EUR", locale)}</dd></div>
+        <div>
+          <dt>{t("estimatedAmount")}</dt>
+          <dd>
+            {money(leg.estimatedNotional, leg.estimatedNotionalCurrency ?? priceCurrency ?? currency ?? "EUR", locale)}
+            {leg.estimatedAccountNotional !== undefined && currency && <span className="mutedInline"> ≈ {money(leg.estimatedAccountNotional, currency, locale)}</span>}
+          </dd>
+        </div>
       ) : trade && currency ? (
         <div><dt>{t("estimatedAmount")}</dt><dd>{money(trade.value, currency, locale)}</dd></div>
       ) : null}
@@ -104,18 +115,27 @@ function BasketHeader({
   );
 }
 
-function Notes({ notes, t }: { notes: string[]; t: Translator }) {
+function Notes({ notes, plan, t, locale }: { notes: string[]; plan?: RebalancePlan; t: Translator; locale: SupportedLocale }) {
   if (!notes.length) return null;
+  const details = new Map((plan?.noteDetails ?? []).map((note) => [note.message, note]));
+  const text = (note: string) => {
+    const known = details.get(note);
+    return known ? rebalanceNoteText(known, t, locale) : note;
+  };
   return (
     <div className="basketNotes">
       <span className="policyTitle">{t("basketNotes")}</span>
-      <ul>{notes.map((note, index) => <li key={`${index}-${note}`}>{note}</li>)}</ul>
+      <ul>{notes.map((note, index) => <li key={`${index}-${note}`}>{text(note)}</li>)}</ul>
     </div>
   );
 }
 
-/** Skipped instruments are listed in the rebalance summary, so their copies in the notes are dropped. */
-function withoutSkipped(notes: string[], plan?: RebalancePlan): string[] {
+/**
+ * Skipped instruments are listed in the rebalance summary, so their copies in the notes are dropped,
+ * as is the server's sending-order note, which the widget shows in its own language.
+ */
+function withoutSkipped(all: string[], plan?: RebalancePlan): string[] {
+  const notes = all.filter((note) => note !== BASKET_ORDER_NOTE);
   if (!plan?.skipped.length) return notes;
   const skipped = new Set(plan.skipped.map((item) => `${item.ticker}: ${item.reason}`));
   return notes.filter((note) => !skipped.has(note) && !note.startsWith(`Skipped ${plan.skipped.length} instrument(s)`));
@@ -133,7 +153,7 @@ function RebalanceSummary({ plan, t, locale }: { plan: RebalancePlan; t: Transla
       {plan.skipped.length > 0 && (
         <div className="basketNotes">
           <span className="policyTitle">{t("skippedTickers")}</span>
-          <ul>{plan.skipped.map((item, index) => <li key={`${item.ticker}-${index}`}><strong>{item.ticker}</strong> · {item.reason}</li>)}</ul>
+          <ul>{plan.skipped.map((item, index) => <li key={`${item.ticker}-${index}`}><strong>{item.ticker}</strong> · {rebalanceSkipText(item, t)}</li>)}</ul>
         </div>
       )}
     </section>
@@ -198,7 +218,7 @@ export function BasketView({
             ))}
           </ol>
         )}
-        <Notes notes={withoutSkipped(payload.notes, payload.rebalance)} t={t} />
+        <Notes notes={withoutSkipped(payload.notes, payload.rebalance)} plan={payload.rebalance} t={t} locale={locale} />
         <p className="basketHint">{legs.length > 1 ? `${t("basketRemoveHint")} ${t("basketOrderNote")}` : t("basketRemoveHint")}</p>
         {!canReview && <div className="notice warning compactNotice">{t("basketReadonlyHint")}</div>}
         <div className="transactionFooter">
@@ -249,13 +269,13 @@ function BasketConfirmation({
           {preview.legs.map((leg, index) => (
             <li className="basketLeg" key={`${leg.draft.ticker}-${leg.draft.side}-${index}`}>
               <LegHeading leg={leg} t={t} locale={locale} />
-              <LegFacts leg={leg} trade={tradeFor(leg)} currency={rebalance?.accountCurrency} t={t} locale={locale} />
+              <LegFacts leg={leg} trade={tradeFor(leg)} currency={rebalance?.accountCurrency ?? preview.accountCurrency} t={t} locale={locale} />
               {legNotices(leg.notices).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
-              <PolicyList checks={leg.policy} t={t} />
+              <PolicyList checks={leg.policy} t={t} locale={locale} />
             </li>
           ))}
         </ol>
-        <Notes notes={withoutSkipped(preview.notes, rebalance)} t={t} />
+        <Notes notes={withoutSkipped(preview.notes, rebalance)} plan={rebalance} t={t} locale={locale} />
         {preview.legs.length > 1 && <p className="basketHint">{t("basketOrderNote")}</p>}
         <div className="expiryLine">{t("snapshotAsOf")} · {dateTime(preview.snapshotAt, locale)} · {t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>
         {live && <LiveAcknowledgement checked={acknowledged} onChange={setAcknowledged} t={t} />}

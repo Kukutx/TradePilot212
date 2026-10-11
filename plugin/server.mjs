@@ -41,7 +41,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // node_modules/.pnpm/dotenv@17.4.2/node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
-  "node_modules/.pnpm/dotenv@17.4.2/node_modules/dotenv/lib/main.js"(exports, module) {
+  "node_modules/.pnpm/dotenv@17.4.2/node_modules/dotenv/lib/main.js"(exports2, module) {
     var fs3 = __require("fs");
     var path3 = __require("path");
     var os2 = __require("os");
@@ -25487,11 +25487,11 @@ function manualInputRequiredValue(decoded) {
     ...decoded._meta !== void 0 && { _meta: decoded._meta }
   };
 }
-var require_content_type = /* @__PURE__ */ __commonJSMin(((exports) => {
+var require_content_type = /* @__PURE__ */ __commonJSMin(((exports2) => {
   var PARAM_REGEXP = /; *([!#$%&'*+.^_`|~0-9A-Za-z-]+) *= *("(?:[\u000b\u0020\u0021\u0023-\u005b\u005d-\u007e\u0080-\u00ff]|\\[\u000b\u0020-\u00ff])*"|[!#$%&'*+.^_`|~0-9A-Za-z-]+) */g;
   var QESC_REGEXP = /\\([\u000b\u0020-\u00ff])/g;
   var TYPE_REGEXP = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-  exports.parse = parse3;
+  exports2.parse = parse3;
   function parse3(string4) {
     if (!string4) throw new TypeError("argument string is required");
     var header = typeof string4 === "object" ? getcontenttype(string4) : string4;
@@ -25636,17 +25636,17 @@ function normalizeRawShapeSchema(schema) {
 }
 
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/ajvProvider-CEoC__sr.mjs
-var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
+var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.regexpCode = exports2.getEsmExportName = exports2.getProperty = exports2.safeStringify = exports2.stringify = exports2.strConcat = exports2.addCodeArg = exports2.str = exports2._ = exports2.nil = exports2._Code = exports2.Name = exports2.IDENTIFIER = exports2._CodeOrName = void 0;
   var _CodeOrName = class {
   };
-  exports._CodeOrName = _CodeOrName;
-  exports.IDENTIFIER = /^[a-z$_][a-z$_0-9]*$/i;
+  exports2._CodeOrName = _CodeOrName;
+  exports2.IDENTIFIER = /^[a-z$_][a-z$_0-9]*$/i;
   var Name = class extends _CodeOrName {
     constructor(s) {
       super();
-      if (!exports.IDENTIFIER.test(s)) throw new Error("CodeGen: name must be a valid identifier");
+      if (!exports2.IDENTIFIER.test(s)) throw new Error("CodeGen: name must be a valid identifier");
       this.str = s;
     }
     toString() {
@@ -25659,7 +25659,7 @@ var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
       return { [this.str]: 1 };
     }
   };
-  exports.Name = Name;
+  exports2.Name = Name;
   var _Code = class extends _CodeOrName {
     constructor(code) {
       super();
@@ -25685,8 +25685,8 @@ var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
       }, {});
     }
   };
-  exports._Code = _Code;
-  exports.nil = new _Code("");
+  exports2._Code = _Code;
+  exports2.nil = new _Code("");
   function _(strs, ...args) {
     const code = [strs[0]];
     let i = 0;
@@ -25696,7 +25696,7 @@ var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return new _Code(code);
   }
-  exports._ = _;
+  exports2._ = _;
   const plus = new _Code("+");
   function str(strs, ...args) {
     const expr = [safeStringify(strs[0])];
@@ -25709,13 +25709,13 @@ var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
     optimize(expr);
     return new _Code(expr);
   }
-  exports.str = str;
+  exports2.str = str;
   function addCodeArg(code, arg) {
     if (arg instanceof _Code) code.push(...arg._items);
     else if (arg instanceof Name) code.push(arg);
     else code.push(interpolate(arg));
   }
-  exports.addCodeArg = addCodeArg;
+  exports2.addCodeArg = addCodeArg;
   function optimize(expr) {
     let i = 1;
     while (i < expr.length - 1) {
@@ -25744,35 +25744,35 @@ var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
   function strConcat(c1, c2) {
     return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str`${c1}${c2}`;
   }
-  exports.strConcat = strConcat;
+  exports2.strConcat = strConcat;
   function interpolate(x) {
     return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify(Array.isArray(x) ? x.join(",") : x);
   }
   function stringify(x) {
     return new _Code(safeStringify(x));
   }
-  exports.stringify = stringify;
+  exports2.stringify = stringify;
   function safeStringify(x) {
     return JSON.stringify(x).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   }
-  exports.safeStringify = safeStringify;
+  exports2.safeStringify = safeStringify;
   function getProperty(key) {
-    return typeof key == "string" && exports.IDENTIFIER.test(key) ? new _Code(`.${key}`) : _`[${key}]`;
+    return typeof key == "string" && exports2.IDENTIFIER.test(key) ? new _Code(`.${key}`) : _`[${key}]`;
   }
-  exports.getProperty = getProperty;
+  exports2.getProperty = getProperty;
   function getEsmExportName(key) {
-    if (typeof key == "string" && exports.IDENTIFIER.test(key)) return new _Code(`${key}`);
+    if (typeof key == "string" && exports2.IDENTIFIER.test(key)) return new _Code(`${key}`);
     throw new Error(`CodeGen: invalid export name: ${key}, use explicit $id name mapping`);
   }
-  exports.getEsmExportName = getEsmExportName;
+  exports2.getEsmExportName = getEsmExportName;
   function regexpCode(rx) {
     return new _Code(rx.toString());
   }
-  exports.regexpCode = regexpCode;
+  exports2.regexpCode = regexpCode;
 }));
-var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
+var require_scope = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.ValueScope = exports2.ValueScopeName = exports2.Scope = exports2.varKinds = exports2.UsedValueState = void 0;
   const code_1 = require_code$1();
   var ValueError = class extends Error {
     constructor(name) {
@@ -25784,8 +25784,8 @@ var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
   (function(UsedValueState2) {
     UsedValueState2[UsedValueState2["Started"] = 0] = "Started";
     UsedValueState2[UsedValueState2["Completed"] = 1] = "Completed";
-  })(UsedValueState || (exports.UsedValueState = UsedValueState = {}));
-  exports.varKinds = {
+  })(UsedValueState || (exports2.UsedValueState = UsedValueState = {}));
+  exports2.varKinds = {
     const: new code_1.Name("const"),
     let: new code_1.Name("let"),
     var: new code_1.Name("var")
@@ -25815,7 +25815,7 @@ var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
       };
     }
   };
-  exports.Scope = Scope;
+  exports2.Scope = Scope;
   var ValueScopeName = class extends code_1.Name {
     constructor(prefix, nameStr) {
       super(nameStr);
@@ -25826,7 +25826,7 @@ var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
       this.scopePath = (0, code_1._)`.${new code_1.Name(property)}[${itemIndex}]`;
     }
   };
-  exports.ValueScopeName = ValueScopeName;
+  exports2.ValueScopeName = ValueScopeName;
   const line = (0, code_1._)`\n`;
   var ValueScope = class extends Scope {
     constructor(opts) {
@@ -25893,7 +25893,7 @@ var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
           nameSet.set(name, UsedValueState.Started);
           let c = valueCode(name);
           if (c) {
-            const def = this.opts.es5 ? exports.varKinds.var : exports.varKinds.const;
+            const def = this.opts.es5 ? exports2.varKinds.var : exports2.varKinds.const;
             code = (0, code_1._)`${code}${def} ${name} = ${c};${this.opts._n}`;
           } else if (c = getCode === null || getCode === void 0 ? void 0 : getCode(name)) code = (0, code_1._)`${code}${c}${this.opts._n}`;
           else throw new ValueError(name);
@@ -25903,88 +25903,88 @@ var require_scope = /* @__PURE__ */ __commonJSMin(((exports) => {
       return code;
     }
   };
-  exports.ValueScope = ValueScope;
+  exports2.ValueScope = ValueScope;
 }));
-var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
+var require_codegen = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.or = exports2.and = exports2.not = exports2.CodeGen = exports2.operators = exports2.varKinds = exports2.ValueScopeName = exports2.ValueScope = exports2.Scope = exports2.Name = exports2.regexpCode = exports2.stringify = exports2.getProperty = exports2.nil = exports2.strConcat = exports2.str = exports2._ = void 0;
   const code_1 = require_code$1();
   const scope_1 = require_scope();
   var code_2 = require_code$1();
-  Object.defineProperty(exports, "_", {
+  Object.defineProperty(exports2, "_", {
     enumerable: true,
     get: function() {
       return code_2._;
     }
   });
-  Object.defineProperty(exports, "str", {
+  Object.defineProperty(exports2, "str", {
     enumerable: true,
     get: function() {
       return code_2.str;
     }
   });
-  Object.defineProperty(exports, "strConcat", {
+  Object.defineProperty(exports2, "strConcat", {
     enumerable: true,
     get: function() {
       return code_2.strConcat;
     }
   });
-  Object.defineProperty(exports, "nil", {
+  Object.defineProperty(exports2, "nil", {
     enumerable: true,
     get: function() {
       return code_2.nil;
     }
   });
-  Object.defineProperty(exports, "getProperty", {
+  Object.defineProperty(exports2, "getProperty", {
     enumerable: true,
     get: function() {
       return code_2.getProperty;
     }
   });
-  Object.defineProperty(exports, "stringify", {
+  Object.defineProperty(exports2, "stringify", {
     enumerable: true,
     get: function() {
       return code_2.stringify;
     }
   });
-  Object.defineProperty(exports, "regexpCode", {
+  Object.defineProperty(exports2, "regexpCode", {
     enumerable: true,
     get: function() {
       return code_2.regexpCode;
     }
   });
-  Object.defineProperty(exports, "Name", {
+  Object.defineProperty(exports2, "Name", {
     enumerable: true,
     get: function() {
       return code_2.Name;
     }
   });
   var scope_2 = require_scope();
-  Object.defineProperty(exports, "Scope", {
+  Object.defineProperty(exports2, "Scope", {
     enumerable: true,
     get: function() {
       return scope_2.Scope;
     }
   });
-  Object.defineProperty(exports, "ValueScope", {
+  Object.defineProperty(exports2, "ValueScope", {
     enumerable: true,
     get: function() {
       return scope_2.ValueScope;
     }
   });
-  Object.defineProperty(exports, "ValueScopeName", {
+  Object.defineProperty(exports2, "ValueScopeName", {
     enumerable: true,
     get: function() {
       return scope_2.ValueScopeName;
     }
   });
-  Object.defineProperty(exports, "varKinds", {
+  Object.defineProperty(exports2, "varKinds", {
     enumerable: true,
     get: function() {
       return scope_2.varKinds;
     }
   });
-  exports.operators = {
+  exports2.operators = {
     GT: new code_1._Code(">"),
     GTE: new code_1._Code(">="),
     LT: new code_1._Code("<"),
@@ -26364,7 +26364,7 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       return this._leafNode(new Assign(lhs, rhs, sideEffects));
     }
     add(lhs, rhs) {
-      return this._leafNode(new AssignOp(lhs, exports.operators.ADD, rhs));
+      return this._leafNode(new AssignOp(lhs, exports2.operators.ADD, rhs));
     }
     code(c) {
       if (typeof c == "function") c();
@@ -26524,7 +26524,7 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       ns[ns.length - 1] = node2;
     }
   };
-  exports.CodeGen = CodeGen;
+  exports2.CodeGen = CodeGen;
   function addNames(names, from) {
     for (const n in from) names[n] = (names[n] || 0) + (from[n] || 0);
     return names;
@@ -26557,17 +26557,17 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
   function not(x) {
     return typeof x == "boolean" || typeof x == "number" || x === null ? !x : (0, code_1._)`!${par(x)}`;
   }
-  exports.not = not;
-  const andCode = mappend(exports.operators.AND);
+  exports2.not = not;
+  const andCode = mappend(exports2.operators.AND);
   function and(...args) {
     return args.reduce(andCode);
   }
-  exports.and = and;
-  const orCode = mappend(exports.operators.OR);
+  exports2.and = and;
+  const orCode = mappend(exports2.operators.OR);
   function or(...args) {
     return args.reduce(orCode);
   }
-  exports.or = or;
+  exports2.or = or;
   function mappend(op) {
     return (x, y) => x === code_1.nil ? y : y === code_1.nil ? x : (0, code_1._)`${par(x)} ${op} ${par(y)}`;
   }
@@ -26575,9 +26575,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     return x instanceof code_1.Name ? x : (0, code_1._)`(${x})`;
   }
 }));
-var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
+var require_util = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.checkStrictMode = exports2.getErrorPath = exports2.Type = exports2.useFunc = exports2.setEvaluated = exports2.evaluatedPropsToName = exports2.mergeEvaluated = exports2.eachItem = exports2.unescapeJsonPointer = exports2.escapeJsonPointer = exports2.escapeFragment = exports2.unescapeFragment = exports2.schemaRefOrVal = exports2.schemaHasRulesButRef = exports2.schemaHasRules = exports2.checkUnknownRules = exports2.alwaysValidSchema = exports2.toHash = void 0;
   const codegen_1 = require_codegen();
   const code_1 = require_code$1();
   function toHash(arr) {
@@ -26585,14 +26585,14 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     for (const item of arr) hash2[item] = true;
     return hash2;
   }
-  exports.toHash = toHash;
+  exports2.toHash = toHash;
   function alwaysValidSchema(it, schema) {
     if (typeof schema == "boolean") return schema;
     if (Object.keys(schema).length === 0) return true;
     checkUnknownRules(it, schema);
     return !schemaHasRules(schema, it.self.RULES.all);
   }
-  exports.alwaysValidSchema = alwaysValidSchema;
+  exports2.alwaysValidSchema = alwaysValidSchema;
   function checkUnknownRules(it, schema = it.schema) {
     const { opts, self } = it;
     if (!opts.strictSchema) return;
@@ -26600,19 +26600,19 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     const rules = self.RULES.keywords;
     for (const key in schema) if (!rules[key]) checkStrictMode(it, `unknown keyword: "${key}"`);
   }
-  exports.checkUnknownRules = checkUnknownRules;
+  exports2.checkUnknownRules = checkUnknownRules;
   function schemaHasRules(schema, rules) {
     if (typeof schema == "boolean") return !schema;
     for (const key in schema) if (rules[key]) return true;
     return false;
   }
-  exports.schemaHasRules = schemaHasRules;
+  exports2.schemaHasRules = schemaHasRules;
   function schemaHasRulesButRef(schema, RULES) {
     if (typeof schema == "boolean") return !schema;
     for (const key in schema) if (key !== "$ref" && RULES.all[key]) return true;
     return false;
   }
-  exports.schemaHasRulesButRef = schemaHasRulesButRef;
+  exports2.schemaHasRulesButRef = schemaHasRulesButRef;
   function schemaRefOrVal({ topSchemaRef, schemaPath }, schema, keyword, $data) {
     if (!$data) {
       if (typeof schema == "number" || typeof schema == "boolean") return schema;
@@ -26620,36 +26620,36 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
   }
-  exports.schemaRefOrVal = schemaRefOrVal;
+  exports2.schemaRefOrVal = schemaRefOrVal;
   function unescapeFragment(str) {
     return unescapeJsonPointer(decodeURIComponent(str));
   }
-  exports.unescapeFragment = unescapeFragment;
+  exports2.unescapeFragment = unescapeFragment;
   function escapeFragment(str) {
     return encodeURIComponent(escapeJsonPointer(str));
   }
-  exports.escapeFragment = escapeFragment;
+  exports2.escapeFragment = escapeFragment;
   function escapeJsonPointer(str) {
     if (typeof str == "number") return `${str}`;
     return str.replace(/~/g, "~0").replace(/\//g, "~1");
   }
-  exports.escapeJsonPointer = escapeJsonPointer;
+  exports2.escapeJsonPointer = escapeJsonPointer;
   function unescapeJsonPointer(str) {
     return str.replace(/~1/g, "/").replace(/~0/g, "~");
   }
-  exports.unescapeJsonPointer = unescapeJsonPointer;
+  exports2.unescapeJsonPointer = unescapeJsonPointer;
   function eachItem(xs, f) {
     if (Array.isArray(xs)) for (const x of xs) f(x);
     else f(xs);
   }
-  exports.eachItem = eachItem;
+  exports2.eachItem = eachItem;
   function makeMergeEvaluated({ mergeNames, mergeToName, mergeValues: mergeValues2, resultToName }) {
     return (gen, from, to, toName) => {
       const res = to === void 0 ? from : to instanceof codegen_1.Name ? (from instanceof codegen_1.Name ? mergeNames(gen, from, to) : mergeToName(gen, from, to), to) : from instanceof codegen_1.Name ? (mergeToName(gen, to, from), from) : mergeValues2(from, to);
       return toName === codegen_1.Name && !(res instanceof codegen_1.Name) ? resultToName(gen, res) : res;
     };
   }
-  exports.mergeEvaluated = {
+  exports2.mergeEvaluated = {
     props: makeMergeEvaluated({
       mergeNames: (gen, from, to) => gen.if((0, codegen_1._)`${to} !== true && ${from} !== undefined`, () => {
         gen.if((0, codegen_1._)`${from} === true`, () => gen.assign(to, true), () => gen.assign(to, (0, codegen_1._)`${to} || {}`).code((0, codegen_1._)`Object.assign(${to}, ${from})`));
@@ -26680,11 +26680,11 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (ps !== void 0) setEvaluated(gen, props, ps);
     return props;
   }
-  exports.evaluatedPropsToName = evaluatedPropsToName;
+  exports2.evaluatedPropsToName = evaluatedPropsToName;
   function setEvaluated(gen, props, ps) {
     Object.keys(ps).forEach((p) => gen.assign((0, codegen_1._)`${props}${(0, codegen_1.getProperty)(p)}`, true));
   }
-  exports.setEvaluated = setEvaluated;
+  exports2.setEvaluated = setEvaluated;
   const snippets = {};
   function useFunc(gen, f) {
     return gen.scopeValue("func", {
@@ -26692,12 +26692,12 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
       code: snippets[f.code] || (snippets[f.code] = new code_1._Code(f.code))
     });
   }
-  exports.useFunc = useFunc;
+  exports2.useFunc = useFunc;
   var Type;
   (function(Type2) {
     Type2[Type2["Num"] = 0] = "Num";
     Type2[Type2["Str"] = 1] = "Str";
-  })(Type || (exports.Type = Type = {}));
+  })(Type || (exports2.Type = Type = {}));
   function getErrorPath(dataProp, dataPropType, jsPropertySyntax) {
     if (dataProp instanceof codegen_1.Name) {
       const isNumber = dataPropType === Type.Num;
@@ -26705,17 +26705,17 @@ var require_util = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return jsPropertySyntax ? (0, codegen_1.getProperty)(dataProp).toString() : "/" + escapeJsonPointer(dataProp);
   }
-  exports.getErrorPath = getErrorPath;
+  exports2.getErrorPath = getErrorPath;
   function checkStrictMode(it, msg, mode = it.opts.strictSchema) {
     if (!mode) return;
     msg = `strict mode: ${msg}`;
     if (mode === true) throw new Error(msg);
     it.self.logger.warn(msg);
   }
-  exports.checkStrictMode = checkStrictMode;
+  exports2.checkStrictMode = checkStrictMode;
 }));
-var require_names = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_names = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const names = {
     data: new codegen_1.Name("data"),
@@ -26735,36 +26735,36 @@ var require_names = /* @__PURE__ */ __commonJSMin(((exports) => {
     jsonLen: new codegen_1.Name("jsonLen"),
     jsonPart: new codegen_1.Name("jsonPart")
   };
-  exports.default = names;
+  exports2.default = names;
 }));
-var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
+var require_errors = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.extendErrors = exports2.resetErrorsCount = exports2.reportExtraError = exports2.reportError = exports2.keyword$DataError = exports2.keywordError = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const names_1 = require_names();
-  exports.keywordError = { message: ({ keyword }) => (0, codegen_1.str)`must pass "${keyword}" keyword validation` };
-  exports.keyword$DataError = { message: ({ keyword, schemaType }) => schemaType ? (0, codegen_1.str)`"${keyword}" keyword must be ${schemaType} ($data)` : (0, codegen_1.str)`"${keyword}" keyword is invalid ($data)` };
-  function reportError(cxt, error62 = exports.keywordError, errorPaths, overrideAllErrors) {
+  exports2.keywordError = { message: ({ keyword }) => (0, codegen_1.str)`must pass "${keyword}" keyword validation` };
+  exports2.keyword$DataError = { message: ({ keyword, schemaType }) => schemaType ? (0, codegen_1.str)`"${keyword}" keyword must be ${schemaType} ($data)` : (0, codegen_1.str)`"${keyword}" keyword is invalid ($data)` };
+  function reportError(cxt, error62 = exports2.keywordError, errorPaths, overrideAllErrors) {
     const { it } = cxt;
     const { gen, compositeRule, allErrors } = it;
     const errObj = errorObjectCode(cxt, error62, errorPaths);
     if (overrideAllErrors !== null && overrideAllErrors !== void 0 ? overrideAllErrors : compositeRule || allErrors) addError(gen, errObj);
     else returnErrors(it, (0, codegen_1._)`[${errObj}]`);
   }
-  exports.reportError = reportError;
-  function reportExtraError(cxt, error62 = exports.keywordError, errorPaths) {
+  exports2.reportError = reportError;
+  function reportExtraError(cxt, error62 = exports2.keywordError, errorPaths) {
     const { it } = cxt;
     const { gen, compositeRule, allErrors } = it;
     addError(gen, errorObjectCode(cxt, error62, errorPaths));
     if (!(compositeRule || allErrors)) returnErrors(it, names_1.default.vErrors);
   }
-  exports.reportExtraError = reportExtraError;
+  exports2.reportExtraError = reportExtraError;
   function resetErrorsCount(gen, errsCount) {
     gen.assign(names_1.default.errors, errsCount);
     gen.if((0, codegen_1._)`${names_1.default.vErrors} !== null`, () => gen.if(errsCount, () => gen.assign((0, codegen_1._)`${names_1.default.vErrors}.length`, errsCount), () => gen.assign(names_1.default.vErrors, null)));
   }
-  exports.resetErrorsCount = resetErrorsCount;
+  exports2.resetErrorsCount = resetErrorsCount;
   function extendErrors({ gen, keyword, schemaValue, data, errsCount, it }) {
     if (errsCount === void 0) throw new Error("ajv implementation error");
     const err = gen.name("err");
@@ -26778,7 +26778,7 @@ var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     });
   }
-  exports.extendErrors = extendErrors;
+  exports2.extendErrors = extendErrors;
   function addError(gen, errObj) {
     const err = gen.const("err", errObj);
     gen.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen.assign(names_1.default.vErrors, (0, codegen_1._)`[${err}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err})`);
@@ -26830,9 +26830,9 @@ var require_errors = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (propertyName) keyValues.push([E.propertyName, propertyName]);
   }
 }));
-var require_boolSchema = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
+var require_boolSchema = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.boolOrEmptySchema = exports2.topBoolOrEmptySchema = void 0;
   const errors_1 = require_errors();
   const codegen_1 = require_codegen();
   const names_1 = require_names();
@@ -26846,7 +26846,7 @@ var require_boolSchema = /* @__PURE__ */ __commonJSMin(((exports) => {
       gen.return(true);
     }
   }
-  exports.topBoolOrEmptySchema = topBoolOrEmptySchema;
+  exports2.topBoolOrEmptySchema = topBoolOrEmptySchema;
   function boolOrEmptySchema(it, valid) {
     const { gen, schema } = it;
     if (schema === false) {
@@ -26854,7 +26854,7 @@ var require_boolSchema = /* @__PURE__ */ __commonJSMin(((exports) => {
       falseSchemaError(it);
     } else gen.var(valid, true);
   }
-  exports.boolOrEmptySchema = boolOrEmptySchema;
+  exports2.boolOrEmptySchema = boolOrEmptySchema;
   function falseSchemaError(it, overrideAllErrors) {
     const { gen, data } = it;
     const cxt = {
@@ -26870,9 +26870,9 @@ var require_boolSchema = /* @__PURE__ */ __commonJSMin(((exports) => {
     (0, errors_1.reportError)(cxt, boolError, void 0, overrideAllErrors);
   }
 }));
-var require_rules = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.getRules = exports.isJSONType = void 0;
+var require_rules = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.getRules = exports2.isJSONType = void 0;
   const jsonTypes = /* @__PURE__ */ new Set([
     "string",
     "number",
@@ -26885,7 +26885,7 @@ var require_rules = /* @__PURE__ */ __commonJSMin(((exports) => {
   function isJSONType(x) {
     return typeof x == "string" && jsonTypes.has(x);
   }
-  exports.isJSONType = isJSONType;
+  exports2.isJSONType = isJSONType;
   function getRules() {
     const groups = {
       number: {
@@ -26924,29 +26924,29 @@ var require_rules = /* @__PURE__ */ __commonJSMin(((exports) => {
       keywords: {}
     };
   }
-  exports.getRules = getRules;
+  exports2.getRules = getRules;
 }));
-var require_applicability = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
+var require_applicability = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.shouldUseRule = exports2.shouldUseGroup = exports2.schemaHasRulesForType = void 0;
   function schemaHasRulesForType({ schema, self }, type) {
     const group = self.RULES.types[type];
     return group && group !== true && shouldUseGroup(schema, group);
   }
-  exports.schemaHasRulesForType = schemaHasRulesForType;
+  exports2.schemaHasRulesForType = schemaHasRulesForType;
   function shouldUseGroup(schema, group) {
     return group.rules.some((rule) => shouldUseRule(schema, rule));
   }
-  exports.shouldUseGroup = shouldUseGroup;
+  exports2.shouldUseGroup = shouldUseGroup;
   function shouldUseRule(schema, rule) {
     var _a3;
     return schema[rule.keyword] !== void 0 || ((_a3 = rule.definition.implements) === null || _a3 === void 0 ? void 0 : _a3.some((kwd) => schema[kwd] !== void 0));
   }
-  exports.shouldUseRule = shouldUseRule;
+  exports2.shouldUseRule = shouldUseRule;
 }));
-var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
+var require_dataType = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.reportTypeError = exports2.checkDataTypes = exports2.checkDataType = exports2.coerceAndCheckDataType = exports2.getJSONTypes = exports2.getSchemaTypes = exports2.DataType = void 0;
   const rules_1 = require_rules();
   const applicability_1 = require_applicability();
   const errors_1 = require_errors();
@@ -26956,7 +26956,7 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
   (function(DataType2) {
     DataType2[DataType2["Correct"] = 0] = "Correct";
     DataType2[DataType2["Wrong"] = 1] = "Wrong";
-  })(DataType || (exports.DataType = DataType = {}));
+  })(DataType || (exports2.DataType = DataType = {}));
   function getSchemaTypes(schema) {
     const types = getJSONTypes(schema.type);
     if (types.includes("null")) {
@@ -26967,13 +26967,13 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return types;
   }
-  exports.getSchemaTypes = getSchemaTypes;
+  exports2.getSchemaTypes = getSchemaTypes;
   function getJSONTypes(ts) {
     const types = Array.isArray(ts) ? ts : ts ? [ts] : [];
     if (types.every(rules_1.isJSONType)) return types;
     throw new Error("type must be JSONType or JSONType[]: " + types.join(","));
   }
-  exports.getJSONTypes = getJSONTypes;
+  exports2.getJSONTypes = getJSONTypes;
   function coerceAndCheckDataType(it, types) {
     const { gen, data, opts } = it;
     const coerceTo = coerceToTypes(types, opts.coerceTypes);
@@ -26987,7 +26987,7 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return checkTypes;
   }
-  exports.coerceAndCheckDataType = coerceAndCheckDataType;
+  exports2.coerceAndCheckDataType = coerceAndCheckDataType;
   const COERCIBLE = /* @__PURE__ */ new Set([
     "string",
     "number",
@@ -27067,7 +27067,7 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
       return (0, codegen_1.and)((0, codegen_1._)`typeof ${data} == "number"`, _cond, strictNums ? (0, codegen_1._)`isFinite(${data})` : codegen_1.nil);
     }
   }
-  exports.checkDataType = checkDataType;
+  exports2.checkDataType = checkDataType;
   function checkDataTypes(dataTypes, data, strictNums, correct) {
     if (dataTypes.length === 1) return checkDataType(dataTypes[0], data, strictNums, correct);
     let cond;
@@ -27083,7 +27083,7 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
     for (const t in types) cond = (0, codegen_1.and)(cond, checkDataType(t, data, strictNums, correct));
     return cond;
   }
-  exports.checkDataTypes = checkDataTypes;
+  exports2.checkDataTypes = checkDataTypes;
   const typeError = {
     message: ({ schema }) => `must be ${schema}`,
     params: ({ schema, schemaValue }) => typeof schema == "string" ? (0, codegen_1._)`{type: ${schema}}` : (0, codegen_1._)`{type: ${schemaValue}}`
@@ -27092,7 +27092,7 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
     const cxt = getTypeErrorContext(it);
     (0, errors_1.reportError)(cxt, typeError);
   }
-  exports.reportTypeError = reportTypeError;
+  exports2.reportTypeError = reportTypeError;
   function getTypeErrorContext(it) {
     const { gen, data, schema } = it;
     const schemaCode = (0, util_1.schemaRefOrVal)(it, schema, "type");
@@ -27109,9 +27109,9 @@ var require_dataType = /* @__PURE__ */ __commonJSMin(((exports) => {
     };
   }
 }));
-var require_defaults = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.assignDefaults = void 0;
+var require_defaults = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.assignDefaults = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   function assignDefaults(it, ty) {
@@ -27119,7 +27119,7 @@ var require_defaults = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (ty === "object" && properties2) for (const key in properties2) assignDefault(it, key, properties2[key].default);
     else if (ty === "array" && Array.isArray(items)) items.forEach((sch, i) => assignDefault(it, i, sch.default));
   }
-  exports.assignDefaults = assignDefaults;
+  exports2.assignDefaults = assignDefaults;
   function assignDefault(it, prop, defaultValue) {
     const { gen, compositeRule, data, opts } = it;
     if (defaultValue === void 0) return;
@@ -27133,9 +27133,9 @@ var require_defaults = /* @__PURE__ */ __commonJSMin(((exports) => {
     gen.if(condition, (0, codegen_1._)`${childData} = ${(0, codegen_1.stringify)(defaultValue)}`);
   }
 }));
-var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
+var require_code = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.validateUnion = exports2.validateArray = exports2.usePattern = exports2.callValidateCode = exports2.schemaProperties = exports2.allSchemaProperties = exports2.noPropertyInData = exports2.propertyInData = exports2.isOwnProperty = exports2.hasPropFunc = exports2.reportMissingProp = exports2.checkMissingProp = exports2.checkReportMissingProp = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const names_1 = require_names();
@@ -27147,45 +27147,45 @@ var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.error();
     });
   }
-  exports.checkReportMissingProp = checkReportMissingProp;
+  exports2.checkReportMissingProp = checkReportMissingProp;
   function checkMissingProp({ gen, data, it: { opts } }, properties2, missing) {
     return (0, codegen_1.or)(...properties2.map((prop) => (0, codegen_1.and)(noPropertyInData(gen, data, prop, opts.ownProperties), (0, codegen_1._)`${missing} = ${prop}`)));
   }
-  exports.checkMissingProp = checkMissingProp;
+  exports2.checkMissingProp = checkMissingProp;
   function reportMissingProp(cxt, missing) {
     cxt.setParams({ missingProperty: missing }, true);
     cxt.error();
   }
-  exports.reportMissingProp = reportMissingProp;
+  exports2.reportMissingProp = reportMissingProp;
   function hasPropFunc(gen) {
     return gen.scopeValue("func", {
       ref: Object.prototype.hasOwnProperty,
       code: (0, codegen_1._)`Object.prototype.hasOwnProperty`
     });
   }
-  exports.hasPropFunc = hasPropFunc;
+  exports2.hasPropFunc = hasPropFunc;
   function isOwnProperty(gen, data, property) {
     return (0, codegen_1._)`${hasPropFunc(gen)}.call(${data}, ${property})`;
   }
-  exports.isOwnProperty = isOwnProperty;
+  exports2.isOwnProperty = isOwnProperty;
   function propertyInData(gen, data, property, ownProperties) {
     const cond = (0, codegen_1._)`${data}${(0, codegen_1.getProperty)(property)} !== undefined`;
     return ownProperties ? (0, codegen_1._)`${cond} && ${isOwnProperty(gen, data, property)}` : cond;
   }
-  exports.propertyInData = propertyInData;
+  exports2.propertyInData = propertyInData;
   function noPropertyInData(gen, data, property, ownProperties) {
     const cond = (0, codegen_1._)`${data}${(0, codegen_1.getProperty)(property)} === undefined`;
     return ownProperties ? (0, codegen_1.or)(cond, (0, codegen_1.not)(isOwnProperty(gen, data, property))) : cond;
   }
-  exports.noPropertyInData = noPropertyInData;
+  exports2.noPropertyInData = noPropertyInData;
   function allSchemaProperties(schemaMap) {
     return schemaMap ? Object.keys(schemaMap).filter((p) => p !== "__proto__") : [];
   }
-  exports.allSchemaProperties = allSchemaProperties;
+  exports2.allSchemaProperties = allSchemaProperties;
   function schemaProperties(it, schemaMap) {
     return allSchemaProperties(schemaMap).filter((p) => !(0, util_1.alwaysValidSchema)(it, schemaMap[p]));
   }
-  exports.schemaProperties = schemaProperties;
+  exports2.schemaProperties = schemaProperties;
   function callValidateCode({ schemaCode, data, it: { gen, topSchemaRef, schemaPath, errorPath }, it }, func, context, passSchema) {
     const dataAndSchema = passSchema ? (0, codegen_1._)`${schemaCode}, ${data}, ${topSchemaRef}${schemaPath}` : data;
     const valCxt = [
@@ -27198,7 +27198,7 @@ var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
     const args = (0, codegen_1._)`${dataAndSchema}, ${gen.object(...valCxt)}`;
     return context !== codegen_1.nil ? (0, codegen_1._)`${func}.call(${context}, ${args})` : (0, codegen_1._)`${func}(${args})`;
   }
-  exports.callValidateCode = callValidateCode;
+  exports2.callValidateCode = callValidateCode;
   const newRegExp = (0, codegen_1._)`new RegExp`;
   function usePattern({ gen, it: { opts } }, pattern) {
     const u = opts.unicodeRegExp ? "u" : "";
@@ -27210,7 +27210,7 @@ var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
       code: (0, codegen_1._)`${regExp.code === "new RegExp" ? newRegExp : (0, util_2.useFunc)(gen, regExp)}(${pattern}, ${u})`
     });
   }
-  exports.usePattern = usePattern;
+  exports2.usePattern = usePattern;
   function validateArray(cxt) {
     const { gen, data, keyword, it } = cxt;
     const valid = gen.name("valid");
@@ -27234,7 +27234,7 @@ var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
       });
     }
   }
-  exports.validateArray = validateArray;
+  exports2.validateArray = validateArray;
   function validateUnion(cxt) {
     const { gen, schema, keyword, it } = cxt;
     if (!Array.isArray(schema)) throw new Error("ajv implementation error");
@@ -27252,11 +27252,11 @@ var require_code = /* @__PURE__ */ __commonJSMin(((exports) => {
     }));
     cxt.result(valid, () => cxt.reset(), () => cxt.error(true));
   }
-  exports.validateUnion = validateUnion;
+  exports2.validateUnion = validateUnion;
 }));
-var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
+var require_keyword = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.validateKeywordUsage = exports2.validSchemaType = exports2.funcKeywordCode = exports2.macroKeywordCode = void 0;
   const codegen_1 = require_codegen();
   const names_1 = require_names();
   const code_1 = require_code();
@@ -27276,7 +27276,7 @@ var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
     }, valid);
     cxt.pass(valid, () => cxt.error(true));
   }
-  exports.macroKeywordCode = macroKeywordCode;
+  exports2.macroKeywordCode = macroKeywordCode;
   function funcKeywordCode(cxt, def) {
     var _a3;
     const { gen, keyword, schema, parentSchema, $data, it } = cxt;
@@ -27317,7 +27317,7 @@ var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
       gen.if((0, codegen_1.not)((_a$1 = def.valid) !== null && _a$1 !== void 0 ? _a$1 : valid), errors);
     }
   }
-  exports.funcKeywordCode = funcKeywordCode;
+  exports2.funcKeywordCode = funcKeywordCode;
   function modifyData(cxt) {
     const { gen, data, it } = cxt;
     gen.if(it.parentData, () => gen.assign(data, (0, codegen_1._)`${it.parentData}[${it.parentDataProperty}]`));
@@ -27342,7 +27342,7 @@ var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
   function validSchemaType(schema, schemaType, allowUndefined = false) {
     return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
   }
-  exports.validSchemaType = validSchemaType;
+  exports2.validSchemaType = validSchemaType;
   function validateKeywordUsage({ schema, opts, self, errSchemaPath }, def, keyword) {
     if (Array.isArray(def.keyword) ? !def.keyword.includes(keyword) : def.keyword !== keyword) throw new Error("ajv implementation error");
     const deps = def.dependencies;
@@ -27355,11 +27355,11 @@ var require_keyword = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   }
-  exports.validateKeywordUsage = validateKeywordUsage;
+  exports2.validateKeywordUsage = validateKeywordUsage;
 }));
-var require_subschema = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
+var require_subschema = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.extendSubschemaMode = exports2.extendSubschemaData = exports2.getSubschema = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   function getSubschema(it, { keyword, schemaProp, schema, schemaPath, errSchemaPath, topSchemaRef }) {
@@ -27387,7 +27387,7 @@ var require_subschema = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     throw new Error('either "keyword" or "schema" must be passed');
   }
-  exports.getSubschema = getSubschema;
+  exports2.getSubschema = getSubschema;
   function extendSubschemaData(subschema, it, { dataProp, dataPropType: dpType, data, dataTypes, propertyName }) {
     if (data !== void 0 && dataProp !== void 0) throw new Error('both "data" and "dataProp" passed, only one allowed');
     const { gen } = it;
@@ -27412,7 +27412,7 @@ var require_subschema = /* @__PURE__ */ __commonJSMin(((exports) => {
       subschema.dataNames = [...it.dataNames, _nextData];
     }
   }
-  exports.extendSubschemaData = extendSubschemaData;
+  exports2.extendSubschemaData = extendSubschemaData;
   function extendSubschemaMode(subschema, { jtdDiscriminator, jtdMetadata, compositeRule, createErrors, allErrors }) {
     if (compositeRule !== void 0) subschema.compositeRule = compositeRule;
     if (createErrors !== void 0) subschema.createErrors = createErrors;
@@ -27420,9 +27420,9 @@ var require_subschema = /* @__PURE__ */ __commonJSMin(((exports) => {
     subschema.jtdDiscriminator = jtdDiscriminator;
     subschema.jtdMetadata = jtdMetadata;
   }
-  exports.extendSubschemaMode = extendSubschemaMode;
+  exports2.extendSubschemaMode = extendSubschemaMode;
 }));
-var require_fast_deep_equal = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_fast_deep_equal = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = function equal(a, b) {
     if (a === b) return true;
     if (a && b && typeof a == "object" && typeof b == "object") {
@@ -27450,7 +27450,7 @@ var require_fast_deep_equal = /* @__PURE__ */ __commonJSMin(((exports, module) =
     return a !== a && b !== b;
   };
 }));
-var require_json_schema_traverse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_json_schema_traverse = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   var traverse = module.exports = function(schema, opts, cb) {
     if (typeof opts == "function") {
       cb = opts;
@@ -27525,9 +27525,9 @@ var require_json_schema_traverse = /* @__PURE__ */ __commonJSMin(((exports, modu
     return str.replace(/~/g, "~0").replace(/\//g, "~1");
   }
 }));
-var require_resolve = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
+var require_resolve = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.getSchemaRefs = exports2.resolveUrl = exports2.normalizeId = exports2._getFullPath = exports2.getFullPath = exports2.inlineRef = void 0;
   const util_1 = require_util();
   const equal = require_fast_deep_equal();
   const traverse = require_json_schema_traverse();
@@ -27555,7 +27555,7 @@ var require_resolve = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (!limit) return false;
     return countKeys(schema) <= limit;
   }
-  exports.inlineRef = inlineRef;
+  exports2.inlineRef = inlineRef;
   const REF_KEYWORDS = /* @__PURE__ */ new Set([
     "$ref",
     "$recursiveRef",
@@ -27587,21 +27587,21 @@ var require_resolve = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (normalize !== false) id = normalizeId(id);
     return _getFullPath(resolver, resolver.parse(id));
   }
-  exports.getFullPath = getFullPath;
+  exports2.getFullPath = getFullPath;
   function _getFullPath(resolver, p) {
     return resolver.serialize(p).split("#")[0] + "#";
   }
-  exports._getFullPath = _getFullPath;
+  exports2._getFullPath = _getFullPath;
   const TRAILING_SLASH_HASH = /#\/?$/;
   function normalizeId(id) {
     return id ? id.replace(TRAILING_SLASH_HASH, "") : "";
   }
-  exports.normalizeId = normalizeId;
+  exports2.normalizeId = normalizeId;
   function resolveUrl(resolver, baseId, id) {
     id = normalizeId(id);
     return resolver.resolve(baseId, id);
   }
-  exports.resolveUrl = resolveUrl;
+  exports2.resolveUrl = resolveUrl;
   const ANCHOR = /^[a-z_][-a-z0-9._]*$/i;
   function getSchemaRefs(schema, baseId) {
     if (typeof schema == "boolean") return {};
@@ -27648,11 +27648,11 @@ var require_resolve = /* @__PURE__ */ __commonJSMin(((exports) => {
       return /* @__PURE__ */ new Error(`reference "${ref}" resolves to more than one schema`);
     }
   }
-  exports.getSchemaRefs = getSchemaRefs;
+  exports2.getSchemaRefs = getSchemaRefs;
 }));
-var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
+var require_validate = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.getData = exports2.KeywordCxt = exports2.validateFunctionCode = void 0;
   const boolSchema_1 = require_boolSchema();
   const dataType_1 = require_dataType();
   const applicability_1 = require_applicability();
@@ -27675,7 +27675,7 @@ var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     validateFunction(it, () => (0, boolSchema_1.topBoolOrEmptySchema)(it));
   }
-  exports.validateFunctionCode = validateFunctionCode;
+  exports2.validateFunctionCode = validateFunctionCode;
   function validateFunction({ gen, validateName, schema, schemaEnv, opts }, body) {
     if (opts.code.es5) gen.func(validateName, (0, codegen_1._)`${names_1.default.data}, ${names_1.default.valCxt}`, schemaEnv.$async, () => {
       gen.code((0, codegen_1._)`"use strict"; ${funcSourceUrl(schema, opts)}`);
@@ -28022,7 +28022,7 @@ var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.KeywordCxt = KeywordCxt;
+  exports2.KeywordCxt = KeywordCxt;
   function keywordCode(it, keyword, def, ruleType) {
     const cxt = new KeywordCxt(it, def, keyword);
     if ("code" in def) def.code(cxt, ruleType);
@@ -28064,10 +28064,10 @@ var require_validate = /* @__PURE__ */ __commonJSMin(((exports) => {
       return `Cannot access ${pointerType} ${up} levels up, current level is ${dataLevel}`;
     }
   }
-  exports.getData = getData;
+  exports2.getData = getData;
 }));
-var require_validation_error = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_validation_error = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   var ValidationError = class extends Error {
     constructor(errors) {
       super("validation failed");
@@ -28075,10 +28075,10 @@ var require_validation_error = /* @__PURE__ */ __commonJSMin(((exports) => {
       this.ajv = this.validation = true;
     }
   };
-  exports.default = ValidationError;
+  exports2.default = ValidationError;
 }));
-var require_ref_error = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_ref_error = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const resolve_1 = require_resolve();
   var MissingRefError = class extends Error {
     constructor(resolver, baseId, ref, msg) {
@@ -28087,11 +28087,11 @@ var require_ref_error = /* @__PURE__ */ __commonJSMin(((exports) => {
       this.missingSchema = (0, resolve_1.normalizeId)((0, resolve_1.getFullPath)(resolver, this.missingRef));
     }
   };
-  exports.default = MissingRefError;
+  exports2.default = MissingRefError;
 }));
-var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
+var require_compile = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.resolveSchema = exports2.getCompilingSchema = exports2.resolveRef = exports2.compileSchema = exports2.SchemaEnv = void 0;
   const codegen_1 = require_codegen();
   const validation_error_1 = require_validation_error();
   const names_1 = require_names();
@@ -28099,24 +28099,24 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
   const util_1 = require_util();
   const validate_1 = require_validate();
   var SchemaEnv = class {
-    constructor(env) {
+    constructor(env2) {
       var _a3;
       this.refs = {};
       this.dynamicAnchors = {};
       let schema;
-      if (typeof env.schema == "object") schema = env.schema;
-      this.schema = env.schema;
-      this.schemaId = env.schemaId;
-      this.root = env.root || this;
-      this.baseId = (_a3 = env.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env.schemaId || "$id"]);
-      this.schemaPath = env.schemaPath;
-      this.localRefs = env.localRefs;
-      this.meta = env.meta;
+      if (typeof env2.schema == "object") schema = env2.schema;
+      this.schema = env2.schema;
+      this.schemaId = env2.schemaId;
+      this.root = env2.root || this;
+      this.baseId = (_a3 = env2.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env2.schemaId || "$id"]);
+      this.schemaPath = env2.schemaPath;
+      this.localRefs = env2.localRefs;
+      this.meta = env2.meta;
       this.$async = schema === null || schema === void 0 ? void 0 : schema.$async;
       this.refs = {};
     }
   };
-  exports.SchemaEnv = SchemaEnv;
+  exports2.SchemaEnv = SchemaEnv;
   function compileSchema(sch) {
     const _sch = getCompilingSchema.call(this, sch);
     if (_sch) return _sch;
@@ -28202,7 +28202,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
       this._compilations.delete(sch);
     }
   }
-  exports.compileSchema = compileSchema;
+  exports2.compileSchema = compileSchema;
   function resolveRef2(root2, baseId, ref) {
     var _a3;
     ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, ref);
@@ -28222,7 +28222,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (_sch === void 0) return;
     return root2.refs[ref] = inlineOrCompile.call(this, _sch);
   }
-  exports.resolveRef = resolveRef2;
+  exports2.resolveRef = resolveRef2;
   function inlineOrCompile(sch) {
     if ((0, resolve_1.inlineRef)(sch.schema, this.opts.inlineRefs)) return sch.schema;
     return sch.validate ? sch : compileSchema.call(this, sch);
@@ -28230,7 +28230,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
   function getCompilingSchema(schEnv) {
     for (const sch of this._compilations) if (sameSchemaEnv(sch, schEnv)) return sch;
   }
-  exports.getCompilingSchema = getCompilingSchema;
+  exports2.getCompilingSchema = getCompilingSchema;
   function sameSchemaEnv(s1, s2) {
     return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
   }
@@ -28267,7 +28267,7 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return getJsonPointer.call(this, p, schOrRef);
   }
-  exports.resolveSchema = resolveSchema;
+  exports2.resolveSchema = resolveSchema;
   const PREVENT_SCOPE_CHANGE = /* @__PURE__ */ new Set([
     "properties",
     "patternProperties",
@@ -28286,22 +28286,22 @@ var require_compile = /* @__PURE__ */ __commonJSMin(((exports) => {
       const schId = typeof schema === "object" && schema[this.opts.schemaId];
       if (!PREVENT_SCOPE_CHANGE.has(part) && schId) baseId = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schId);
     }
-    let env;
+    let env2;
     if (typeof schema != "boolean" && schema.$ref && !(0, util_1.schemaHasRulesButRef)(schema, this.RULES)) {
       const $ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schema.$ref);
-      env = resolveSchema.call(this, root2, $ref);
+      env2 = resolveSchema.call(this, root2, $ref);
     }
     const { schemaId } = this.opts;
-    env = env || new SchemaEnv({
+    env2 = env2 || new SchemaEnv({
       schema,
       schemaId,
       root: root2,
       baseId
     });
-    if (env.schema !== env.root.schema) return env;
+    if (env2.schema !== env2.root.schema) return env2;
   }
 }));
-var require_data = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_data = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$id": "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
     "description": "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -28314,7 +28314,7 @@ var require_data = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     "additionalProperties": false
   };
 }));
-var require_utils = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   const isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
   const isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
   function stringArrayToHexStripped(input2) {
@@ -28529,7 +28529,7 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     stringArrayToHexStripped
   };
 }));
-var require_schemes = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   const { isUUID } = require_utils();
   const URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
   const supportedSchemeNames = [
@@ -28676,7 +28676,7 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     getSchemeHandler
   };
 }));
-var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   const { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
   const { SCHEMES, getSchemeHandler } = require_schemes();
   function normalize(uri, options) {
@@ -28868,54 +28868,54 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
   module.exports.default = fastUri;
   module.exports.fastUri = fastUri;
 }));
-var require_uri = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_uri = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const uri = require_fast_uri();
   uri.code = 'require("ajv/dist/runtime/uri").default';
-  exports.default = uri;
+  exports2.default = uri;
 }));
-var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
+var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = void 0;
   var validate_1 = require_validate();
-  Object.defineProperty(exports, "KeywordCxt", {
+  Object.defineProperty(exports2, "KeywordCxt", {
     enumerable: true,
     get: function() {
       return validate_1.KeywordCxt;
     }
   });
   var codegen_1 = require_codegen();
-  Object.defineProperty(exports, "_", {
+  Object.defineProperty(exports2, "_", {
     enumerable: true,
     get: function() {
       return codegen_1._;
     }
   });
-  Object.defineProperty(exports, "str", {
+  Object.defineProperty(exports2, "str", {
     enumerable: true,
     get: function() {
       return codegen_1.str;
     }
   });
-  Object.defineProperty(exports, "stringify", {
+  Object.defineProperty(exports2, "stringify", {
     enumerable: true,
     get: function() {
       return codegen_1.stringify;
     }
   });
-  Object.defineProperty(exports, "nil", {
+  Object.defineProperty(exports2, "nil", {
     enumerable: true,
     get: function() {
       return codegen_1.nil;
     }
   });
-  Object.defineProperty(exports, "Name", {
+  Object.defineProperty(exports2, "Name", {
     enumerable: true,
     get: function() {
       return codegen_1.Name;
     }
   });
-  Object.defineProperty(exports, "CodeGen", {
+  Object.defineProperty(exports2, "CodeGen", {
     enumerable: true,
     get: function() {
       return codegen_1.CodeGen;
@@ -29333,7 +29333,7 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
   };
   Ajv2.ValidationError = validation_error_1.default;
   Ajv2.MissingRefError = ref_error_1.default;
-  exports.default = Ajv2;
+  exports2.default = Ajv2;
   function checkOptions(checkOpts, options, msg, log2 = "error") {
     for (const key in checkOpts) {
       const opt = key;
@@ -29444,19 +29444,19 @@ var require_core$3 = /* @__PURE__ */ __commonJSMin(((exports) => {
     return { anyOf: [schema, $dataRef] };
   }
 }));
-var require_id = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_id = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const def = {
     keyword: "id",
     code() {
       throw new Error('NOT SUPPORTED: keyword "id", use "$id" for schema ID');
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_ref = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.callRef = exports.getValidate = void 0;
+var require_ref = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.callRef = exports2.getValidate = void 0;
   const ref_error_1 = require_ref_error();
   const code_1 = require_code();
   const codegen_1 = require_codegen();
@@ -29468,15 +29468,15 @@ var require_ref = /* @__PURE__ */ __commonJSMin(((exports) => {
     schemaType: "string",
     code(cxt) {
       const { gen, schema: $ref, it } = cxt;
-      const { baseId, schemaEnv: env, validateName, opts, self } = it;
-      const { root: root2 } = env;
+      const { baseId, schemaEnv: env2, validateName, opts, self } = it;
+      const { root: root2 } = env2;
       if (($ref === "#" || $ref === "#/") && baseId === root2.baseId) return callRootRef();
       const schOrEnv = compile_1.resolveRef.call(self, root2, baseId, $ref);
       if (schOrEnv === void 0) throw new ref_error_1.default(it.opts.uriResolver, baseId, $ref);
       if (schOrEnv instanceof compile_1.SchemaEnv) return callValidate(schOrEnv);
       return inlineRefSchema(schOrEnv);
       function callRootRef() {
-        if (env === root2) return callRef(cxt, validateName, env, env.$async);
+        if (env2 === root2) return callRef(cxt, validateName, env2, env2.$async);
         const rootName = gen.scopeValue("root", { ref: root2 });
         return callRef(cxt, (0, codegen_1._)`${rootName}.validate`, root2, root2.$async);
       }
@@ -29505,15 +29505,15 @@ var require_ref = /* @__PURE__ */ __commonJSMin(((exports) => {
     const { gen } = cxt;
     return sch.validate ? gen.scopeValue("validate", { ref: sch.validate }) : (0, codegen_1._)`${gen.scopeValue("wrapper", { ref: sch })}.validate`;
   }
-  exports.getValidate = getValidate;
+  exports2.getValidate = getValidate;
   function callRef(cxt, v, sch, $async) {
     const { gen, it } = cxt;
-    const { allErrors, schemaEnv: env, opts } = it;
+    const { allErrors, schemaEnv: env2, opts } = it;
     const passCxt = opts.passContext ? names_1.default.this : codegen_1.nil;
     if ($async) callAsyncRef();
     else callSyncRef();
     function callAsyncRef() {
-      if (!env.$async) throw new Error("async schema referenced by sync schema");
+      if (!env2.$async) throw new Error("async schema referenced by sync schema");
       const valid = gen.let("valid");
       gen.try(() => {
         gen.code((0, codegen_1._)`await ${(0, code_1.callValidateCode)(cxt, v, passCxt)}`);
@@ -29552,11 +29552,11 @@ var require_ref = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   }
-  exports.callRef = callRef;
-  exports.default = def;
+  exports2.callRef = callRef;
+  exports2.default = def;
 }));
-var require_core$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_core$2 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const id_1 = require_id();
   const ref_1 = require_ref();
   const core = [
@@ -29569,10 +29569,10 @@ var require_core$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
     id_1.default,
     ref_1.default
   ];
-  exports.default = core;
+  exports2.default = core;
 }));
-var require_limitNumber = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_limitNumber = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const ops = codegen_1.operators;
   const KWDs = {
@@ -29611,10 +29611,10 @@ var require_limitNumber = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.fail$data((0, codegen_1._)`${data} ${KWDs[keyword].fail} ${schemaCode} || isNaN(${data})`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_multipleOf = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_multipleOf = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const def = {
     keyword: "multipleOf",
@@ -29633,10 +29633,10 @@ var require_multipleOf = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.fail$data((0, codegen_1._)`(${schemaCode} === 0 || (${res} = ${data}/${schemaCode}, ${invalid}))`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_ucs2length = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_ucs2length = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   function ucs2length(str) {
     const len = str.length;
     let length = 0;
@@ -29652,11 +29652,11 @@ var require_ucs2length = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
     return length;
   }
-  exports.default = ucs2length;
+  exports2.default = ucs2length;
   ucs2length.code = 'require("ajv/dist/runtime/ucs2length").default';
 }));
-var require_limitLength = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_limitLength = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const ucs2length_1 = require_ucs2length();
@@ -29679,10 +29679,10 @@ var require_limitLength = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.fail$data((0, codegen_1._)`${len} ${op} ${schemaCode}`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_pattern = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_pattern = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const code_1 = require_code();
   const util_1 = require_util();
   const codegen_1 = require_codegen();
@@ -29710,10 +29710,10 @@ var require_pattern = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_limitProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_limitProperties = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const def = {
     keyword: ["maxProperties", "minProperties"],
@@ -29733,10 +29733,10 @@ var require_limitProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.fail$data((0, codegen_1._)`Object.keys(${data}).length ${op} ${schemaCode}`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_required = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_required = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const code_1 = require_code();
   const codegen_1 = require_codegen();
   const util_1 = require_util();
@@ -29798,10 +29798,10 @@ var require_required = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_limitItems = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_limitItems = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const def = {
     keyword: ["maxItems", "minItems"],
@@ -29821,16 +29821,16 @@ var require_limitItems = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.fail$data((0, codegen_1._)`${data}.length ${op} ${schemaCode}`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_equal = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_equal = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const equal = require_fast_deep_equal();
   equal.code = 'require("ajv/dist/runtime/equal").default';
-  exports.default = equal;
+  exports2.default = equal;
 }));
-var require_uniqueItems = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_uniqueItems = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dataType_1 = require_dataType();
   const codegen_1 = require_codegen();
   const util_1 = require_util();
@@ -29889,10 +29889,10 @@ var require_uniqueItems = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_const = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_const = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const equal_1 = require_equal();
@@ -29909,10 +29909,10 @@ var require_const = /* @__PURE__ */ __commonJSMin(((exports) => {
       else cxt.fail((0, codegen_1._)`${schema} !== ${data}`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_enum = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_enum = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const equal_1 = require_equal();
@@ -29950,10 +29950,10 @@ var require_enum = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_validation$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_validation$2 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const limitNumber_1 = require_limitNumber();
   const multipleOf_1 = require_multipleOf();
   const limitLength_1 = require_limitLength();
@@ -29984,11 +29984,11 @@ var require_validation$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
     const_1.default,
     enum_1.default
   ];
-  exports.default = validation;
+  exports2.default = validation;
 }));
-var require_additionalItems = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.validateAdditionalItems = void 0;
+var require_additionalItems = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.validateAdditionalItems = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -30033,12 +30033,12 @@ var require_additionalItems = /* @__PURE__ */ __commonJSMin(((exports) => {
       });
     }
   }
-  exports.validateAdditionalItems = validateAdditionalItems;
-  exports.default = def;
+  exports2.validateAdditionalItems = validateAdditionalItems;
+  exports2.default = def;
 }));
-var require_items = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.validateTuple = void 0;
+var require_items = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.validateTuple = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const code_1 = require_code();
@@ -30084,11 +30084,11 @@ var require_items = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   }
-  exports.validateTuple = validateTuple;
-  exports.default = def;
+  exports2.validateTuple = validateTuple;
+  exports2.default = def;
 }));
-var require_prefixItems = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_prefixItems = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const items_1 = require_items();
   const def = {
     keyword: "prefixItems",
@@ -30097,10 +30097,10 @@ var require_prefixItems = /* @__PURE__ */ __commonJSMin(((exports) => {
     before: "uniqueItems",
     code: (cxt) => (0, items_1.validateTuple)(cxt, "items")
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_items2020 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_items2020 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const code_1 = require_code();
@@ -30123,10 +30123,10 @@ var require_items2020 = /* @__PURE__ */ __commonJSMin(((exports) => {
       else cxt.ok((0, code_1.validateArray)(cxt));
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_contains = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_contains = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -30206,15 +30206,15 @@ var require_contains = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_dependencies = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
+var require_dependencies = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.validateSchemaDeps = exports2.validatePropertyDeps = exports2.error = void 0;
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const code_1 = require_code();
-  exports.error = {
+  exports2.error = {
     message: ({ params: { property, depsCount, deps } }) => {
       const property_ies = depsCount === 1 ? "property" : "properties";
       return (0, codegen_1.str)`must have ${property_ies} ${deps} when property ${property} is present`;
@@ -30228,7 +30228,7 @@ var require_dependencies = /* @__PURE__ */ __commonJSMin(((exports) => {
     keyword: "dependencies",
     type: "object",
     schemaType: "object",
-    error: exports.error,
+    error: exports2.error,
     code(cxt) {
       const [propDeps, schDeps] = splitDependencies(cxt);
       validatePropertyDeps(cxt, propDeps);
@@ -30268,7 +30268,7 @@ var require_dependencies = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   }
-  exports.validatePropertyDeps = validatePropertyDeps;
+  exports2.validatePropertyDeps = validatePropertyDeps;
   function validateSchemaDeps(cxt, schemaDeps = cxt.schema) {
     const { gen, data, keyword, it } = cxt;
     const valid = gen.name("valid");
@@ -30284,11 +30284,11 @@ var require_dependencies = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.ok(valid);
     }
   }
-  exports.validateSchemaDeps = validateSchemaDeps;
-  exports.default = def;
+  exports2.validateSchemaDeps = validateSchemaDeps;
+  exports2.default = def;
 }));
-var require_propertyNames = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_propertyNames = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -30320,10 +30320,10 @@ var require_propertyNames = /* @__PURE__ */ __commonJSMin(((exports) => {
       cxt.ok(valid);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_additionalProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_additionalProperties = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const code_1 = require_code();
   const codegen_1 = require_codegen();
   const names_1 = require_names();
@@ -30407,10 +30407,10 @@ var require_additionalProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_properties = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_properties = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const validate_1 = require_validate();
   const code_1 = require_code();
   const util_1 = require_util();
@@ -30451,10 +30451,10 @@ var require_properties = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_patternProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_patternProperties = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const code_1 = require_code();
   const codegen_1 = require_codegen();
   const util_1 = require_util();
@@ -30505,10 +30505,10 @@ var require_patternProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_not = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_not = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const util_1 = require_util();
   const def = {
     keyword: "not",
@@ -30531,10 +30531,10 @@ var require_not = /* @__PURE__ */ __commonJSMin(((exports) => {
     },
     error: { message: "must NOT be valid" }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_anyOf = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_anyOf = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const def = {
     keyword: "anyOf",
     schemaType: "array",
@@ -30542,10 +30542,10 @@ var require_anyOf = /* @__PURE__ */ __commonJSMin(((exports) => {
     code: require_code().validateUnion,
     error: { message: "must match a schema in anyOf" }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_oneOf = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_oneOf = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -30586,10 +30586,10 @@ var require_oneOf = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_allOf = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_allOf = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const util_1 = require_util();
   const def = {
     keyword: "allOf",
@@ -30609,10 +30609,10 @@ var require_allOf = /* @__PURE__ */ __commonJSMin(((exports) => {
       });
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_if = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_if = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -30664,10 +30664,10 @@ var require_if = /* @__PURE__ */ __commonJSMin(((exports) => {
     const schema = it.schema[keyword];
     return schema !== void 0 && !(0, util_1.alwaysValidSchema)(it, schema);
   }
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_thenElse = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_thenElse = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const util_1 = require_util();
   const def = {
     keyword: ["then", "else"],
@@ -30676,10 +30676,10 @@ var require_thenElse = /* @__PURE__ */ __commonJSMin(((exports) => {
       if (parentSchema.if === void 0) (0, util_1.checkStrictMode)(it, `"${keyword}" without "if" is ignored`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_applicator$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_applicator$2 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const additionalItems_1 = require_additionalItems();
   const prefixItems_1 = require_prefixItems();
   const items_1 = require_items();
@@ -30715,10 +30715,10 @@ var require_applicator$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
     applicator.push(contains_1.default);
     return applicator;
   }
-  exports.default = getApplicator;
+  exports2.default = getApplicator;
 }));
-var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const def = {
     keyword: "format",
@@ -30802,17 +30802,17 @@ var require_format$2 = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_format$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_format$1 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const format = [require_format$2().default];
-  exports.default = format;
+  exports2.default = format;
 }));
-var require_metadata = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.contentVocabulary = exports.metadataVocabulary = void 0;
-  exports.metadataVocabulary = [
+var require_metadata = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.contentVocabulary = exports2.metadataVocabulary = void 0;
+  exports2.metadataVocabulary = [
     "title",
     "description",
     "default",
@@ -30821,14 +30821,14 @@ var require_metadata = /* @__PURE__ */ __commonJSMin(((exports) => {
     "writeOnly",
     "examples"
   ];
-  exports.contentVocabulary = [
+  exports2.contentVocabulary = [
     "contentMediaType",
     "contentEncoding",
     "contentSchema"
   ];
 }));
-var require_draft7 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_draft7 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const core_1 = require_core$2();
   const validation_1 = require_validation$2();
   const applicator_1 = require_applicator$2();
@@ -30842,19 +30842,19 @@ var require_draft7 = /* @__PURE__ */ __commonJSMin(((exports) => {
     metadata_1.metadataVocabulary,
     metadata_1.contentVocabulary
   ];
-  exports.default = draft7Vocabularies;
+  exports2.default = draft7Vocabularies;
 }));
-var require_types = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.DiscrError = void 0;
+var require_types = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.DiscrError = void 0;
   var DiscrError;
   (function(DiscrError2) {
     DiscrError2["Tag"] = "tag";
     DiscrError2["Mapping"] = "mapping";
-  })(DiscrError || (exports.DiscrError = DiscrError = {}));
+  })(DiscrError || (exports2.DiscrError = DiscrError = {}));
 }));
-var require_discriminator = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_discriminator = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const types_1 = require_types();
   const compile_1 = require_compile();
@@ -30943,9 +30943,9 @@ var require_discriminator = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_json_schema_draft_07 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_json_schema_draft_07 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "http://json-schema.org/draft-07/schema#",
@@ -31081,9 +31081,9 @@ var require_json_schema_draft_07 = /* @__PURE__ */ __commonJSMin(((exports, modu
     "default": true
   };
 }));
-var require_ajv = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
+var require_ajv = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.MissingRefError = exports2.ValidationError = exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = exports2.Ajv = void 0;
   const core_1 = require_core$3();
   const draft7_1 = require_draft7();
   const discriminator_1 = require_discriminator();
@@ -31107,73 +31107,73 @@ var require_ajv = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       return this.opts.defaultMeta = super.defaultMeta() || (this.getSchema(META_SCHEMA_ID) ? META_SCHEMA_ID : void 0);
     }
   };
-  exports.Ajv = Ajv2;
-  module.exports = exports = Ajv2;
+  exports2.Ajv = Ajv2;
+  module.exports = exports2 = Ajv2;
   module.exports.Ajv = Ajv2;
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.default = Ajv2;
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.default = Ajv2;
   var validate_1 = require_validate();
-  Object.defineProperty(exports, "KeywordCxt", {
+  Object.defineProperty(exports2, "KeywordCxt", {
     enumerable: true,
     get: function() {
       return validate_1.KeywordCxt;
     }
   });
   var codegen_1 = require_codegen();
-  Object.defineProperty(exports, "_", {
+  Object.defineProperty(exports2, "_", {
     enumerable: true,
     get: function() {
       return codegen_1._;
     }
   });
-  Object.defineProperty(exports, "str", {
+  Object.defineProperty(exports2, "str", {
     enumerable: true,
     get: function() {
       return codegen_1.str;
     }
   });
-  Object.defineProperty(exports, "stringify", {
+  Object.defineProperty(exports2, "stringify", {
     enumerable: true,
     get: function() {
       return codegen_1.stringify;
     }
   });
-  Object.defineProperty(exports, "nil", {
+  Object.defineProperty(exports2, "nil", {
     enumerable: true,
     get: function() {
       return codegen_1.nil;
     }
   });
-  Object.defineProperty(exports, "Name", {
+  Object.defineProperty(exports2, "Name", {
     enumerable: true,
     get: function() {
       return codegen_1.Name;
     }
   });
-  Object.defineProperty(exports, "CodeGen", {
+  Object.defineProperty(exports2, "CodeGen", {
     enumerable: true,
     get: function() {
       return codegen_1.CodeGen;
     }
   });
   var validation_error_1 = require_validation_error();
-  Object.defineProperty(exports, "ValidationError", {
+  Object.defineProperty(exports2, "ValidationError", {
     enumerable: true,
     get: function() {
       return validation_error_1.default;
     }
   });
   var ref_error_1 = require_ref_error();
-  Object.defineProperty(exports, "MissingRefError", {
+  Object.defineProperty(exports2, "MissingRefError", {
     enumerable: true,
     get: function() {
       return ref_error_1.default;
     }
   });
 }));
-var require_dynamicAnchor = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.dynamicAnchor = void 0;
+var require_dynamicAnchor = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.dynamicAnchor = void 0;
   const codegen_1 = require_codegen();
   const names_1 = require_names();
   const compile_1 = require_compile();
@@ -31190,7 +31190,7 @@ var require_dynamicAnchor = /* @__PURE__ */ __commonJSMin(((exports) => {
     const validate2 = it.errSchemaPath === "#" ? it.validateName : _getValidate(cxt);
     gen.if((0, codegen_1._)`!${v}`, () => gen.assign(v, validate2));
   }
-  exports.dynamicAnchor = dynamicAnchor;
+  exports2.dynamicAnchor = dynamicAnchor;
   function _getValidate(cxt) {
     const { schemaEnv, schema, self } = cxt.it;
     const { root: root2, baseId, localRefs, meta: meta3 } = schemaEnv.root;
@@ -31206,11 +31206,11 @@ var require_dynamicAnchor = /* @__PURE__ */ __commonJSMin(((exports) => {
     compile_1.compileSchema.call(self, sch);
     return (0, ref_1.getValidate)(cxt, sch);
   }
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_dynamicRef = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.dynamicRef = void 0;
+var require_dynamicRef = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.dynamicRef = void 0;
   const codegen_1 = require_codegen();
   const names_1 = require_names();
   const ref_1 = require_ref();
@@ -31242,11 +31242,11 @@ var require_dynamicRef = /* @__PURE__ */ __commonJSMin(((exports) => {
       }) : () => (0, ref_1.callRef)(cxt, validate2);
     }
   }
-  exports.dynamicRef = dynamicRef;
-  exports.default = def;
+  exports2.dynamicRef = dynamicRef;
+  exports2.default = def;
 }));
-var require_recursiveAnchor = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_recursiveAnchor = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dynamicAnchor_1 = require_dynamicAnchor();
   const util_1 = require_util();
   const def = {
@@ -31257,20 +31257,20 @@ var require_recursiveAnchor = /* @__PURE__ */ __commonJSMin(((exports) => {
       else (0, util_1.checkStrictMode)(cxt.it, "$recursiveAnchor: false is ignored");
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_recursiveRef = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_recursiveRef = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dynamicRef_1 = require_dynamicRef();
   const def = {
     keyword: "$recursiveRef",
     schemaType: "string",
     code: (cxt) => (0, dynamicRef_1.dynamicRef)(cxt, cxt.schema)
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_dynamic = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_dynamic = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dynamicAnchor_1 = require_dynamicAnchor();
   const dynamicRef_1 = require_dynamicRef();
   const recursiveAnchor_1 = require_recursiveAnchor();
@@ -31281,10 +31281,10 @@ var require_dynamic = /* @__PURE__ */ __commonJSMin(((exports) => {
     recursiveAnchor_1.default,
     recursiveRef_1.default
   ];
-  exports.default = dynamic;
+  exports2.default = dynamic;
 }));
-var require_dependentRequired = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_dependentRequired = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dependencies_1 = require_dependencies();
   const def = {
     keyword: "dependentRequired",
@@ -31293,10 +31293,10 @@ var require_dependentRequired = /* @__PURE__ */ __commonJSMin(((exports) => {
     error: dependencies_1.error,
     code: (cxt) => (0, dependencies_1.validatePropertyDeps)(cxt)
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_dependentSchemas = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_dependentSchemas = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dependencies_1 = require_dependencies();
   const def = {
     keyword: "dependentSchemas",
@@ -31304,10 +31304,10 @@ var require_dependentSchemas = /* @__PURE__ */ __commonJSMin(((exports) => {
     schemaType: "object",
     code: (cxt) => (0, dependencies_1.validateSchemaDeps)(cxt)
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_limitContains = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_limitContains = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const util_1 = require_util();
   const def = {
     keyword: ["maxContains", "minContains"],
@@ -31317,10 +31317,10 @@ var require_limitContains = /* @__PURE__ */ __commonJSMin(((exports) => {
       if (parentSchema.contains === void 0) (0, util_1.checkStrictMode)(it, `"${keyword}" without "contains" is ignored`);
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_next = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_next = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const dependentRequired_1 = require_dependentRequired();
   const dependentSchemas_1 = require_dependentSchemas();
   const limitContains_1 = require_limitContains();
@@ -31329,10 +31329,10 @@ var require_next = /* @__PURE__ */ __commonJSMin(((exports) => {
     dependentSchemas_1.default,
     limitContains_1.default
   ];
-  exports.default = next;
+  exports2.default = next;
 }));
-var require_unevaluatedProperties = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_unevaluatedProperties = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const names_1 = require_names();
@@ -31380,10 +31380,10 @@ var require_unevaluatedProperties = /* @__PURE__ */ __commonJSMin(((exports) => 
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_unevaluatedItems = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_unevaluatedItems = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const codegen_1 = require_codegen();
   const util_1 = require_util();
   const def = {
@@ -31420,16 +31420,16 @@ var require_unevaluatedItems = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
     }
   };
-  exports.default = def;
+  exports2.default = def;
 }));
-var require_unevaluated$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_unevaluated$1 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const unevaluatedProperties_1 = require_unevaluatedProperties();
   const unevaluatedItems_1 = require_unevaluatedItems();
   const unevaluated = [unevaluatedProperties_1.default, unevaluatedItems_1.default];
-  exports.default = unevaluated;
+  exports2.default = unevaluated;
 }));
-var require_schema$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_schema$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/schema",
@@ -31467,7 +31467,7 @@ var require_schema$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_applicator$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_applicator$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/applicator",
@@ -31513,7 +31513,7 @@ var require_applicator$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     } }
   };
 }));
-var require_content$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_content$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/content",
@@ -31528,7 +31528,7 @@ var require_content$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_core$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_core$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/core",
@@ -31580,7 +31580,7 @@ var require_core$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_format = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_format = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/format",
@@ -31591,7 +31591,7 @@ var require_format = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     "properties": { "format": { "type": "string" } }
   };
 }));
-var require_meta_data$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_meta_data$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/meta-data",
@@ -31622,7 +31622,7 @@ var require_meta_data$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_validation$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_validation$1 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "$id": "https://json-schema.org/draft/2019-09/meta/validation",
@@ -31702,8 +31702,8 @@ var require_validation$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_json_schema_2019_09 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_json_schema_2019_09 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const metaSchema = require_schema$1();
   const applicator = require_applicator$1();
   const content = require_content$1();
@@ -31727,11 +31727,11 @@ var require_json_schema_2019_09 = /* @__PURE__ */ __commonJSMin(((exports) => {
       return $data ? ajv.$dataMetaSchema(sch, META_SUPPORT_DATA) : sch;
     }
   }
-  exports.default = addMetaSchema2019;
+  exports2.default = addMetaSchema2019;
 }));
-var require__2019 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv2019 = void 0;
+var require__2019 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.MissingRefError = exports2.ValidationError = exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = exports2.Ajv2019 = void 0;
   const core_1 = require_core$3();
   const draft7_1 = require_draft7();
   const dynamic_1 = require_dynamic();
@@ -31768,72 +31768,72 @@ var require__2019 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       return this.opts.defaultMeta = super.defaultMeta() || (this.getSchema(META_SCHEMA_ID) ? META_SCHEMA_ID : void 0);
     }
   };
-  exports.Ajv2019 = Ajv2019;
-  module.exports = exports = Ajv2019;
+  exports2.Ajv2019 = Ajv2019;
+  module.exports = exports2 = Ajv2019;
   module.exports.Ajv2019 = Ajv2019;
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.default = Ajv2019;
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.default = Ajv2019;
   var validate_1 = require_validate();
-  Object.defineProperty(exports, "KeywordCxt", {
+  Object.defineProperty(exports2, "KeywordCxt", {
     enumerable: true,
     get: function() {
       return validate_1.KeywordCxt;
     }
   });
   var codegen_1 = require_codegen();
-  Object.defineProperty(exports, "_", {
+  Object.defineProperty(exports2, "_", {
     enumerable: true,
     get: function() {
       return codegen_1._;
     }
   });
-  Object.defineProperty(exports, "str", {
+  Object.defineProperty(exports2, "str", {
     enumerable: true,
     get: function() {
       return codegen_1.str;
     }
   });
-  Object.defineProperty(exports, "stringify", {
+  Object.defineProperty(exports2, "stringify", {
     enumerable: true,
     get: function() {
       return codegen_1.stringify;
     }
   });
-  Object.defineProperty(exports, "nil", {
+  Object.defineProperty(exports2, "nil", {
     enumerable: true,
     get: function() {
       return codegen_1.nil;
     }
   });
-  Object.defineProperty(exports, "Name", {
+  Object.defineProperty(exports2, "Name", {
     enumerable: true,
     get: function() {
       return codegen_1.Name;
     }
   });
-  Object.defineProperty(exports, "CodeGen", {
+  Object.defineProperty(exports2, "CodeGen", {
     enumerable: true,
     get: function() {
       return codegen_1.CodeGen;
     }
   });
   var validation_error_1 = require_validation_error();
-  Object.defineProperty(exports, "ValidationError", {
+  Object.defineProperty(exports2, "ValidationError", {
     enumerable: true,
     get: function() {
       return validation_error_1.default;
     }
   });
   var ref_error_1 = require_ref_error();
-  Object.defineProperty(exports, "MissingRefError", {
+  Object.defineProperty(exports2, "MissingRefError", {
     enumerable: true,
     get: function() {
       return ref_error_1.default;
     }
   });
 }));
-var require_draft2020 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_draft2020 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const core_1 = require_core$2();
   const validation_1 = require_validation$2();
   const applicator_1 = require_applicator$2();
@@ -31853,9 +31853,9 @@ var require_draft2020 = /* @__PURE__ */ __commonJSMin(((exports) => {
     next_1.default,
     unevaluated_1.default
   ];
-  exports.default = draft2020Vocabularies;
+  exports2.default = draft2020Vocabularies;
 }));
-var require_schema = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_schema = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/schema",
@@ -31909,7 +31909,7 @@ var require_schema = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_applicator = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_applicator = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/applicator",
@@ -31954,7 +31954,7 @@ var require_applicator = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     } }
   };
 }));
-var require_unevaluated = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_unevaluated = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/unevaluated",
@@ -31968,7 +31968,7 @@ var require_unevaluated = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_content = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_content = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/content",
@@ -31983,7 +31983,7 @@ var require_content = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_core = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_core = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/core",
@@ -32029,7 +32029,7 @@ var require_core = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_format_annotation = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_format_annotation = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/format-annotation",
@@ -32040,7 +32040,7 @@ var require_format_annotation = /* @__PURE__ */ __commonJSMin(((exports, module)
     "properties": { "format": { "type": "string" } }
   };
 }));
-var require_meta_data = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_meta_data = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/meta-data",
@@ -32071,7 +32071,7 @@ var require_meta_data = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_validation = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_validation = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   module.exports = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://json-schema.org/draft/2020-12/meta/validation",
@@ -32151,8 +32151,8 @@ var require_validation = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     }
   };
 }));
-var require_json_schema_2020_12 = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_json_schema_2020_12 = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const metaSchema = require_schema();
   const applicator = require_applicator();
   const unevaluated = require_unevaluated();
@@ -32178,11 +32178,11 @@ var require_json_schema_2020_12 = /* @__PURE__ */ __commonJSMin(((exports) => {
       return $data ? ajv.$dataMetaSchema(sch, META_SUPPORT_DATA) : sch;
     }
   }
-  exports.default = addMetaSchema2020;
+  exports2.default = addMetaSchema2020;
 }));
-var require__2020 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv2020 = void 0;
+var require__2020 = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.MissingRefError = exports2.ValidationError = exports2.CodeGen = exports2.Name = exports2.nil = exports2.stringify = exports2.str = exports2._ = exports2.KeywordCxt = exports2.Ajv2020 = void 0;
   const core_1 = require_core$3();
   const draft2020_1 = require_draft2020();
   const discriminator_1 = require_discriminator();
@@ -32213,80 +32213,80 @@ var require__2020 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       return this.opts.defaultMeta = super.defaultMeta() || (this.getSchema(META_SCHEMA_ID) ? META_SCHEMA_ID : void 0);
     }
   };
-  exports.Ajv2020 = Ajv2020;
-  module.exports = exports = Ajv2020;
+  exports2.Ajv2020 = Ajv2020;
+  module.exports = exports2 = Ajv2020;
   module.exports.Ajv2020 = Ajv2020;
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.default = Ajv2020;
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.default = Ajv2020;
   var validate_1 = require_validate();
-  Object.defineProperty(exports, "KeywordCxt", {
+  Object.defineProperty(exports2, "KeywordCxt", {
     enumerable: true,
     get: function() {
       return validate_1.KeywordCxt;
     }
   });
   var codegen_1 = require_codegen();
-  Object.defineProperty(exports, "_", {
+  Object.defineProperty(exports2, "_", {
     enumerable: true,
     get: function() {
       return codegen_1._;
     }
   });
-  Object.defineProperty(exports, "str", {
+  Object.defineProperty(exports2, "str", {
     enumerable: true,
     get: function() {
       return codegen_1.str;
     }
   });
-  Object.defineProperty(exports, "stringify", {
+  Object.defineProperty(exports2, "stringify", {
     enumerable: true,
     get: function() {
       return codegen_1.stringify;
     }
   });
-  Object.defineProperty(exports, "nil", {
+  Object.defineProperty(exports2, "nil", {
     enumerable: true,
     get: function() {
       return codegen_1.nil;
     }
   });
-  Object.defineProperty(exports, "Name", {
+  Object.defineProperty(exports2, "Name", {
     enumerable: true,
     get: function() {
       return codegen_1.Name;
     }
   });
-  Object.defineProperty(exports, "CodeGen", {
+  Object.defineProperty(exports2, "CodeGen", {
     enumerable: true,
     get: function() {
       return codegen_1.CodeGen;
     }
   });
   var validation_error_1 = require_validation_error();
-  Object.defineProperty(exports, "ValidationError", {
+  Object.defineProperty(exports2, "ValidationError", {
     enumerable: true,
     get: function() {
       return validation_error_1.default;
     }
   });
   var ref_error_1 = require_ref_error();
-  Object.defineProperty(exports, "MissingRefError", {
+  Object.defineProperty(exports2, "MissingRefError", {
     enumerable: true,
     get: function() {
       return ref_error_1.default;
     }
   });
 }));
-var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
+var require_formats = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.formatNames = exports2.fastFormats = exports2.fullFormats = void 0;
   function fmtDef(validate2, compare) {
     return {
       validate: validate2,
       compare
     };
   }
-  exports.fullFormats = {
+  exports2.fullFormats = {
     date: fmtDef(date5, compareDate),
     time: fmtDef(getTime(true), compareTime),
     "date-time": fmtDef(getDateTime(true), compareDateTime),
@@ -32326,8 +32326,8 @@ var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
     password: true,
     binary: true
   };
-  exports.fastFormats = {
-    ...exports.fullFormats,
+  exports2.fastFormats = {
+    ...exports2.fullFormats,
     date: fmtDef(/^\d\d\d\d-[0-1]\d-[0-3]\d$/, compareDate),
     time: fmtDef(/^(?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i, compareTime),
     "date-time": fmtDef(/^\d\d\d\d-[0-1]\d-[0-3]\dt(?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i, compareDateTime),
@@ -32337,7 +32337,7 @@ var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
     "uri-reference": /^(?:(?:[a-z][a-z0-9+\-.]*:)?\/?\/)?(?:[^\\\s#][^\s#]*)?(?:#[^\\\s]*)?$/i,
     email: /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i
   };
-  exports.formatNames = Object.keys(exports.fullFormats);
+  exports2.formatNames = Object.keys(exports2.fullFormats);
   function isLeapYear(year) {
     return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   }
@@ -32362,8 +32362,8 @@ var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
     if (!matches) return false;
     const year = +matches[1];
     const month = +matches[2];
-    const day = +matches[3];
-    return month >= 1 && month <= 12 && day >= 1 && day <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
+    const day2 = +matches[3];
+    return month >= 1 && month <= 12 && day2 >= 1 && day2 <= (month === 2 && isLeapYear(year) ? 29 : DAYS[month]);
   }
   function compareDate(d1, d2) {
     if (!(d1 && d2)) return void 0;
@@ -32463,9 +32463,9 @@ var require_formats = /* @__PURE__ */ __commonJSMin(((exports) => {
     }
   }
 }));
-var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.formatLimitDefinition = void 0;
+var require_limit = /* @__PURE__ */ __commonJSMin(((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.formatLimitDefinition = void 0;
   const ajv_1 = require_ajv();
   const codegen_1 = require_codegen();
   const ops = codegen_1.operators;
@@ -32495,7 +32495,7 @@ var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
     message: ({ keyword, schemaCode }) => (0, codegen_1.str)`should be ${KWDs[keyword].okStr} ${schemaCode}`,
     params: ({ keyword, schemaCode }) => (0, codegen_1._)`{comparison: ${KWDs[keyword].okStr}, limit: ${schemaCode}}`
   };
-  exports.formatLimitDefinition = {
+  exports2.formatLimitDefinition = {
     keyword: Object.keys(KWDs),
     type: "string",
     schemaType: "string",
@@ -32535,13 +32535,13 @@ var require_limit = /* @__PURE__ */ __commonJSMin(((exports) => {
     dependencies: ["format"]
   };
   const formatLimitPlugin = (ajv) => {
-    ajv.addKeyword(exports.formatLimitDefinition);
+    ajv.addKeyword(exports2.formatLimitDefinition);
     return ajv;
   };
-  exports.default = formatLimitPlugin;
+  exports2.default = formatLimitPlugin;
 }));
-var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-  Object.defineProperty(exports, "__esModule", { value: true });
+var require_dist = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
   const formats_1 = require_formats();
   const limit_1 = require_limit();
   const codegen_1 = require_codegen();
@@ -32568,9 +32568,9 @@ var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 || (_b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`);
     for (const f of list2) ajv.addFormat(f, fs3[f]);
   }
-  module.exports = exports = formatsPlugin;
-  Object.defineProperty(exports, "__esModule", { value: true });
-  exports.default = formatsPlugin;
+  module.exports = exports2 = formatsPlugin;
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.default = formatsPlugin;
 }));
 var import_ajv = require_ajv();
 var import__2019 = require__2019();
@@ -32709,10 +32709,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round6 = 0;
+    let round7 = 0;
     while (true) {
-      round6 += 1;
-      if (round6 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round7 += 1;
+      if (round7 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34178,10 +34178,10 @@ var round = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digi
 function weekdaySchedule(openHour, closeHour, now) {
   const events = [];
   for (let offset = -3; offset < 10; offset++) {
-    const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset);
-    const weekday = new Date(day).getUTCDay();
+    const day2 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset);
+    const weekday = new Date(day2).getUTCDay();
     if (weekday === 0 || weekday === 6) continue;
-    events.push({ date: new Date(day + openHour * 36e5).toISOString(), type: "OPEN" }, { date: new Date(day + closeHour * 36e5).toISOString(), type: "CLOSE" });
+    events.push({ date: new Date(day2 + openHour * 36e5).toISOString(), type: "OPEN" }, { date: new Date(day2 + closeHour * 36e5).toISOString(), type: "CLOSE" });
   }
   return events;
 }
@@ -34233,11 +34233,11 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     { reference: "sample-interest-1", type: "INTEREST", amount: 6.4, currency: "EUR", dateTime: daysAgo(31) }
   ];
   let nextPieId = 4103;
-  const pies = /* @__PURE__ */ new Map([
+  const pies2 = /* @__PURE__ */ new Map([
     [4101, { name: "Core tech", icon: "Rocket", goal: 5e3, dividendCashAction: "REINVEST", shares: { NVDA_US_EQ: 0.5, MSFT_US_EQ: 0.3, AAPL_US_EQ: 0.2 }, cash: 23.3, createdAt: daysAgo(300) }],
     [4102, { name: "Dividend income", icon: "Coins", dividendCashAction: "TO_ACCOUNT_CASH", shares: { KO_US_EQ: 0.6, VUSAl_EQ: 0.4 }, cash: 100, createdAt: daysAgo(120) }]
   ]);
-  const exports = [{ reportId: 11, status: "Finished", downloadLink: "https://sample.tradepilot.invalid/report-11.csv", timeFrom: daysAgo(365), timeTo: daysAgo(0), dataIncluded: { includeOrders: true, includeDividends: true, includeTransactions: true, includeInterest: true } }];
+  const exports2 = [{ reportId: 11, status: "Finished", downloadLink: "https://sample.tradepilot.invalid/report-11.csv", timeFrom: daysAgo(365), timeTo: daysAgo(0), dataIncluded: { includeOrders: true, includeDividends: true, includeTransactions: true, includeInterest: true } }];
   const position = (holding) => {
     const instrument = instrumentOf(holding.ticker);
     const currentValue = round(eur(holding.ticker, holding.quantity * instrument.price));
@@ -34255,7 +34255,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     };
   };
   const pieSummary = (id) => {
-    const pie = pies.get(id);
+    const pie = pies2.get(id);
     const invested = id === 4101 ? 1950 : id === 4102 ? 800 : 0;
     const value = id === 4101 ? 2210.4 : id === 4102 ? 764.2 : 0;
     return {
@@ -34269,7 +34269,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   };
   const drift = (id, ticker, target) => (id === 4101 ? { NVDA_US_EQ: 0.08, MSFT_US_EQ: -0.04, AAPL_US_EQ: -0.04 }[ticker] ?? 0 : id === 4102 ? { KO_US_EQ: -0.05, VUSAl_EQ: 0.05 }[ticker] ?? 0 : 0) + target;
   const pieDetail = (id) => {
-    const pie = pies.get(id);
+    const pie = pies2.get(id);
     return {
       settings: { id, name: pie.name, icon: pie.icon, ...pie.goal ? { goal: pie.goal } : {}, instrumentShares: pie.shares, dividendCashAction: pie.dividendCashAction, creationDate: pie.createdAt, publicUrl: null },
       instruments: Object.entries(pie.shares).map(([ticker, share2]) => ({
@@ -34304,7 +34304,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     if (method === "GET" && path3 === "/equity/account/summary") {
       const invested = holdings.reduce((sum, item) => sum + position(item).walletImpact.currentValue, 0);
       const cost = holdings.reduce((sum, item) => sum + position(item).walletImpact.totalCost, 0);
-      const pieCash = [...pies.values()].reduce((sum, pie) => sum + pie.cash, 0);
+      const pieCash = [...pies2.values()].reduce((sum, pie) => sum + pie.cash, 0);
       const reserved = pending.reduce((sum, order) => sum + reservation(order), 0);
       return json2({ id: 212e5, currency: "EUR", totalValue: round(invested + cash + pieCash + reserved), cash: { availableToTrade: round(cash), inPies: round(pieCash), reservedForOrders: round(reserved) }, investments: { currentValue: round(invested), totalCost: round(cost), unrealizedProfitLoss: round(invested - cost), realizedProfitLoss: realized } });
     }
@@ -34330,10 +34330,10 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       const ticker = query.get("ticker");
       return json2({ items: ticker ? items.filter((item) => (item.ticker ?? item.order?.ticker) === ticker) : items, nextPagePath: null });
     }
-    if (method === "GET" && path3 === "/equity/history/exports") return json2(exports);
+    if (method === "GET" && path3 === "/equity/history/exports") return json2(exports2);
     if (method === "POST" && path3 === "/equity/history/exports") {
       const reportId = nextId++;
-      exports.unshift({ reportId, status: "Finished", downloadLink: `https://sample.tradepilot.invalid/report-${reportId}.csv`, timeFrom: body.timeFrom, timeTo: body.timeTo, dataIncluded: body.dataIncluded });
+      exports2.unshift({ reportId, status: "Finished", downloadLink: `https://sample.tradepilot.invalid/report-${reportId}.csv`, timeFrom: body.timeFrom, timeTo: body.timeTo, dataIncluded: body.dataIncluded });
       return json2({ reportId });
     }
     if (method === "POST" && path3.startsWith("/equity/orders/")) {
@@ -34361,29 +34361,29 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       pending.splice(index, 1);
       return new Response(null, { status: 200 });
     }
-    if (method === "GET" && path3 === "/equity/pies") return json2([...pies.keys()].map(pieSummary));
+    if (method === "GET" && path3 === "/equity/pies") return json2([...pies2.keys()].map(pieSummary));
     const pieMatch = /^\/equity\/pies\/(\d+)(\/duplicate)?$/.exec(path3);
     if (method === "POST" && path3 === "/equity/pies") {
       const id = nextPieId++;
-      pies.set(id, { name: String(body.name ?? "New pie"), icon: String(body.icon ?? "Home"), ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? "REINVEST"), shares: body.instrumentShares ?? {}, cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      pies2.set(id, { name: String(body.name ?? "New pie"), icon: String(body.icon ?? "Home"), ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? "REINVEST"), shares: body.instrumentShares ?? {}, cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
       return json2(pieDetail(id));
     }
     if (pieMatch) {
       const id = Number(pieMatch[1]);
-      const pie = pies.get(id);
+      const pie = pies2.get(id);
       if (!pie) return json2({ code: "PieNotFound" }, 404);
       if (method === "GET" && !pieMatch[2]) return json2(pieDetail(id));
       if (method === "DELETE" && !pieMatch[2]) {
-        pies.delete(id);
+        pies2.delete(id);
         return new Response(null, { status: 200 });
       }
       if (method === "POST" && pieMatch[2]) {
         const copy = nextPieId++;
-        pies.set(copy, { ...pie, shares: { ...pie.shares }, name: String(body.name ?? `${pie.name} copy`), cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+        pies2.set(copy, { ...pie, shares: { ...pie.shares }, name: String(body.name ?? `${pie.name} copy`), cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
         return json2(pieDetail(copy));
       }
       if (method === "POST") {
-        pies.set(id, { ...pie, name: String(body.name ?? pie.name), ...body.icon ? { icon: String(body.icon) } : {}, ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? pie.dividendCashAction), shares: body.instrumentShares ?? pie.shares });
+        pies2.set(id, { ...pie, name: String(body.name ?? pie.name), ...body.icon ? { icon: String(body.icon) } : {}, ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? pie.dividendCashAction), shares: body.instrumentShares ?? pie.shares });
         return json2(pieDetail(id));
       }
     }
@@ -34454,17 +34454,58 @@ function providerFetcher(name, key, fetcher) {
         const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol2)}&apikey=${encodeURIComponent(key)}`);
         const quote = body["Global Quote"] ?? {};
         const price = positive(quote["05. price"]);
-        const day = quote["07. latest trading day"];
-        return price ? { price, ...day ? { asOf: `${day}T00:00:00Z` } : {} } : void 0;
+        const day2 = quote["07. latest trading day"];
+        return price ? { price, ...day2 ? { asOf: `${day2}T00:00:00Z` } : {} } : void 0;
       };
   }
+}
+function fxSymbol(name, from, to) {
+  switch (name) {
+    case "stooq":
+      return `${from}${to}`;
+    case "twelvedata":
+      return `${from}/${to}`;
+    case "alphavantage":
+      return `${from}:${to}`;
+    case "finnhub":
+      return void 0;
+  }
+}
+function fxFetcher(name, key, fetcher) {
+  if (name !== "alphavantage") return providerFetcher(name, key, fetcher);
+  return async (symbol2) => {
+    const [from = "", to = ""] = symbol2.split(":");
+    const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${from}&to_currency=${to}&apikey=${encodeURIComponent(key)}`);
+    const quote = body["Realtime Currency Exchange Rate"] ?? {};
+    const price = positive(quote["5. Exchange Rate"]);
+    const refreshed = quote["6. Last Refreshed"];
+    const asOf = refreshed && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(refreshed) ? `${refreshed.replace(" ", "T")}Z` : void 0;
+    return price ? { price, ...asOf ? { asOf } : {} } : void 0;
+  };
 }
 function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
   const name = config3.quoteProvider;
   if (name === "none") return void 0;
   if (name !== "stooq" && !config3.quoteApiKey) return void 0;
   const fetchQuote = providerFetcher(name, config3.quoteApiKey, fetcher);
+  const fetchFx = fxFetcher(name, config3.quoteApiKey, fetcher);
   const cache = /* @__PURE__ */ new Map();
+  const fxCache = /* @__PURE__ */ new Map();
+  const pairRate = async (from, to) => {
+    const symbol2 = fxSymbol(name, from, to);
+    if (!symbol2) return void 0;
+    const cached2 = fxCache.get(symbol2);
+    if (cached2 && cached2.expiresAt > Date.now()) return cached2.rate;
+    let rate;
+    try {
+      const result2 = await fetchFx(symbol2);
+      if (result2) rate = { from, to, rate: result2.price, asOf: result2.asOf ?? (/* @__PURE__ */ new Date()).toISOString(), source: name };
+    } catch (error62) {
+      console.error(JSON.stringify({ message: "TradePilot FX rate failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
+    }
+    fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
+    return rate;
+  };
   const symbolFor = (instrument) => {
     const mapped = config3.quoteSymbols.get(instrument.ticker.toUpperCase());
     if (mapped) return mapped;
@@ -34489,112 +34530,126 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
       }
       cache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
+    },
+    async fxRate(from, to) {
+      const source = from.toUpperCase();
+      const target = to.toUpperCase();
+      if (!/^[A-Z]{3}$/.test(source) || !/^[A-Z]{3}$/.test(target) || source === target) return void 0;
+      const base = source === "GBX" ? "GBP" : source;
+      const quote = target === "GBX" ? "GBP" : target;
+      const scale = (target === "GBX" ? 100 : 1) / (source === "GBX" ? 100 : 1);
+      if (base === quote) return { from: source, to: target, rate: scale, asOf: (/* @__PURE__ */ new Date()).toISOString(), source: name };
+      const rate = await pairRate(base, quote);
+      return rate ? { ...rate, from: source, to: target, rate: rate.rate * scale } : void 0;
     }
   };
 }
 
 // src/core/config.ts
-function positive2(env, name, fallback) {
-  const raw = env[name];
+function isLoopbackHost(hostname3) {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
+}
+function positive2(env2, name, fallback) {
+  const raw = env2[name];
   if (!raw) return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
   return value;
 }
-function nonNegative(env, name, fallback) {
-  const raw = env[name];
+function nonNegative(env2, name, fallback) {
+  const raw = env2[name];
   if (raw === void 0 || raw === "") return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
   return value;
 }
-function tradingEnvironment(env) {
-  const value = (env.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
+function tradingEnvironment(env2) {
+  const value = (env2.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
   if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
   return value;
 }
-function list(env, name) {
-  return (env[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
+function list(env2, name) {
+  return (env2[name] ?? "").split(/[\s,]+/).map((item) => item.trim().toUpperCase()).filter(Boolean);
 }
-function flag(env, name) {
-  return /^(1|true|yes|on)$/i.test(env[name] ?? "");
+function flag(env2, name) {
+  return /^(1|true|yes|on)$/i.test(env2[name] ?? "");
 }
-function weight(env, name, fallback) {
-  const value = nonNegative(env, name, fallback);
+function weight(env2, name, fallback) {
+  const value = nonNegative(env2, name, fallback);
   if (value > 1) throw new Error(`${name} must be a fraction between 0 and 1`);
   return value;
 }
-function createPolicy(env) {
+function createPolicy(env2) {
   const configured = {
-    maxPositionWeight: weight(env, "POLICY_MAX_POSITION_WEIGHT", 0.25),
-    dailyOrderLimit: Math.floor(nonNegative(env, "POLICY_DAILY_ORDER_LIMIT", 20)),
-    dailyNotionalLimit: nonNegative(env, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
-    allowedTickers: list(env, "POLICY_ALLOWED_TICKERS"),
-    blockedTickers: list(env, "POLICY_BLOCKED_TICKERS"),
-    allowedTypes: list(env, "POLICY_ALLOWED_TYPES"),
-    marketOrdersWhenClosed: env.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
-    maxReferenceAgeSeconds: Math.floor(nonNegative(env, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0))
+    maxPositionWeight: weight(env2, "POLICY_MAX_POSITION_WEIGHT", 0.25),
+    dailyOrderLimit: Math.floor(nonNegative(env2, "POLICY_DAILY_ORDER_LIMIT", 20)),
+    dailyNotionalLimit: nonNegative(env2, "POLICY_DAILY_NOTIONAL_LIMIT", 0),
+    allowedTickers: list(env2, "POLICY_ALLOWED_TICKERS"),
+    blockedTickers: list(env2, "POLICY_BLOCKED_TICKERS"),
+    allowedTypes: list(env2, "POLICY_ALLOWED_TYPES"),
+    marketOrdersWhenClosed: env2.POLICY_MARKET_ORDERS_WHEN_CLOSED ? flag(env2, "POLICY_MARKET_ORDERS_WHEN_CLOSED") : false,
+    maxReferenceAgeSeconds: Math.floor(nonNegative(env2, "POLICY_MAX_REFERENCE_AGE_SECONDS", 0))
   };
   const relaxed = { ...configured, maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 };
-  const applyTo = (env.POLICY_APPLY_TO || "live").trim().toLowerCase();
+  const applyTo = (env2.POLICY_APPLY_TO || "live").trim().toLowerCase();
   if (!["live", "demo", "both", "none"].includes(applyTo)) throw new Error("POLICY_APPLY_TO must be live, demo, both, or none");
   return {
     demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
     live: applyTo === "live" || applyTo === "both" ? configured : relaxed
   };
 }
-function webhookUrl(env) {
-  const raw = (env.NOTIFY_WEBHOOK_URL ?? "").trim();
+function webhookUrl(env2) {
+  const raw = (env2.NOTIFY_WEBHOOK_URL ?? "").trim();
   if (!raw) return "";
   const url2 = new URL(raw);
-  const local = ["localhost", "127.0.0.1", "::1"].includes(url2.hostname);
-  if (url2.protocol !== "https:" && !(local && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
+  if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url2.toString();
 }
-function digestHour(env) {
-  const raw = (env.DIGEST_HOUR_UTC ?? "").trim();
+function digestHour(env2) {
+  const raw = (env2.DIGEST_HOUR_UTC ?? "").trim();
   if (!raw) return void 0;
   const hour = Number(raw);
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
   return hour;
 }
-function quoteProvider(env) {
-  const value = (env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
+function quoteProvider(env2) {
+  const value = (env2.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
   if (!QUOTE_PROVIDERS.includes(value)) throw new Error(`QUOTE_PROVIDER must be one of ${QUOTE_PROVIDERS.join(", ")}`);
   return value;
 }
-function createConfig(env, requestOrigin) {
-  const publicBaseUrl = (env.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
-  const policy = createPolicy(env);
-  const sampleData = flag(env, "TRADEPILOT_SAMPLE_DATA");
+function createConfig(env2, requestOrigin) {
+  const publicBaseUrl = (env2.PUBLIC_BASE_URL || requestOrigin || "http://localhost:8000").replace(/\/+$/, "");
+  const policy2 = createPolicy(env2);
+  const sampleData = flag(env2, "TRADEPILOT_SAMPLE_DATA");
   return {
     publicBaseUrl,
-    loginPassword: env.APP_LOGIN_PASSWORD ?? "",
-    signingSecret: env.AUTH_SIGNING_SECRET ?? "",
-    accessTokenTtlSeconds: Math.floor(positive2(env, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
-    refreshTokenTtlSeconds: Math.floor(positive2(env, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
-    confirmationTtlSeconds: Math.floor(positive2(env, "CONFIRMATION_TTL_SECONDS", 90)),
-    maxOrderNotional: nonNegative(env, "MAX_ORDER_NOTIONAL", 5e3),
-    maxOrderQuantity: nonNegative(env, "MAX_ORDER_QUANTITY", 1e5),
-    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env),
-    policy,
-    demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
-    protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
-    notifyWebhookUrl: webhookUrl(env),
-    notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
-    notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
-    quoteProvider: sampleData ? "none" : quoteProvider(env),
-    quoteApiKey: env.QUOTE_API_KEY ?? "",
-    quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
-    ...digestHour(env) === void 0 ? {} : { digestHourUtc: digestHour(env) },
+    loginPassword: env2.APP_LOGIN_PASSWORD ?? "",
+    signingSecret: env2.AUTH_SIGNING_SECRET ?? "",
+    accessTokenTtlSeconds: Math.floor(positive2(env2, "ACCESS_TOKEN_TTL_SECONDS", 3600)),
+    refreshTokenTtlSeconds: Math.floor(positive2(env2, "REFRESH_TOKEN_TTL_SECONDS", 30 * 86400)),
+    confirmationTtlSeconds: Math.floor(positive2(env2, "CONFIRMATION_TTL_SECONDS", 90)),
+    maxOrderNotional: nonNegative(env2, "MAX_ORDER_NOTIONAL", 5e3),
+    maxOrderQuantity: nonNegative(env2, "MAX_ORDER_QUANTITY", 1e5),
+    defaultTradingEnvironment: sampleData ? "demo" : tradingEnvironment(env2),
+    policy: policy2,
+    demoAutomationEnabled: flag(env2, "AUTOMATION_DEMO_ENABLED"),
+    protectiveLinking: env2.PROTECTIVE_OCO ? flag(env2, "PROTECTIVE_OCO") : true,
+    notifyWebhookUrl: webhookUrl(env2),
+    notifyWebhookSecret: env2.NOTIFY_WEBHOOK_SECRET ?? "",
+    notifyEvents: list(env2, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
+    quoteProvider: sampleData ? "none" : quoteProvider(env2),
+    quoteApiKey: env2.QUOTE_API_KEY ?? "",
+    quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
+    ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
     sampleData,
+    oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData ? {
       demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" }
     } : {
-      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
-      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" }
+      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env2.T212_DEMO_API_KEY ?? "", apiSecret: env2.T212_DEMO_API_SECRET ?? "" },
+      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env2.T212_LIVE_API_KEY ?? "", apiSecret: env2.T212_LIVE_API_SECRET ?? "" }
     }
   };
 }
@@ -34621,6 +34676,9 @@ function G(B, Q, F, V, q) {
 
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
 var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
+
+// src/shared/automation.ts
+var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
 // src/core/errors.ts
 var TradePilotError = class extends Error {
@@ -34668,20 +34726,16 @@ function fail(code, message, details) {
   throw new TradePilotError(code, message, details);
 }
 
-// src/core/rebalance.ts
-var floorTo = (value, digits) => {
-  const factor = 10 ** digits;
-  return Math.floor(value * factor + 1e-9) / factor;
-};
-var money = (value) => Math.round(value * 100) / 100;
-var share = (value) => Math.round(value * 1e4) / 1e4;
+// src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
+  const account = accountCurrency.toUpperCase();
   const samples = /* @__PURE__ */ new Map();
   for (const position of positions) {
-    const currency = position.instrument.currencyCode?.toUpperCase();
+    const instrument = position.instrument;
+    const currency = (instrument?.currencyCode ?? instrument?.currency)?.toUpperCase();
     const wallet = position.walletImpact;
-    if (!currency || currency === accountCurrency) continue;
-    if (typeof wallet?.currency === "string" && wallet.currency.toUpperCase() !== accountCurrency) continue;
+    if (!currency || currency === account) continue;
+    if (typeof wallet?.currency === "string" && wallet.currency.toUpperCase() !== account) continue;
     const value = typeof wallet?.currentValue === "number" ? wallet.currentValue : 0;
     const local = position.quantity * position.currentPrice;
     if (!(value > 0) || !(local > 0)) continue;
@@ -34695,6 +34749,37 @@ function impliedFxRates(positions, accountCurrency) {
   }
   return rates;
 }
+function knownFxRates(positions, accountCurrency) {
+  const account = accountCurrency.toUpperCase();
+  if (!account) return {};
+  const rates = { ...impliedFxRates(positions, account), [account]: 1 };
+  if (rates.GBP && !rates.GBX) rates.GBX = rates.GBP * 100;
+  if (rates.GBX && !rates.GBP) rates.GBP = rates.GBX / 100;
+  return rates;
+}
+function crossRate(rates, from, to) {
+  const source = from.toUpperCase();
+  const target = to.toUpperCase();
+  if (source === target) return 1;
+  if (source === "GBP" && target === "GBX") return 100;
+  if (source === "GBX" && target === "GBP") return 0.01;
+  const a = rates[source];
+  const b = rates[target];
+  return a && b ? b / a : void 0;
+}
+function toAccountCurrency(amount, currency, accountCurrency, rates) {
+  if (!accountCurrency) return void 0;
+  const rate = crossRate(rates, accountCurrency, currency);
+  return rate ? amount / rate : void 0;
+}
+
+// src/core/rebalance.ts
+var floorTo = (value, digits) => {
+  const factor = 10 ** digits;
+  return Math.floor(value * factor + 1e-9) / factor;
+};
+var money = (value) => Math.round(value * 100) / 100;
+var share = (value) => Math.round(value * 1e4) / 1e4;
 function planRebalance(environment, account, positions, targets, options = {}, instrumentCurrency = () => void 0) {
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const totalValue = account.totalValue ?? 0;
@@ -34713,6 +34798,11 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     seen.add(key);
   }
   const notes = [];
+  const noteDetails = [];
+  const note = (code, message, details) => {
+    notes.push(message);
+    noteDetails.push({ code, message, ...details ? { details } : {} });
+  };
   const skipped = [];
   const byTicker = new Map(positions.map((position) => [position.instrument.ticker.toUpperCase(), position]));
   const wanted = new Map(targets.map((target) => [target.ticker.toUpperCase(), target]));
@@ -34723,24 +34813,26 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     }
   } else {
     const untouched = positions.filter((position) => !wanted.has(position.instrument.ticker.toUpperCase()) && position.quantity > 0);
-    if (untouched.length) notes.push(`${untouched.length} holding(s) without a target are left as they are.`);
+    if (untouched.length) note("untargeted_kept", `${untouched.length} holding(s) without a target are left as they are.`, { count: untouched.length });
   }
-  const implied = impliedFxRates(positions, accountCurrency);
-  const fxRates = { ...implied, ...options.fxRates };
+  const implied = knownFxRates(positions, accountCurrency);
+  const quotedRates = Object.fromEntries(Object.entries(options.quotedFxRates ?? {}).filter(([code]) => !implied[code]).map(([code, rate]) => [code, rate.rate]));
+  const fxRates = { ...quotedRates, ...implied, ...options.fxRates };
   const usedImplied = /* @__PURE__ */ new Set();
+  const usedQuoted = /* @__PURE__ */ new Set();
   const lines = [];
   for (const [key, target] of wanted) {
     const position = byTicker.get(key);
-    const currency = (position?.instrument.currencyCode ?? instrumentCurrency(target.ticker) ?? accountCurrency).toUpperCase();
+    const currency = (position?.instrument.currencyCode || instrumentCurrency(target.ticker) || accountCurrency).toUpperCase();
     const fx = currency === accountCurrency ? 1 : fxRates[currency];
-    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) usedImplied.add(currency);
+    if (currency !== accountCurrency && fx && !options.fxRates?.[currency]) (implied[currency] ? usedImplied : usedQuoted).add(currency);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : target.referencePrice;
     if (!fx || fx <= 0) {
-      skipped.push({ ticker: target.ticker, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
+      skipped.push({ ticker: target.ticker, code: "no_fx_rate", currency, reason: `Quoted in ${currency} and no holding in ${currency} gives an exchange rate and the quote source has none; pass fxRates.${currency} (units per 1 ${accountCurrency}) to include it.` });
       continue;
     }
     if (!price || price <= 0) {
-      skipped.push({ ticker: target.ticker, reason: "No price: Trading 212 only reports prices for held instruments, so pass referencePrice." });
+      skipped.push({ ticker: target.ticker, code: "no_price", reason: "No price: it is not held and the quote source has none for it, so pass referencePrice." });
       continue;
     }
     const heldQuantity = Math.max(0, position?.quantity ?? 0);
@@ -34766,7 +34858,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (excess < minTradeValue) continue;
     const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
     const quantity = Math.min(wantedQuantity, line.sellable);
-    if (quantity < wantedQuantity) notes.push(`${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`);
+    if (quantity < wantedQuantity) note("sell_limited", `${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`, { ticker: line.ticker, sellable: line.sellable });
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value;
@@ -34778,12 +34870,12 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
   const budget = Math.max(0, cash - reserve);
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  if (wantedCash > 0 && scale < 1) notes.push(`Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`);
+  if (wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) {
-      if (scale > 0) skipped.push({ ticker: line.ticker, reason: decimals === 0 ? "The buy is smaller than one whole share." : "The buy is below the minimum trade value." });
+      if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
       continue;
     }
     cash -= value;
@@ -34791,9 +34883,19 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
-  if (usedImplied.size) notes.push(`Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`);
-  if (!trades.length) notes.push(skipped.length && !lines.length ? "No trades could be planned: every target was skipped." : "The portfolio is already within the minimum trade value of every target.");
-  notes.push("Prices are the broker's last position prices or the reference prices you supplied; Market orders can fill elsewhere.");
+  if (usedImplied.size) note("implied_rates", `Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`, { currencies: [...usedImplied].sort().join(", ") });
+  if (usedQuoted.size) {
+    const sources = [...usedQuoted].sort().map((code) => options.quotedFxRates?.[code]).filter((rate) => !!rate);
+    const currencies = sources.map((rate) => rate.to).join(", ");
+    const source = sources[0]?.source ?? "";
+    const asOf = sources.map((rate) => rate.asOf).sort()[0] ?? "";
+    note("quoted_rates", `Exchange rates for ${currencies} come from ${source} (as of ${asOf}); Trading 212 converts at its own rate and fee.`, { currencies, source, asOf });
+  }
+  if (!trades.length) {
+    if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
+  }
+  note("price_source", "Prices are the broker's last position prices, quotes from the quote source, or the reference prices you supplied; Market orders can fill elsewhere.");
   return {
     kind: "rebalance_plan",
     environment,
@@ -34803,7 +34905,8 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     cashAfter: money(cash),
     trades,
     skipped,
-    notes
+    notes,
+    noteDetails
   };
 }
 
@@ -34815,55 +34918,57 @@ function ageSeconds(value, now) {
   return Number.isFinite(time3) ? Math.max(0, Math.floor((now.getTime() - time3) / 1e3)) : void 0;
 }
 var round2 = (value, digits = 4) => Math.round(value * 10 ** digits) / 10 ** digits;
-function evaluatePolicy(policy, input2) {
+function evaluatePolicy(policy2, input2) {
   const { draft, instrument, position, account } = input2;
   const now = input2.now ?? /* @__PURE__ */ new Date();
   const ticker = instrument.ticker.toUpperCase();
-  const sameCurrency2 = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
+  const sameCurrency = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
   const checks = [];
-  if (policy.allowedTickers.length) {
-    const allowed = policy.allowedTickers.includes(ticker);
-    checks.push({ rule: "allowed_tickers", status: allowed ? "pass" : "block", message: allowed ? `${ticker} is on the allowed list.` : `${ticker} is not on the allowed ticker list.` });
+  const wallet = position?.walletImpact?.currentValue;
+  const heldQuantity = Math.max(0, position?.quantity ?? 0);
+  const heldValue = !heldQuantity ? 0 : typeof wallet === "number" ? wallet : sameCurrency ? heldQuantity * (position?.currentPrice ?? 0) : void 0;
+  if (policy2.allowedTickers.length) {
+    const allowed = policy2.allowedTickers.includes(ticker);
+    checks.push({ rule: "allowed_tickers", status: allowed ? "pass" : "block", message: allowed ? `${ticker} is on the allowed list.` : `${ticker} is not on the allowed ticker list.`, details: { ticker } });
   }
-  if (policy.blockedTickers.includes(ticker)) {
-    checks.push({ rule: "blocked_tickers", status: "block", message: `${ticker} is on the blocked ticker list.` });
+  if (policy2.blockedTickers.includes(ticker)) {
+    checks.push({ rule: "blocked_tickers", status: "block", message: `${ticker} is on the blocked ticker list.`, details: { ticker } });
   }
-  if (policy.allowedTypes.length && draft.side === "buy") {
+  if (policy2.allowedTypes.length && draft.side === "buy") {
     const type = (instrument.type ?? "").toUpperCase();
-    const allowed = policy.allowedTypes.includes(type);
-    checks.push({ rule: "allowed_types", status: allowed ? "pass" : "block", message: allowed ? `${type} instruments are allowed.` : `Buying ${type || "this instrument type"} is not allowed (allowed: ${policy.allowedTypes.join(", ")}).` });
+    const allowed = policy2.allowedTypes.includes(type);
+    checks.push({ rule: "allowed_types", status: allowed ? "pass" : "block", message: allowed ? `${type} instruments are allowed.` : `Buying ${type || "this instrument type"} is not allowed (allowed: ${policy2.allowedTypes.join(", ")}).`, details: { type, allowed: policy2.allowedTypes.join(", ") } });
   }
-  if (policy.maxPositionWeight > 0 && draft.side === "buy") {
+  if (policy2.maxPositionWeight > 0 && draft.side === "buy") {
     const totalValue = account.totalValue ?? 0;
-    if (!sameCurrency2 || !totalValue || input2.estimatedNotional === void 0) {
-      checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed without a same-currency price and account value." });
+    if (heldValue === void 0 || !totalValue || input2.estimatedNotional === void 0) {
+      checks.push({ rule: "max_position_weight", status: "skip", message: "Position weight cannot be computed: the order's value in the account currency or the account value is unknown." });
     } else {
-      const heldValue = Math.max(0, position?.quantity ?? 0) * (position?.currentPrice ?? 0);
       const resulting = (heldValue + input2.estimatedNotional) / totalValue;
-      const over = resulting > policy.maxPositionWeight + 1e-9;
+      const over = resulting > policy2.maxPositionWeight + 1e-9;
       checks.push({
         rule: "max_position_weight",
         status: over ? "block" : "pass",
-        message: over ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy.maxPositionWeight * 100).toFixed(1)}% limit.` : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
-        details: { resultingWeight: round2(resulting), limit: policy.maxPositionWeight }
+        message: over ? `${ticker} would reach ${(resulting * 100).toFixed(1)}% of the account, above the ${(policy2.maxPositionWeight * 100).toFixed(1)}% limit.` : `${ticker} would be ${(resulting * 100).toFixed(1)}% of the account.`,
+        details: { ticker, resultingWeight: round2(resulting), limit: policy2.maxPositionWeight }
       });
     }
   }
-  if (policy.dailyOrderLimit > 0) {
+  if (policy2.dailyOrderLimit > 0) {
     const next = input2.usage.orders + 1;
-    const over = next > policy.dailyOrderLimit;
-    checks.push({ rule: "daily_order_limit", status: over ? "block" : "pass", message: over ? `This would be order ${next} today; the daily limit is ${policy.dailyOrderLimit}.` : `Order ${next} of ${policy.dailyOrderLimit} today.`, details: { ordersToday: input2.usage.orders, limit: policy.dailyOrderLimit } });
+    const over = next > policy2.dailyOrderLimit;
+    checks.push({ rule: "daily_order_limit", status: over ? "block" : "pass", message: over ? `This would be order ${next} today; the daily limit is ${policy2.dailyOrderLimit}.` : `Order ${next} of ${policy2.dailyOrderLimit} today.`, details: { ordersToday: input2.usage.orders, limit: policy2.dailyOrderLimit } });
   }
-  if (policy.dailyNotionalLimit > 0) {
-    if (!sameCurrency2 || input2.estimatedNotional === void 0) {
-      checks.push({ rule: "daily_notional_limit", status: "warn", message: "This order's value is not counted toward the daily budget because it is in another currency or cannot be estimated." });
+  if (policy2.dailyNotionalLimit > 0) {
+    if (input2.estimatedNotional === void 0) {
+      checks.push({ rule: "daily_notional_limit", status: "warn", message: "This order's value is not counted toward the daily budget because it cannot be estimated in the account currency." });
     } else {
       const next = input2.usage.notional + input2.estimatedNotional;
-      const over = next > policy.dailyNotionalLimit + 1e-9;
-      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round2(input2.usage.notional, 2), limit: policy.dailyNotionalLimit } });
+      const over = next > policy2.dailyNotionalLimit + 1e-9;
+      checks.push({ rule: "daily_notional_limit", status: over ? "block" : "pass", message: over ? `This would bring today's traded value to ${next.toFixed(2)} ${account.currency}, above the ${policy2.dailyNotionalLimit} limit.` : `Today's traded value would be ${next.toFixed(2)} of ${policy2.dailyNotionalLimit} ${account.currency}.`, details: { notionalToday: round2(input2.usage.notional, 2), next: round2(next, 2), limit: policy2.dailyNotionalLimit, currency: account.currency ?? null } });
     }
   }
-  if (!policy.marketOrdersWhenClosed && draft.type === "market" && input2.market && input2.market.session !== "unknown" && !input2.market.isOpen) {
+  if (!policy2.marketOrdersWhenClosed && draft.type === "market" && input2.market && input2.market.session !== "unknown" && !input2.market.isOpen) {
     const extended2 = draft.extendedHours && ["pre_market", "after_hours", "overnight"].includes(input2.market.session);
     if (!extended2) {
       checks.push({
@@ -34874,10 +34979,10 @@ function evaluatePolicy(policy, input2) {
       });
     }
   }
-  if (policy.maxReferenceAgeSeconds > 0 && draft.type === "market" && draft.referencePrice !== void 0) {
+  if (policy2.maxReferenceAgeSeconds > 0 && draft.type === "market" && draft.referencePrice !== void 0) {
     const age = ageSeconds(draft.referencePriceAt, now);
-    const stale = age === void 0 || age > policy.maxReferenceAgeSeconds;
-    checks.push({ rule: "reference_age", status: stale ? "block" : "pass", message: stale ? `The reference price is ${age === void 0 ? "undated" : `${age}s old`}; the policy requires one newer than ${policy.maxReferenceAgeSeconds}s.` : `Reference price is ${age}s old.`, ...age === void 0 ? {} : { details: { ageSeconds: age } } });
+    const stale = age === void 0 || age > policy2.maxReferenceAgeSeconds;
+    checks.push({ rule: "reference_age", status: stale ? "block" : "pass", message: stale ? `The reference price is ${age === void 0 ? "undated" : `${age}s old`}; the policy requires one newer than ${policy2.maxReferenceAgeSeconds}s.` : `Reference price is ${age}s old.`, details: { ageSeconds: age ?? null, limit: policy2.maxReferenceAgeSeconds } });
   }
   return checks;
 }
@@ -34887,8 +34992,8 @@ function blockingChecks(checks) {
 function usageKey(environment, now = /* @__PURE__ */ new Date()) {
   return `usage:${environment}:${now.toISOString().slice(0, 10)}`;
 }
-function addUsage(usage, estimatedNotional, sameCurrency2) {
-  return { orders: usage.orders + 1, notional: usage.notional + (sameCurrency2 && estimatedNotional ? estimatedNotional : 0) };
+function addUsage(usage, accountNotional) {
+  return { orders: usage.orders + 1, notional: usage.notional + (accountNotional && accountNotional > 0 ? accountNotional : 0) };
 }
 
 // src/core/trading212-client.ts
@@ -34935,6 +35040,11 @@ async function readBody(response) {
     return text;
   }
 }
+function normalizePosition(position) {
+  const instrument = position.instrument;
+  if (!instrument || instrument.currencyCode || typeof instrument.currency !== "string") return position;
+  return { ...position, instrument: { ...instrument, currencyCode: instrument.currency } };
+}
 function relativeApiPath(pagePath) {
   const path3 = pagePath.startsWith("http") ? new URL(pagePath).pathname + new URL(pagePath).search : pagePath;
   if (!path3.startsWith("/")) throw new Error("Unexpected Trading 212 page path");
@@ -34978,7 +35088,18 @@ var Trading212Client = class {
         await sleep2(Math.min(300 * 2 ** (attempt - 1), 5e3));
         continue;
       }
-      const parsed = await readBody(response);
+      let parsed;
+      try {
+        parsed = await readBody(response);
+      } catch (error62) {
+        if (method !== "GET" && (response.ok || response.status === 408 || response.status >= 500))
+          throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} but the response could not be read. The order/cancel status is unknown; verify the order list before trying again.`, error62);
+        if (method === "GET" && attempt < attempts) {
+          await sleep2(retryDelayMs(response, attempt));
+          continue;
+        }
+        throw new Trading212ApiError(`Trading 212 ${method} ${path3} failed (${response.status}) and the response could not be read`, response.status, null);
+      }
       if (response.ok) return parsed;
       if (method !== "GET" && (response.status === 408 || response.status >= 500))
         throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
@@ -34995,7 +35116,7 @@ var Trading212Client = class {
     return this.request("GET", "/equity/account/summary");
   }
   async getPositions() {
-    return unwrapArray(await this.request("GET", "/equity/positions"));
+    return unwrapArray(await this.request("GET", "/equity/positions")).map(normalizePosition);
   }
   async getOrders() {
     return unwrapArray(await this.request("GET", "/equity/orders"));
@@ -35066,6 +35187,7 @@ var MAX_BASKET_LEGS = 20;
 function positiveNumber(name, value) {
   if (value === void 0 || !Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
 }
+var round3 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function floorQuantity(value, digits = 8) {
   const factor = 10 ** digits;
   return Math.floor((value + Number.EPSILON) * factor) / factor;
@@ -35138,11 +35260,11 @@ function resolveInstrumentFromList(instruments, query) {
   }
   throw new Error(`No Trading 212 instrument matched ${query}`);
 }
-function validateOrderAgainstSnapshot(draft, instrument, position, account, config3) {
+function validateOrderAgainstSnapshot(draft, instrument, position, account, config3, rates = {}) {
   if (!draft.ticker.trim()) throw new Error("Ticker is required");
   positiveNumber("quantity", draft.quantity);
   if (config3.maxOrderQuantity > 0 && draft.quantity > config3.maxOrderQuantity)
-    throw new Error(`Quantity exceeds MAX_ORDER_QUANTITY (${config3.maxOrderQuantity})`);
+    fail("ORDER_QUANTITY_LIMIT", `Quantity exceeds MAX_ORDER_QUANTITY (${config3.maxOrderQuantity})`, { requested: draft.quantity, limit: config3.maxOrderQuantity });
   if (["limit", "stop_limit"].includes(draft.type)) positiveNumber("limitPrice", draft.limitPrice);
   if (["stop", "stop_limit"].includes(draft.type)) positiveNumber("stopPrice", draft.stopPrice);
   if (draft.extendedHours && draft.type !== "market")
@@ -35152,32 +35274,45 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
   if (draft.side === "buy" && instrument.maxOpenQuantity && Math.max(0, position?.quantity ?? 0) + draft.quantity > instrument.maxOpenQuantity + Number.EPSILON)
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
   if (draft.side === "sell" && draft.quantity > (position?.quantityAvailableForTrading ?? 0) + Number.EPSILON)
-    throw new Error(`Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`);
+    fail("INSUFFICIENT_SELLABLE_QUANTITY", `Sell quantity ${draft.quantity} exceeds available quantity ${position?.quantityAvailableForTrading ?? 0}`, { requested: draft.quantity, available: position?.quantityAvailableForTrading ?? 0 });
   const marketPrices = [draft.referencePrice, position?.currentPrice].filter((value) => value !== void 0 && value > 0);
   const price = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : marketPrices.length ? Math.max(...marketPrices) : void 0;
   const estimatedNotional = price && price > 0 ? price * draft.quantity : void 0;
+  const accountCurrency = (account.currency ?? "").toUpperCase();
+  const instrumentCurrency = instrument.currencyCode.toUpperCase();
+  const sameCurrency = !!accountCurrency && accountCurrency === instrumentCurrency;
+  if (draft.fxRate !== void 0) positiveNumber("fxRate", draft.fxRate);
+  const known = draft.fxRate && accountCurrency && !crossRate(rates, accountCurrency, instrumentCurrency) ? { ...rates, [accountCurrency]: 1, [instrumentCurrency]: draft.fxRate } : rates;
+  const accountNotional = estimatedNotional === void 0 ? void 0 : sameCurrency ? estimatedNotional : toAccountCurrency(estimatedNotional, instrumentCurrency, accountCurrency, known);
   if (config3.maxOrderNotional > 0) {
     if (!estimatedNotional)
       throw new Error("A current referencePrice is required for this Market order while MAX_ORDER_NOTIONAL is enabled. Set MAX_ORDER_NOTIONAL=0 to disable the app-level notional cap.");
     if (!Number.isFinite(estimatedNotional) || estimatedNotional <= 0) throw new Error("Estimated order notional is invalid");
-    if (estimatedNotional > config3.maxOrderNotional)
-      throw new Error(`Estimated order notional ${estimatedNotional.toFixed(2)} ${instrument.currencyCode} exceeds MAX_ORDER_NOTIONAL (${config3.maxOrderNotional})`);
+    if (accountNotional === void 0 && accountCurrency)
+      fail(
+        "FX_RATE_REQUIRED",
+        `No ${accountCurrency} to ${instrumentCurrency} exchange rate is known (no holding is priced in ${instrumentCurrency} and the quote source has none), so the order can't be checked against MAX_ORDER_NOTIONAL (${config3.maxOrderNotional} ${accountCurrency}). Pass fxRate (${instrumentCurrency} per 1 ${accountCurrency}) with fxRateAt from a dated source, or set MAX_ORDER_NOTIONAL=0.`,
+        { from: accountCurrency, to: instrumentCurrency, limit: config3.maxOrderNotional }
+      );
+    const capped = accountNotional ?? estimatedNotional;
+    const cappedCurrency = accountCurrency || instrumentCurrency;
+    if (capped > config3.maxOrderNotional)
+      fail("ORDER_NOTIONAL_LIMIT", `Estimated order value ${capped.toFixed(2)} ${cappedCurrency} exceeds MAX_ORDER_NOTIONAL (${config3.maxOrderNotional})`, { requested: round3(capped, 2), limit: config3.maxOrderNotional, currency: cappedCurrency });
   }
   const availableCash = account.cash?.availableToTrade;
-  const sameCurrency2 = !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
-  const cashCheckApplied = draft.side !== "buy" || sameCurrency2 && estimatedNotional !== void 0;
-  if (draft.side === "buy" && sameCurrency2 && availableCash !== void 0 && estimatedNotional !== void 0 && estimatedNotional > availableCash)
-    throw new Error(`Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`);
+  const cashCheckApplied = draft.side !== "buy" || sameCurrency && estimatedNotional !== void 0;
+  if (draft.side === "buy" && sameCurrency && availableCash !== void 0 && estimatedNotional !== void 0 && estimatedNotional > availableCash)
+    fail("INSUFFICIENT_CASH", `Estimated order notional ${estimatedNotional.toFixed(2)} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round3(estimatedNotional, 2), available: round3(availableCash, 2), currency: accountCurrency });
+  if (draft.side === "buy" && !sameCurrency && availableCash !== void 0 && accountNotional !== void 0 && accountNotional > availableCash * 1.01)
+    fail("INSUFFICIENT_CASH", `Estimated order value about ${accountNotional.toFixed(2)} ${account.currency} exceeds available cash ${availableCash.toFixed(2)} ${account.currency}`, { requested: round3(accountNotional, 2), available: round3(availableCash, 2), currency: accountCurrency });
   return {
     ...estimatedNotional === void 0 ? {} : { estimatedNotional },
+    ...accountNotional === void 0 ? {} : { accountNotional },
     estimatedNotionalCurrency: instrument.currencyCode,
     cashCheckApplied,
     ...availableCash === void 0 ? {} : { availableCash },
     ...account.currency ? { accountCurrency: account.currency } : {}
   };
-}
-function sameCurrency(account, instrument) {
-  return !!account.currency && account.currency.toUpperCase() === instrument.currencyCode.toUpperCase();
 }
 var TradingService = class {
   constructor(deps) {
@@ -35210,9 +35345,42 @@ var TradingService = class {
     this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
     return instruments;
   }
+  /**
+   * Pending orders carry only a ticker. Name them from the holdings or from instrument metadata already
+   * cached, without fetching the (rate-limited) instrument list just for the dashboard.
+   */
+  namedOrders(environment, orders, positions) {
+    const cached2 = this.cache.get(environment);
+    const known = cached2 && cached2.expiresAt > Date.now() ? cached2.instruments : [];
+    return orders.map((order) => {
+      if (order.instrument || typeof order.ticker !== "string") return order;
+      const instrument = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument ?? known.find((item) => item.ticker === order.ticker);
+      return instrument ? { ...order, instrument: { ticker: instrument.ticker, name: instrument.name, shortName: instrument.shortName, currencyCode: instrument.currencyCode } } : order;
+    });
+  }
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
   externalQuote(instrument) {
     return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
+  }
+  /**
+   * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
+   * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
+   */
+  async ratesFor(positions, accountCurrency, currencies) {
+    const account = accountCurrency.toUpperCase();
+    const rates = knownFxRates(positions, account);
+    const quoted = /* @__PURE__ */ new Map();
+    const provider = this.deps.quotes;
+    if (!account || !provider) return { rates, quoted };
+    for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
+      if (crossRate(rates, account, currency)) continue;
+      const rate = await provider.fxRate(account, currency);
+      if (rate) {
+        rates[currency] = rate.rate;
+        quoted.set(currency, rate);
+      }
+    }
+    return { rates, quoted };
   }
   /** Best available price: the broker's position price when held, else the external quote. */
   async lookupPrice(environment, query) {
@@ -35239,7 +35407,7 @@ var TradingService = class {
     const event = { id: crypto.randomUUID(), timestamp, environment, type, ...details };
     try {
       await this.deps.store.put(`activity:${timestamp}:${event.id}`, event, Date.now() + ACTIVITY_TTL_MS);
-      const existing = await this.deps.store.list("activity:");
+      const existing = (await this.deps.store.list("activity:")).filter((item) => item.value.environment === environment);
       if (existing.length > 120) {
         const stale = existing.sort((a, b) => a.value.timestamp.localeCompare(b.value.timestamp)).slice(0, existing.length - 100);
         await Promise.all(stale.map((item) => this.deps.store.delete(item.key)));
@@ -35287,9 +35455,9 @@ var TradingService = class {
     }
     const client = this.client(environment);
     const [account, positions, orders, activity] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders(), this.getActivity(environment)]);
-    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders, activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
   }
-  async getTradePlan(environment, candidates) {
+  async getTradePlan(environment, candidates2) {
     const credentials = credentialStatus(this.deps.config);
     if (!credentials[environment]) {
       return {
@@ -35298,12 +35466,12 @@ var TradingService = class {
         credentials,
         account: null,
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        candidates: candidates.map((candidate) => ({ ...candidate, resolutionError: `${environment.toUpperCase()} credentials are not configured` }))
+        candidates: candidates2.map((candidate) => ({ ...candidate, resolutionError: `${environment.toUpperCase()} credentials are not configured` }))
       };
     }
     const client = this.client(environment);
     const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
-    const enriched = candidates.map((candidate) => {
+    const enriched = candidates2.map((candidate) => {
       try {
         const resolvedInstrument = resolveInstrumentFromList(instruments, candidate.ticker ?? candidate.symbol ?? candidate.name ?? "");
         const position = this.positionFor(positions, resolvedInstrument.ticker);
@@ -35327,6 +35495,14 @@ var TradingService = class {
     const instrument = resolveInstrumentFromList(instruments, intent.instrument);
     const position = this.positionFor(positions, instrument.ticker);
     const sizing = intent.sizing;
+    if (intent.fxRate !== void 0) positiveNumber("fxRate", intent.fxRate);
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, intent.fxRate ? [] : [instrumentCode]);
+    const external = quoted.get(instrumentCode);
+    const passedRate = !!intent.fxRate && !!accountCode && !crossRate(rates, accountCode, instrumentCode);
+    if (passedRate) rates[instrumentCode] = intent.fxRate;
+    const rateSource = external ? ` (${external.source} rate as of ${external.asOf})` : passedRate ? "" : " (implied by your holdings)";
     let quantity;
     let note;
     let requestedNotional;
@@ -35334,6 +35510,27 @@ var TradingService = class {
     let estimatedQuoteNotional;
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
+    let fxRateAt = intent.fxRateAt;
+    let givenRate = passedRate ? intent.fxRate : void 0;
+    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
+    if (needsPrice) {
+      const quote = await this.externalQuote(instrument);
+      if (quote) {
+        referencePrice = quote.price;
+        referencePriceAt = quote.asOf;
+      }
+    }
+    const fxRate = (from, given) => {
+      if (given !== void 0) {
+        positiveNumber("fxRateToInstrumentCurrency", given);
+        if (from.toUpperCase() === (account.currency ?? "").toUpperCase()) givenRate = given;
+        return { rate: given, source: "" };
+      }
+      const rate = crossRate(rates, from, instrument.currencyCode);
+      if (!rate) throw new Error(`Converting ${from} to ${instrument.currencyCode} needs fxRateToInstrumentCurrency (${instrument.currencyCode} per 1 ${from}); no holding in ${instrument.currencyCode} gives an exchange rate and the quote source has none.`);
+      fxRateAt ??= external?.asOf ?? fetchedAt;
+      return { rate, source: rateSource };
+    };
     if (sizing.mode === "quantity") {
       positiveNumber("quantity", sizing.quantity);
       quantity = sizing.quantity;
@@ -35353,14 +35550,16 @@ var TradingService = class {
       requestedNotional = availableCash * sizing.percent / 100;
       requestedNotionalCurrency = accountCurrency;
       let quoteAmount = requestedNotional;
+      let converted = "";
       if (accountCurrency !== instrumentCurrency) {
-        positiveNumber("fxRateToInstrumentCurrency", sizing.fxRateToInstrumentCurrency);
-        quoteAmount = requestedNotional * sizing.fxRateToInstrumentCurrency;
+        const { rate, source } = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        quoteAmount = requestedNotional * rate;
+        converted = ` converted at ${round3(rate, 6)} ${instrumentCurrency}/${accountCurrency}${source}`;
       }
       quantity = floorQuantity(quoteAmount / pricingReference);
       if (quantity <= 0) throw new Error("The selected cash percentage is too small to produce a positive quantity");
       estimatedQuoteNotional = pricingReference * quantity;
-      note = `Use ${sizing.percent}% of available cash (${requestedNotional.toFixed(2)} ${accountCurrency}) to buy approximately ${quantity} share(s).`;
+      note = `Use ${sizing.percent}% of available cash (${requestedNotional.toFixed(2)} ${accountCurrency})${converted} to buy approximately ${quantity} share(s).`;
     } else if (sizing.mode === "position_percent") {
       if (intent.side !== "sell") throw new Error("position_percent sizing is only valid for sell orders");
       positiveNumber("percent", sizing.percent);
@@ -35394,14 +35593,19 @@ var TradingService = class {
       requestedNotional = sizing.amount;
       requestedNotionalCurrency = requestedCurrency;
       let quoteAmount = sizing.amount;
+      let conversion;
       if (requestedCurrency !== instrumentCurrency) {
-        positiveNumber("fxRateToInstrumentCurrency", sizing.fxRateToInstrumentCurrency);
-        quoteAmount = sizing.amount * sizing.fxRateToInstrumentCurrency;
+        conversion = fxRate(requestedCurrency, sizing.fxRateToInstrumentCurrency);
+        quoteAmount = sizing.amount * conversion.rate;
       }
       quantity = floorQuantity(quoteAmount / pricingReference);
       if (quantity <= 0) throw new Error("The requested amount is too small to produce a positive quantity");
       estimatedQuoteNotional = pricingReference * quantity;
-      note = requestedCurrency === instrumentCurrency ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${sizing.fxRateToInstrumentCurrency} ${instrumentCurrency}/${requestedCurrency} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
+      note = !conversion ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${round3(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
+    }
+    if (givenRate === void 0 && external) {
+      givenRate = external.rate;
+      fxRateAt ??= external.asOf;
     }
     const draft = {
       environment: intent.environment,
@@ -35415,9 +35619,10 @@ var TradingService = class {
       ...intent.stopPrice === void 0 ? {} : { stopPrice: intent.stopPrice },
       ...referencePrice === void 0 ? {} : { referencePrice },
       ...referencePriceAt ? { referencePriceAt } : {},
-      ...intent.fxRateAt ? { fxRateAt: intent.fxRateAt } : {}
+      ...givenRate === void 0 ? {} : { fxRate: givenRate },
+      ...fxRateAt ? { fxRateAt } : {}
     };
-    validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config);
+    validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
     return {
       draft,
       instrument,
@@ -35436,7 +35641,8 @@ var TradingService = class {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config) };
+    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
+    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
   async snapshot(environment) {
     const client = this.client(environment);
@@ -35454,10 +35660,10 @@ var TradingService = class {
   async usageToday(environment) {
     return await this.deps.store.get(usageKey(environment)) ?? EMPTY_USAGE;
   }
-  async recordUsage(environment, estimatedNotional, sameCurrency2) {
+  async recordUsage(environment, accountNotional) {
     try {
       const key = usageKey(environment);
-      const next = addUsage(await this.deps.store.get(key) ?? EMPTY_USAGE, estimatedNotional, sameCurrency2);
+      const next = addUsage(await this.deps.store.get(key) ?? EMPTY_USAGE, accountNotional);
       await this.deps.store.put(key, next, Date.now() + USAGE_TTL_MS);
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot usage persistence failed", error: error62 instanceof Error ? error62.message : String(error62) }));
@@ -35493,14 +35699,14 @@ var TradingService = class {
     }
     return notices;
   }
-  policyFor(draft, instrument, position, account, estimatedNotional, market, usage) {
+  policyFor(draft, instrument, position, account, accountNotional, market, usage) {
     return evaluatePolicy(this.deps.config.policy[draft.environment], {
       draft,
       instrument,
       account,
       usage,
       ...position ? { position } : {},
-      ...estimatedNotional === void 0 ? {} : { estimatedNotional },
+      ...accountNotional === void 0 ? {} : { estimatedNotional: accountNotional },
       ...market ? { market } : {}
     });
   }
@@ -35529,8 +35735,8 @@ var TradingService = class {
     const current = await this.current(draft);
     const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
     const market = await this.market(draft.environment, current.instrument);
-    const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment));
-    this.assertPolicy(policy, draft.ticker);
+    const policy2 = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
+    this.assertPolicy(policy2, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
     const confirmation = await this.issue({ kind: "order", draft });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
@@ -35542,11 +35748,12 @@ var TradingService = class {
       instrument: current.instrument,
       ...current.estimatedNotional === void 0 ? {} : { estimatedNotional: current.estimatedNotional },
       estimatedNotionalCurrency: current.estimatedNotionalCurrency,
+      ...current.accountNotional === void 0 || current.estimatedNotionalCurrency === current.accountCurrency ? {} : { estimatedAccountNotional: current.accountNotional },
       ...current.accountCurrency ? { accountCurrency: current.accountCurrency } : {},
       ...current.availableCash === void 0 ? {} : { availableCash: current.availableCash },
       ...current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {},
       notices,
-      policy,
+      policy: policy2,
       warnings: notices.map((notice) => notice.message)
     };
   }
@@ -35559,7 +35766,8 @@ var TradingService = class {
     const peeked = await this.deps.store.get(key);
     if (!peeked || peeked.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const environment = peeked.kind === "order" ? peeked.draft.environment : peeked.environment;
-    if (environment === "live" && !liveAcknowledged) fail("LIVE_ACK_REQUIRED", "Live orders need the second confirmation that real money will be used");
+    if (environment === "live" && !liveAcknowledged)
+      fail("LIVE_ACK_REQUIRED", kind === "cancel" ? "Live cancellations need the second confirmation: a cancelled stop-loss no longer protects the position" : "Live orders need the second confirmation that real money will be used");
     const pending = await this.deps.store.consume(key);
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     return pending;
@@ -35571,11 +35779,11 @@ var TradingService = class {
     try {
       current = await this.current(draft);
       const market = await this.market(draft.environment, current.instrument);
-      this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.estimatedNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+      this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
     } catch (error62) {
       return this.failedSubmission(draft, 0, error62);
     }
-    return this.submit(draft, current.position?.quantity ?? 0, current.estimatedNotional, sameCurrency(current.account, current.instrument));
+    return this.submit(draft, current.position?.quantity ?? 0, current.accountNotional);
   }
   /** Compute (but never send) the trades that move the account toward target weights. */
   async planRebalance(environment, targets, options = {}) {
@@ -35589,7 +35797,31 @@ var TradingService = class {
       resolved.push({ ...target, ticker: instrument.ticker, ...quote ? { referencePrice: quote.price, referencePriceAt: quote.asOf } : {} });
     }
     const currency = new Map(snapshot.instruments.map((item) => [item.ticker.toUpperCase(), item.currencyCode]));
-    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, options, (ticker) => currency.get(ticker.toUpperCase()));
+    const missing = resolved.map((target) => currency.get(target.ticker.toUpperCase()) ?? "").filter((code) => code && !options.fxRates?.[code.toUpperCase()]);
+    const { quoted } = await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", missing);
+    const quotedFxRates = Object.fromEntries(quoted);
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { ...options, ...quoted.size ? { quotedFxRates } : {} }, (ticker) => currency.get(ticker.toUpperCase()));
+  }
+  /** Attach each leg's instrument so a review can show names; legs that do not resolve stay as they are. */
+  async withInstruments(basket) {
+    let instruments;
+    try {
+      instruments = await this.instruments(basket.environment);
+    } catch {
+      return basket;
+    }
+    return {
+      ...basket,
+      legs: basket.legs.map((leg) => {
+        if (leg.instrument) return leg;
+        try {
+          const instrument = resolveInstrumentFromList(instruments, leg.draft.ticker);
+          return { ...leg, instrument, draft: { ...leg.draft, ticker: instrument.ticker } };
+        } catch {
+          return leg;
+        }
+      })
+    };
   }
   rebalanceBasket(plan) {
     return {
@@ -35641,7 +35873,7 @@ var TradingService = class {
    * Validate every leg of a basket against one account snapshot. Sells run before buys, and
    * unless `independentSells` is set, later legs see the shares and cash earlier legs use.
    */
-  assessBasket(request, snapshot, usageBefore, markets) {
+  assessBasket(request, snapshot, usageBefore, markets, rates) {
     const ordered = [...request.drafts].sort((a, b) => a.side === b.side ? 0 : a.side === "sell" ? -1 : 1);
     const sold = /* @__PURE__ */ new Map();
     let cashDelta = 0;
@@ -35656,19 +35888,30 @@ var TradingService = class {
         const position = held ? { ...held, quantityAvailableForTrading: held.quantityAvailableForTrading - alreadySold } : void 0;
         const cash = snapshot.account.cash?.availableToTrade;
         const account = cash === void 0 ? snapshot.account : { ...snapshot.account, cash: { ...snapshot.account.cash, availableToTrade: cash + cashDelta } };
-        const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config);
+        const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
         const market = markets.get(instrument.ticker);
-        const policy = this.policyFor(draft, instrument, held, snapshot.account, checked.estimatedNotional, market, usage);
-        const same = sameCurrency(snapshot.account, instrument);
+        const policy2 = this.policyFor(draft, instrument, held, snapshot.account, checked.accountNotional, market, usage);
         if (draft.side === "sell") sold.set(instrument.ticker, alreadySold + draft.quantity);
-        if (same && checked.estimatedNotional !== void 0) cashDelta += draft.side === "sell" ? checked.estimatedNotional : -checked.estimatedNotional;
-        usage = addUsage(usage, checked.estimatedNotional, same);
-        return { draft, instrument, position: held, checked, market, policy, same };
+        if (checked.accountNotional !== void 0) cashDelta += draft.side === "sell" ? checked.accountNotional : -checked.accountNotional;
+        usage = addUsage(usage, checked.accountNotional);
+        return { draft, instrument, position: held, checked, market, policy: policy2 };
       } catch (error62) {
         const structured = asStructuredError(error62);
         fail(structured.code, `Leg ${index + 1} (${raw.side} ${raw.quantity} ${raw.ticker}): ${structured.message}`, structured.details);
       }
     });
+  }
+  /** Rates for every leg's currency, except legs that carry their own. */
+  async basketRates(snapshot, drafts) {
+    const currencies = drafts.flatMap((draft) => {
+      if (draft.fxRate) return [];
+      try {
+        return [resolveInstrumentFromList(snapshot.instruments, draft.ticker).currencyCode];
+      } catch {
+        return [];
+      }
+    });
+    return (await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", currencies)).rates;
   }
   async marketsFor(environment, snapshot, drafts) {
     const markets = /* @__PURE__ */ new Map();
@@ -35681,13 +35924,14 @@ var TradingService = class {
     }
     return markets;
   }
-  async prepareBasket(request) {
+  /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
+  async prepareBasket(request, options = {}) {
     if (!credentialStatus(this.deps.config)[request.environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${request.environment.toUpperCase()} credentials are not configured`);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
     const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
     const markets = await this.marketsFor(request.environment, snapshot, request.drafts);
-    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets);
+    const legs = this.assessBasket(request, snapshot, await this.usageToday(request.environment), markets, await this.basketRates(snapshot, request.drafts));
     const blocked = legs.flatMap((leg) => blockingChecks(leg.policy).map((check2) => `${leg.instrument.ticker}: ${check2.message}`));
     if (blocked.length) fail("POLICY_BLOCKED", blocked.join(" "), { rule: blockingChecks(legs.flatMap((leg) => leg.policy))[0].rule });
     const drafts = legs.map((leg) => leg.draft);
@@ -35700,7 +35944,7 @@ var TradingService = class {
       independentSells: !!request.independentSells,
       ...request.planId ? { planId: request.planId } : {}
     });
-    await this.recordActivity("basket_prepared", request.environment, { legs: drafts.length, ...request.planId ? { planId: request.planId } : {} });
+    if (!options.quiet) await this.recordActivity("basket_prepared", request.environment, { legs: drafts.length, ...request.planId ? { planId: request.planId } : {} });
     return {
       kind: "basket_preview",
       ...confirmation,
@@ -35708,28 +35952,32 @@ var TradingService = class {
       environment: request.environment,
       purpose: request.purpose,
       title: request.title,
+      ...legs[0]?.checked.accountCurrency ? { accountCurrency: legs[0].checked.accountCurrency } : {},
       legs: legs.map((leg) => ({
         draft: leg.draft,
         instrument: leg.instrument,
         ...leg.checked.estimatedNotional === void 0 ? {} : { estimatedNotional: leg.checked.estimatedNotional },
         estimatedNotionalCurrency: leg.checked.estimatedNotionalCurrency,
+        ...leg.checked.accountNotional === void 0 || leg.checked.estimatedNotionalCurrency === leg.checked.accountCurrency ? {} : { estimatedAccountNotional: leg.checked.accountNotional },
         notices: this.orderNotices(leg.draft, leg.checked, leg.market),
         policy: leg.policy
       })),
       notes: [
         ...request.notes ?? [],
-        "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent."
+        BASKET_ORDER_NOTE
       ],
       ...request.planId ? { planId: request.planId } : {}
     };
   }
-  async submit(draft, baselineQuantity, estimatedNotional, same) {
+  /** `accountNotional` is the order's estimated value in the account currency, when known. */
+  async submit(draft, baselineQuantity, accountNotional) {
     try {
       const order = await this.client(draft.environment).placeOrder(draft);
-      await this.recordUsage(draft.environment, estimatedNotional, same);
+      await this.recordUsage(draft.environment, accountNotional);
       await this.recordActivity("order_submitted", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
       return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
     } catch (error62) {
+      if (error62 instanceof ExecutionStatusUnknownError) await this.recordUsage(draft.environment, accountNotional);
       return this.failedSubmission(draft, baselineQuantity, error62);
     }
   }
@@ -35751,24 +35999,32 @@ var TradingService = class {
     try {
       const snapshot = await this.snapshot(pending.environment);
       const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
-      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets);
+      assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets, await this.basketRates(snapshot, pending.drafts));
     } catch (error62) {
       stopReason = `The basket no longer passes its checks: ${asStructuredError(error62).message}`;
     }
     if (assessed) {
+      let unfunded;
       for (const leg of assessed) {
         if (stopReason) {
           results.push({ draft: leg.draft, skipped: stopReason });
           continue;
         }
-        const blocked = blockingChecks(leg.policy);
-        if (blocked.length) {
-          results.push({ draft: leg.draft, skipped: blocked.map((check2) => check2.message).join(" ") });
+        if (unfunded && leg.draft.side === "buy") {
+          results.push({ draft: leg.draft, skipped: unfunded });
           continue;
         }
-        const result2 = await this.submit(leg.draft, leg.position?.quantity ?? 0, leg.checked.estimatedNotional, leg.same);
+        const blocked = blockingChecks(leg.policy);
+        const fundsBuys = leg.draft.side === "sell" && !pending.independentSells;
+        if (blocked.length) {
+          results.push({ draft: leg.draft, skipped: blocked.map((check2) => check2.message).join(" ") });
+          if (fundsBuys) unfunded = `Not sent: the sell of ${leg.draft.ticker} that funds it was not sent.`;
+          continue;
+        }
+        const result2 = await this.submit(leg.draft, leg.position?.quantity ?? 0, leg.checked.accountNotional);
         results.push({ draft: leg.draft, result: result2 });
         if (result2.status === "unknown") stopReason = "Not sent: an earlier order's result is uncertain. Verify it before sending the rest.";
+        else if (!result2.ok && fundsBuys) unfunded = `Not sent: the sell of ${leg.draft.ticker} that funds it was rejected.`;
       }
     } else {
       for (const draft of pending.drafts) results.push({ draft, skipped: stopReason ?? "Not sent." });
@@ -35830,7 +36086,7 @@ var TradingService = class {
       for (const item of result2.items) {
         const id = item.order?.id;
         if (id === void 0 || id === null) continue;
-        const filled = Math.max(item.order?.filledQuantity ?? 0, item.fill?.quantity ?? 0);
+        const filled = Math.max(Math.abs(item.order?.filledQuantity ?? 0), Math.abs(item.fill?.quantity ?? 0));
         const previous = outcomes.get(String(id));
         outcomes.set(String(id), { status: (item.order?.status ?? previous?.status ?? "").toUpperCase(), filledQuantity: Math.max(filled, previous?.filledQuantity ?? 0) });
       }
@@ -35854,14 +36110,13 @@ var TradingService = class {
   async prepareCancel(environment, orderId) {
     const id = orderId.trim();
     if (!id) fail("INVALID_INPUT", "orderId is required", { field: "orderId" });
-    await this.client(environment).getOrder(id);
-    const preview = { kind: "cancel_preview", ...await this.issue({ kind: "cancel", environment, orderId: id }), environment, orderId: id };
+    const order = await this.client(environment).getOrder(id);
+    const preview = { kind: "cancel_preview", ...await this.issue({ kind: "cancel", environment, orderId: id }), environment, orderId: id, ...order && typeof order === "object" ? { order } : {} };
     await this.recordActivity("cancel_prepared", environment, { orderId: id });
     return preview;
   }
-  async executeCancel(confirmationId) {
-    const pending = await this.deps.store.consume(`confirm:${confirmationId}`);
-    if (!pending || pending.kind !== "cancel") fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+  async executeCancel(confirmationId, options = {}) {
+    const pending = await this.takePending(confirmationId, "cancel", !!options.liveAcknowledged);
     try {
       const order = await this.client(pending.environment).cancelOrder(pending.orderId);
       await this.recordActivity("cancel_submitted", pending.environment, { orderId: pending.orderId });
@@ -35929,12 +36184,12 @@ var DEFAULT_ALLOCATION_LIMITS = {
   cashLowWeight: 0.02,
   maxCurrencyWeight: 0.85
 };
-var round3 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var ratio = (part, whole) => whole > 0 ? part / whole : 0;
 function sumBy(items, key, amount) {
   const totals = /* @__PURE__ */ new Map();
   for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount(item));
-  return [...totals].map(([k, v]) => ({ key: k, amount: round3(v) })).sort((a, b) => b.amount - a.amount);
+  return [...totals].map(([k, v]) => ({ key: k, amount: round4(v) })).sort((a, b) => b.amount - a.amount);
 }
 function positionValue(position) {
   const wallet = position.walletImpact;
@@ -35947,7 +36202,7 @@ function positionPnl(position) {
 }
 function analyzeAllocation(environment, account, positions, instruments = [], limits = DEFAULT_ALLOCATION_LIMITS, now = /* @__PURE__ */ new Date()) {
   const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
-  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0);
+  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0) + Math.max(0, account.cash?.inPies ?? 0);
   const holdings = positions.map((position) => {
     const ticker = position.instrument?.ticker ?? "";
     const meta3 = byTicker.get(ticker.toUpperCase());
@@ -35968,7 +36223,11 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   for (const item of holdings) item.weight = ratio(item.value, totalValue);
   holdings.sort((a, b) => b.value - a.value);
   const group = (key) => sumBy(holdings, key, (item) => item.value).map(({ key: k, amount }) => ({ k, value: amount, weight: ratio(amount, totalValue) }));
-  const byCurrency = group((item) => item.currency).map(({ k, value, weight: weight2 }) => ({ currency: k, value, weight: weight2 }));
+  const holdingCurrencies = group((item) => item.currency === "GBX" ? "GBP" : item.currency);
+  const accountCurrency = (account.currency ?? "").toUpperCase();
+  const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
+  if (cash > 0 && accountCurrency) exposure.set(accountCurrency, (exposure.get(accountCurrency) ?? 0) + cash);
+  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round4(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
   const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight: weight2 }) => ({ type: k, value, weight: weight2 }));
   const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
   const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
@@ -35976,30 +36235,30 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
   const cashWeight = ratio(cash, totalValue);
   const flags = [];
-  const pct = (value) => `${round3(value * 100, 1)}%`;
+  const pct2 = (value) => `${round4(value * 100, 1)}%`;
   if (holdings[0] && largestWeight > limits.maxSingleWeight)
-    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct(largestWeight)} of invested value (limit ${pct(limits.maxSingleWeight)}).` });
+    flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct2(largestWeight)} of invested value (limit ${pct2(limits.maxSingleWeight)}).` });
   if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
-    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct(top5Weight)} of invested value (limit ${pct(limits.maxTop5Weight)}).` });
+    flags.push({ code: "TOP5_OVER_LIMIT", message: `Top 5 holdings are ${pct2(top5Weight)} of invested value (limit ${pct2(limits.maxTop5Weight)}).` });
   if (totalValue > 0 && cashWeight > limits.cashHighWeight)
-    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct(cashWeight)} of the account.` });
+    flags.push({ code: "CASH_HIGH", message: `Cash is ${pct2(cashWeight)} of the account.` });
   if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
-    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct(cashWeight)} of the account.` });
-  const topCurrency = byCurrency[0];
-  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight && byCurrency.length >= 1)
-    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.currency}.` });
+    flags.push({ code: "CASH_LOW", message: `Cash is only ${pct2(cashWeight)} of the account.` });
+  const topCurrency = holdingCurrencies[0];
+  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight)
+    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct2(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.k}.` });
   return {
     kind: "allocation",
     environment,
     accountCurrency: account.currency ?? "",
-    totalValue: round3(totalValue),
-    investedValue: round3(investedValue),
-    cash: round3(cash),
+    totalValue: round4(totalValue),
+    investedValue: round4(investedValue),
+    cash: round4(cash),
     cashWeight,
-    holdings: holdings.map((item) => ({ ...item, value: round3(item.value) })),
+    holdings: holdings.map((item) => ({ ...item, value: round4(item.value) })),
     byCurrency,
     byType,
-    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round3(1 / herfindahl, 1) : 0 },
+    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round4(1 / herfindahl, 1) : 0 },
     flags,
     timestamp: now.toISOString()
   };
@@ -36077,26 +36336,35 @@ function summarizePerformance(input2) {
     accountCurrency: input2.account.currency ?? "",
     period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
     coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
-    contributions: { deposits: round3(deposits), withdrawals: round3(withdrawals), net: round3(net) },
-    income: { dividends: round3(dividendTotal), interest: round3(interest) },
-    costs: { total: round3(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    realizedProfitLoss: round3(realized),
+    contributions: { deposits: round4(deposits), withdrawals: round4(withdrawals), net: round4(net) },
+    income: { dividends: round4(dividendTotal), interest: round4(interest) },
+    costs: { total: round4(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    realizedProfitLoss: round4(realized),
     ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
     ...currentValue === void 0 ? {} : { currentValue },
     ...!window.from && !input2.truncated && currentValue !== void 0 && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
-    trades: { buys, sells, turnover: round3(turnover) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round3(row.realizedProfitLoss), dividends: round3(row.dividends), costs: round3(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    trades: { buys, sells, turnover: round4(turnover) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round4(row.realizedProfitLoss), dividends: round4(row.dividends), costs: round4(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
     notes,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
 function forwardDividends(dividends, positions, to) {
   const yearAgo = new Date(to.getTime() - 365 * 864e5);
-  const perShare = /* @__PURE__ */ new Map();
+  const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
     const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
+  }
+  const perShare = /* @__PURE__ */ new Map();
+  for (const [ticker, list2] of payments) {
+    const sum = list2.reduce((total2, item) => total2 + item.perShare, 0);
+    const times = list2.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
+    const gaps = times.slice(1).map((time3, index) => (time3 - times[index]) / 864e5).filter((days) => days > 10).sort((a, b) => a - b);
+    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
+    const frequency = gap === void 0 ? void 0 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+    perShare.set(ticker, frequency && list2.length < frequency ? sum * frequency / list2.length : sum);
   }
   const byTicker = [];
   let value = 0;
@@ -36104,10 +36372,10 @@ function forwardDividends(dividends, positions, to) {
     const ticker = position.instrument?.ticker?.toUpperCase();
     value += positionValue(position);
     const rate = ticker ? perShare.get(ticker) : void 0;
-    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round3(rate * position.quantity) });
+    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round4(rate * position.quantity) });
   }
   byTicker.sort((a, b) => b.amount - a.amount);
-  const total = round3(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  const total = round4(byTicker.reduce((sum, item) => sum + item.amount, 0));
   return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
 }
 function summarizeIncome(input2) {
@@ -36125,12 +36393,12 @@ function summarizeIncome(input2) {
     environment: input2.environment,
     accountCurrency: input2.accountCurrency,
     period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
-    total: round3(dividends + interest),
-    dividends: round3(dividends),
-    interest: round3(interest),
+    total: round4(dividends + interest),
+    dividends: round4(dividends),
+    interest: round4(interest),
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
-    trailing12Months: round3(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    trailing12Months: round4(trailing.reduce((sum, item) => sum + item.amount, 0)),
     ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
@@ -36183,22 +36451,34 @@ function itemTime(kind, item) {
   const time3 = value ? Date.parse(value) : NaN;
   return Number.isFinite(time3) ? time3 : NaN;
 }
+var DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+var DAY_MS = 864e5;
+function parseDate(value, endOfDay) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return NaN;
+  const [year, month, date5] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const calendar = new Date(Date.UTC(year, month - 1, date5));
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== date5) return NaN;
+  return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS - 1 : 0) : Date.parse(value);
+}
 function parseWindow(input2, now = /* @__PURE__ */ new Date()) {
-  const to = input2.to ? new Date(input2.to) : now;
-  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be an ISO date-time", { field: "to" });
+  const day2 = DAY_MS;
+  const to = input2.to ? new Date(parseDate(input2.to, true)) : now;
+  if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a real date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
   if (input2.from) {
-    const from = new Date(input2.from);
-    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be an ISO date-time before to", { field: "from" });
+    const from = new Date(parseDate(input2.from, false));
+    if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a real date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
     return { from, to };
   }
-  const day = 864e5;
   switch (input2.period ?? "all") {
+    case "1w":
+      return { from: new Date(to.getTime() - 7 * day2), to };
     case "1m":
-      return { from: new Date(to.getTime() - 30 * day), to };
+      return { from: new Date(to.getTime() - 30 * day2), to };
     case "3m":
-      return { from: new Date(to.getTime() - 91 * day), to };
+      return { from: new Date(to.getTime() - 91 * day2), to };
     case "1y":
-      return { from: new Date(to.getTime() - 365 * day), to };
+      return { from: new Date(to.getTime() - 365 * day2), to };
     case "ytd":
       return { from: new Date(Date.UTC(to.getUTCFullYear(), 0, 1)), to };
     default:
@@ -36219,7 +36499,8 @@ var InsightsService = class {
   /** Walk newest-first history pages until the window start or the page budget is reached. */
   async collect(environment, kind, window, maxPages = DEFAULT_HISTORY_PAGES) {
     const pages = Math.max(1, Math.min(MAX_HISTORY_PAGES, Math.floor(maxPages)));
-    const key = `${environment}:${kind}:${window.from?.toISOString() ?? "all"}:${pages}`;
+    const start = window.from ? new Date(Math.floor(window.from.getTime() / 864e5) * 864e5) : void 0;
+    const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}`;
     const cached2 = this.historyCache.get(key);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.value;
     const client = this.client(environment);
@@ -36230,7 +36511,7 @@ var InsightsService = class {
       const result2 = await client.getHistoryPage(kind, next);
       items.push(...result2.items);
       const oldest = result2.items.length ? itemTime(kind, result2.items[result2.items.length - 1]) : NaN;
-      const reachedStart = window.from !== void 0 && Number.isFinite(oldest) && oldest < window.from.getTime();
+      const reachedStart = start !== void 0 && Number.isFinite(oldest) && oldest < start.getTime();
       if (!result2.nextPagePath || reachedStart) {
         next = void 0;
         break;
@@ -36282,12 +36563,22 @@ var InsightsService = class {
   }
   async tradeHistory(environment, window, ticker, limit = 50, maxPages) {
     const collected = await this.collect(environment, "orders", window, maxPages);
+    let exact;
+    if (ticker?.trim()) {
+      try {
+        exact = resolveInstrumentFromList(await this.deps.instruments(environment), ticker).ticker.toUpperCase();
+      } catch {
+        exact = void 0;
+      }
+    }
     const wanted = ticker?.trim().toUpperCase();
-    const fills = collected.items.filter((item) => item.fill).filter((item) => !wanted || (item.order?.ticker ?? "").toUpperCase() === wanted || (item.order?.ticker ?? "").toUpperCase().startsWith(`${wanted}_`)).filter((item) => {
+    const matches = (value) => exact ? value === exact : value === wanted || value.startsWith(`${wanted}_`);
+    const fills = collected.items.filter((item) => item.fill).filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => {
       const time3 = itemTime("orders", item);
       return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
     }).slice(0, Math.max(1, Math.min(200, limit))).map((item) => ({
       ticker: item.order?.ticker,
+      ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
       side: item.order?.side,
       type: item.order?.type,
       status: item.order?.status,
@@ -36295,10 +36586,13 @@ var InsightsService = class {
       filledAt: item.fill?.filledAt,
       quantity: item.fill?.quantity,
       price: item.fill?.price,
+      priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
       netValue: item.fill?.walletImpact?.netValue,
+      accountCurrency: item.fill?.walletImpact?.currency,
       realisedProfitLoss: item.fill?.walletImpact?.realisedProfitLoss,
       fxRate: item.fill?.walletImpact?.fxRate,
-      costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0)
+      costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
+      ...item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...tax.currency ? { currency: tax.currency } : {} })) } : {}
     }));
     return { kind: "trade_history", environment, fills, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
   }
@@ -36339,7 +36633,7 @@ var MAX_PLANS = 20;
 var MAX_PLAN_LEGS = 10;
 var DEFAULT_HOUR_UTC = 15;
 var RUN_LOCK_MS = 10 * 6e4;
-var DAY_MS = 864e5;
+var DAY_MS2 = 864e5;
 var planKey = (id) => `plan:${id}`;
 var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
 var DEFAULT_LIMIT_OFFSET_PERCENT = 0.5;
@@ -36350,16 +36644,16 @@ function planLimitPrice(price, offsetPercent) {
 }
 function nextRunAt(plan, after) {
   if (plan.frequency === "monthly") {
-    const day = plan.dayOfMonth ?? 1;
-    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day, plan.hourUtc));
-    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day, plan.hourUtc));
+    const day2 = plan.dayOfMonth ?? 1;
+    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day2, plan.hourUtc));
+    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day2, plan.hourUtc));
     return candidate2;
   }
   const weekday = plan.weekday ?? 1;
   const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan.hourUtc));
   const isoToday = today.getUTCDay() || 7;
-  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS);
-  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS);
+  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS2);
+  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS2);
   return candidate;
 }
 function validateSchedule(input2) {
@@ -36461,12 +36755,17 @@ var AutomationService = class {
   async buildBasket(plan, now = /* @__PURE__ */ new Date()) {
     const dashboard = await this.deps.trading.getDashboard(plan.environment);
     const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
+    const converted = /* @__PURE__ */ new Set();
     const drafts = [];
     const skipped = [];
     const instruments = await this.deps.trading.instruments(plan.environment);
+    const find = (ticker) => {
+      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
+      return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
+    };
+    const { rates, quoted } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, plan.legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
     for (const leg of plan.legs) {
-      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === leg.ticker.toUpperCase());
-      const instrument = position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === leg.ticker.toUpperCase());
+      const { position, instrument } = find(leg.ticker);
       if (!instrument) {
         skipped.push(`${leg.ticker}: no longer listed by Trading 212.`);
         continue;
@@ -36477,17 +36776,29 @@ var AutomationService = class {
         skipped.push(`${leg.ticker}: not held and no external quote is available; buy it once manually or configure QUOTE_PROVIDER / QUOTE_SYMBOLS.`);
         continue;
       }
-      if (!accountCurrency || instrument.currencyCode.toUpperCase() !== accountCurrency) {
-        skipped.push(`${leg.ticker}: quoted in ${instrument.currencyCode}, not the account currency ${accountCurrency || "(unknown)"}; plans do not convert currencies.`);
+      const currency = instrument.currencyCode.toUpperCase();
+      const fx = accountCurrency ? crossRate(rates, accountCurrency, currency) : void 0;
+      if (!fx) {
+        skipped.push(`${leg.ticker}: quoted in ${currency}; no holding in ${currency} gives an exchange rate from ${accountCurrency || "the account currency"} and the quote source has none.`);
         continue;
       }
+      const external = quoted.get(currency);
+      if (currency !== accountCurrency) converted.add(currency);
       const limitPrice = leg.orderType === "limit" ? planLimitPrice(price, leg.limitOffsetPercent ?? DEFAULT_LIMIT_OFFSET_PERCENT) : void 0;
-      const quantity = floorTo2(leg.amount / (limitPrice ?? price), 4);
+      const quantity = floorTo2(leg.amount * fx / (limitPrice ?? price), 4);
       if (quantity <= 0) {
         skipped.push(`${leg.ticker}: ${leg.amount} ${accountCurrency} is less than the smallest tradable quantity.`);
         continue;
       }
-      const base = { environment: plan.environment, ticker: instrument.ticker, side: "buy", quantity, referencePrice: price, referencePriceAt: quote?.asOf ?? now.toISOString() };
+      const base = {
+        environment: plan.environment,
+        ticker: instrument.ticker,
+        side: "buy",
+        quantity,
+        referencePrice: price,
+        referencePriceAt: quote?.asOf ?? now.toISOString(),
+        ...external ? { fxRate: external.rate, fxRateAt: external.asOf } : {}
+      };
       drafts.push(limitPrice === void 0 ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
@@ -36496,7 +36807,11 @@ var AutomationService = class {
       title: plan.label,
       drafts,
       planId: plan.id,
-      notes: [`Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`, ...skipped],
+      notes: [
+        `Sized from each holding's last broker price, or an external quote for legs not held yet; ${plan.legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
+        ...converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted.values()][0].source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : [],
+        ...skipped
+      ],
       skipped
     };
   }
@@ -36518,11 +36833,12 @@ var AutomationService = class {
     const plan = await this.deps.store.get(planKey(planId));
     if (!plan) return;
     const attempted = result2.legs.some((leg) => leg.result);
+    const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
     await this.deps.store.put(planKey(planId), {
       ...plan,
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
-      ...attempted ? { nextRunAt: nextRunAt(plan, now).toISOString() } : {}
+      ...attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}
     });
   }
   /**
@@ -36537,7 +36853,7 @@ var AutomationService = class {
       if (plan.paused || Date.parse(plan.nextRunAt) > now.getTime()) continue;
       const unattended = plan.autoExecute && plan.environment === "demo" && this.deps.config.demoAutomationEnabled;
       if (!unattended) {
-        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
+        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id });
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message: `"${plan.label}" is due and waits for your confirmation.` });
         continue;
@@ -36551,7 +36867,7 @@ var AutomationService = class {
           reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
           continue;
         }
-        const preview = await this.deps.trading.prepareBasket(basket);
+        const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
         const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED"));
         if (closed.length) throw new Error(`Market closed for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until the next tick inside the session.`);
         const result2 = await this.deps.trading.executeBasket(preview.token);
@@ -36573,7 +36889,7 @@ var AutomationService = class {
       lastOutcome: message,
       ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
-    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS, now.getTime());
+    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS2, now.getTime());
     if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
   }
 };
@@ -36584,7 +36900,7 @@ var DEFAULT_PIE_DETAILS = 10;
 var LIST_CACHE_MS = 3e4;
 var DETAIL_CACHE_MS = 6e4;
 var SHARE_DIGITS = 4;
-var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round5 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var num = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
 function normaliseShares(shares) {
   const entries = Object.entries(shares);
@@ -36592,11 +36908,11 @@ function normaliseShares(shares) {
   for (const [ticker, share2] of entries)
     if (!Number.isFinite(share2) || share2 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
   const total = entries.reduce((sum, [, share2]) => sum + share2, 0);
-  const scaled = entries.map(([ticker, share2]) => [ticker, round4(share2 / total, SHARE_DIGITS)]);
-  const remainder = round4(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
+  const scaled = entries.map(([ticker, share2]) => [ticker, round5(share2 / total, SHARE_DIGITS)]);
+  const remainder = round5(1 - scaled.reduce((sum, [, share2]) => sum + share2, 0), SHARE_DIGITS);
   const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
   const result2 = Object.fromEntries(scaled);
-  result2[scaled[largest][0]] = round4(scaled[largest][1] + remainder, SHARE_DIGITS);
+  result2[scaled[largest][0]] = round5(scaled[largest][1] + remainder, SHARE_DIGITS);
   for (const [ticker, share2] of Object.entries(result2))
     if (share2 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
   return result2;
@@ -36612,7 +36928,7 @@ function pieOverview(summary, detail, id) {
       ticker: item.ticker,
       targetShare,
       currentShare,
-      driftShare: round4(currentShare - targetShare, 4),
+      driftShare: round5(currentShare - targetShare, 4),
       ownedQuantity: num(item.ownedQuantity),
       ...item.result?.priceAvgValue === void 0 ? {} : { value: item.result.priceAvgValue },
       ...item.result?.priceAvgResult === void 0 ? {} : { result: item.result.priceAvgResult },
@@ -36627,12 +36943,12 @@ function pieOverview(summary, detail, id) {
     cash: num(summary?.cash),
     invested,
     value,
-    result: num(result2.priceAvgResult) || round4(value - invested),
-    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round4(result2.priceAvgResultCoef * 100) : invested > 0 ? round4((value - invested) / invested * 100) : null,
+    result: num(result2.priceAvgResult) || round5(value - invested),
+    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round5(result2.priceAvgResultCoef * 100) : invested > 0 ? round5((value - invested) / invested * 100) : null,
     progress: typeof summary?.progress === "number" ? summary.progress : null,
     ...settings?.goal ? { goal: settings.goal } : {},
     dividends: { gained: num(summary?.dividendDetails?.gained), reinvested: num(summary?.dividendDetails?.reinvested), inCash: num(summary?.dividendDetails?.inCash) },
-    ...instruments ? { instruments, drift: round4(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
+    ...instruments ? { instruments, drift: round5(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
     ...settings ? { settings } : {}
   };
 }
@@ -36653,9 +36969,9 @@ var PiesService = class {
       const cached2 = await this.deps.store.get(key);
       if (cached2) return cached2;
     }
-    const pies = await this.client(environment).getPies();
-    await this.deps.store.put(key, pies, Date.now() + LIST_CACHE_MS);
-    return pies;
+    const pies2 = await this.client(environment).getPies();
+    await this.deps.store.put(key, pies2, Date.now() + LIST_CACHE_MS);
+    return pies2;
   }
   async detail(environment, id, fresh = false) {
     const key = `pie-cache:${environment}:${id}`;
@@ -36684,7 +37000,7 @@ var PiesService = class {
     const summaries = await this.summaries(environment, options.fresh);
     const limit = Math.max(0, Math.min(options.details ?? DEFAULT_PIE_DETAILS, summaries.length));
     const ordered = [...summaries].sort((a, b) => b.id - a.id);
-    const pies = [];
+    const pies2 = [];
     const notes = [];
     for (const [index, summary] of ordered.entries()) {
       let detail;
@@ -36695,12 +37011,12 @@ var PiesService = class {
           notes.push(`Pie ${summary.id}: details unavailable (${asStructuredError(error62).message}).`);
         }
       }
-      pies.push(pieOverview(summary, detail, summary.id));
+      pies2.push(pieOverview(summary, detail, summary.id));
     }
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
-    const totals = pies.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
+    const totals = pies2.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
     const currency = await this.deps.trading.accountCurrency(environment);
-    return { ...base, pies, totals: { value: round4(totals.value), invested: round4(totals.invested), result: round4(totals.result), cash: round4(totals.cash) }, ...currency ? { currency } : {}, notes };
+    return { ...base, pies: pies2, totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) }, ...currency ? { currency } : {}, notes };
   }
   async getPie(environment, id) {
     this.assertCredentials(environment);
@@ -36817,14 +37133,372 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.11.0"
+  version: "2.12.0"
 };
+
+// src/core/text-summary.ts
+var MAX_ROWS = 30;
+function num2(value, digits = 2) {
+  if (value === void 0 || value === null || !Number.isFinite(value)) return "?";
+  return Number(value.toFixed(digits)).toString();
+}
+var signed = (value, digits = 2) => value === void 0 ? "?" : `${value > 0 ? "+" : ""}${num2(value, digits)}`;
+var money2 = (value, currency) => `${num2(value)}${currency ? ` ${currency}` : ""}`;
+var pct = (value, digits = 1) => value === void 0 || value === null ? "?" : `${num2(value * 100, digits)}%`;
+var env = (environment) => environment.toUpperCase();
+var day = (value) => value ? value.slice(0, 10) : "?";
+var minute = (value) => value ? `${value.slice(0, 16).replace("T", " ")} UTC` : "?";
+function rows(items, line, max = MAX_ROWS) {
+  const shown = items.slice(0, max).map((item) => `- ${line(item)}`);
+  return items.length > max ? [...shown, `- \u2026 ${items.length - max} more`] : shown;
+}
+function section(title, lines) {
+  return lines.length ? [`${title}:`, ...lines] : [];
+}
+function credentialsLine(environment, credentials) {
+  return credentials && !credentials[environment] ? [`${env(environment)} credentials are not configured, so there is no ${env(environment)} data.`] : [];
+}
+function draftLine(draft, instrument) {
+  const price = draft.type === "limit" ? ` @ ${num2(draft.limitPrice, 6)}` : draft.type === "stop" ? ` @ ${num2(draft.stopPrice, 6)}` : "";
+  const stop = draft.type === "stop_limit" ? ` stop ${num2(draft.stopPrice, 6)} limit ${num2(draft.limitPrice, 6)}` : "";
+  const name = instrument?.name && instrument.name !== draft.ticker ? ` (${instrument.name})` : "";
+  const validity = draft.timeValidity ? ` ${draft.timeValidity}` : "";
+  return `${draft.side.toUpperCase()} ${num2(draft.quantity, 8)} ${draft.ticker}${name} ${draft.type.replace("_", "-")}${price}${stop}${validity}${draft.extendedHours ? " extended hours" : ""}`;
+}
+function noticesLines(notices) {
+  return (notices ?? []).filter((notice) => notice.code !== "LIVE_FUNDS").map((notice) => `  note: ${notice.message}`);
+}
+function policyLines(checks) {
+  return (checks ?? []).filter((check2) => check2.status !== "pass" && check2.status !== "skip").map((check2) => `  policy ${check2.status}: ${check2.message}`);
+}
+function orderLine(order) {
+  const quantity = order.quantity ?? 0;
+  const side = String(order.side ?? "").toUpperCase() || (quantity < 0 ? "SELL" : "BUY");
+  const name = order.instrument?.name;
+  const prices = [order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`, order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`].join("");
+  return `#${order.id ?? "?"} ${side} ${num2(Math.abs(quantity), 8)} ${order.ticker ?? "?"}${typeof name === "string" ? ` (${name})` : ""} ${String(order.type ?? "").toLowerCase()}${prices}${order.status ? ` (${order.status})` : ""}`;
+}
+function positionLine(position) {
+  const wallet = position.walletImpact;
+  const value = typeof wallet?.currentValue === "number" ? wallet.currentValue : void 0;
+  const pnl = typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : void 0;
+  const walletCurrency = typeof wallet?.currency === "string" ? ` ${wallet.currency}` : "";
+  const name = position.instrument.name && position.instrument.name !== position.instrument.ticker ? ` ${position.instrument.name}` : "";
+  const available = position.quantityAvailableForTrading !== position.quantity ? `, ${num2(position.quantityAvailableForTrading, 8)} available` : "";
+  const pies2 = position.quantityInPies ? `, ${num2(position.quantityInPies, 8)} in pies` : "";
+  return `${position.instrument.ticker}${name}: ${num2(position.quantity, 8)} @ ${num2(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num2(position.averagePricePaid, 6)})${value === void 0 ? "" : `, value ${num2(value)}${walletCurrency}`}${pnl === void 0 ? "" : `, P/L ${signed(pnl)}`}${available}${pies2}`;
+}
+function accountLine(environment, account) {
+  const currency = account.currency ?? "";
+  const cash = account.cash ?? {};
+  return `${env(environment)} account (${currency || "currency unknown"}): total ${num2(account.totalValue)}, available cash ${num2(cash.availableToTrade)}${cash.inPies ? `, in pies ${num2(cash.inPies)}` : ""}${cash.reservedForOrders ? `, reserved for orders ${num2(cash.reservedForOrders)}` : ""}${account.investments?.currentValue === void 0 ? "" : `, invested ${num2(account.investments.currentValue)}`}${account.investments?.unrealizedProfitLoss === void 0 ? "" : `, unrealized P/L ${signed(account.investments.unrealizedProfitLoss)}`}${account.investments?.realizedProfitLoss === void 0 ? "" : `, realized P/L ${signed(account.investments.realizedProfitLoss)}`}.`;
+}
+function activityLine(event) {
+  const details = [event.side, event.quantity === void 0 ? void 0 : num2(event.quantity, 8), event.ticker, event.orderType, event.orderId ? `order ${event.orderId}` : void 0, event.planId ? `plan ${event.planId}` : void 0, event.outcome].filter((item) => item !== void 0 && item !== "").join(" ");
+  return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
+}
+function portfolio(data) {
+  const holdings = [...data.positions].sort((a, b) => {
+    const value = (position) => position.walletImpact?.currentValue ?? position.quantity * position.currentPrice;
+    return value(b) - value(a);
+  });
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    ...data.warning ? [data.warning] : [],
+    ...data.account ? [accountLine(data.environment, data.account)] : [],
+    ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
+    ...section(`Pending orders (${data.orders.length})`, rows(data.orders, orderLine)),
+    ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine))
+  ];
+}
+function allocation(data) {
+  const c = data.accountCurrency;
+  return [
+    `Total ${money2(data.totalValue, c)}, invested ${num2(data.investedValue)}, cash ${num2(data.cash)} (${pct(data.cashWeight)} of the account).`,
+    `Holdings by share of the account: ${data.holdings.slice(0, 12).map((item) => `${item.ticker} ${pct(item.weight)}`).join(", ")}${data.holdings.length > 12 ? ", \u2026" : ""}.`,
+    `Currency exposure (cash included): ${data.byCurrency.map((item) => `${item.currency} ${pct(item.weight)}`).join(", ") || "none"}.`,
+    `Types: ${data.byType.map((item) => `${item.type} ${pct(item.weight)}`).join(", ") || "none"}.`,
+    `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num2(data.concentration.effectiveHoldings, 1)}.`,
+    ...section("Flags", rows(data.flags, (flag2) => flag2.message))
+  ];
+}
+function performance(data) {
+  const c = data.accountCurrency;
+  return [
+    `Period ${data.period.from ? day(data.period.from) : "all history"} to ${day(data.period.to)}, amounts in ${c}.`,
+    `Realized P/L ${signed(data.realizedProfitLoss)}; dividends ${num2(data.income.dividends)}; interest ${num2(data.income.interest)}; costs ${num2(data.costs.total)}${data.costs.byType.length ? ` (${data.costs.byType.map((item) => `${item.key} ${num2(item.amount)}`).join(", ")})` : ""}.`,
+    `Deposits ${num2(data.contributions.deposits)}, withdrawals ${num2(data.contributions.withdrawals)}, net ${num2(data.contributions.net)}.`,
+    ...data.currentValue === void 0 ? [] : [`Current value ${num2(data.currentValue)}${data.unrealizedProfitLoss === void 0 ? "" : `, unrealized P/L ${signed(data.unrealizedProfitLoss)}`}${data.simpleReturn === void 0 ? "" : `, simple return on net deposits ${signed(data.simpleReturn * 100, 1)}%`}.`],
+    `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num2(data.trades.turnover)}.`,
+    ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
+    ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
+    ...data.notes
+  ];
+}
+function income(data) {
+  const c = data.accountCurrency;
+  return [
+    `Period ${data.period.from ? day(data.period.from) : "all history"} to ${day(data.period.to)}: ${money2(data.total, c)} (dividends ${num2(data.dividends)}, interest ${num2(data.interest)}); trailing 12 months ${num2(data.trailing12Months)}.`,
+    ...data.forwardAnnual ? [`Expected next 12 months from current holdings: ${num2(data.forwardAnnual.total)}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${pct(data.forwardAnnual.yieldOnValue, 2)} of their value)`}; net of withholding tax, from the last year's payments.`] : [],
+    ...section("By instrument", rows(data.byTicker.slice(0, 12), (item) => `${item.key}: ${num2(item.amount)}`)),
+    ...section("By month", rows(data.byMonth.slice(-12), (item) => `${item.key}: ${num2(item.amount)}`)),
+    ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []
+  ];
+}
+function tradeHistory(data) {
+  const fills = data.fills;
+  const sum = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
+  const count = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
+  const fees = /* @__PURE__ */ new Map();
+  for (const fill of fills) for (const item of fill.costItems ?? []) fees.set(item.name, (fees.get(item.name) ?? 0) + item.amount);
+  const currency = fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
+  const realized = fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0);
+  return [
+    ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num2(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
+    ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}`, 50),
+    ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []
+  ];
+}
+function basketDraft(data) {
+  const plan = data.rebalance;
+  const skipped = plan?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
+  const notes = data.notes.filter((note) => !skipped.some((line) => note.includes(line)));
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    `${data.title} (${data.purpose}, ${env(data.environment)}):`,
+    ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num2(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === void 0 ? "" : ` \u2248 ${money2(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
+    ...plan ? [`Total value ${money2(plan.totalValue, plan.accountCurrency)}; cash ${num2(plan.cashBefore)} before, ${num2(plan.cashAfter)} after.`] : [],
+    ...section("Skipped", rows(skipped, (line) => line)),
+    ...section("Notes", rows(notes, (line) => line))
+  ];
+}
+function tokenLine(token, expiresAt, environment) {
+  return `Confirmation token ${token}, valid until ${minute(expiresAt)}. Send it only after the user explicitly says to${environment === "live" ? "; Live also needs liveAcknowledged=true once the user confirms real money is used" : ""}.`;
+}
+function orderPreview(data) {
+  return [
+    `Ready to send to ${env(data.draft.environment)}: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === void 0 ? "" : ` \u2248 ${money2(data.estimatedNotional, data.estimatedNotionalCurrency)}`}${data.estimatedAccountNotional === void 0 ? "" : ` (about ${money2(data.estimatedAccountNotional, data.accountCurrency)})`}.`,
+    ...data.availableCash === void 0 ? [] : [`Available cash ${money2(data.availableCash, data.accountCurrency)}.`],
+    ...noticesLines(data.notices),
+    ...policyLines(data.policy),
+    tokenLine(data.token, data.expiresAt, data.draft.environment)
+  ];
+}
+function basketPreview(data) {
+  return [
+    `Ready to send to ${env(data.environment)}: ${data.title} (${data.purpose}), sells first:`,
+    ...data.legs.flatMap((leg) => [`- ${draftLine(leg.draft, leg.instrument)}${leg.estimatedNotional === void 0 ? "" : ` \u2248 ${money2(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.estimatedAccountNotional === void 0 ? "" : ` (about ${num2(leg.estimatedAccountNotional)} in the account currency)`}`, ...noticesLines(leg.notices), ...policyLines(leg.policy)]),
+    ...data.notes,
+    tokenLine(data.token, data.expiresAt, data.environment)
+  ];
+}
+function cancelPreview(data) {
+  return [
+    `Ready to cancel on ${env(data.environment)}: ${data.order ? orderLine(data.order) : `order ${data.orderId}`}.`,
+    tokenLine(data.token, data.expiresAt, data.environment)
+  ];
+}
+function basketExecution(data) {
+  return rows(data.legs, (leg) => `${draftLine(leg.draft)}: ${leg.result ? `${leg.result.status}${leg.result.ok ? "" : ` (${leg.result.message})`}${leg.result.verificationId ? `, verificationId ${leg.result.verificationId}` : ""}` : `not sent (${leg.skipped ?? "skipped"})`}`);
+}
+function orderExecution(data) {
+  const order = data.order;
+  return [
+    ...order && typeof order === "object" && order.id !== void 0 ? [`Trading 212 order ${orderLine(order)}.`] : [],
+    ...data.status === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : []
+  ];
+}
+function candidates(data) {
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    ...rows(data.candidates, (item) => {
+      const instrument = item.resolvedInstrument ? `${item.resolvedInstrument.ticker} (${item.resolvedInstrument.name})` : item.ticker ?? item.symbol ?? item.name ?? "?";
+      const held = item.heldQuantity === void 0 ? "" : `, held ${num2(item.heldQuantity, 8)}`;
+      return `${item.action.toUpperCase()} ${instrument}: score ${item.score}, ${item.horizon}-term, ${item.risk} risk${held}${item.resolutionError ? `; not resolved: ${item.resolutionError}` : ""}`;
+    })
+  ];
+}
+var WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+function planLine(plan) {
+  const schedule = plan.frequency === "monthly" ? `monthly on day ${plan.dayOfMonth}` : `weekly on ${WEEKDAYS[plan.weekday ?? 1]}`;
+  const legs = plan.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
+  return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
+}
+function alertLine(alert) {
+  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
+  return `${alert.ticker} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
+}
+function linkLine(link) {
+  return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;
+}
+function automation(data) {
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
+    ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, alertLine)),
+    ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
+    `Today through TradePilot: ${data.usageToday.orders} order(s), ${num2(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`
+  ];
+}
+function pieLine(pie, currency) {
+  return `${pie.name} (#${pie.id}): value ${money2(pie.value, currency)}, invested ${num2(pie.invested)}, return ${signed(pie.result)}${pie.resultPercent === null ? "" : ` (${signed(pie.resultPercent)}%)`}, cash ${num2(pie.cash)}${pie.drift === void 0 ? "" : `, drift ${pct(pie.drift)}`}${pie.goal ? `, goal ${num2(pie.goal)}${pie.progress === null ? "" : ` (${pct(pie.progress)})`}` : ""}`;
+}
+function sliceLines(pie) {
+  return rows(pie.instruments ?? [], (slice) => `${slice.ticker}: target ${pct(slice.targetShare)}, current ${pct(slice.currentShare)} (${signed(slice.driftShare * 100, 1)} pts), ${num2(slice.ownedQuantity, 8)} shares${slice.value === void 0 ? "" : `, value ${num2(slice.value)}`}${slice.issues.length ? `, issues: ${slice.issues.map((issue2) => issue2.name).join(", ")}` : ""}`);
+}
+function pies(data) {
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    `Totals: value ${money2(data.totals.value, data.currency)}, invested ${num2(data.totals.invested)}, return ${signed(data.totals.result)}, cash ${num2(data.totals.cash)}.`,
+    ...data.pies.flatMap((pie) => [`- ${pieLine(pie, data.currency)}`, ...sliceLines(pie).map((line) => `  ${line}`)]),
+    ...data.notes
+  ];
+}
+function pieChange(data) {
+  if (data.kind === "pie_change_result") return data.pie?.settings?.id ? [`Pie #${data.pie.settings.id}${data.pie.settings.name ? ` "${data.pie.settings.name}"` : ""}.`] : [];
+  if (data.kind === "pie_change_draft") {
+    const draft = data.draft;
+    const shares = Object.entries(draft.instrumentShares ?? {});
+    const total = shares.reduce((sum, [, share2]) => sum + share2, 0);
+    return [
+      ...credentialsLine(draft.environment, data.credentials),
+      `${draft.action} pie${draft.pieId ? ` #${draft.pieId}` : ""}${draft.name ? ` "${draft.name}"` : ""}${draft.goal ? `, goal ${num2(draft.goal)}` : ""}${draft.dividendCashAction ? `, dividends ${draft.dividendCashAction}` : ""}.`,
+      ...shares.length && total > 0 ? [`Target slices: ${shares.map(([ticker, share2]) => `${ticker} ${pct(share2 / total)}`).join(", ")}.`] : [],
+      ...data.current ? [`Now: ${pieLine(data.current)}`] : []
+    ];
+  }
+  return [
+    `${data.action} pie${data.pieId ? ` #${data.pieId}` : ""}${data.request?.name ? ` "${data.request.name}"` : ""} on ${env(data.environment)}.`,
+    ...section("Slice changes", rows(data.changes, (change) => `${change.ticker}: ${pct(change.from)} \u2192 ${pct(change.to)}`)),
+    ...data.notices,
+    tokenLine(data.token, data.expiresAt, data.environment)
+  ];
+}
+function policy(data) {
+  const p = data.policy;
+  const off = "off";
+  return [
+    `Per-order caps: value ${data.maxOrderNotional || off} (account currency), quantity in MAX_ORDER_QUANTITY.`,
+    `Max position weight ${p.maxPositionWeight ? pct(p.maxPositionWeight) : off}; daily orders ${p.dailyOrderLimit || off} (used ${data.usageToday.orders}); daily value ${p.dailyNotionalLimit || off} (used ${num2(data.usageToday.notional)}).`,
+    `Allowed tickers ${p.allowedTickers.join(", ") || "any"}; blocked ${p.blockedTickers.join(", ") || "none"}; allowed types to buy ${p.allowedTypes.join(", ") || "any"}.`,
+    `Market orders while closed ${p.marketOrdersWhenClosed ? "allowed" : "blocked"}; reference price older than ${p.maxReferenceAgeSeconds ? `${p.maxReferenceAgeSeconds}s blocks` : "any age only warns"}.`
+  ];
+}
+function exports(data) {
+  return rows(data.reports ?? [], (report) => {
+    const record2 = report;
+    return `#${record2.reportId ?? "?"} ${record2.status ?? ""} ${day(record2.timeFrom)} to ${day(record2.timeTo)}${record2.downloadLink ? `: ${record2.downloadLink}` : ""}`;
+  });
+}
+function describePayload(data) {
+  if (!data || typeof data !== "object") return "";
+  const payload = data;
+  let lines = [];
+  switch (payload.kind) {
+    case "portfolio":
+      lines = portfolio(payload);
+      break;
+    case "allocation":
+      lines = allocation(payload);
+      break;
+    case "performance":
+      lines = performance(payload);
+      break;
+    case "income":
+      lines = income(payload);
+      break;
+    case "trade_history":
+      lines = tradeHistory(payload);
+      break;
+    case "basket_draft":
+      lines = basketDraft(payload);
+      break;
+    case "basket_preview":
+      lines = basketPreview(payload);
+      break;
+    case "basket_execution":
+      lines = basketExecution(payload);
+      break;
+    case "order_draft": {
+      const draft = payload;
+      lines = [...credentialsLine(draft.draft.environment, draft.credentials), `Draft: ${draftLine(draft.draft, draft.resolvedInstrument)}${draft.draft.referencePrice ? `, reference price ${num2(draft.draft.referencePrice, 6)} ${draft.resolvedInstrument?.currencyCode ?? ""}`.trimEnd() : ""}.`];
+      break;
+    }
+    case "order_preview":
+      lines = orderPreview(payload);
+      break;
+    case "order_execution":
+      lines = orderExecution(payload);
+      break;
+    case "cancel_preview":
+      lines = cancelPreview(payload);
+      break;
+    case "execution_verification": {
+      const verification = payload;
+      lines = [`Status: ${verification.status.replaceAll("_", " ")}${verification.positionDelta === void 0 ? "" : `; position changed by ${num2(verification.positionDelta, 8)}`}.`];
+      break;
+    }
+    case "trade_plan":
+      lines = candidates(payload);
+      break;
+    case "investment_plans":
+      lines = rows(payload.plans ?? [], planLine);
+      break;
+    case "investment_plan":
+      lines = payload.plan ? [planLine(payload.plan)] : [];
+      break;
+    case "automation":
+      lines = automation(payload);
+      break;
+    case "pies":
+      lines = pies(payload);
+      break;
+    case "pie_change_draft":
+    case "pie_change_preview":
+    case "pie_change_result":
+      lines = pieChange(payload);
+      break;
+    case "price_alerts":
+      lines = rows(payload.alerts ?? [], alertLine);
+      break;
+    case "price_alert":
+      lines = payload.alert ? [alertLine(payload.alert)] : [];
+      break;
+    case "trading_policy":
+      lines = policy(payload);
+      break;
+    case "history_export":
+      lines = exports(payload);
+      break;
+    case "activity":
+      lines = rows(payload.activity ?? [], activityLine);
+      break;
+    case "instrument_search":
+      lines = rows(payload.instruments ?? [], (item) => `${item.ticker}: ${item.name} (${item.shortName}, ${item.currencyCode}${item.type ? `, ${item.type}` : ""}${item.isin ? `, ${item.isin}` : ""})`);
+      break;
+    default:
+      lines = [];
+  }
+  return lines.filter(Boolean).join("\n");
+}
 
 // src/core/mcp.ts
 var WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
+var SAMPLE_INSTRUCTIONS = "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212.";
+var ORDER_INSTRUCTIONS = [
+  "Orders: review_* tools and plan_portfolio_rebalance only draft; they never send anything.",
+  "Where the TradePilot widget is shown, the user edits and confirms there; do not call app_* tools yourself.",
+  "Where it is not shown (a terminal or another text-only host), show the user the draft from the tool's text.",
+  "If they want it sent, call the matching app_prepare_* tool to validate it (this sends nothing), show them its summary with the amount, notes and policy checks,",
+  "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
+  "Never resend an order whose result is unknown; check it with app_verify_unknown_execution."
+].join(" ");
 function result(data, text) {
+  const detail = describePayload(data);
   return {
-    content: [{ type: "text", text }],
+    content: [{ type: "text", text: detail ? `${text}
+
+${detail}` : text }],
     structuredContent: data
   };
 }
@@ -36856,6 +37530,7 @@ var candidateSchema = external_exports.object({
   counterCase: external_exports.string().min(1).max(3e3).optional(),
   sources: external_exports.array(external_exports.string().min(1).max(500)).max(12).optional()
 });
+var fxRateSchema = external_exports.number().positive().optional().describe("Instrument-currency units per 1 account-currency unit, with fxRateAt from a dated source. Needed only for an instrument quoted in a currency none of your holdings use, so the order's value can be checked against MAX_ORDER_NOTIONAL.");
 var orderDraftSchema = external_exports.object({
   environment: environmentEnum,
   ticker: external_exports.string().min(1),
@@ -36868,6 +37543,7 @@ var orderDraftSchema = external_exports.object({
   stopPrice: external_exports.number().positive().optional(),
   referencePrice: external_exports.number().positive().optional(),
   referencePriceAt: external_exports.string().datetime().optional(),
+  fxRate: fxRateSchema,
   fxRateAt: external_exports.string().datetime().optional()
 });
 var orderSizingSchema = external_exports.discriminatedUnion("mode", [
@@ -36882,19 +37558,21 @@ var orderSizingSchema = external_exports.discriminatedUnion("mode", [
   external_exports.object({ mode: external_exports.literal("position_percent"), percent: external_exports.number().positive().max(100) }),
   external_exports.object({ mode: external_exports.literal("all_available") })
 ]);
+var dateOrDateTime = external_exports.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)) && /T/.test(value), "Use YYYY-MM-DD or an ISO date-time");
 var windowSchema = {
-  period: external_exports.enum(["1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
-  from: external_exports.string().datetime().optional(),
-  to: external_exports.string().datetime().optional(),
+  period: external_exports.enum(["1w", "1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
+  from: dateOrDateTime.optional().describe("Start: YYYY-MM-DD (start of that UTC day) or an ISO date-time"),
+  to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation, alerts, pies, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation2, alerts, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
-  const server2 = new McpServer(
-    { name: "tradepilot212", version: APP_META.version },
-    config3.sampleData ? { instructions: "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212." } : {}
-  );
+  const instructions = [
+    config3.sampleData ? SAMPLE_INSTRUCTIONS : "",
+    canWrite ? ORDER_INSTRUCTIONS : ""
+  ].filter(Boolean).join("\n\n");
+  const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
   G(
     server2,
     "TradePilot 212 trading dashboard",
@@ -36946,9 +37624,10 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     async ({ environment, query, limit }) => {
       try {
         const instruments = await trading.searchInstruments(environment, query, limit);
+        const configured = credentialStatus(config3)[environment];
         return result(
-          { environment, query, credentials: credentialStatus(config3), instruments },
-          instruments.length ? `Found ${instruments.length} Trading 212 instrument matches.` : `No matches or ${environment.toUpperCase()} credentials are not configured.`
+          { kind: "instrument_search", environment, query, credentials: credentialStatus(config3), instruments },
+          !configured ? `${environment.toUpperCase()} credentials are not configured, so instruments cannot be searched.` : instruments.length ? `Found ${instruments.length} Trading 212 instrument match(es) for "${query}".` : `No Trading 212 instrument matches "${query}".`
         );
       } catch (error62) {
         return toolError(error62);
@@ -36994,7 +37673,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Realized P/L ${data.realizedProfitLoss} ${data.accountCurrency}, income ${data.income.dividends + data.income.interest}, costs ${data.costs.total}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37076,8 +37755,10 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
       try {
         if (action === "request") {
           if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
-          const created = await insights.requestExport(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }));
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}. List exports again in a minute for the download link.`);
+          const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
+          const created = await insights.requestExport(environment, window);
+          const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} List exports again in a minute for the download link.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
@@ -37102,7 +37783,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     async ({ environment, limit }) => {
       try {
         const activity = await trading.getActivity(environment, limit);
-        return result({ environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+        return result({ kind: "activity", environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37121,12 +37802,12 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, candidates }) => {
+    async ({ environment, candidates: candidates2 }) => {
       try {
-        const data = { ...await trading.getTradePlan(environment, candidates), writeEnabled: canWrite };
+        const data = { ...await trading.getTradePlan(environment, candidates2), writeEnabled: canWrite };
         return result(
           data,
-          `Rendered ${candidates.length} candidates. No trade has been placed; execution is only available after explicit user confirmation in the widget.`
+          `Rendered ${candidates2.length} candidates. No trade has been placed; execution is only available after explicit user confirmation in the widget.`
         );
       } catch (error62) {
         return toolError(error62);
@@ -37139,7 +37820,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
       "review_trading212_order_intent",
       {
         title: "Review Flexible Trading 212 Order",
-        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
+        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           instrument: external_exports.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -37152,6 +37833,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
           stopPrice: external_exports.number().positive().optional(),
           referencePrice: external_exports.number().positive().optional(),
           referencePriceAt: external_exports.string().datetime().optional(),
+          fxRate: fxRateSchema,
           fxRateAt: external_exports.string().datetime().optional()
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
@@ -37192,14 +37874,21 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
       {
         title: "Review Exact Trading 212 Order",
         description: "Advanced exact-order entry. Open an editable order draft when the exact Trading 212 ticker and quantity are already known. This is review-only and never places an order. Prefer review_trading212_order_intent for natural-language sizing such as money amounts, half, percentages, or all shares.",
-        inputSchema: orderDraftSchema,
+        inputSchema: orderDraftSchema.extend({ environment: environmentWithDefault }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         _meta: { ui: { resourceUri: WIDGET_URI } }
       },
-      async (draft) => result(
-        { kind: "order_draft", draft, credentials: credentialStatus(config3), writeEnabled: true },
-        "Order draft opened for human review. No order has been submitted."
-      )
+      async (draft) => {
+        try {
+          const instrument = resolveInstrumentFromList(await trading.instruments(draft.environment), draft.ticker);
+          return result(
+            { kind: "order_draft", draft: { ...draft, ticker: instrument.ticker }, resolvedInstrument: instrument, credentials: credentialStatus(config3), writeEnabled: true },
+            "Order draft opened for human review. No order has been submitted."
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
     );
   }
   j(
@@ -37248,9 +37937,8 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
       try {
         const plan = await trading.planRebalance(environment, targets, { cashWeight, minTradeValue, sellUntargeted, quantityDecimals: wholeSharesOnly ? 0 : 4, ...fxRates ? { fxRates } : {} });
-        const data = { ...trading.rebalanceBasket(plan), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
-        const summary = plan.trades.map((trade) => `${trade.side} ${trade.quantity} ${trade.ticker}`).join(", ") || "no trades";
-        return result(data, `Rebalance plan: ${summary}. Cash ${plan.cashBefore} \u2192 ${plan.cashAfter} ${plan.accountCurrency}. Nothing has been sent${canWrite ? "; the user can review and confirm the basket in the widget" : ""}.`);
+        const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan)), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
+        return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37268,7 +37956,7 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     },
     async ({ environment }) => {
       try {
-        const plans = await automation.listPlans(environment);
+        const plans = await automation2.listPlans(environment);
         return result({ kind: "investment_plans", plans, demoAutomationEnabled: config3.demoAutomationEnabled }, `${plans.length} plan(s).`);
       } catch (error62) {
         return toolError(error62);
@@ -37302,11 +37990,8 @@ function createMcpServer({ trading, insights, automation, alerts, pies, automati
     },
     async ({ environment, details, fresh }) => {
       try {
-        const data = { ...await pies.listPies(environment, { details, fresh }), writeEnabled: canWrite };
-        const lines = data.pies.map((pie) => `${pie.name} (#${pie.id}): value ${pie.value}, return ${pie.result}${pie.resultPercent === null ? "" : ` (${pie.resultPercent}%)`}${pie.drift === void 0 ? "" : `, drift ${(pie.drift * 100).toFixed(1)}%`}`);
-        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).${lines.length ? `
-${lines.join("\n")}` : ""}${data.notes.length ? `
-${data.notes.join(" ")}` : ""}`);
+        const data = { ...await pies2.listPies(environment, { details, fresh }), writeEnabled: canWrite };
+        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37324,9 +38009,9 @@ ${data.notes.join(" ")}` : ""}`);
     },
     async ({ environment, pieId }) => {
       try {
-        const pie = await pies.getPie(environment, pieId);
+        const pie = await pies2.getPie(environment, pieId);
         const data = { kind: "pies", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: (/* @__PURE__ */ new Date()).toISOString() };
-        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -37403,7 +38088,8 @@ ${data.notes.join(" ")}` : ""}`);
       },
       async (draft) => {
         try {
-          const current = draft.action === "create" || !draft.pieId ? void 0 : await pies.getPie(draft.environment, draft.pieId);
+          if (draft.action !== "create" && !draft.pieId) return toolError(new Error(`pieId is required to ${draft.action} a pie; list_pies shows the ids.`));
+          const current = draft.action === "create" || !draft.pieId ? void 0 : await pies2.getPie(draft.environment, draft.pieId);
           const data = { kind: "pie_change_draft", draft, ...current ? { current } : {}, credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
         } catch (error62) {
@@ -37411,52 +38097,52 @@ ${data.notes.join(" ")}` : ""}`);
         }
       }
     );
-    j(
-      server2,
-      "manage_price_alerts",
-      {
-        title: "Manage Price Alerts",
-        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
-        inputSchema: external_exports.object({
-          action: external_exports.enum(["create", "delete", "rearm"]),
-          alertId: external_exports.string().optional().describe("Required for delete and rearm"),
-          environment: environmentWithDefault,
-          instrument: external_exports.string().min(1).optional(),
-          condition: external_exports.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
-          price: external_exports.number().positive().optional(),
-          percent: external_exports.number().positive().optional(),
-          note: external_exports.string().max(200).optional()
-        }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-        _meta: {}
-      },
-      async (input2) => {
-        try {
-          if (input2.action === "create") {
-            if (!input2.instrument || !input2.condition) return toolError(new Error("instrument and condition are required to create an alert"));
-            const alert2 = await alerts.create({
-              environment: input2.environment,
-              instrument: input2.instrument,
-              condition: input2.condition,
-              ...input2.price === void 0 ? {} : { price: input2.price },
-              ...input2.percent === void 0 ? {} : { percent: input2.percent },
-              ...input2.note ? { note: input2.note } : {}
-            });
-            return result({ kind: "price_alert", alert: alert2 }, `Saved alert ${alert2.id} on ${alert2.ticker}.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
-          }
-          if (!input2.alertId) return toolError(new Error("alertId is required"));
-          if (input2.action === "delete") {
-            await alerts.delete(input2.alertId);
-            return result({ kind: "price_alert", deleted: input2.alertId }, `Deleted alert ${input2.alertId}.`);
-          }
-          const alert = await alerts.rearm(input2.alertId);
-          return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
-        } catch (error62) {
-          return toolError(error62);
-        }
-      }
-    );
   }
+  j(
+    server2,
+    "manage_price_alerts",
+    {
+      title: "Manage Price Alerts",
+      description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      inputSchema: external_exports.object({
+        action: external_exports.enum(["create", "delete", "rearm"]),
+        alertId: external_exports.string().optional().describe("Required for delete and rearm"),
+        environment: environmentWithDefault,
+        instrument: external_exports.string().min(1).optional(),
+        condition: external_exports.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+        price: external_exports.number().positive().optional(),
+        percent: external_exports.number().positive().optional(),
+        note: external_exports.string().max(200).optional()
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      _meta: {}
+    },
+    async (input2) => {
+      try {
+        if (input2.action === "create") {
+          if (!input2.instrument || !input2.condition) return toolError(new Error("instrument and condition are required to create an alert"));
+          const alert2 = await alerts.create({
+            environment: input2.environment,
+            instrument: input2.instrument,
+            condition: input2.condition,
+            ...input2.price === void 0 ? {} : { price: input2.price },
+            ...input2.percent === void 0 ? {} : { percent: input2.percent },
+            ...input2.note ? { note: input2.note } : {}
+          });
+          return result({ kind: "price_alert", alert: alert2 }, `Saved alert ${alert2.id} on ${alert2.ticker}.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+        }
+        if (!input2.alertId) return toolError(new Error("alertId is required"));
+        if (input2.action === "delete") {
+          await alerts.delete(input2.alertId);
+          return result({ kind: "price_alert", deleted: input2.alertId }, `Deleted alert ${input2.alertId}.`);
+        }
+        const alert = await alerts.rearm(input2.alertId);
+        return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
   if (canWrite) {
     j(
       server2,
@@ -37489,7 +38175,7 @@ ${data.notes.join(" ")}` : ""}`);
         try {
           if (input2.action === "create") {
             if (!input2.legs || !input2.frequency) return toolError(new Error("legs and frequency are required to create a plan"));
-            const plan2 = await automation.createPlan({
+            const plan2 = await automation2.createPlan({
               environment: input2.environment,
               label: input2.label ?? "DCA plan",
               legs: input2.legs,
@@ -37504,10 +38190,10 @@ ${data.notes.join(" ")}` : ""}`);
           }
           if (!input2.planId) return toolError(new Error("planId is required"));
           if (input2.action === "delete") {
-            await automation.deletePlan(input2.planId);
+            await automation2.deletePlan(input2.planId);
             return result({ kind: "investment_plan", deleted: input2.planId }, `Deleted plan ${input2.planId}.`);
           }
-          const plan = await automation.updatePlan(input2.planId, {
+          const plan = await automation2.updatePlan(input2.planId, {
             ...input2.label === void 0 ? {} : { label: input2.label },
             ...input2.legs === void 0 ? {} : { legs: input2.legs },
             ...input2.paused === void 0 ? {} : { paused: input2.paused },
@@ -37535,7 +38221,7 @@ ${data.notes.join(" ")}` : ""}`);
       },
       async ({ planId }) => {
         try {
-          const data = { ...await automation.reviewPlan(planId), credentials: credentialStatus(config3), writeEnabled: true };
+          const data = { ...await trading.withInstruments(await automation2.reviewPlan(planId)), credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Opened ${data.legs.length} order(s) from plan "${data.title}" for review. Nothing has been sent.`);
         } catch (error62) {
           return toolError(error62);
@@ -37560,7 +38246,7 @@ ${data.notes.join(" ")}` : ""}`);
       },
       async ({ environment, instrument, ...input2 }) => {
         try {
-          const data = { ...await trading.protectiveBasket(environment, instrument, input2), credentials: credentialStatus(config3), writeEnabled: true };
+          const data = { ...await trading.withInstruments(await trading.protectiveBasket(environment, instrument, input2)), credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
         } catch (error62) {
           return toolError(error62);
@@ -37581,10 +38267,13 @@ ${data.notes.join(" ")}` : ""}`);
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         _meta: { ui: { resourceUri: WIDGET_URI } }
       },
-      async ({ environment, title, orders }) => result(
-        { kind: "basket_draft", environment, purpose: "custom", title, legs: orders.map((order) => ({ draft: { ...order, environment } })), notes: [], credentials: credentialStatus(config3), writeEnabled: true },
-        `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
-      )
+      async ({ environment, title, orders }) => {
+        const basket = await trading.withInstruments({ environment, legs: orders.map((order) => ({ draft: { ...order, environment } })) });
+        return result(
+          { kind: "basket_draft", environment, purpose: "custom", title, legs: basket.legs, notes: [], credentials: credentialStatus(config3), writeEnabled: true },
+          `Opened a basket of ${orders.length} order(s) for review. Nothing has been sent.`
+        );
+      }
     );
   }
   j(
@@ -37636,7 +38325,7 @@ ${data.notes.join(" ")}` : ""}`);
     },
     async ({ environment, fresh }) => {
       try {
-        const data = { ...await pies.listPies(environment, { fresh: fresh === true }), writeEnabled: canWrite };
+        const data = { ...await pies2.listPies(environment, { fresh: fresh === true }), writeEnabled: canWrite };
         return result(data, "Pies refreshed.");
       } catch (error62) {
         return toolError(error62);
@@ -37653,9 +38342,9 @@ ${data.notes.join(" ")}` : ""}`);
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { visibility: ["app"] } }
     },
-    async ({ environment, candidates }) => {
+    async ({ environment, candidates: candidates2 }) => {
       try {
-        const data = { ...await trading.getTradePlan(environment, candidates), writeEnabled: canWrite };
+        const data = { ...await trading.getTradePlan(environment, candidates2), writeEnabled: canWrite };
         return result(data, "Trade plan refreshed.");
       } catch (error62) {
         return toolError(error62);
@@ -37744,14 +38433,14 @@ ${data.notes.join(" ")}` : ""}`);
       "app_execute_cancel",
       {
         title: "Execute confirmed cancellation",
-        description: "App-only destructive write. Consumes a one-time cancellation token.",
-        inputSchema: external_exports.object({ token: external_exports.string().min(20) }),
+        description: "App-only destructive write. Consumes a one-time cancellation token. Live cancellations need liveAcknowledged=true after the user confirmed that a cancelled stop-loss no longer protects the position.",
+        inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional() }),
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
-      async ({ token }) => {
+      async ({ token, liveAcknowledged }) => {
         try {
-          const data = await trading.executeCancel(token);
+          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -37823,7 +38512,7 @@ ${data.notes.join(" ")}` : ""}`);
       },
       async (draft) => {
         try {
-          const data = await pies.preparePieChange(draft);
+          const data = await pies2.preparePieChange(draft);
           return result(data, "Pie change validated. Explicit user confirmation is still required.");
         } catch (error62) {
           return toolError(error62);
@@ -37842,7 +38531,7 @@ ${data.notes.join(" ")}` : ""}`);
       },
       async ({ token, liveAcknowledged }) => {
         try {
-          const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
+          const data = await pies2.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -37987,22 +38676,23 @@ var PriceAlerts = class {
 };
 
 // src/core/digest.ts
-var DAY_MS2 = 864e5;
-var round5 = (value) => Math.round(value * 100) / 100;
-var signed = (value) => `${value >= 0 ? "+" : ""}${round5(value)}`;
+var DAY_MS3 = 864e5;
+var round6 = (value) => Math.round(value * 100) / 100;
+var signed2 = (value) => `${value >= 0 ? "+" : ""}${round6(value)}`;
 function digestText(input2) {
-  const change = input2.previousTotalValue === void 0 ? "" : ` (${signed(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round5(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed(item.profitLoss)})`}`);
+  const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round6(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
   return [
-    `Total ${round5(input2.totalValue)} ${input2.currency}${change}`,
-    `cash ${round5(input2.cash)}`,
-    input2.unrealized === void 0 ? void 0 : `unrealized ${signed(input2.unrealized)}`,
+    `Total ${round6(input2.totalValue)} ${input2.currency}${change}`,
+    `cash ${round6(input2.cash)}`,
+    input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0
   ].filter(Boolean).join(" \xB7 ");
 }
+var RETRY_MS = 15 * 6e4;
 var DailyDigest = class {
   constructor(deps) {
     this.deps = deps;
@@ -38012,20 +38702,26 @@ var DailyDigest = class {
   async run(now = /* @__PURE__ */ new Date()) {
     const hour = this.deps.config.digestHourUtc;
     if (hour === void 0 || !this.deps.config.notifyWebhookUrl || now.getUTCHours() < hour) return [];
-    const day = now.toISOString().slice(0, 10);
+    const day2 = now.toISOString().slice(0, 10);
     const sent = [];
     const credentials = credentialStatus(this.deps.config);
     for (const environment of ["demo", "live"]) {
       if (!credentials[environment]) continue;
-      const claim2 = await this.deps.store.increment(`digest:${environment}:${day}`, 2 * DAY_MS2, now.getTime());
+      const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
+      if (attempt.count > 1) continue;
+      const claimKey = `digest:${environment}:${day2}`;
+      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS3, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
         const account = dashboard.account;
-        if (!account) continue;
+        if (!account) {
+          await this.deps.store.delete(claimKey);
+          continue;
+        }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS2);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS3);
         const totalValue = account.totalValue ?? 0;
         const text = digestText({
           environment,
@@ -38046,6 +38742,8 @@ var DailyDigest = class {
         await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
         sent.push(environment);
       } catch (error62) {
+        await this.deps.store.delete(claimKey).catch(() => {
+        });
         console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
     }
@@ -38191,20 +38889,20 @@ function createServices(input2) {
     ...notify ? { notify } : {},
     ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
-    afterBasket: (planId, result2) => automation.recordRun(planId, result2)
+    afterBasket: (planId, result2) => automation2.recordRun(planId, result2)
   });
   const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
-  const automation = new AutomationService({ config: deps.config, store: deps.store, trading });
+  const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
-  const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
+  const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading });
-  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
+  const runScheduled = async () => ({ links: await links.reconcile(), plans: await automation2.runDuePlans(), alerts: await alerts.check(), digest: await digest.run() });
   const automationOverview = async (environment) => ({
     kind: "automation",
     environment,
     credentials: credentialStatus(deps.config),
-    plans: await automation.listPlans(environment),
+    plans: await automation2.listPlans(environment),
     alerts: await alerts.list(environment),
     links: (await links.list()).filter((link) => link.environment === environment),
     usageToday: await trading.usageToday(environment),
@@ -38219,7 +38917,7 @@ function createServices(input2) {
     },
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   });
-  return { trading, insights, automation, links, alerts, pies, digest, runScheduled, automationOverview };
+  return { trading, insights, automation: automation2, links, alerts, pies: pies2, digest, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

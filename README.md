@@ -34,7 +34,8 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments
-- a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
+- a Claude Code plugin with a local stdio server and review, brief, risk, journal and rebalance skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
+- a local preview of the widget on the sample account (`pnpm preview`), with language, theme and screen-width switches ([docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
 - expandable thesis, catalysts, risks, counter-case, sources, and data timestamps
@@ -228,7 +229,15 @@ CONFIRMATION_TTL_SECONDS=90
 
 `DEFAULT_TRADING_ENV` applies only when a request does not explicitly select Demo or Live.
 
+`MAX_ORDER_NOTIONAL` is in the account currency. An order in another currency is converted at the rate implied by your holdings, or, for a currency none of them is priced in, at the quote source's rate; pence (GBX) count at 100 to the pound. When no rate is known at all, the order is blocked while the cap is on instead of being compared in its own currency: pass `fxRate` (instrument-currency units per 1 account-currency unit) with `fxRateAt`, or set `MAX_ORDER_NOTIONAL=0`.
+
 Set `MAX_ORDER_NOTIONAL=0` or `MAX_ORDER_QUANTITY=0` to disable the corresponding TradePilot application-level cap. Trading 212 account/instrument rules and explicit confirmation still apply.
+
+OAuth clients may register any HTTPS redirect address by default (loopback addresses are always allowed for local tools). To accept only the hosts you use, list them:
+
+```env
+OAUTH_REDIRECT_HOSTS=chatgpt.com,.claude.ai   # .claude.ai is claude.ai and its subdomains
+```
 
 Policy rules (`POLICY_*`) bind Live by default. A typical Live setup:
 

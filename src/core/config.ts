@@ -3,6 +3,11 @@ import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.j
 import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 
+/** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
+export function isLoopbackHost(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname.toLowerCase());
+}
+
 export interface RuntimeConfig {
   publicBaseUrl: string;
   loginPassword: string;
@@ -33,6 +38,8 @@ export interface RuntimeConfig {
   digestHourUtc?: number;
   /** Serve a simulated Demo account instead of Trading 212 (TRADEPILOT_SAMPLE_DATA). Live is off. */
   sampleData: boolean;
+  /** OAuth redirect hosts clients may register (OAUTH_REDIRECT_HOSTS); empty allows any HTTPS host. Loopback is always allowed. */
+  oauthRedirectHosts: string[];
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -46,7 +53,8 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
-  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA",
+  | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
+  | "OAUTH_REDIRECT_HOSTS",
   string
 >>;
 
@@ -114,8 +122,7 @@ function webhookUrl(env: RuntimeEnv): string {
   const raw = (env.NOTIFY_WEBHOOK_URL ?? "").trim();
   if (!raw) return "";
   const url = new URL(raw);
-  const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
+  if (url.protocol !== "https:" && !(isLoopbackHost(url.hostname) && url.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url.toString();
 }
 
@@ -158,6 +165,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     ...(digestHour(env) === undefined ? {} : { digestHourUtc: digestHour(env)! }),
     sampleData,
+    oauthRedirectHosts: list(env, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData
       ? {
@@ -185,8 +193,7 @@ export function assertAuthConfigured(config: RuntimeConfig): void {
   if (config.signingSecret.length < 32 || config.signingSecret.startsWith("change-this-"))
     throw new Error("AUTH_SIGNING_SECRET must be a non-placeholder value with at least 32 characters");
   const url = new URL(config.publicBaseUrl);
-  const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (!local && url.protocol !== "https:") throw new Error("PUBLIC_BASE_URL must use HTTPS outside localhost");
+  if (!isLoopbackHost(url.hostname) && url.protocol !== "https:") throw new Error("PUBLIC_BASE_URL must use HTTPS outside localhost");
   if (url.username || url.password || url.search || url.hash || !["", "/"].includes(url.pathname))
     throw new Error("PUBLIC_BASE_URL must be an origin without credentials, query, fragment, or path");
 }

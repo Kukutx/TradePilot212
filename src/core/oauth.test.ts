@@ -20,24 +20,40 @@ describe("OAuth endpoints", () => {
     publicBaseUrl: "https://example.test",
     loginPassword: "0123456789abcdef-owner",
     signingSecret: "0123456789abcdef0123456789abcdef",
-  } as RuntimeConfig;
+    accessTokenTtlSeconds: 3600,
+    refreshTokenTtlSeconds: 86400,
+    oauthRedirectHosts: [],
+  } as unknown as RuntimeConfig;
+  const challenge = { verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", value: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" };
 
-  async function setup() {
+  async function setup(overrides: Partial<RuntimeConfig> = {}) {
     const app = new Hono<{ Variables: OAuthVariables }>();
     const store = new MemoryStateStore();
-    installOAuth(app, config, store);
-    const register = async () => {
-      const response = await app.request("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["https://client.test/cb"] }) });
+    installOAuth(app, { ...config, ...overrides }, store);
+    const register = async (redirect = "https://client.test/cb", name?: string) => {
+      const response = await app.request("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: [redirect], ...(name ? { client_name: name } : {}) }) });
       return (await response.json() as { client_id: string }).client_id;
     };
-    return { app, store, register };
+    const authorizeQuery = (clientId: string, redirect = "https://client.test/cb", scope = "trade:read") =>
+      new URLSearchParams({ client_id: clientId, redirect_uri: redirect, response_type: "code", code_challenge: challenge.value, code_challenge_method: "S256", scope });
+    /** Signs in and exchanges the code; returns the token response. */
+    const signIn = async (clientId: string, scope: string) => {
+      const form = authorizeQuery(clientId, "https://client.test/cb", scope);
+      form.set("password", config.loginPassword);
+      const authorized = await app.request("/oauth/authorize", { method: "POST", body: form });
+      const code = new URL(authorized.headers.get("location")!).searchParams.get("code")!;
+      const token = await app.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: challenge.verifier, client_id: clientId, redirect_uri: "https://client.test/cb" }) });
+      return await token.json() as { access_token?: string; refresh_token?: string };
+    };
+    const refresh = async (clientId: string, token: string) =>
+      app.request("/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: token, client_id: clientId }) });
+    return { app, store, register, authorizeQuery, signIn, refresh };
   }
 
   it("refuses to let the password page be framed", async () => {
-    const { app, register } = await setup();
+    const { app, register, authorizeQuery } = await setup();
     const clientId = await register();
-    const query = new URLSearchParams({ client_id: clientId, redirect_uri: "https://client.test/cb", response_type: "code", code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", code_challenge_method: "S256" });
-    const response = await app.request(`/oauth/authorize?${query}`);
+    const response = await app.request(`/oauth/authorize?${authorizeQuery(clientId)}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("x-frame-options")).toBe("DENY");
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
@@ -55,5 +71,53 @@ describe("OAuth endpoints", () => {
     await register();
     expect(await store.get(`client:${owner}`)).toBeDefined();
     expect((await store.list("client:")).length).toBe(151);
+  });
+
+  it("shows where the code goes and what it grants, and warns about unknown hosts", async () => {
+    const { app, register, authorizeQuery } = await setup();
+    const clientId = await register("https://evil.example/cb", "ChatGPT");
+    const page = await (await app.request(`/oauth/authorize?${authorizeQuery(clientId, "https://evil.example/cb", "trade:read trade:write offline_access")}`)).text();
+    expect(page).toContain("evil.example");
+    expect(page).toContain("Prepare orders");
+    expect(page).toContain("is not ChatGPT or Claude");
+
+    const known = await register("https://chatgpt.com/connector_platform_oauth_redirect");
+    const knownPage = await (await app.request(`/oauth/authorize?${authorizeQuery(known, "https://chatgpt.com/connector_platform_oauth_redirect")}`)).text();
+    expect(knownPage).not.toContain("is not ChatGPT or Claude");
+  });
+
+  it("limits redirect hosts when OAUTH_REDIRECT_HOSTS is set, and accepts IPv6 loopback", async () => {
+    const { app } = await setup({ oauthRedirectHosts: ["chatgpt.com", ".claude.ai"] });
+    const status = async (redirect: string) => (await app.request("/oauth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: [redirect] }) })).status;
+    expect(await status("https://evil.example/cb")).toBe(400);
+    expect(await status("https://chatgpt.com/cb")).toBe(201);
+    expect(await status("https://app.claude.ai/cb")).toBe(201);
+    expect(await status("https://claude.ai/api/mcp/auth_callback")).toBe(201);
+    expect(await status("https://notclaude.ai/cb")).toBe(400);
+    expect(await status("http://[::1]:33418/callback")).toBe(201);
+  });
+
+  it("rotates refresh tokens and ends the session when an old one is reused", async () => {
+    const { register, signIn, refresh } = await setup();
+    const clientId = await register();
+    const first = await signIn(clientId, "trade:read offline_access");
+    const rotated = await refresh(clientId, first.refresh_token!);
+    expect(rotated.status).toBe(200);
+    const second = await rotated.json() as { refresh_token: string };
+    expect((await refresh(clientId, first.refresh_token!)).status).toBe(400);
+    // After reuse, even the newest token stops working until the owner signs in again.
+    expect((await refresh(clientId, second.refresh_token)).status).toBe(400);
+    const again = await signIn(clientId, "trade:read offline_access");
+    expect((await refresh(clientId, again.refresh_token!)).status).toBe(200);
+  });
+
+  it("lets only one of two concurrent refreshes with the same token through, and ends the chain", async () => {
+    const { register, signIn, refresh } = await setup();
+    const clientId = await register();
+    const first = await signIn(clientId, "trade:read offline_access");
+    const results = await Promise.all([refresh(clientId, first.refresh_token!), refresh(clientId, first.refresh_token!)]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 400]);
+    const winner = await results.find((response) => response.status === 200)!.json() as { refresh_token: string };
+    expect((await refresh(clientId, winner.refresh_token)).status).toBe(400);
   });
 });

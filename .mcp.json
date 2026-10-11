@@ -7,6 +7,7 @@
       ],
       "env": {
         "TRADEPILOT_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
+        "TRADEPILOT_ROOT": "${CLAUDE_PLUGIN_DATA}",
         "T212_DEMO_API_KEY": "${user_config.t212_demo_api_key}",
         "T212_DEMO_API_SECRET": "${user_config.t212_demo_api_secret}",
         "T212_LIVE_API_KEY": "${user_config.t212_live_api_key}",

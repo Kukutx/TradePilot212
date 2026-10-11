@@ -29,6 +29,12 @@ async function readBody(response: Response): Promise<unknown> {
   const text = await response.text(); if (!text) return null;
   try { return JSON.parse(text) as unknown; } catch { return text; }
 }
+/** The positions endpoint names the instrument's currency `currency`; the rest of TradePilot reads `currencyCode`. */
+function normalizePosition(position: Position): Position {
+  const instrument = position.instrument as (Partial<Instrument> & { currency?: unknown }) | undefined;
+  if (!instrument || instrument.currencyCode || typeof instrument.currency !== "string") return position;
+  return { ...position, instrument: { ...instrument, currencyCode: instrument.currency } as Instrument };
+}
 /** `nextPagePath` may include the `/api/v0` prefix; the client's base URL already ends with it. */
 export function relativeApiPath(pagePath: string): string {
   const path = pagePath.startsWith("http") ? new URL(pagePath).pathname + new URL(pagePath).search : pagePath;
@@ -68,7 +74,17 @@ export class Trading212Client {
         if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error);
         if (attempt === attempts) throw error; await sleep(Math.min(300 * 2 ** (attempt - 1), 5000)); continue;
       }
-      const parsed = await readBody(response); if (response.ok) return parsed as T;
+      let parsed: unknown;
+      try {
+        parsed = await readBody(response);
+      } catch (error) {
+        // A write the broker accepted (or may have accepted) must never be reported as rejected.
+        if (method !== "GET" && (response.ok || response.status === 408 || response.status >= 500))
+          throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} but the response could not be read. The order/cancel status is unknown; verify the order list before trying again.`, error);
+        if (method === "GET" && attempt < attempts) { await sleep(retryDelayMs(response, attempt)); continue; }
+        throw new Trading212ApiError(`Trading 212 ${method} ${path} failed (${response.status}) and the response could not be read`, response.status, null);
+      }
+      if (response.ok) return parsed as T;
       if (method !== "GET" && (response.status === 408 || response.status >= 500))
         throw new ExecutionStatusUnknownError(`Trading 212 returned ${response.status} after a write. Execution status is unknown; refresh orders before trying again.`, parsed);
       if (method === "GET" && (response.status === 408 || response.status === 429 || response.status >= 500) && attempt < attempts) {
@@ -80,7 +96,7 @@ export class Trading212Client {
     throw new Error("Unreachable Trading 212 request state");
   }
   getAccountSummary() { return this.request<AccountSummary>("GET", "/equity/account/summary"); }
-  async getPositions() { return unwrapArray<Position>(await this.request("GET", "/equity/positions")); }
+  async getPositions() { return unwrapArray<Position>(await this.request("GET", "/equity/positions")).map(normalizePosition); }
   async getOrders() { return unwrapArray<PendingOrder>(await this.request("GET", "/equity/orders")); }
   getOrder(id: string) { return this.request<PendingOrder>("GET", `/equity/orders/${encodeURIComponent(id)}`); }
   async getInstruments() { return unwrapArray<Instrument>(await this.request("GET", "/equity/metadata/instruments")); }

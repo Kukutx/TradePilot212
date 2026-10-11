@@ -97,6 +97,7 @@ function config(): RuntimeConfig {
     quoteApiKey: "",
     quoteSymbols: new Map(),
     sampleData: false,
+    oauthRedirectHosts: [],
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },
@@ -110,7 +111,7 @@ function fakeFetch(): typeof fetch {
     const body = url.endsWith("/equity/metadata/instruments")
       ? [instrument]
       : url.endsWith("/equity/positions")
-        ? [{ instrument, quantity: 2, quantityAvailableForTrading: 1.6, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100 }]
+        ? [{ instrument, quantity: 2, quantityAvailableForTrading: 1.6, quantityInPies: 0, averagePricePaid: 90, currentPrice: 100, walletImpact: { currentValue: 185.19 } }]
         : url.endsWith("/equity/account/summary")
           ? { currency: "EUR", cash: { availableToTrade: 1000 } }
           : [];
@@ -255,4 +256,107 @@ describe("flexible order intent", () => {
     expect(activity.some((event) => event.type === "order_verification" && event.outcome === "likely_executed")).toBe(true);
   });
 
+});
+
+/** A fake Trading 212 with a GBX ETF and a USD stock in a EUR account, valued as the broker values them. */
+function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[] } = {}): typeof fetch {
+  const vusa: Record<string, unknown> = { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 (Dist)", shortName: "VUSA", currency: "GBX", type: "ETF" };
+  const aapl: Record<string, unknown> = { ticker: "AAPL_US_EQ", name: "Apple Inc.", shortName: "AAPL", currency: "USD", type: "STOCK" };
+  return (async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    if (init?.method === "POST" || init?.method === "DELETE") {
+      options.writes?.push(`${init.method} ${new URL(url).pathname}`);
+      return new Response(options.writeBody?.() ?? "{}", { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.endsWith("/equity/metadata/instruments")) return json([{ ...vusa, currencyCode: "GBX" }, { ...aapl, currencyCode: "USD" }]);
+    // The positions endpoint names the currency `currency`, not `currencyCode`.
+    if (url.endsWith("/equity/positions")) return json([
+      { instrument: vusa, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 8000, currentPrice: 8475, walletImpact: { currency: "EUR", currentValue: 1000 } },
+      { instrument: aapl, quantity: 5, quantityAvailableForTrading: 5, quantityInPies: 0, averagePricePaid: 200, currentPrice: 216, walletImpact: { currency: "EUR", currentValue: 1000 } },
+    ]);
+    if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 3000, cash: { availableToTrade: 1000 } });
+    if (/\/equity\/orders\/\d+$/.test(url)) return json({ id: 42, ticker: "AAPL_US_EQ", quantity: -5, type: "STOP", stopPrice: 190, status: "NEW" });
+    return json([]);
+  }) as typeof fetch;
+}
+
+describe("currencies, uncertain results and Live confirmations", () => {
+  it("reads the position currency Trading 212 reports and values holdings in the account currency", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    const dashboard = await service.getDashboard("demo");
+    expect(dashboard.positions.map((position) => position.instrument.currencyCode)).toEqual(["GBX", "USD"]);
+  });
+
+  it("sizes a cross-currency amount from the rates implied by the holdings", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    // 1000 EUR of VUSA is 10 × 8475 GBX, so 1 EUR = 84.75 GBX; 100 EUR buys 8475 GBX of shares.
+    const vusa = await service.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "market", sizing: { mode: "notional", amount: 100, currency: "EUR" } });
+    expect(vusa.draft.quantity).toBe(1);
+    expect(vusa.note).toMatch(/implied by your holdings/);
+    const apple = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "cash_percent", percent: 10 } });
+    expect(apple.draft.quantity).toBe(0.5);
+  });
+
+  it("applies MAX_ORDER_NOTIONAL in the account currency, not in pence", () => {
+    const etf: Instrument = { ticker: "VUSAl_EQ", name: "Vanguard S&P 500", shortName: "VUSA", currencyCode: "GBX" };
+    const order = (quantity: number): OrderDraft => ({ environment: "demo", ticker: etf.ticker, side: "buy", type: "market", quantity, referencePrice: 8475 });
+    const account = { currency: "EUR", cash: { availableToTrade: 10_000 } };
+    const rates = { EUR: 1, GBX: 84.75 };
+    // 5 shares are 42,375 GBX but only 500 EUR.
+    expect(validateOrderAgainstSnapshot(order(5), etf, undefined, account, { maxOrderNotional: 600, maxOrderQuantity: 0 }, rates).accountNotional).toBeCloseTo(500, 6);
+    expect(() => validateOrderAgainstSnapshot(order(10), etf, undefined, account, { maxOrderNotional: 600, maxOrderQuantity: 0 }, rates)).toThrow(/1000\.00 EUR exceeds MAX_ORDER_NOTIONAL/);
+  });
+
+  it("never compares an amount in another currency with the cap as is", () => {
+    const msft: Instrument = { ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD" };
+    const order = (quantity: number, fxRate?: number): OrderDraft => ({ environment: "demo", ticker: msft.ticker, side: "buy", type: "market", quantity, referencePrice: 100, ...(fxRate ? { fxRate } : {}) });
+    const account = { currency: "PLN", cash: { availableToTrade: 100_000 } };
+    const caps = { maxOrderNotional: 5000, maxOrderQuantity: 0 };
+    // 4000 USD would pass a 5000 cap compared as is, but it is 16,000 PLN.
+    expect(() => validateOrderAgainstSnapshot(order(40), msft, undefined, account, caps)).toThrow(/No PLN to USD exchange rate is known/);
+    expect(() => validateOrderAgainstSnapshot(order(40, 0.25), msft, undefined, account, caps)).toThrow(/16000\.00 PLN exceeds MAX_ORDER_NOTIONAL/);
+    expect(validateOrderAgainstSnapshot(order(10, 0.25), msft, undefined, account, caps).accountNotional).toBeCloseTo(4000, 6);
+    // The broker's valuation of a holding wins over a rate passed with the order.
+    expect(validateOrderAgainstSnapshot(order(10, 0.25), msft, undefined, account, caps, { PLN: 1, USD: 0.5 }).accountNotional).toBeCloseTo(2000, 6);
+    // With the cap off there is nothing to compare, so no rate is needed.
+    expect(validateOrderAgainstSnapshot(order(40), msft, undefined, account, { maxOrderNotional: 0, maxOrderQuantity: 0 }).accountNotional).toBeUndefined();
+  });
+
+  it("carries a rate given for the account currency on the draft", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    const resolved = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 216, sizing: { mode: "notional", amount: 108, currency: "EUR", fxRateToInstrumentCurrency: 1.1 } });
+    expect(resolved.draft).toMatchObject({ fxRate: 1.1 });
+  });
+
+  it("sizes with a rate passed with the intent only where the holdings imply none", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    // AAPL is held, so its implied 1.08 USD per EUR wins over the passed 2.
+    const held = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 216, fxRate: 2, sizing: { mode: "cash_percent", percent: 10 } });
+    expect(held.draft).toMatchObject({ quantity: 0.5 });
+    expect(held.draft.fxRate).toBeUndefined();
+    expect(held.note).toMatch(/implied by your holdings/);
+  });
+
+  it("reports an accepted write whose response can't be read as unknown, and counts it toward the budget", async () => {
+    const store = new MemoryStateStore();
+    const broken = () => new ReadableStream({ start(controller) { controller.error(new Error("connection reset")); } });
+    const service = new TradingService({ config: { ...config(), policy: createConfig({ POLICY_APPLY_TO: "demo", POLICY_DAILY_ORDER_LIMIT: "1", POLICY_MAX_POSITION_WEIGHT: "0" }).policy }, store, fetcher: fxFetch({ writeBody: broken }) });
+    const preview = await service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() });
+    const result = await service.executeOrder(preview.token);
+    expect(result.status).toBe("unknown");
+    expect(result.verificationId).toBeTruthy();
+    await expect(service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() })).rejects.toThrow(/order 2 today; the daily limit is 1/);
+  });
+
+  it("needs the second confirmation to cancel a Live order and keeps the token until then", async () => {
+    const writes: string[] = [];
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ writes }) });
+    const preview = await service.prepareCancel("live", "42");
+    expect(preview.order).toMatchObject({ ticker: "AAPL_US_EQ", type: "STOP" });
+    await expect(service.executeCancel(preview.token)).rejects.toThrow(/second confirmation/);
+    expect(writes).toEqual([]);
+    expect((await service.executeCancel(preview.token, { liveAcknowledged: true })).status).toBe("submitted");
+    expect(writes).toEqual(["DELETE /equity/orders/42"]);
+  });
 });

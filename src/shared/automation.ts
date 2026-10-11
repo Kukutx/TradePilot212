@@ -2,13 +2,16 @@
 
 import type { CredentialStatus, Instrument, OrderDraft, OrderExecutionResult, OrderNotice, TradingEnvironment } from "./contracts.js";
 
+/** The note every basket preview carries for text-only hosts; the widget shows its own translation. */
+export const BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
+
 /** Account-level trading rules. A zero or empty value disables that rule. */
 export interface TradingPolicy {
   /** Largest share of total account value one instrument may reach after a buy (0 to 1). */
   maxPositionWeight: number;
   /** Orders submitted through TradePilot per environment per UTC day. */
   dailyOrderLimit: number;
-  /** Estimated notional submitted per UTC day, counted only when instrument and account currency match. */
+  /** Estimated value submitted per UTC day, in the account currency (other currencies converted at the rate holdings imply). */
   dailyNotionalLimit: number;
   /** When non-empty, only these tickers (exact Trading 212 tickers) may be traded. */
   allowedTickers: string[];
@@ -43,6 +46,8 @@ export interface BasketLeg {
   instrument?: Instrument;
   estimatedNotional?: number;
   estimatedNotionalCurrency?: string;
+  /** The estimate in the account currency, when the instrument is quoted in another one. */
+  estimatedAccountNotional?: number;
   /** Why this leg exists, e.g. "rebalance to 30%" or "stop-loss". */
   reason?: string;
 }
@@ -69,6 +74,7 @@ export interface BasketPreview {
   environment: TradingEnvironment;
   purpose: BasketPurpose;
   title: string;
+  accountCurrency?: string;
   legs: Array<BasketLeg & { notices: OrderNotice[]; policy: PolicyCheck[] }>;
   notes: string[];
   planId?: string;
@@ -110,6 +116,16 @@ export interface RebalanceTrade {
   resultingWeight: number;
 }
 
+export type RebalanceSkipCode = "no_fx_rate" | "no_price" | "below_one_share" | "below_minimum";
+export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source";
+
+/** A plan note with the facts behind it, so the widget can say it in its own language. */
+export interface RebalanceNote {
+  code: RebalanceNoteCode;
+  message: string;
+  details?: Record<string, string | number>;
+}
+
 export interface RebalancePlan {
   kind: "rebalance_plan";
   environment: TradingEnvironment;
@@ -118,8 +134,10 @@ export interface RebalancePlan {
   cashBefore: number;
   cashAfter: number;
   trades: RebalanceTrade[];
-  skipped: Array<{ ticker: string; reason: string }>;
+  skipped: Array<{ ticker: string; reason: string; code?: RebalanceSkipCode; currency?: string }>;
   notes: string[];
+  /** The same notes as `notes`, in order, with their codes and values. */
+  noteDetails?: RebalanceNote[];
 }
 
 export type PlanFrequency = "weekly" | "monthly";

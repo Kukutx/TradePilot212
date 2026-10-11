@@ -1,4 +1,4 @@
-import type { ActivityEvent, DashboardPayload, Position } from "../../shared/contracts";
+import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { money, num, signedClass, time, walletNumber } from "../lib/format";
@@ -81,10 +81,14 @@ export function PortfolioView({
           <div className="orderList">
             {payload.orders.map((order, index) => {
               const id = String(order.id ?? "");
+              const row = describeOrder(order, payload.positions, t, locale);
               return (
                 <div className="orderRow" key={id || index}>
-                  <div className="orderIdentity"><strong>{order.ticker ?? "—"}</strong><span>{order.type ?? "ORDER"} · {order.status ?? "PENDING"}</span></div>
-                  <div className="orderQuantity">{num(typeof order.quantity === "number" ? order.quantity : undefined, locale)}</div>
+                  <div className="orderIdentity">
+                    <strong>{row.name}</strong>
+                    <span><b className={`orderSide ${row.side}`}>{row.side === "sell" ? t("sell") : t("buy")}</b> · {row.detail}</span>
+                  </div>
+                  <div className="orderQuantity">{num(row.quantity, locale)}</div>
                   {writeEnabled && <button className="secondaryButton danger" type="button" disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
                 </div>
               );
@@ -96,6 +100,36 @@ export function PortfolioView({
       <ActivityPanel activity={payload.activity ?? []} locale={locale} t={t} />
     </main>
   );
+}
+
+const ORDER_TYPES: Record<string, "market" | "limit" | "stop" | "stopLimit"> = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stopLimit" };
+
+/** A pending order as people read it: the instrument's name, the side, the order type with its prices, and the status. */
+function describeOrder(order: PendingOrder, positions: Position[], t: Translator, locale: SupportedLocale) {
+  const ticker = typeof order.ticker === "string" ? order.ticker : "";
+  const held = positions.find((position) => position.instrument.ticker === ticker)?.instrument;
+  const embedded = order.instrument as { name?: unknown; currencyCode?: unknown; currency?: unknown } | undefined;
+  // Trading 212 tickers end in a venue suffix: AAPL_US_EQ, VUSAl_EQ (London), SAPd_EQ (Xetra).
+  const symbol = ticker.replace(/_US_EQ$/, "").replace(/[a-z]?_EQ$/, "");
+  const name = held?.name || (typeof embedded?.name === "string" ? embedded.name : "") || symbol || ticker || "—";
+  const currency = held?.currencyCode
+    || (typeof embedded?.currencyCode === "string" ? embedded.currencyCode : "")
+    || (typeof embedded?.currency === "string" ? embedded.currency : "")
+    || (typeof order.currency === "string" ? order.currency : "")
+    || (ticker.endsWith("_US_EQ") ? "USD" : "");
+  const quantity = typeof order.quantity === "number" ? order.quantity : undefined;
+  const side = String(order.side ?? "").toUpperCase() === "SELL" || (quantity ?? 0) < 0 ? "sell" : "buy";
+  const typeKey = ORDER_TYPES[String(order.type ?? "").toUpperCase()];
+  const price = (value: unknown) => (typeof value === "number" ? (currency ? money(value, currency, locale) : num(value, locale)) : undefined);
+  const stop = price(order.stopPrice);
+  const limit = price(order.limitPrice);
+  // A plain Limit or Stop order reads "Limit $215"; a Stop-Limit names both prices.
+  const type = [typeKey ? t(typeKey) : String(order.type ?? ""), stop && limit ? "" : stop ?? limit ?? ""].filter(Boolean).join(" ");
+  const prices = stop && limit ? [`${t("stopPrice")} ${stop}`, `${t("limitPrice")} ${limit}`] : [];
+  const detail = [type, ...prices, name !== ticker ? ticker : undefined, typeof order.status === "string" ? order.status : undefined]
+    .filter(Boolean)
+    .join(" · ");
+  return { name, side, detail, quantity: quantity === undefined ? undefined : Math.abs(quantity) } as const;
 }
 
 export function ActivityPanel({ activity, locale, t }: { activity: ActivityEvent[]; locale: SupportedLocale; t: Translator }) {

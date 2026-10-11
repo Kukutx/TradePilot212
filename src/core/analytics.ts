@@ -60,7 +60,8 @@ export function analyzeAllocation(
   now = new Date(),
 ): AllocationAnalysis {
   const byTicker = new Map(instruments.map((item) => [item.ticker.toUpperCase(), item]));
-  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0);
+  // All uninvested money: free cash, cash held for pending orders and cash sitting in pies.
+  const cash = Math.max(0, account.cash?.availableToTrade ?? 0) + Math.max(0, account.cash?.reservedForOrders ?? 0) + Math.max(0, account.cash?.inPies ?? 0);
   const holdings = positions
     .map((position) => {
       const ticker = position.instrument?.ticker ?? "";
@@ -85,7 +86,12 @@ export function analyzeAllocation(
 
   const group = (key: (item: (typeof holdings)[number]) => string) =>
     sumBy(holdings, key, (item) => item.value).map(({ key: k, amount }) => ({ k, value: amount, weight: ratio(amount, totalValue) }));
-  const byCurrency = group((item) => item.currency).map(({ k, value, weight }) => ({ currency: k, value, weight }));
+  // Pence and pounds are one currency. Exposure includes cash, held in the account currency.
+  const holdingCurrencies = group((item) => item.currency === "GBX" ? "GBP" : item.currency);
+  const accountCurrency = (account.currency ?? "").toUpperCase();
+  const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
+  if (cash > 0 && accountCurrency) exposure.set(accountCurrency, (exposure.get(accountCurrency) ?? 0) + cash);
+  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
   const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight }) => ({ type: k, value, weight }));
 
   // Concentration is measured over invested holdings only, so a large cash balance does not hide it.
@@ -105,9 +111,9 @@ export function analyzeAllocation(
     flags.push({ code: "CASH_HIGH", message: `Cash is ${pct(cashWeight)} of the account.` });
   if (totalValue > 0 && holdings.length && cashWeight < limits.cashLowWeight)
     flags.push({ code: "CASH_LOW", message: `Cash is only ${pct(cashWeight)} of the account.` });
-  const topCurrency = byCurrency[0];
-  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight && byCurrency.length >= 1)
-    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.currency}.` });
+  const topCurrency = holdingCurrencies[0];
+  if (topCurrency && investedValue > 0 && ratio(topCurrency.value, investedValue) > limits.maxCurrencyWeight)
+    flags.push({ code: "CURRENCY_CONCENTRATED", message: `${pct(ratio(topCurrency.value, investedValue))} of invested value is quoted in ${topCurrency.k}.` });
 
   return {
     kind: "allocation",
@@ -232,14 +238,27 @@ export function summarizePerformance(input: {
   };
 }
 
-/** Next-12-month dividends from each holding's trailing-12-month net payment per share. */
+/**
+ * Next-12-month dividends from each holding's trailing-12-month net payment per share. A holding bought
+ * during the year has fewer payments than its schedule, so the payments seen are scaled up to the
+ * frequency their spacing implies (monthly, quarterly, half-yearly or yearly).
+ */
 export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date): NonNullable<IncomeSummary["forwardAnnual"]> {
   const yearAgo = new Date(to.getTime() - 365 * 86_400_000);
-  const perShare = new Map<string, number>();
+  const payments = new Map<string, Array<{ at: number; perShare: number }>>();
   for (const item of dividends) {
     const ticker = (item.ticker ?? item.instrument?.ticker ?? "").toUpperCase();
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+    payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity }]);
+  }
+  const perShare = new Map<string, number>();
+  for (const [ticker, list] of payments) {
+    const sum = list.reduce((total, item) => total + item.perShare, 0);
+    const times = list.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
+    const gaps = times.slice(1).map((time, index) => (time - times[index]!) / 86_400_000).filter((days) => days > 10).sort((a, b) => a - b);
+    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)]! : undefined;
+    const frequency = gap === undefined ? undefined : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+    perShare.set(ticker, frequency && list.length < frequency ? sum * frequency / list.length : sum);
   }
   const byTicker: MoneyBucket[] = [];
   let value = 0;

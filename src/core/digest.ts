@@ -41,6 +41,8 @@ export function digestText(input: DigestInput): string {
   ].filter(Boolean).join(" · ");
 }
 
+const RETRY_MS = 15 * 60_000;
+
 export class DailyDigest {
   constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: TradingService }) {}
 
@@ -53,12 +55,19 @@ export class DailyDigest {
     const credentials = credentialStatus(this.deps.config);
     for (const environment of ["demo", "live"] as const) {
       if (!credentials[environment]) continue;
-      const claim = await this.deps.store.increment(`digest:${environment}:${day}`, 2 * DAY_MS, now.getTime());
+      // A failed attempt (rate limit, outage) is retried every 15 minutes for the rest of the day.
+      const attempt = await this.deps.store.increment(`digest-try:${environment}:${day}`, RETRY_MS, now.getTime());
+      if (attempt.count > 1) continue;
+      const claimKey = `digest:${environment}:${day}`;
+      const claim = await this.deps.store.increment(claimKey, 2 * DAY_MS, now.getTime());
       if (claim.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
         const account = dashboard.account;
-        if (!account) continue;
+        if (!account) {
+          await this.deps.store.delete(claimKey);
+          continue;
+        }
         const previous = await this.deps.store.get<number>(`digest-value:${environment}`);
         const plans = (await this.deps.store.list<DcaPlan>("plan:")).map((entry) => entry.value)
           .filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
@@ -84,6 +93,7 @@ export class DailyDigest {
         await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text });
         sent.push(environment);
       } catch (error) {
+        await this.deps.store.delete(claimKey).catch(() => {});
         console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error instanceof Error ? error.message : String(error) }));
       }
     }

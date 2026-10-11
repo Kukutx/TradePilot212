@@ -15,8 +15,8 @@ function fakeFetch(calls: string[] = []) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     calls.push(url);
     if (url.startsWith("https://stooq.com/")) {
-      const symbol = new URL(url).searchParams.get("s");
-      return new Response(symbol === "aapl.us" ? "Symbol,Date,Time,Close\r\nAAPL.US,2026-10-09,22:00:09,250.5\r\n" : "Symbol,Date,Time,Close\r\nX,N/D,N/D,N/D\r\n");
+      const rows: Record<string, string> = { "aapl.us": "AAPL.US,2026-10-09,22:00:09,250.5", "vusl.uk": "VUSL.UK,2026-10-09,16:35:00,80", usdgbp: "USDGBP,2026-10-09,21:59:58,0.79" };
+      return new Response(`Symbol,Date,Time,Close\r\n${rows[new URL(url).searchParams.get("s") ?? ""] ?? "X,N/D,N/D,N/D"}\r\n`);
     }
     if (url.startsWith("https://finnhub.io/")) return json({ c: 251.25, t: 1_791_000_000 });
     if (init?.method === "POST") return json({ id: 1, ...(JSON.parse(String(init.body)) as object) });
@@ -65,6 +65,41 @@ describe("quote providers", () => {
     expect(() => createConfig({ QUOTE_PROVIDER: "bloomberg" })).toThrow(/QUOTE_PROVIDER/);
     const finnhub = createQuoteProvider(createConfig({ QUOTE_PROVIDER: "finnhub", QUOTE_API_KEY: "key" }), fakeFetch())!;
     expect(await finnhub.quote(aapl)).toMatchObject({ symbol: "AAPL", price: 251.25, source: "finnhub" });
+  });
+});
+
+describe("exchange rates from the quote provider", () => {
+  it("reads a pair, treats pence as pounds and caches it", async () => {
+    const calls: string[] = [];
+    const provider = createQuoteProvider(createConfig({}), fakeFetch(calls))!;
+    expect(await provider.fxRate("USD", "GBP")).toEqual({ from: "USD", to: "GBP", rate: 0.79, asOf: "2026-10-09T21:59:58Z", source: "stooq" });
+    expect((await provider.fxRate("usd", "GBX"))?.rate).toBeCloseTo(79, 9);
+    expect(calls.filter((url) => url.includes("s=usdgbp"))).toHaveLength(1);
+    expect(await provider.fxRate("USD", "CHF")).toBeUndefined();
+    expect(await provider.fxRate("USD", "USD")).toBeUndefined();
+    expect(await provider.fxRate("USD", "../x")).toBeUndefined();
+    // Finnhub's exchange rates are not on its free plan.
+    expect(await createQuoteProvider(createConfig({ QUOTE_PROVIDER: "finnhub", QUOTE_API_KEY: "key" }), fakeFetch())!.fxRate("USD", "GBP")).toBeUndefined();
+  });
+
+  it("values an order in a currency no holding is priced in, so the notional cap can be checked", async () => {
+    const { trading } = services({ QUOTE_SYMBOLS: "VUSAl_EQ=VUSL.UK" });
+    const resolved = await trading.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "market", sizing: { mode: "notional", amount: 100, currency: "USD" } });
+    // 100 USD is 79 GBP at the provider's rate; at 80 GBP a share that is 0.9875 shares.
+    expect(resolved.draft).toMatchObject({ quantity: 0.9875, referencePrice: 80, fxRate: 0.79, fxRateAt: "2026-10-09T21:59:58Z" });
+    expect(resolved.note).toMatch(/stooq rate as of 2026-10-09T21:59:58Z/);
+    const preview = await trading.prepareOrder(resolved.draft);
+    expect(preview.estimatedAccountNotional).toBeCloseTo(100, 6);
+  });
+
+  it("sizes a plan leg and a rebalance target in a currency no holding is priced in", async () => {
+    const { automation, trading } = services({ QUOTE_SYMBOLS: "VUSAl_EQ=VUSL.UK" });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSAl_EQ", amount: 100 }], frequency: "monthly", dayOfMonth: 1 });
+    expect((await automation.reviewPlan(plan.id)).legs[0]?.draft).toMatchObject({ ticker: "VUSAl_EQ", quantity: 0.9875, fxRate: 0.79 });
+    const rebalance = await trading.planRebalance("demo", [{ ticker: "VUSAl_EQ", weight: 0.1 }]);
+    expect(rebalance.skipped).toEqual([]);
+    expect(rebalance.trades[0]).toMatchObject({ ticker: "VUSAl_EQ", side: "buy", currency: "GBP" });
+    expect(rebalance.noteDetails?.find((note) => note.code === "quoted_rates")?.details).toMatchObject({ currencies: "GBP", source: "stooq" });
   });
 });
 
