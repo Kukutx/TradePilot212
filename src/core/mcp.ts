@@ -570,7 +570,7 @@ export function createMcpServer(
     {
       title: "Plan a Rebalance",
       description:
-        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
+        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         targets: z.array(z.object({
@@ -581,23 +581,26 @@ export function createMcpServer(
         })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
         cashWeight: z.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: z.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
-        sellUntargeted: z.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used"),
+        sellUntargeted: z.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used. Ignored with buyOnly"),
+        buyOnly: z.boolean().optional().describe("Sell nothing: invest only the cash above the cash weight, in the targets below their weight, most to the furthest below"),
+        investAmount: z.number().positive().optional().describe("Invest at most this amount, in the account currency; implies buyOnly"),
         wholeSharesOnly: z.boolean().default(false),
         fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency"),
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
-    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
+    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, buyOnly, investAmount, wholeSharesOnly, fxRates }) => {
       try {
         const saved = targets ? undefined : await targetAllocations.get(environment);
         if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
         const plan = await trading.planRebalance(environment, targets ?? saved!.targets, {
           cashWeight: cashWeight ?? saved?.cashWeight ?? 0, minTradeValue, sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
           quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}),
+          ...(buyOnly ? { buyOnly } : {}), ...(investAmount === undefined ? {} : { investAmount }),
         });
         const data = { ...(await trading.withInstruments(trading.rebalanceBasket(plan))), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
-        return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
+        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error) {
         return toolError(error);
       }

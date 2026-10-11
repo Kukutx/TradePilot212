@@ -57,6 +57,31 @@ describe("rebalance planner", () => {
     expect(passed.notes.join(" ")).not.toMatch(/Exchange rates/);
   });
 
+  it("invests only spare cash in buy-only mode, most to the furthest below", () => {
+    // EQ is 2000 over its 4000 target and is not sold; BOND is 2000 under and NEW 1000 under.
+    const targets = [{ ticker: "EQ", weight: 0.4 }, { ticker: "BOND", weight: 0.4 }, { ticker: "NEW", weight: 0.1, referencePrice: 10 }];
+    const plan = planRebalance("demo", account, positions, targets, { buyOnly: true, cashWeight: 0.05, quantityDecimals: 0 }, () => "EUR");
+    expect(plan.buyOnly).toBe(true);
+    expect(plan.trades.every((trade) => trade.side === "buy")).toBe(true);
+    // 1500 above the 500 reserve, split 2000 : 1000 between BOND and NEW.
+    expect(plan.trades.map((trade) => [trade.ticker, trade.value])).toEqual([["BOND", 1000], ["NEW", 500]]);
+    expect(plan.cashAfter).toBe(500);
+    expect(plan.noteDetails?.find((note) => note.code === "buy_only")?.details).toEqual({ budget: 1500, currency: "EUR" });
+    expect(plan.notes.join(" ")).not.toMatch(/scaled/);
+  });
+
+  it("caps buy-only at the amount asked for and says when cash is short", () => {
+    const targets = [{ ticker: "EQ", weight: 0.5 }, { ticker: "BOND", weight: 0.5 }];
+    const capped = planRebalance("demo", account, positions, targets, { investAmount: 300, quantityDecimals: 0 });
+    expect(capped.trades.map((trade) => [trade.side, trade.ticker, trade.quantity])).toEqual([["buy", "BOND", 6]]);
+    const asked = planRebalance("demo", account, positions, targets, { investAmount: 5000, quantityDecimals: 0 });
+    expect(asked.noteDetails?.find((note) => note.code === "amount_capped")?.details).toEqual({ amount: 5000, available: 2000, currency: "EUR" });
+    const broke = planRebalance("demo", { ...account, cash: { availableToTrade: 0 } }, positions, targets, { buyOnly: true });
+    expect(broke.trades).toEqual([]);
+    expect(broke.noteDetails?.map((note) => note.code)).toContain("no_cash");
+    expect(() => planRebalance("demo", account, positions, targets, { investAmount: 0 })).toThrow(/investAmount/);
+  });
+
   it("sells untargeted holdings only when asked", () => {
     expect(planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.6 }]).trades).toEqual([]);
     const plan = planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.6 }], { sellUntargeted: true });

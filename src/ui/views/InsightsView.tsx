@@ -63,9 +63,14 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
  * Each target as a bullet bar: the fill is today's weight, the tick the target, on one scale for all rows
  * so lengths compare. The drift is in weight points; past the notice threshold it turns amber.
  */
-function DriftPanel({ drift, book, locale, t, onRebalance, busy }: {
-  drift: AllocationDrift; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; busy?: boolean;
+/** Below this much spare cash, in the account currency, a buy-only plan has nothing to buy (the planner's minimum trade). */
+const MIN_SPARE_CASH = 1;
+
+function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCash, busy }: {
+  drift: AllocationDrift; spareCash: number; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; busy?: boolean;
 }) {
+  // Buying with spare cash needs free cash above the cash target; it never sells.
+  const investCash = spareCash >= MIN_SPARE_CASH ? onInvestCash : undefined;
   const rows = [
     ...drift.rows.map((row) => ({ key: row.ticker, ...instrumentDatum(row.ticker, book), ...row })),
     { key: "CASH", label: instrumentTypeLabel("CASH", t), title: "CASH", ...drift.cash },
@@ -77,7 +82,12 @@ function DriftPanel({ drift, book, locale, t, onRebalance, busy }: {
     <section className="dataPanel">
       <div className="panelHeading">
         <h2 className="panelTitle">{t("driftTitle")}</h2>
-        {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onRebalance}>{t("rebalanceToTargets")}</button>}
+        {(onRebalance || investCash) && (
+          <div className="panelActions">
+            {investCash && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={investCash}>{t("investCashByTargets")}</button>}
+            {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onRebalance}>{t("rebalanceToTargets")}</button>}
+          </div>
+        )}
       </div>
       <p className="panelNote">{fill(t("driftNote"), { points: points.format(drift.threshold * 100).replace(/^\+/, "") })}</p>
       <ul className="driftList" aria-label={t("driftTitle")}>
@@ -111,8 +121,8 @@ function DriftPanel({ drift, book, locale, t, onRebalance, busy }: {
   );
 }
 
-export function AllocationView({ data, book, locale, t, onRebalance, busy }: {
-  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; busy?: boolean;
+export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, busy }: {
+  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; busy?: boolean;
 }) {
   const currency = data.accountCurrency || "EUR";
   const tableProps = { labels: chartLabels(t), valueHeader: t("weightColumn") };
@@ -143,7 +153,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, busy }: {
           : <ul className="flagList">{data.flags.map((flag) => <li key={flag.code}><span className="flagIcon" aria-hidden="true">!</span>{t(FLAG_KEYS[flag.code])}</li>)}</ul>}
       </section>
 
-      {data.drift && <DriftPanel drift={data.drift} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(busy === undefined ? {} : { busy })} />}
+      {data.drift && <DriftPanel drift={data.drift} spareCash={(data.availableCash ?? data.cash) - data.drift.cash.target * data.totalValue} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(onInvestCash ? { onInvestCash } : {})} {...(busy === undefined ? {} : { busy })} />}
 
       <section className="dataPanel">
         {data.holdings.length === 0 ? <div className="emptyState compact">{t("noPositions")}</div> : (

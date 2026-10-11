@@ -64,11 +64,14 @@ const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["manage_target_allocation", { action: "set", targets: [{ instrument: "AAPL_US_EQ", weight: 0.5 }, { instrument: "KO_US_EQ", weight: 0.4 }] }],
   ["analyze_portfolio_allocation", {}],
   ["plan_portfolio_rebalance", {}],
+  ["plan_portfolio_rebalance", { buyOnly: true }],
 ]);
-const [saved, allocation, rebalance] = targets.results;
+const [saved, allocation, rebalance, buyOnly] = targets.results;
 if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
 if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
 if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
+const buyOnlyPlan = buyOnly.structuredContent?.rebalance;
+if (buyOnly.isError || !buyOnlyPlan?.buyOnly || buyOnlyPlan.trades.some((trade) => trade.side !== "buy")) throw new Error(`Buy-only rebalance failed: ${JSON.stringify(buyOnly).slice(0, 300)}`);
 // A plan by targets opens a basket of buys split across the saved targets, without placing anything.
 const byTargets = await session({ TRADEPILOT_SAMPLE_DATA: "true", TRADEPILOT_ALLOW_WRITES: "true" }, [
   ["manage_investment_plans", { action: "create", targetAmount: 500, frequency: "monthly", dayOfMonth: 20 }],

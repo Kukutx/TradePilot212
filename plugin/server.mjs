@@ -34996,6 +34996,8 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const cashBefore = account.cash?.availableToTrade ?? 0;
   if (!accountCurrency || totalValue <= 0) fail("INVALID_INPUT", "The account value is unavailable, so a rebalance cannot be computed");
   const cashWeight = options.cashWeight ?? 0;
+  const buyOnly = !!options.buyOnly || options.investAmount !== void 0;
+  if (options.investAmount !== void 0 && !(options.investAmount > 0)) fail("INVALID_INPUT", "investAmount must be a positive amount in the account currency", { field: "investAmount" });
   const minTradeValue = options.minTradeValue ?? 1;
   const decimals = options.quantityDecimals ?? 4;
   const targetSum = targets.reduce((sum, target) => sum + target.weight, 0);
@@ -35016,7 +35018,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const skipped = [];
   const byTicker = new Map(positions.map((position) => [position.instrument.ticker.toUpperCase(), position]));
   const wanted = new Map(targets.map((target) => [target.ticker.toUpperCase(), target]));
-  if (options.sellUntargeted) {
+  if (options.sellUntargeted && !buyOnly) {
     for (const position of positions) {
       const key = position.instrument.ticker.toUpperCase();
       if (!wanted.has(key) && position.quantity > 0) wanted.set(key, { ticker: position.instrument.ticker, weight: 0 });
@@ -35063,7 +35065,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const trades = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
   let cash = cashBefore;
-  for (const line of lines) {
+  for (const line of buyOnly ? [] : lines) {
     const excess = line.currentValue - line.targetWeight * totalValue;
     if (excess < minTradeValue) continue;
     const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
@@ -35078,9 +35080,12 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const reserve = cashWeight * totalValue;
   const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
   const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
-  const budget = Math.max(0, cash - reserve);
+  const available = Math.max(0, cash - reserve);
+  const budget = options.investAmount === void 0 ? available : Math.min(options.investAmount, available);
+  if (buyOnly) note("buy_only", `Nothing is sold: up to ${money(budget)} ${accountCurrency} of the cash above the reserve goes to the targets below their weight, most to the furthest below.`, { budget: money(budget), currency: accountCurrency });
+  if (options.investAmount !== void 0 && options.investAmount > available + 5e-3) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  if (wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  if (!buyOnly && wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
@@ -35103,6 +35108,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else if (wantedCash > 0 && scale === 0) note("no_cash", `Some targets are below their weight, but no cash is available above the reserve to buy with${buyOnly ? " and nothing is sold" : ""}.`);
     else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
   }
   note("price_source", "Prices are the broker's last position prices, quotes from the quote source, or the reference prices you supplied; Market orders can fill elsewhere.");
@@ -35113,6 +35119,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     totalValue: money(totalValue),
     cashBefore: money(cashBefore),
     cashAfter: money(cash),
+    ...buyOnly ? { buyOnly: true } : {},
     trades,
     skipped,
     notes,
@@ -35937,7 +35944,7 @@ var TradingService = class {
       kind: "basket_draft",
       environment: plan.environment,
       purpose: "rebalance",
-      title: "Rebalance",
+      title: plan.buyOnly ? "Invest cash by targets" : "Rebalance",
       legs: plan.trades.map((trade) => ({
         // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
         draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...trade.priceAt ? { referencePriceAt: trade.priceAt } : {} },
@@ -36452,6 +36459,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
     totalValue: round4(totalValue),
     investedValue: round4(investedValue),
     cash: round4(cash),
+    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round4(account.cash.availableToTrade) } : {},
     cashWeight,
     holdings: holdings.map((item) => ({ ...item, value: round4(item.value) })),
     byCurrency,
@@ -37782,7 +37790,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.18.0"
+  version: "2.19.0"
 };
 
 // src/core/text-summary.ts
@@ -38708,7 +38716,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -38719,14 +38727,16 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         })).min(1).max(MAX_BASKET_LEGS).optional().describe("Leave out to use the saved targets"),
         cashWeight: external_exports.number().min(0).max(1).optional().describe("Share of total value to keep in cash. Default 0, or the saved cash weight when the saved targets are used"),
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
-        sellUntargeted: external_exports.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used"),
+        sellUntargeted: external_exports.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used. Ignored with buyOnly"),
+        buyOnly: external_exports.boolean().optional().describe("Sell nothing: invest only the cash above the cash weight, in the targets below their weight, most to the furthest below"),
+        investAmount: external_exports.number().positive().optional().describe("Invest at most this amount, in the account currency; implies buyOnly"),
         wholeSharesOnly: external_exports.boolean().default(false),
         fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency`)
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, wholeSharesOnly, fxRates }) => {
+    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, buyOnly, investAmount, wholeSharesOnly, fxRates }) => {
       try {
         const saved = targets ? void 0 : await targetAllocations.get(environment);
         if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
@@ -38735,10 +38745,12 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
           minTradeValue,
           sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
           quantityDecimals: wholeSharesOnly ? 0 : 4,
-          ...fxRates ? { fxRates } : {}
+          ...fxRates ? { fxRates } : {},
+          ...buyOnly ? { buyOnly } : {},
+          ...investAmount === void 0 ? {} : { investAmount }
         });
         const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan)), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Rebalance plan: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
+        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

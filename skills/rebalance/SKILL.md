@@ -12,6 +12,7 @@ description: Rebalance a Trading 212 portfolio toward target weights with TradeP
    - An instrument the user does not hold is priced from TradePilot's quote source when it can be (`get_quote` shows the price and its time). Otherwise pass a current `referencePrice` with `referencePriceAt` from a dated source.
    - An instrument quoted in another currency is converted at the rate implied by a holding in that currency, else at the quote source's rate (the plan notes which). Pass `fxRates` (instrument-currency units per 1 account-currency unit) only when the plan lists it as skipped for want of a rate.
    - To rebalance to the saved targets, call it without `targets`; it uses them and their cash weight.
+   - When the user wants to invest cash (a deposit, dividends) without selling anything, pass `buyOnly: true`, or `investAmount` to invest a set amount. Only cash above the reserve is used, most in the targets furthest below.
 5. Explain the result from the tool output: each trade, current → resulting weight, cash before and after, and every skipped item with its reason. Do not recompute quantities yourself.
 
 6. If the user wants to keep these targets, save them with `manage_target_allocation` (`set`, with `cashWeight` and optionally `driftThreshold`). TradePilot then shows the drift in the Allocation tab and notifies when it grows past the threshold (default 5 points).

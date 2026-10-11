@@ -23,8 +23,15 @@ describe("allocation analysis", () => {
     expect(result.flags.map((flag) => flag.code)).toContain("SINGLE_HOLDING_OVER_LIMIT");
   });
 
+  it("keeps the cash free to trade apart from cash held for orders and in pies", () => {
+    const result = analyzeAllocation("demo", { currency: "EUR", cash: { availableToTrade: 200, reservedForOrders: 50, inPies: 30 } }, [position("VUSA_EQ", 720, "EUR")]);
+    expect(result.cash).toBe(280);
+    expect(result.availableCash).toBe(200);
+  });
+
   it("handles an empty account without dividing by zero", () => {
     const result = analyzeAllocation("demo", { currency: "EUR" }, []);
+    expect(result.availableCash).toBeUndefined();
     expect(result.totalValue).toBe(0);
     expect(result.concentration.herfindahl).toBe(0);
     expect(result.flags).toEqual([]);

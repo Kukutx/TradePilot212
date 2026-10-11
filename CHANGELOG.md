@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.19.0
+
+- Invest spare cash by targets without selling: `plan_portfolio_rebalance` takes `buyOnly`, and `investAmount` to cap the amount (it implies `buyOnly`). Only the cash above the cash weight is used, in the targets below their weight and most in the furthest below; overweight holdings stay as they are. The plan says when less cash is free than asked, and when no cash is free at all (this note also replaces a misleading "already within the minimum" note in an ordinary rebalance with no cash).
+- The Allocation tab's drift panel has an **Invest spare cash** button next to **Rebalance to targets** while the cash free to trade is at least 1 above the cash target, the same test the planner uses. It opens the buy-only basket for review. `analyze_portfolio_allocation` now also returns `availableCash`, the cash free to trade.
+- The rebalance skill offers the buy-only plan for deposits and dividends.
+
 ## 2.18.0
 
 - Fill notices for open orders. About every 5 minutes the scheduler compares the open orders with the previous check. For each order that has left the book, it writes `order_filled` (with the shares, average fill price and value in the account currency), `order_partly_filled`, `order_closed` or, when the history never shows how the order ended, `order_outcome_unknown`. This covers orders placed in the Trading 212 app too, and it only reads. Fills and unclear outcomes go to the webhook by default, the widget's activity list shows each fill's shares, price and value, and the daily digest counts the fills of the last day. `ORDER_WATCH=false` turns it off.
