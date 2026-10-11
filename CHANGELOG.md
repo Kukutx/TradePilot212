@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.12.1
+
+- Dependencies refreshed within their ranges. Wrangler 4.149 brings Miniflare builds with patched undici and sharp, which clears twelve advisories in the development tools. Production dependencies had none.
+- One advisory remains. `braces`, which `vite-plugin-singlefile` uses through `micromatch` at build time, has no fixed release yet. It only parses the build's own file patterns.
+
 ## 2.12.0
 
 Currencies
