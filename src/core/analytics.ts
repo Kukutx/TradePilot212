@@ -123,6 +123,7 @@ export function analyzeAllocation(
     totalValue: round(totalValue),
     investedValue: round(investedValue),
     cash: round(cash),
+    ...(typeof account.cash?.availableToTrade === "number" ? { availableCash: round(account.cash.availableToTrade) } : {}),
     cashWeight,
     holdings: holdings.map((item) => ({ ...item, value: round(item.value) })),
     byCurrency,

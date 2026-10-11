@@ -36459,6 +36459,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
     totalValue: round4(totalValue),
     investedValue: round4(investedValue),
     cash: round4(cash),
+    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round4(account.cash.availableToTrade) } : {},
     cashWeight,
     holdings: holdings.map((item) => ({ ...item, value: round4(item.value) })),
     byCurrency,

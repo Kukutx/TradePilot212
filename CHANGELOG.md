@@ -3,7 +3,7 @@
 ## 2.19.0
 
 - Invest spare cash by targets without selling: `plan_portfolio_rebalance` takes `buyOnly`, and `investAmount` to cap the amount (it implies `buyOnly`). Only the cash above the cash weight is used, in the targets below their weight and most in the furthest below; overweight holdings stay as they are. The plan says when less cash is free than asked, and when no cash is free at all (this note also replaces a misleading "already within the minimum" note in an ordinary rebalance with no cash).
-- The Allocation tab's drift panel has an **Invest spare cash** button next to **Rebalance to targets** while cash is above its target. It opens the buy-only basket for review.
+- The Allocation tab's drift panel has an **Invest spare cash** button next to **Rebalance to targets** while the cash free to trade is at least 1 above the cash target, the same test the planner uses. It opens the buy-only basket for review. `analyze_portfolio_allocation` now also returns `availableCash`, the cash free to trade.
 - The rebalance skill offers the buy-only plan for deposits and dividends.
 
 ## 2.18.0

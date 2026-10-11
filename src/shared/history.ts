@@ -112,6 +112,8 @@ export interface AllocationAnalysis {
   totalValue: number;
   investedValue: number;
   cash: number;
+  /** Cash free to trade now, without cash held for orders or in pies; what a rebalance can spend. */
+  availableCash?: number;
   cashWeight: number;
   holdings: HoldingWeight[];
   byCurrency: Array<{ currency: string; value: number; weight: number }>;
