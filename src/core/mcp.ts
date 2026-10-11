@@ -8,7 +8,9 @@ import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { MAX_BASKET_LEGS } from "./trading-service.js";
 import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
-import { MAX_PLAN_LEGS } from "./automation.js";
+import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
+import { MAX_PIE_INSTRUMENTS } from "./pies.js";
+import type { PieChangeDraft } from "../shared/pies.js";
 import type { Services } from "../app/services.js";
 import type { OrderDraft, OrderIntent, TradeCandidate } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
@@ -90,7 +92,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation }: Services,
+  { trading, insights, automation, alerts, pies }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -506,6 +508,155 @@ export function createMcpServer(
     },
   );
 
+
+  const pieDraftSchema = z.object({
+    environment: environmentWithDefault,
+    action: z.enum(["create", "update", "delete", "duplicate"]),
+    pieId: z.number().int().positive().optional().describe("Required for update, delete and duplicate"),
+    name: z.string().min(1).max(100).optional(),
+    icon: z.string().max(40).optional(),
+    goal: z.number().positive().optional().describe("Target value in the account currency"),
+    endDate: z.string().datetime().optional(),
+    dividendCashAction: z.enum(["REINVEST", "TO_ACCOUNT_CASH"]).optional(),
+    instrumentShares: z.record(z.string(), z.number().positive()).optional()
+      .describe(`Ticker, symbol or name to target share, up to ${MAX_PIE_INSTRUMENTS}. Shares are normalised to sum to 1, so {"VUSA": 70, "EIMI": 30} works. On update, omit to keep the current slices.`),
+  });
+
+  registerAppTool(
+    server,
+    "list_pies",
+    {
+      title: "Trading 212 Pies",
+      description: "List the user's Trading 212 pies with value, invested amount, return, dividends, goal progress and, for the newest pies, each slice's target and current share and the drift between them. Read-only. Trading 212 allows one pie list read every 30 seconds and one detail read every 5 seconds, so results are cached briefly.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        details: z.number().int().min(0).max(30).default(10).describe("How many pies to read slices for, newest first"),
+        fresh: z.boolean().default(false).describe("Skip the short cache"),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, details, fresh }) => {
+      try {
+        const data = { ...(await pies.listPies(environment, { details, fresh })), writeEnabled: canWrite };
+        const lines = data.pies.map((pie) => `${pie.name} (#${pie.id}): value ${pie.value}, return ${pie.result}${pie.resultPercent === null ? "" : ` (${pie.resultPercent}%)`}${pie.drift === undefined ? "" : `, drift ${(pie.drift * 100).toFixed(1)}%`}`);
+        return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).${lines.length ? `\n${lines.join("\n")}` : ""}${data.notes.length ? `\n${data.notes.join(" ")}` : ""}`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_pie",
+    {
+      title: "Trading 212 Pie",
+      description: "Read one pie with its settings, every slice's target and current share, owned quantity, value, return and any issues Trading 212 reports. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault, pieId: z.number().int().positive() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, pieId }) => {
+      try {
+        const pie = await pies.getPie(environment, pieId);
+        const data = { kind: "pies", environment, credentials: credentialStatus(config), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: new Date().toISOString() };
+        return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s), value ${pie.value}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "list_price_alerts",
+    {
+      title: "Price Alerts",
+      description: "List price alerts on holdings: the condition, the last price seen, and whether and when each one triggered. Read-only.",
+      inputSchema: z.object({ environment: environmentEnum.optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: {},
+    },
+    async ({ environment }) => {
+      try {
+        const list = await alerts.list(environment);
+        return result({ kind: "price_alerts", alerts: list, webhook: !!config.notifyWebhookUrl }, `${list.length} alert(s), ${list.filter((alert) => alert.triggeredAt).length} triggered.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  if (canWrite) {
+    registerAppTool(
+      server,
+      "review_pie_change",
+      {
+        title: "Review a Pie Change",
+        description: "Draft creating, updating (name, slices, goal, end date, icon, dividend handling), duplicating or deleting a Trading 212 pie, and open it for the user to review and confirm. Never changes anything by itself. Creating a pie invests nothing.",
+        inputSchema: pieDraftSchema,
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async (draft) => {
+        try {
+          const current = draft.action === "create" || !draft.pieId ? undefined : await pies.getPie(draft.environment, draft.pieId);
+          const data = { kind: "pie_change_draft", draft: draft as PieChangeDraft, ...(current ? { current } : {}), credentials: credentialStatus(config), writeEnabled: true };
+          return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "manage_price_alerts",
+      {
+        title: "Manage Price Alerts",
+        description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Only held instruments have a price.",
+        inputSchema: z.object({
+          action: z.enum(["create", "delete", "rearm"]),
+          alertId: z.string().optional().describe("Required for delete and rearm"),
+          environment: environmentWithDefault,
+          instrument: z.string().min(1).optional(),
+          condition: z.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+          price: z.number().positive().optional(),
+          percent: z.number().positive().optional(),
+          note: z.string().max(200).optional(),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        _meta: {},
+      },
+      async (input) => {
+        try {
+          if (input.action === "create") {
+            if (!input.instrument || !input.condition) return toolError(new Error("instrument and condition are required to create an alert"));
+            const alert = await alerts.create({
+              environment: input.environment,
+              instrument: input.instrument,
+              condition: input.condition,
+              ...(input.price === undefined ? {} : { price: input.price }),
+              ...(input.percent === undefined ? {} : { percent: input.percent }),
+              ...(input.note ? { note: input.note } : {}),
+            });
+            return result({ kind: "price_alert", alert }, `Saved alert ${alert.id} on ${alert.ticker}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          }
+          if (!input.alertId) return toolError(new Error("alertId is required"));
+          if (input.action === "delete") {
+            await alerts.delete(input.alertId);
+            return result({ kind: "price_alert", deleted: input.alertId }, `Deleted alert ${input.alertId}.`);
+          }
+          const alert = await alerts.rearm(input.alertId);
+          return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
+
   if (canWrite) {
     registerAppTool(
       server,
@@ -513,13 +664,18 @@ export function createMcpServer(
       {
         title: "Manage Investment Plans",
         description:
-          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price.",
+          "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency; legs must be held already so the broker reports a price. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent.",
         inputSchema: z.object({
           action: z.enum(["create", "update", "delete"]),
           planId: z.string().optional().describe("Required for update and delete"),
           environment: environmentWithDefault,
           label: z.string().max(80).optional(),
-          legs: z.array(z.object({ ticker: z.string().min(1), amount: z.number().positive() })).min(1).max(MAX_PLAN_LEGS).optional(),
+          legs: z.array(z.object({
+            ticker: z.string().min(1),
+            amount: z.number().positive(),
+            orderType: z.enum(["market", "limit"]).optional().describe("limit = Day Limit buy at the last price plus limitOffsetPercent, so a gap cannot fill it higher. Limit legs can also be placed while the market is closed."),
+            limitOffsetPercent: z.number().min(0).max(MAX_LIMIT_OFFSET_PERCENT).optional().describe("Limit legs: percent above the last broker price (default 0.5)"),
+          })).min(1).max(MAX_PLAN_LEGS).optional(),
           frequency: z.enum(["weekly", "monthly"]).optional(),
           dayOfMonth: z.number().int().min(1).max(28).optional(),
           weekday: z.number().int().min(1).max(7).optional().describe("1 = Monday … 7 = Sunday"),
@@ -590,7 +746,7 @@ export function createMcpServer(
       "review_protective_orders",
       {
         title: "Review Stop-Loss and Take-Profit Orders",
-        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. The two orders are not linked.",
+        description: "Draft broker-native protective orders for a holding: a Stop sell below the current price (stop-loss) and/or a Limit sell above it (take-profit), both Good-Till-Cancel so Trading 212 triggers them. Opens them for review; never places an order. When both are placed, TradePilot links them: after one fills, the scheduler cancels the other.",
         inputSchema: z.object({
           environment: environmentWithDefault,
           instrument: z.string().min(1),
@@ -648,6 +804,26 @@ export function createMcpServer(
       try {
         const data = { ...(await trading.getDashboard(environment)), writeEnabled: canWrite };
         return result(data, "Dashboard refreshed.");
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "app_list_pies",
+    {
+      title: "Refresh pies",
+      description: "App-only pie list refresh.",
+      inputSchema: z.object({ environment: environmentEnum, fresh: z.boolean().optional() }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ environment, fresh }) => {
+      try {
+        const data = { ...(await pies.listPies(environment, { fresh: fresh === true })), writeEnabled: canWrite };
+        return result(data, "Pies refreshed.");
       } catch (error) {
         return toolError(error);
       }
@@ -822,6 +998,46 @@ export function createMcpServer(
       async ({ token, liveAcknowledged }) => {
         try {
           const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true });
+          return result(data, data.message);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_prepare_pie_change",
+      {
+        title: "Prepare pie change confirmation",
+        description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
+        inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async (draft) => {
+        try {
+          const data = await pies.preparePieChange(draft as PieChangeDraft);
+          return result(data, "Pie change validated. Explicit user confirmation is still required.");
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_execute_pie_change",
+      {
+        title: "Execute confirmed pie change",
+        description: "App-only external write. Consumes a one-time pie token. Never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live pie will change") }),
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ token, liveAcknowledged }) => {
+        try {
+          const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

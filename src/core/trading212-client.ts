@@ -1,6 +1,7 @@
 import type { AccountSummary, Instrument, OrderDraft, PendingOrder, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { RuntimeConfig } from "./config.js";
 import type { Exchange, ExportReport, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, Page } from "../shared/history.js";
+import type { PieDetail, PieRequest, PieSummary } from "../shared/pies.js";
 
 export type HistoryKind = "orders" | "dividends" | "transactions";
 type HistoryItem<K extends HistoryKind> = K extends "orders" ? HistoryOrderItem : K extends "dividends" ? HistoryDividendItem : HistoryTransactionItem;
@@ -106,4 +107,12 @@ export class Trading212Client {
   requestExport(body: { timeFrom: string; timeTo: string; dataIncluded: { includeDividends: boolean; includeInterest: boolean; includeOrders: boolean; includeTransactions: boolean } }) {
     return this.request<{ reportId: number }>("POST", "/equity/history/exports", body);
   }
+
+  // Pies. Trading 212 marks these endpoints deprecated but still serves them; they need the pies scopes.
+  async getPies() { return unwrapArray<PieSummary>(await this.request("GET", "/equity/pies")); }
+  getPie(id: number) { return this.request<PieDetail>("GET", `/equity/pies/${id}`); }
+  createPie(body: PieRequest) { return this.request<PieDetail>("POST", "/equity/pies", body); }
+  updatePie(id: number, body: PieRequest) { return this.request<PieDetail>("POST", `/equity/pies/${id}`, body); }
+  deletePie(id: number) { return this.request<unknown>("DELETE", `/equity/pies/${id}`); }
+  duplicatePie(id: number, body: { name?: string; icon?: string }) { return this.request<PieDetail>("POST", `/equity/pies/${id}/duplicate`, body); }
 }

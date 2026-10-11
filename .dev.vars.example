@@ -26,3 +26,10 @@ AUTOMATION_DEMO_ENABLED=false
 
 # After one half of a stop-loss / take-profit pair fills, cancel the other (default true).
 PROTECTIVE_OCO=true
+
+# Optional notifications: an HTTPS webhook (Slack, Discord, ntfy relay, your own endpoint) that
+# receives due plans, fills, price alerts and unclear results. NOTIFY_WEBHOOK_SECRET adds an
+# X-TradePilot-Signature HMAC header; NOTIFY_EVENTS limits the activity types (comma separated).
+NOTIFY_WEBHOOK_URL=
+NOTIFY_WEBHOOK_SECRET=
+NOTIFY_EVENTS=

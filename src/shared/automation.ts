@@ -122,6 +122,10 @@ export interface DcaLeg {
   ticker: string;
   /** Amount in the account currency per run. */
   amount: number;
+  /** "market" (default) or "limit": a Day Limit buy at the last price plus limitOffsetPercent. */
+  orderType?: "market" | "limit";
+  /** Limit legs only: how far above the last broker price the limit sits, 0 to 10 (default 0.5). */
+  limitOffsetPercent?: number;
 }
 
 export interface DcaPlan {
@@ -161,4 +165,38 @@ export interface ProtectiveLink {
   ticker: string;
   orders: [{ orderId: string; role: "stop_loss" | "take_profit" }, { orderId: string; role: "stop_loss" | "take_profit" }];
   createdAt: string;
+}
+
+/**
+ * A price alert on a holding, checked every scheduler tick against the broker's last position price
+ * (Trading 212 has no quote endpoint, so only held instruments have a price). Alerts notify; they
+ * never place orders.
+ */
+export type AlertCondition = "above" | "below" | "trailing_drop" | "gain_percent" | "loss_percent";
+
+export interface PriceAlert {
+  id: string;
+  environment: TradingEnvironment;
+  ticker: string;
+  condition: AlertCondition;
+  /** Price for above/below, in the instrument currency. */
+  price?: number;
+  /** Percent for trailing_drop (from the highest price seen), gain_percent and loss_percent (from the average cost). */
+  percent?: number;
+  /** Highest price seen since the alert was armed; trailing_drop only. */
+  highWatermark?: number;
+  note?: string;
+  createdAt: string;
+  lastPrice?: number;
+  lastCheckedAt?: string;
+  triggeredAt?: string;
+  triggeredPrice?: number;
+}
+
+export interface AlertReport {
+  alertId: string;
+  environment: TradingEnvironment;
+  ticker: string;
+  action: "triggered" | "waiting" | "no_price";
+  message: string;
 }

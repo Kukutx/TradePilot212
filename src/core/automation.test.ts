@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
-import { nextRunAt } from "./automation.js";
+import { nextRunAt, planLimitPrice } from "./automation.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 
@@ -179,5 +179,21 @@ describe("standing plans", () => {
     expect((await automation.runDuePlans(due))[0]?.mode).toBe("skipped");
     expect((await automation.getPlan(plan.id)).nextRunAt).toBe(plan.nextRunAt);
     expect(writes).toHaveLength(0);
+  });
+  it("places capped Day Limit buys for limit legs, even while the market is closed", async () => {
+    const { automation, insights, writes } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    insights.tryMarketStatus = async (_environment, instrument) => ({ ticker: instrument.ticker, session: "closed", isOpen: false, checkedAt: new Date().toISOString() });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 101, orderType: "limit", limitOffsetPercent: 1 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    expect(plan.legs[0]).toEqual({ ticker: "VUSA_EQ", amount: 101, orderType: "limit", limitOffsetPercent: 1 });
+    const [report] = await automation.runDuePlans(new Date(Date.parse(plan.nextRunAt) + 60_000));
+    expect(report?.mode).toBe("auto");
+    expect(writes).toEqual([{ path: "/api/v0/equity/orders/limit", body: { ticker: "VUSA_EQ", quantity: 1, limitPrice: 101, timeValidity: "DAY" } }]);
+  });
+
+  it("rounds plan limit prices and rejects large offsets", async () => {
+    expect(planLimitPrice(100, 0.5)).toBe(100.5);
+    expect(planLimitPrice(0.123456, 1)).toBe(0.1247);
+    const { automation } = setup();
+    await expect(automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100, orderType: "limit", limitOffsetPercent: 25 }], frequency: "monthly", dayOfMonth: 1 })).rejects.toThrow(/limitOffsetPercent/);
   });
 });

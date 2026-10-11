@@ -30,11 +30,12 @@ export default {
     const app = createApp({ config, store, instrumentCache, widgetHtml: async () => { const response = await env.ASSETS.fetch(new Request(`${origin}/index.html`)); if (!response.ok) throw new Error("Widget asset unavailable"); return response.text(); } });
     return app.fetch(request, env);
   },
-  // Cron Trigger (wrangler.jsonc): settle protective pairs, announce due plans and, when enabled, run Demo autoExecute plans.
+  // Cron Trigger (wrangler.jsonc): settle protective pairs, announce due plans, run Demo autoExecute plans when enabled, and check price alerts.
   async scheduled(_controller: ScheduledController, env: WorkerEnv): Promise<void> {
     const config = createConfig(env), store = new DurableStateStore(env.TRADEPILOT_STATE.getByName("global"));
-    const { links, plans } = await createServices({ config, store, instrumentCache }).runScheduled();
+    const { links, plans, alerts } = await createServices({ config, store, instrumentCache }).runScheduled();
     const acted = links.filter((report) => report.action !== "waiting");
-    if (acted.length || plans.length) console.log(JSON.stringify({ message: "TradePilot scheduler tick", links: acted, plans: plans.map(({ result: _result, ...report }) => report) }));
+    const fired = alerts.filter((report) => report.action === "triggered");
+    if (acted.length || plans.length || fired.length) console.log(JSON.stringify({ message: "TradePilot scheduler tick", links: acted, plans: plans.map(({ result: _result, ...report }) => report), alerts: fired }));
   },
 } satisfies ExportedHandler<WorkerEnv>;

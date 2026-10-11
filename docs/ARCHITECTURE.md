@@ -106,6 +106,14 @@ Owns application rules.
 
 `AutomationService` stores investment plans and runs the due-plan tick. The tick is called from the Worker's Cron Trigger and from an interval in the Node and stdio servers. Due plans are announced for confirmation. Demo plans marked `autoExecute` run through `prepareBasket` and `executeBasket` when `AUTOMATION_DEMO_ENABLED=true`. `policy.ts` and `rebalance.ts` are pure functions with unit tests. See [AUTOMATION.md](./AUTOMATION.md).
 
+### `PiesService`, `PriceAlerts` and notifications
+
+`PiesService` (`pies.ts`) reads pies with short caches, because Trading 212 allows one list read every 30 seconds and one detail read every 5 seconds, and adds drift and totals. Pie changes follow the order pattern: `preparePieChange` resolves tickers, normalises shares and issues a one-time token; `executePieChange` consumes it, needs `liveAcknowledged` on Live, and sends the write once.
+
+`PriceAlerts` (`alerts.ts`) is checked on every scheduler tick after protective links and plans. It reads positions once per environment, evaluates each armed alert with the pure `evaluateAlert`, and writes one `price_alert_triggered` event. It never writes to the broker.
+
+`notify.ts` builds an optional webhook sender from `NOTIFY_WEBHOOK_URL`. `TradingService.recordActivity` passes every event to it; the sender filters by type, signs the body when a secret is set, and swallows delivery errors.
+
 ### `InsightsService` and `analytics`
 
 Read-only. `InsightsService` walks Trading 212's newest-first history pages within a page budget and caches them briefly. `analytics.ts` turns that data into allocation, performance, income and market-session results with pure, unit-tested functions. Nothing on this path can write to the broker.
@@ -131,7 +139,7 @@ These rules are deliberate and should remain true when extending the project:
 
 1. No scheduled or unattended path may submit a Live order. The only unattended Live write is cancelling the surviving half of a linked protective pair after the other half filled. The one unattended path, due Demo plans with `autoExecute` and `AUTOMATION_DEMO_ENABLED=true`, uses the same validation, policy and no-retry rules as a confirmed basket.
 2. Preparing an order must not submit it.
-3. Every order, basket and cancellation write consumes a one-time confirmation.
+3. Every order, basket, cancellation and pie write consumes a one-time confirmation.
 4. A Trading 212 write request is never retried automatically.
 5. An unknown write result stays unknown until a read-back check provides evidence.
 6. Read-back verification never resubmits the original write.

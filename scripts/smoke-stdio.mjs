@@ -38,11 +38,11 @@ async function listTools(extraEnv) {
 }
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans"])
+for (const name of ["get_portfolio_dashboard", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
-if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
+if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || ["manage_investment_plans", "manage_price_alerts"].includes(name)))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
 const writable = await listTools({ TRADEPILOT_ALLOW_WRITES: "true" });
-if (!["app_execute_order", "app_execute_basket", "manage_investment_plans", "review_protective_orders"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
+if (!["app_execute_order", "app_execute_basket", "app_execute_pie_change", "manage_investment_plans", "manage_price_alerts", "review_protective_orders", "review_pie_change"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
 await fs.rm(work, { recursive: true, force: true });
 console.log(`STDIO_SMOKE_OK ${readOnly.length} read-only tools, ${writable.length} with writes enabled`);

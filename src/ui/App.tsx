@@ -29,6 +29,8 @@ import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from 
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
+import { PieChangeView, PiesView } from "./views/PiesView";
+import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
 type BasePayload =
   | DashboardPayload
@@ -43,6 +45,8 @@ type BasePayload =
     }
   | InsightPayload
   | BasketDraftView
+  | PiesPayload
+  | PieChangeDraftPayload
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
@@ -117,7 +121,7 @@ function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate 
 
 function initialEnvironment(payload: BasePayload | null): TradingEnvironment {
   if (!payload || payload.kind === "error") return "demo";
-  if (payload.kind === "order_draft") return payload.draft.environment;
+  if (payload.kind === "order_draft" || payload.kind === "pie_change_draft") return payload.draft.environment;
   return payload.environment;
 }
 
@@ -153,6 +157,8 @@ export default function App() {
   const [basketPreview, setBasketPreview] = useState<BasketPreview | null>(null);
   const [basketResult, setBasketResult] = useState<BasketExecutionResult | null>(null);
   const [basketVerifications, setBasketVerifications] = useState<Record<string, ExecutionVerificationResult>>({});
+  const [piePreview, setPiePreview] = useState<PieChangePreview | null>(null);
+  const [pieResult, setPieResult] = useState<PieChangeResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [locale, setLocale] = useState<SupportedLocale>(() =>
@@ -191,6 +197,10 @@ export default function App() {
           setTab("holdings");
         }
         if (payload.kind === "order_draft") setDraft(payload.draft);
+        if (payload.kind === "pie_change_draft") {
+          setPiePreview(null);
+          setPieResult(null);
+        }
         if (payload.kind === "basket_draft") {
           setBasketLegs(payload.legs ?? []);
           setBasketPreview(null);
@@ -205,7 +215,7 @@ export default function App() {
   useHostStyles(app, app?.getHostContext());
 
   const transactionActive = Boolean(draft || preview || cancelPreview);
-  const basketActive = base?.kind === "basket_draft" && !transactionActive;
+  const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
 
   useEffect(() => {
     if (!transactionActive && !basketActive) {
@@ -296,7 +306,9 @@ export default function App() {
     setStatus("loading");
     setErrorMessage(null);
     try {
-      if (base?.kind === "trade_plan") {
+      if (base?.kind === "pies") {
+        setBase(await callTool<PiesPayload>("app_list_pies", { environment: env }));
+      } else if (base?.kind === "trade_plan") {
         setBase(await callTool<TradePlanPayload>("app_get_trade_plan", {
           environment: env,
           candidates: base.candidates.map(candidateForRefresh),
@@ -430,6 +442,42 @@ export default function App() {
     }
   }
 
+  async function closePieChange(): Promise<void> {
+    setPiePreview(null);
+    setPieResult(null);
+    setErrorMessage(null);
+    await refresh(environment, "holdings");
+  }
+
+  async function reviewPieChange(): Promise<void> {
+    if (base?.kind !== "pie_change_draft") return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      setPiePreview(await callTool<PieChangePreview>("app_prepare_pie_change", base.draft as unknown as Record<string, unknown>));
+    } catch (requestError) {
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  async function confirmPieChange(liveAcknowledged = false): Promise<void> {
+    if (!piePreview) return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const confirmationCode = piePreview["token"];
+      setPieResult(await callTool<PieChangeResult>("app_execute_pie_change", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) }));
+    } catch (requestError) {
+      // The token may already be consumed; never resend it.
+      setErrorMessage(caughtMessage(requestError));
+    } finally {
+      setPiePreview(null);
+      setStatus("idle");
+    }
+  }
+
   async function verifyBasketLeg(verificationId: string): Promise<void> {
     setStatus("loading");
     setErrorMessage(null);
@@ -494,11 +542,12 @@ export default function App() {
       if (cancelPreview) setCancelPreview(null);
       else if (preview) setPreview(null);
       else if (basketPreview && status !== "loading") setBasketPreview(null);
+      else if (piePreview && status !== "loading") setPiePreview(null);
       else if (draft) { setDraft(null); setPreview(null); if (base?.kind === "order_draft") void refresh(environment); }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [base, basketPreview, cancelPreview, draft, environment, preview, status]);
+  }, [base, basketPreview, cancelPreview, draft, environment, piePreview, preview, status]);
 
   if (!app && !error) {
     return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
@@ -626,6 +675,7 @@ export default function App() {
             }}
           />
         )}
+        {base?.kind === "pies" && <PiesView payload={base} locale={locale} t={t} />}
         {base?.kind === "order_draft" && !draft && <div className="emptyState">{t("orderLoaded")}</div>}
         {!base && <div className="emptyState">{t("waiting")}</div>}
 
@@ -650,6 +700,22 @@ export default function App() {
           onConfirm={(liveAcknowledged) => void confirmBasket(liveAcknowledged)}
           onClose={() => void closeBasket()}
           onVerify={(id) => void verifyBasketLeg(id)}
+        />
+      )}
+
+      {basketActive && base?.kind === "pie_change_draft" && (
+        <PieChangeView
+          payload={base}
+          preview={piePreview}
+          result={pieResult}
+          canReview={writeEnabled && Boolean(credentials[base.draft.environment])}
+          busy={status === "loading"}
+          locale={locale}
+          t={t}
+          onReview={() => void reviewPieChange()}
+          onBack={() => setPiePreview(null)}
+          onConfirm={(liveAcknowledged) => void confirmPieChange(liveAcknowledged)}
+          onClose={() => void closePieChange()}
         />
       )}
 

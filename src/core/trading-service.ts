@@ -67,6 +67,8 @@ export interface TradingServiceDeps {
   marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
   /** Called after a basket created for a standing plan has been executed. */
   afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
+  /** Optional webhook for notable events; it filters the types itself and never throws. */
+  notify?: (event: ActivityEvent) => Promise<void>;
 }
 
 function positiveNumber(name: string, value?: number): asserts value is number {
@@ -229,6 +231,11 @@ export class TradingService {
     return instruments;
   }
 
+  /** Current positions only, for the scheduler's price checks. */
+  positions(environment: TradingEnvironment): Promise<Position[]> {
+    return this.client(environment).getPositions();
+  }
+
   private positionFor(positions: Position[], ticker: string) {
     return positions.find((position) => position.instrument?.ticker.toUpperCase() === ticker.toUpperCase());
   }
@@ -257,6 +264,7 @@ export class TradingService {
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot audit hook failed", error: error instanceof Error ? error.message : String(error) }));
     }
+    await this.deps.notify?.(event);
     return event;
   }
 

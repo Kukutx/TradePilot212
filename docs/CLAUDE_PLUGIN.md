@@ -24,6 +24,7 @@ When the plugin is enabled, Claude Code asks for its options:
 | Enable order tools | **Off by default.** See below. |
 | Max order value | Per-order value cap; `0` disables it. |
 | Run Demo plans unattended | **Off by default.** Lets due Demo investment plans marked `autoExecute` place orders on their own while Claude Code is running. Needs order tools enabled. Live plans always wait for you. |
+| Notification webhook | Optional HTTPS webhook (Slack, Discord or your own) for due plans, fills and price alerts. Only sent while Claude Code runs the server. |
 
 You can change these later under `/plugin` → Installed → Configure options.
 

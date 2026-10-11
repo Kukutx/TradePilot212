@@ -24,7 +24,10 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - order baskets: up to 20 orders validated together and confirmed once, sells first, stopping on an uncertain result
 - target-weight rebalancing that sizes the trades from broker prices and available cash
 - broker-native stop-loss and take-profit orders (Good-Till-Cancel), linked so that when one fills TradePilot cancels the other
-- weekly or monthly investment plans that wait for your confirmation when due; Demo plans can optionally run unattended
+- weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs; Demo plans can optionally run unattended
+- Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
+- price alerts on holdings (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
+- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results
 - a Claude Code plugin with a local stdio server and review, brief, risk, and journal skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - separate Demo and Live credentials and UI states
 - short / medium / long trade-plan cards
@@ -202,6 +205,8 @@ See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 | L2 | Investment plans: due runs are announced and opened as a basket | once per run |
 | L3 | Unattended runs of due plans | **Demo only**, opt-in with `AUTOMATION_DEMO_ENABLED=true` |
 
+Price alerts and webhook notifications run at every level; they only notify and never trade.
+
 Live never places an order unattended; that is enforced in code, not configuration. The only unattended Live write is cancelling the other half of a stop-loss / take-profit pair after one fills (turn off with `PROTECTIVE_OCO=false`). Live orders and baskets also need a second, explicit confirmation that real money is used. Research and news stay in a scheduled ChatGPT or Claude task. See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
 
 ## Configuration
@@ -230,6 +235,14 @@ POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 ```
 
 All policy variables are described in [docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine).
+
+Notifications are optional:
+
+```env
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
+NOTIFY_WEBHOOK_SECRET=        # optional HMAC signature
+NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
+```
 
 ## Local development
 

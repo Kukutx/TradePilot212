@@ -1,8 +1,8 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.7.0",
-  "description": "Trading 212 portfolio analytics, rebalancing, protective orders, investment plans, and human-confirmed order baskets over a local MCP server.",
+  "version": "2.8.0",
+  "description": "Trading 212 portfolio analytics, pies, rebalancing, protective orders, investment plans, price alerts, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",
     "url": "https://github.com/Kukutx"
@@ -73,6 +73,12 @@
       "title": "Run Demo plans unattended",
       "description": "Lets due Demo investment plans marked autoExecute place orders without asking. Needs order tools enabled. Live plans always wait for you.",
       "default": false
+    },
+    "notify_webhook_url": {
+      "type": "string",
+      "title": "Notification webhook",
+      "description": "Optional HTTPS webhook (Slack, Discord or your own) that receives due plans, fills and price alerts while the plugin is running.",
+      "default": ""
     }
   }
 }

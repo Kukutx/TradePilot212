@@ -24,7 +24,10 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 组合篮子：最多 20 笔订单一起校验、一次确认，先卖后买，遇到结果不确定的订单就停止发送剩余订单
 - 按目标权重再平衡：根据券商价格和可用现金算出买卖数量
 - 券商原生止损和止盈单（GTC，长期有效），两张联动：一张成交后 TradePilot 自动撤另一张
-- 每周或每月定投计划：到期后等你确认；Demo 计划可以选择无人值守自动执行
+- 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；Demo 计划可以选择无人值守自动执行
+- Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/PIES.md](./docs/PIES.md)）
+- 持仓价格提醒：高于或低于某价格、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
+- 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送
 - Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查和交易日志四个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
@@ -202,6 +205,8 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
 | L2 | 定投计划：到期时提醒，并打开为待确认的篮子 | 每次执行确认一次 |
 | L3 | 到期计划无人值守执行 | **仅限 Demo**，需设置 `AUTOMATION_DEMO_ENABLED=true` |
 
+价格提醒和 webhook 通知在任何级别都可用，它们只通知，不会下单。
+
 Live 账户永远不会无人值守下单，这一点写在代码里，不能通过配置打开。唯一的 Live 无人值守写操作，是止损/止盈其中一张成交后撤销另一张（可用 `PROTECTIVE_OCO=false` 关闭）。Live 单笔订单和篮子还需要勾选“使用真实资金”作为第二次确认。市场研究和新闻仍由定时的 ChatGPT 或 Claude 任务完成。详见 [docs/AUTOMATION.md](./docs/AUTOMATION.md)。
 
 ## 常用配置
@@ -228,6 +233,14 @@ POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 ```
 
 全部规则变量见 [docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)。
+
+通知是可选的：
+
+```env
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
+NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
+NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
+```
 
 ## 本地开发
 

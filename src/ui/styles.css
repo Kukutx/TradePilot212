@@ -602,3 +602,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 /* Second confirmation for Live writes */
 .liveAck { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--tp-red) 35%, transparent); border-radius: 12px; font-size: 12px; line-height: 1.4; cursor: pointer; }
 .liveAck input { margin-top: 2px; flex: none; width: 16px; height: 16px; }
+
+/* Pies */
+.pieHeader { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 10px; }
+.pieHeader h2 { margin: 0; font-size: 15px; }
+.pieCard { margin-top: 12px; padding: 12px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-surface, transparent); }
+.pieCardHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.pieCardHeader > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pieCardHeader small { color: var(--tp-muted); font-size: 10px; }
+.pieTableWrap { width: 100%; overflow-x: auto; margin-top: 10px; }
+.positionsTable.pieSlices { min-width: 0; }
+.pieIssue { color: var(--tp-amber); font-weight: 760; cursor: help; }

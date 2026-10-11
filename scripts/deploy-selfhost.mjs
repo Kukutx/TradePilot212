@@ -126,6 +126,7 @@ for (const name of [
   "POLICY_APPLY_TO", "POLICY_MAX_POSITION_WEIGHT", "POLICY_DAILY_ORDER_LIMIT", "POLICY_DAILY_NOTIONAL_LIMIT",
   "POLICY_ALLOWED_TICKERS", "POLICY_BLOCKED_TICKERS", "POLICY_ALLOWED_TYPES",
   "POLICY_MARKET_ORDERS_WHEN_CLOSED", "POLICY_MAX_REFERENCE_AGE_SECONDS", "AUTOMATION_DEMO_ENABLED", "PROTECTIVE_OCO",
+  "NOTIFY_WEBHOOK_URL", "NOTIFY_WEBHOOK_SECRET", "NOTIFY_EVENTS",
 ]) if (process.env[name]) secrets[name] = process.env[name];
 for (const [, keyName, secretName] of pairs) {
   if (process.env[keyName] && process.env[secretName]) {

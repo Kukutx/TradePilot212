@@ -37,6 +37,10 @@ const policyScope = (process.env.POLICY_APPLY_TO || "live").trim().toLowerCase()
 result("POLICY_APPLY_TO", ["live", "demo", "both", "none"].includes(policyScope), `policy rules bind ${policyScope}`);
 const positionCap = Number(process.env.POLICY_MAX_POSITION_WEIGHT || "0.25");
 result("POLICY_MAX_POSITION_WEIGHT", Number.isFinite(positionCap) && positionCap >= 0 && positionCap <= 1, String(positionCap));
+const webhook = (process.env.NOTIFY_WEBHOOK_URL ?? "").trim();
+let webhookOk = true;
+try { if (webhook) webhookOk = new URL(webhook).protocol === "https:"; } catch { webhookOk = false; }
+result("NOTIFY_WEBHOOK_URL", webhookOk, webhook ? (webhookOk ? "notifications on" : "must be an HTTPS URL") : "off (activity log only)");
 result("Demo automation", true, /^(1|true|yes|on)$/i.test(process.env.AUTOMATION_DEMO_ENABLED ?? "") ? "due Demo autoExecute plans run unattended" : "off (plans wait for confirmation)");
 
 function pair(prefix) {
