@@ -18,7 +18,10 @@ export interface StopProtection {
    * stops add up to more than the holding, the lowest go without. The quantities add up to covered.
    */
   levels: StopLevel[];
-  /** Stops placed by amount (VALUE) with no share count, so their shares and outcome are unknown. */
+  /**
+   * Stops placed by amount (VALUE) with no share count. Their shares are not in covered, so the real
+   * coverage is at least what covered says, and the outcome is unknown.
+   */
   unsized?: number;
 }
 
@@ -40,9 +43,9 @@ export interface StopOutcome {
  * What the stops mean once the price has fallen through every one, each selling its shares at its own
  * price, converted at the rate the broker's valuation of the holding implies. A stop-limit is costed at
  * its limit: once triggered it becomes a Limit order that fills there or better. Undefined without that
- * valuation, or when a stop or limit is not below the last price (the stop would trigger at once, or the
- * limit sells above the price). A gap can fill a stop lower, or leave a stop-limit unfilled, so this is
- * what the stops promise rather than what a fall guarantees.
+ * valuation, when the highest stop is not below the last price (it would trigger at once), or when a stop
+ * placed by amount leaves the shares unknown. A gap can fill a stop lower, or leave a stop-limit unfilled,
+ * so this is what the stops promise rather than what a fall guarantees.
  */
 export function stopOutcome(position: Position, guard: StopProtection): StopOutcome | undefined {
   const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown } | undefined;
@@ -51,7 +54,6 @@ export function stopOutcome(position: Position, guard: StopProtection): StopOutc
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
   // A stop sized by amount sells shares we cannot count, so any figure would leave it out.
   if (guard.unsized || !guard.levels.length) return undefined;
-  if (guard.levels.some((level) => !(sale(level) < position.currentPrice))) return undefined;
   const rate = value / (position.quantity * position.currentPrice);
   const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : undefined;
@@ -64,9 +66,17 @@ export function isSellStop(order: PendingOrder): boolean {
   return String(order.side ?? "").toUpperCase() === "SELL" || (typeof order.quantity === "number" && order.quantity < 0);
 }
 
+/**
+ * Whether a sell stop can sell on the way down. A stop-limit whose limit is above its stop places a sell
+ * above the price that triggered it, so it fills only if the price climbs back: it does not protect.
+ */
+export function sellsOnFall(order: PendingOrder): boolean {
+  return !(typeof order.limitPrice === "number" && typeof order.stopPrice === "number" && order.limitPrice > order.stopPrice);
+}
+
 export function stopProtection(position: Position, orders: PendingOrder[]): StopProtection | undefined {
   const ticker = position.instrument.ticker;
-  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
+  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order) && sellsOnFall(order));
   if (!stops.length || !(position.quantity > 0)) return undefined;
   // Part of a stop may already have filled; only the rest is still waiting.
   const remaining = (order: PendingOrder) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
@@ -145,6 +155,8 @@ export interface PortfolioProtection {
   unprotectedShare?: number;
   /** Holdings with uncovered shares free to sell, which one stop basket can protect. */
   protectable: number;
+  /** Holdings with a stop placed by amount, whose coverage is unknown; not in covered or partial. */
+  unknown?: number;
 }
 
 /** Stop-loss coverage across the portfolio, for one line above the holdings. */
@@ -156,9 +168,11 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
   let unprotected = 0;
   let total = 0;
   let valued = true;
+  let unknown = 0;
   for (const position of held) {
     const guard = stopProtection(position, orders);
     if (guard?.coverage === 1) covered += 1;
+    else if (guard?.unsized) unknown += 1;
     else if (guard) partial += 1;
     if (suggestedStop(position, guard)) protectable += 1;
     const value = (position.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
@@ -173,6 +187,8 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
     covered,
     partial,
     protectable,
-    ...(valued && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {}),
+    // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
+    ...(valued && !unknown && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {}),
+    ...(unknown ? { unknown } : {}),
   };
 }

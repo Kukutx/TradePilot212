@@ -80,12 +80,13 @@ describe("stop-loss protection", () => {
     // A stop-limit sells at its limit or better, so 10 shares stopped at 110 with a limit of 105 cost (125 - 105) x 10 x 0.8.
     const stopLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 105 }])!;
     expect(stopOutcome(held, stopLimit)).toEqual({ drop: 160, pnlAtStop: -10 });
-    // A limit above the stop still fills at the limit or better: (125 - 112) x 10 x 0.8.
-    const highLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 112 }])!;
-    expect(stopOutcome(held, highLimit)?.drop).toBeCloseTo(104, 8);
-    // A limit at or above the last price would not sell on a fall at all, so there is no outcome to show.
-    const aboveLast = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 126 }])!;
-    expect(stopOutcome(held, aboveLast)).toBeUndefined();
+    // A limit above the stop puts the sell above the fallen price, so the order does not protect at all.
+    expect(stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 112 }])).toBeUndefined();
+    expect(stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 126 }])).toBeUndefined();
+    expect(stopProtection(held, [
+      { ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110 },
+      { ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -15, stopPrice: 115, limitPrice: 120 },
+    ])).toMatchObject({ stopPrice: 110, covered: 5, orders: 1 });
     // A stop placed by amount has no share count, so its outcome is unknown rather than zero.
     const byValue = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 110 }])!;
     expect(byValue).toMatchObject({ covered: 0, levels: [], unsized: 1 });
@@ -102,6 +103,9 @@ describe("stop-loss protection", () => {
     expect(portfolioProtection([nvda, amd], stops)).toEqual({ holdings: 2, covered: 0, partial: 1, protectable: 2, unprotectedValue: 3250, unprotectedShare: 0.8125 });
     expect(portfolioProtection([nvda, amd], [...stops, { ticker: "NVDA_US_EQ", side: "SELL", quantity: -15, stopPrice: 110 }, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 90 }]))
       .toEqual({ holdings: 2, covered: 2, partial: 0, protectable: 0, unprotectedValue: 0, unprotectedShare: 0 });
+    // A stop placed by amount leaves the holding's coverage unknown, so there is no uncovered value either.
+    const byValue: PendingOrder = { ticker: "AMD_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 100 };
+    expect(portfolioProtection([nvda, amd], [...stops, byValue])).toEqual({ holdings: 2, covered: 0, partial: 1, unknown: 1, protectable: 2 });
     // Without an account-currency value for every holding there is no total to show.
     expect(portfolioProtection([nvda, position({ instrument: amd.instrument })], stops)).not.toHaveProperty("unprotectedValue");
   });
@@ -119,6 +123,15 @@ describe("stop-loss protection", () => {
     // A stop-limit names its limit and is costed there: 5 shares from 128.75 to 115 at the 0.92 EUR rate.
     const stopLimit = describePayload({ ...dashboard, orders: [{ id: 98, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 115, status: "NEW" }] });
     expect(stopLimit).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118 \(stop-limit: sells at 115 or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -63\.25 EUR from now/m);
+    // Two stop-limits at one stop are one trigger, not a range.
+    const twoLimits = describePayload({ ...dashboard, orders: [
+      { id: 96, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 115, status: "NEW" },
+      { id: 97, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 112, status: "NEW" },
+    ] });
+    expect(twoLimits).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 \(stop-limits sell at their limit or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -/m);
+    // A stop placed by amount has no share count.
+    const byAmount = describePayload({ ...dashboard, orders: [{ id: 95, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 118, status: "NEW" }] });
+    expect(byAmount).toMatch(/^Stop-loss orders: NVDA_US_EQ an unknown number of 20 \(1 stop\(s\) placed by amount\) from 118, 8\.3% below the last price\./m);
     const bare = describePayload({ ...dashboard, orders: [] });
     // With no stop anywhere, the line still names every holding without one.
     expect(bare).toMatch(/^Stop-loss orders: none\. No stop on (?=.*NVDA_US_EQ)(?=.*AAPL_US_EQ)[A-Za-z_, ]+\.$/m);

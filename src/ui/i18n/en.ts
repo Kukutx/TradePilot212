@@ -463,6 +463,8 @@ export const en = {
   stopAbove: "{price} ({percent} above)",
   stopCoversAll: "Covers the whole holding",
   stopCovers: "Covers {covered} of {quantity}",
+  stopCoversAtLeast: "Covers at least {covered} of {quantity}",
+  stopCoversUnknown: "Placed by amount; shares not known",
   noStopLoss: "No stop-loss",
   addStopLoss: "Add a stop-loss",
   addStopForRest: "Cover the rest",

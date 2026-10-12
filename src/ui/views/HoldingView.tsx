@@ -115,7 +115,8 @@ export function HoldingView({
     : t("noStopLoss");
   // What reaching the stops would cost from here, each at the price it names; a gap can fill one lower.
   const outcome = position && guard ? stopOutcome(position, guard) : undefined;
-  const several = (guard?.levels.length ?? 0) > 1;
+  // Distinct stop prices: two stop-limits at one stop trigger together.
+  const several = new Set(guard?.levels.map((level) => level.stopPrice)).size > 1;
   const guardDetail = outcome
     ? fill(t(several ? (outcome.pnlAtStop === undefined ? "stopsOutcomeShort" : "stopsOutcome") : (outcome.pnlAtStop === undefined ? "stopOutcomeShort" : "stopOutcome")), { change: money(-outcome.drop, currency, locale, { signed: true }), pnl: money(outcome.pnlAtStop, currency, locale, { signed: true }) })
       + (guard?.levels.some((level) => level.limitPrice !== undefined) ? ` ${t("stopLimitOutcome")}` : "")
