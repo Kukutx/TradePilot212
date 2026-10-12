@@ -463,8 +463,8 @@ export default function App() {
   /**
    * The holdings' covariance, for the risk at the targets typed in: read for the holdings the risk on screen measured,
    * with the instruments not held in the form beside them, and kept a while for them and its weeks, as the closes it
-   * is read from change once a week. A failed read, one that does not fit the risk on screen, and one with closes of
-   * an instrument not held still on their way, are not kept.
+   * is read from change once a week. A failed read, one that does not fit the risk on screen, and one that left out an
+   * instrument not held (its closes on their way, or not read this time), are not kept: a Refresh reads them again.
    */
   function readCovariance(env: TradingEnvironment, measured: MeasuredRisk, alongside: string[]): Promise<HoldingCovariancePayload> {
     const tickers = measured.rows.map((row) => row.ticker);
@@ -475,7 +475,7 @@ export default function App() {
     covariances.current.set(key, { at: Date.now(), read });
     const forget = () => { if (covariances.current.get(key)?.read === read) covariances.current.delete(key); };
     read.then((payload) => {
-      if (!covarianceFits(payload, measured, alongside) || payload.covariance?.unmeasured?.some((item) => item.reason === "later")) forget();
+      if (!covarianceFits(payload, measured, alongside) || payload.covariance?.unmeasured?.length) forget();
     }, forget);
     return read;
   }

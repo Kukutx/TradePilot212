@@ -2,8 +2,8 @@
 
 ## 2.51.0
 
-- Targets you don't hold yet. The target form on the Allocation tab searches Trading 212's instruments and adds one as a target, beside the holdings; a target not held, saved or added, can be removed from the form with its own button. Equal weights share what the cash leaves among them too (they come first when there are more than 20).
-- They count in the risk at the targets: their closes are read beside the holdings', over the same weeks, so the volatility the targets would give, the whole account's included, and each one's share of the risk take them in. While an added one is read the figures stay and say so; one whose closes are still on their way says a **Refresh** counts it, and one without closes over those weeks is named and left out.
+- Targets you don't hold yet. The target form on the Allocation tab searches Trading 212's instruments and adds one as a target, beside the holdings; a target not held, saved or added, can be removed from the form with its own button. Enter in the search never saves the form. Equal weights share what the cash leaves among them too (they come first when there are more than 20).
+- They count in the risk at the targets: their closes are read beside the holdings', over the same weeks, so the volatility the targets would give, the whole account's included, and each one's share of the risk take them in. While an added one is read the figures stay and say so; one whose closes weren't read this time says a **Refresh** counts it, and one without closes over those weeks is named and left out.
 - Saved targets not held count the same way in `drift.volatility` from `analyze_portfolio_allocation` and `manage_target_allocation`, and in the volatility beside the drift.
 - The watchlist and the target form share one instrument search.
 

@@ -5,9 +5,17 @@ import type { Instrument } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { fill, instrumentTypeLabel, plural, type Translator } from "../lib/messages";
 
-/** The best matches for a query; the ones `listed` already say so (`listedText`) instead of offering `addText`. */
-export function InstrumentSearch({ label, listed, listedText, addText, busy, locale, t, onSearch, onAdd, inputRef }: {
-  label: string; listed: ReadonlySet<string>; listedText: string; addText: string;
+/** Enter in the search adds nothing and, in a form, submits nothing: a match is added with its button. */
+export function holdEnter(event: { key: string; preventDefault: () => void }): void {
+  if (event.key === "Enter") event.preventDefault();
+}
+
+/**
+ * The best matches for a query; the ones `listed` already say so (`listedText`) instead of offering `addText`, whose
+ * full name for a screen reader is `addLabel`. Enter never submits a form it sits in: a match is added with its button.
+ */
+export function InstrumentSearch({ label, listed, listedText, addText, addLabel, busy, locale, t, onSearch, onAdd, inputRef }: {
+  label: string; listed: ReadonlySet<string>; listedText: string; addText: string; addLabel: (name: string) => string;
   /** The search box, for a caller that moves the focus to it. */
   inputRef?: Ref<HTMLInputElement>;
   busy?: boolean; locale: SupportedLocale; t: Translator;
@@ -41,7 +49,8 @@ export function InstrumentSearch({ label, listed, listedText, addText, busy, loc
     <div className="instrumentSearch">
       <label htmlFor={`${id}-q`}>{label}</label>
       <input ref={inputRef} id={`${id}-q`} type="search" autoComplete="off" spellCheck={false} placeholder={t("watchSearchPlaceholder")} value={query}
-        aria-describedby={`${id}-status`} onChange={(event) => setQuery(event.target.value)} />
+        aria-describedby={`${id}-status`} onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={holdEnter} />
       <span id={`${id}-status`} className="visuallyHidden" role="status">{status}</span>
       {results && results.length > 0 && (
         <ul className="instrumentResults">
@@ -53,7 +62,7 @@ export function InstrumentSearch({ label, listed, listedText, addText, busy, loc
               </span>
               {listed.has(item.ticker)
                 ? <span className="statusPill">{listedText}</span>
-                : <button type="button" className="secondaryButton compactButton" disabled={busy} aria-label={`${addText}: ${item.name || item.shortName}`}
+                : <button type="button" className="secondaryButton compactButton" disabled={busy} aria-label={addLabel(item.name || item.shortName)}
                     onClick={() => void add(item)}>{addText}</button>}
             </li>
           ))}

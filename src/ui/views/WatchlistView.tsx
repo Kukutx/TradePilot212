@@ -186,7 +186,7 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
             </div>
           )}
         </div>
-        <InstrumentSearch label={t("watchAddLabel")} listed={listed} listedText={t("watchListed")} addText={t("watchAdd")} busy={busy} locale={locale} t={t}
+        <InstrumentSearch label={t("watchAddLabel")} listed={listed} listedText={t("watchListed")} addText={t("watchAdd")} addLabel={(name) => fill(t("watchAddName"), { name })} busy={busy} locale={locale} t={t}
           onSearch={onSearch} onAdd={(item) => onAdd(item.ticker)} />
         {later > 0 && (
           <div className="notice warning watchLater">

@@ -5,7 +5,8 @@ import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload } 
 import { targetRiskOf } from "../../shared/holding-risk";
 import { createTranslator } from "../i18n";
 import { AllocationView } from "../views/InsightsView";
-import { awayPending, canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, savedAway, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, type TargetForm } from "./target-editor";
+import { holdEnter } from "./instrument-search";
+import { awayPending, canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, savedAway, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, widenedState, type TargetForm } from "./target-editor";
 
 const holding = (ticker: string, value: number) => ({ ticker, name: ticker, currency: "USD", value, weight: value / 10_000 });
 const data = (extra: Partial<AllocationAnalysis> = {}) => ({
@@ -277,16 +278,48 @@ describe("the target weights form", () => {
     expect([...pending.reading]).toEqual(["NEW"]);
     expect([...pending.later]).toEqual(["LATE"]);
     expect([...awayPending({ state: "reading" }, ["NEW"]).reading]).toEqual([]);
+    // A read for more that falls short keeps the figures in hand and leaves the new ones to a Refresh.
+    const before = { state: "read" as const, covariance: payload.covariance, asked: ["EIMI"] };
+    const kept = widenedState(before, { state: "none" }, ["EIMI", "NEW"]);
+    expect(kept).toEqual({ ...before, asked: ["EIMI", "NEW"], failed: ["NEW"] });
+    expect([...awayPending(kept, ["EIMI", "NEW"]).later]).toEqual(["NEW"]);
+    expect([...awayPending(kept, ["EIMI", "NEW"]).reading]).toEqual([]);
+    expect(widenedState(before, { state: "stale" }, ["EIMI", "NEW"])).toMatchObject({ state: "read", failed: ["NEW"] });
+    // One that fits takes over; with nothing in hand, the read's state is the form's.
+    const wider = { state: "read" as const, covariance: payload.covariance, asked: ["EIMI", "NEW"] };
+    expect(widenedState(kept, wider, ["EIMI", "NEW"])).toBe(wider);
+    expect(widenedState({ state: "reading" }, { state: "none" }, ["NEW"])).toEqual({ state: "none" });
     // In the summary: the ones still being read, the ones a Refresh reads, and the rest, each said once.
     const risk = targetRiskOf(read.covariance, data().holdings, new Map([["VUSA", 0.3], ["EIMI", 0.1], ["NEW", 0.1], ["LATE", 0.1], ["ODD", 0.1]]), false)!;
     expect(risk.leftOut).toEqual(["NEW", "LATE", "ODD"]);
     const html = summary({ risk, state: read, pending });
     expect(html).toContain("Reading the closes of NEW to count them…");
-    expect(html).toContain("The closes of LATE are still on their way; press Refresh to count them.");
+    expect(html).toContain("The closes of LATE weren&#x27;t read in time; press Refresh to count them.");
     expect(html).toContain("Not measured, so left out: ODD.");
     expect(html).toContain('aria-busy="true"');
     const zh = summary({ risk, state: read, pending }, "zh-CN");
-    expect(zh).toContain("正在读取NEW的收盘价，读完后计入…LATE的收盘价还在读取中，点“刷新”后计入。未测算，未计入：ODD。");
+    expect(zh).toContain("正在读取 NEW 的收盘价，读完后计入…LATE 的收盘价还没读到，点“刷新”后计入。未测算，未计入：ODD。");
+  });
+
+  it("says when a target list cannot take every row, and stops adding at 20 targets not held", () => {
+    const editor = (extra: Partial<AllocationAnalysis>) => renderToStaticMarkup(createElement(TargetEditor, { data: data(extra), locale: "en", t: createTranslator("en"), onSave: async () => true, onSearch: async () => [], onClose: () => undefined }));
+    const rows = (count: number, from = 0) => Array.from({ length: count }, (_, index) => ({ ticker: `X${index + from}`, target: 0.01, current: 0, drift: -0.01 }));
+    // 18 holdings and five targets not held: equal weights leave three holdings without a target, and say so.
+    const eighteen = Array.from({ length: 18 }, (_, index) => holding(`H${index}`, 400 - index * 5));
+    expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(5), sellUntargeted: false } })).toContain("A target list takes 20: the presets fill the 20 largest holdings (for equal weights, after the targets you don&#x27;t hold");
+    expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(2), sellUntargeted: false } })).not.toContain("A target list takes 20");
+    // Twenty not held: the search gives way to a note.
+    const full = editor({ drift: { ...drift, rows: rows(20), sellUntargeted: false } });
+    expect(full).toContain("A target list takes 20: remove a target you don&#x27;t hold to add another.");
+    expect(full).not.toContain("Add a target you don&#x27;t hold");
+    expect(editor({ drift: { ...drift, rows: rows(19), sellUntargeted: false } })).toContain("Add a target you don&#x27;t hold");
+  });
+
+  it("keeps Enter in the search from saving the form", () => {
+    let held = 0;
+    holdEnter({ key: "Enter", preventDefault: () => { held += 1; } });
+    holdEnter({ key: "a", preventDefault: () => { held += 1; } });
+    expect(held).toBe(1);
   });
 
   it("offers a search for targets not held, and a way to remove them, when connected", () => {
@@ -298,7 +331,7 @@ describe("the target weights form", () => {
     expect(html).not.toContain("Remove VUSA from the targets");
     expect(renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift }), locale: "en", t: createTranslator("en"), onSave: async () => true, onClose: () => undefined }))).not.toContain("Add a target");
     expect(renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift }), locale: "zh-CN", t: createTranslator("zh-CN"), onSave: async () => true, onSearch: search, onClose: () => undefined })))
-      .toContain('aria-label="从目标中移除EIMI"');
+      .toContain('aria-label="从目标中移除 EIMI"');
   });
 
   it("says beside the drift what volatility the saved targets would give", () => {
