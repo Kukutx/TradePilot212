@@ -420,12 +420,21 @@ function priceLine(data: HoldingDetail): string[] {
 /** What the price did for the position over the closes, against the start at the first close plus the trading since. */
 function positionHistoryLine(data: HoldingDetail): string[] {
   const history = holdingPositionHistory(data);
-  if (history === "quantity") return ["No position history: the shares do not add up from the year's fills (a split, or shares moved in or out)."];
-  if (history === "fills") return ["No position history: not all of the year's fills were read."];
+  if (history === "quantity") return ["No position history: going back through the year's fills leaves fewer than no shares on some day (a split, or shares moved out without a fill)."];
+  if (history === "split") return ["No position history: the closes or the fill prices jump as across a split, so the shares before it cannot be matched to the closes."];
+  if (history === "fills") return ["No position history: some fills were read without a price or date."];
   if (!history) return [];
   const first = history.days[0]!, last = history.days[history.days.length - 1]!;
   const c = data.accountCurrency ? ` ${data.accountCurrency}` : "";
-  return [`Position from ${first.date} to ${last.date} at the closes, at today's exchange rate: value ${num(last.value)}${c} against ${num(last.base)}${c} had the price not moved (${num(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num(Math.abs(history.gain))}${c}.`];
+  const rate = !foreign(data) ? "" : history.fillRates ? ", at its fills' exchange rates (nothing in its currency is held now)" : ", at today's exchange rate";
+  const since = history.shortened ? ` Older fills were not read, so it starts on ${first.date}.` : "";
+  return [`Position from ${first.date} to ${last.date} at the closes${rate}: value ${num(last.value)}${c} against ${num(last.base)}${c} net put in (${num(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num(Math.abs(history.gain))}${c}.${since}`];
+}
+
+/** Whether the instrument is priced in another currency than the account's (pence and pounds are one). */
+function foreign(data: HoldingDetail): boolean {
+  const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
+  return !!data.instrument.currencyCode && !!data.accountCurrency && major(data.instrument.currencyCode) !== major(data.accountCurrency);
 }
 
 function holding(data: HoldingDetail): string[] {

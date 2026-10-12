@@ -263,11 +263,11 @@ export function HoldingView({
       )}
 
       {positionHistory && (typeof positionHistory === "object" ? (
-        <section className="dataPanel"><PositionChart history={positionHistory} currency={currency} locale={locale} t={t} /></section>
+        <section className="dataPanel"><PositionChart history={positionHistory} currency={currency} {...(quote ? { quoteCurrency: quote } : {})} locale={locale} t={t} /></section>
       ) : (
         <section className="dataPanel">
           <div className="pieHeader"><h2>{t("positionTitle")}</h2></div>
-          <p className="panelNote">{t(positionHistory === "quantity" ? "positionQuantity" : "positionFills")}</p>
+          <p className="panelNote">{t(positionHistory === "quantity" ? "positionQuantity" : positionHistory === "split" ? "positionSplit" : "positionFills")}</p>
         </section>
       ))}
 

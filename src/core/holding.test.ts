@@ -134,7 +134,7 @@ describe("holding detail", () => {
     expect(describePayload(detail)).toMatch(/^Daily closes \(simulated for the sample account\) \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: [\d.]+ to 128\.75 USD \([+-][\d.]+%\); 1M [+-][\d.]+%, 3M [+-][\d.]+%, 6M [+-][\d.]+%; high [\d.]+ on \d{4}-\d{2}-\d{2}, low [\d.]+ on \d{4}-\d{2}-\d{2}\.$/m);
   });
 
-  it("draws the position over the closes beside what it would be had the price not moved, and says it in the text", async () => {
+  it("draws the position over the closes beside the net put in, and says it in the text", async () => {
     const detail = await holdingDetail(sample(), "demo", "NVDA_US_EQ");
     const history = holdingPositionHistory(detail);
     if (!history || typeof history !== "object") throw new Error(`no position history: ${history}`);
@@ -144,8 +144,9 @@ describe("holding detail", () => {
     expect(last.value).toBeCloseTo((detail.position!.walletImpact as { currentValue: number }).currentValue, 0);
     // The sample's NVDA fills are buys and sells of 2 or 3 shares, so the shares at the first close are fewer or more.
     expect(history.days[0]!.shares).toBe(history.startShares);
+    expect(history.startShares).not.toBe(20);
     expect(history.gain).toBeCloseTo(last.value - last.base, 2);
-    expect(describePayload(detail)).toMatch(/^Position from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2} at the closes, at today's exchange rate: value [\d.]+ EUR against [\d.]+ EUR had the price not moved \([\d.]+ shares at the first close, plus buys less sells at their prices\), so the price (added|took) [\d.]+ EUR\.$/m);
+    expect(describePayload(detail)).toMatch(/^Position from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2} at the closes, at today's exchange rate: value [\d.]+ EUR against [\d.]+ EUR net put in \([\d.]+ shares at the first close, plus buys less sells at their prices\), so the price (added|took) [\d.]+ EUR\.$/m);
   });
 
   it("lists the newest 20 fills and gives the chart the older ones with only what a mark needs", async () => {

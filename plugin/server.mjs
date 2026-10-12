@@ -37896,6 +37896,7 @@ var InsightsService = class {
       status: item.order?.status,
       initiatedFrom: item.order?.initiatedFrom,
       filledAt: item.fill?.filledAt,
+      ...item.fill?.type ? { fillType: item.fill.type } : {},
       quantity: item.fill?.quantity,
       price: item.fill?.price,
       priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
@@ -38655,12 +38656,23 @@ var APP_META = {
 
 // src/shared/position-history.ts
 var NO_SHARES = 1e-6;
+var SPLIT_JUMP = { up: 1.8, down: 0.55 };
+var FILL_OFF = { up: 1.4, down: 0.7 };
 var round8 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
 function positionHistory(input2) {
   const closes2 = input2.closes.filter((point) => point.close > 0);
   if (closes2.length < 2 || !(input2.rate > 0)) return void 0;
   const dayOf3 = (at) => at.slice(0, 10);
   const fills = input2.fills.filter((fill) => Number.isFinite(fill.quantity) && fill.quantity !== 0 && fill.price > 0 && dayOf3(fill.at) >= closes2[0].date);
+  for (let index = 1; index < closes2.length; index++) {
+    const ratio2 = closes2[index].close / closes2[index - 1].close;
+    if (ratio2 >= SPLIT_JUMP.up || ratio2 <= SPLIT_JUMP.down) return "split";
+  }
+  for (const fill of fills) {
+    const close = closes2.filter((point) => point.date <= dayOf3(fill.at)).at(-1);
+    const ratio2 = fill.price / close.close;
+    if (ratio2 >= FILL_OFF.up || ratio2 <= FILL_OFF.down) return "split";
+  }
   const after = (date5) => fills.filter((fill) => dayOf3(fill.at) > date5).reduce((sum, fill) => sum + fill.quantity, 0);
   let startShares = input2.quantity - after(closes2[0].date);
   if (Math.abs(startShares) < NO_SHARES) startShares = 0;
@@ -38681,6 +38693,8 @@ var MAX_READ_FILLS = 200;
 function holdingPositionHistory(data) {
   const history = data.history;
   if (!data.prices || data.prices.points.length < 2 || !history) return void 0;
+  if (history.fillsUnpriced || history.fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price))) return "fills";
+  if (history.fillsNotTrades) return "split";
   const fills = [
     ...history.fills.flatMap((fill) => {
       if (!fill.filledAt || !fill.price || !fill.quantity) return [];
@@ -38689,20 +38703,31 @@ function holdingPositionHistory(data) {
     }),
     ...(history.olderFills ?? []).map((fill) => ({ at: fill.filledAt, quantity: fill.side === "SELL" ? -fill.quantity : fill.quantity, price: fill.price }))
   ];
-  if (history.fillsTruncated || history.fills.length + (history.olderFills?.length ?? 0) >= MAX_READ_FILLS) return "fills";
+  let closes2 = data.prices.points;
+  const shortened = history.fillsTruncated || history.fills.length + (history.olderFills?.length ?? 0) >= MAX_READ_FILLS;
+  if (shortened) {
+    if (!fills.length) return "fills";
+    const oldest = fills.reduce((day2, fill) => fill.at.slice(0, 10) < day2 ? fill.at.slice(0, 10) : day2, fills[0].at.slice(0, 10));
+    closes2 = closes2.filter((point) => point.date >= oldest);
+  }
   const position = data.position;
   const value = position?.walletImpact?.currentValue;
   let rate;
+  let fillRates = false;
   if (position && position.quantity > 0) {
     if (typeof value === "number" && value > 0 && position.currentPrice > 0) rate = position.quantity * position.currentPrice / value;
+  } else if (data.accountRate && data.accountRate > 0) {
+    rate = data.accountRate;
   } else {
     const rated = history.fills.filter((fill) => fill.price && fill.quantity && fill.netValue);
     const local = rated.reduce((sum, fill) => sum + Math.abs(fill.quantity * fill.price), 0);
     const account = rated.reduce((sum, fill) => sum + Math.abs(fill.netValue), 0);
-    if (local > 0 && account > 0) rate = local / account;
+    if (local > 0 && account > 0) [rate, fillRates] = [local / account, true];
   }
   if (!rate) return void 0;
-  return positionHistory({ closes: data.prices.points, fills, quantity: position?.quantity ?? 0, rate });
+  const drawn = positionHistory({ closes: closes2, fills, quantity: position?.quantity ?? 0, rate });
+  if (!drawn || typeof drawn !== "object") return drawn;
+  return { ...drawn, ...shortened ? { shortened: true } : {}, ...fillRates ? { fillRates: true } : {} };
 }
 
 // src/shared/prices.ts
@@ -39062,12 +39087,19 @@ function priceLine(data) {
 }
 function positionHistoryLine(data) {
   const history = holdingPositionHistory(data);
-  if (history === "quantity") return ["No position history: the shares do not add up from the year's fills (a split, or shares moved in or out)."];
-  if (history === "fills") return ["No position history: not all of the year's fills were read."];
+  if (history === "quantity") return ["No position history: going back through the year's fills leaves fewer than no shares on some day (a split, or shares moved out without a fill)."];
+  if (history === "split") return ["No position history: the closes or the fill prices jump as across a split, so the shares before it cannot be matched to the closes."];
+  if (history === "fills") return ["No position history: some fills were read without a price or date."];
   if (!history) return [];
   const first = history.days[0], last = history.days[history.days.length - 1];
   const c = data.accountCurrency ? ` ${data.accountCurrency}` : "";
-  return [`Position from ${first.date} to ${last.date} at the closes, at today's exchange rate: value ${num2(last.value)}${c} against ${num2(last.base)}${c} had the price not moved (${num2(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num2(Math.abs(history.gain))}${c}.`];
+  const rate = !foreign(data) ? "" : history.fillRates ? ", at its fills' exchange rates (nothing in its currency is held now)" : ", at today's exchange rate";
+  const since = history.shortened ? ` Older fills were not read, so it starts on ${first.date}.` : "";
+  return [`Position from ${first.date} to ${last.date} at the closes${rate}: value ${num2(last.value)}${c} against ${num2(last.base)}${c} net put in (${num2(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num2(Math.abs(history.gain))}${c}.${since}`];
+}
+function foreign(data) {
+  const major = (currency) => currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase();
+  return !!data.instrument.currencyCode && !!data.accountCurrency && major(data.instrument.currencyCode) !== major(data.accountCurrency);
 }
 function holding(data) {
   const c = data.accountCurrency;
@@ -39862,6 +39894,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
+  const rates = accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {};
+  const accountRate = full.currencyCode ? rates[full.currencyCode.toUpperCase()] : void 0;
   const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }] : [])) : void 0;
   const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS7) : [];
   const moved = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
@@ -39869,7 +39903,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     now,
     from: window.from,
     ...accountCurrency ? { accountCurrency } : {},
-    rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {}
+    rates
   }, {
     ticker,
     instrument: full,
@@ -39887,6 +39921,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ticker,
     instrument,
     ...dashboard.account?.currency ? { accountCurrency: dashboard.account.currency } : {},
+    ...accountRate ? { accountRate } : {},
     ...position ? { position } : {},
     ...quote ? { quote: { price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol } } : {},
     ...watched ? { watching: { addedAt: watched.addedAt, ...watched.note ? { note: watched.note } : {} } } : {},
@@ -39926,6 +39961,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
         dividendTotal: history[1].totals.DIVIDEND ?? 0,
         dividendCount: history[1].count,
         fillsTruncated: history[0].truncated,
+        ...history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price)) ? { fillsUnpriced: true } : {},
+        ...history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE") ? { fillsNotTrades: true } : {},
         dividendsTruncated: history[1].truncated,
         ...nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {},
         ...nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}

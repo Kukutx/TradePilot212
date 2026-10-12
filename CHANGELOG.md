@@ -2,8 +2,8 @@
 
 ## 2.43.0
 
-- Your position. The holding page draws the holding's value at each daily close beside a dashed line of what it would be had the price not moved since the first close (the shares then, plus buys less sells at their fill prices). The gap is what the price did for the position, whatever was traded; the note gives it in the account currency.
-- `get_holding_detail`'s text says the same. When the shares do not add up from the fills, or not all of the year's fills were read, the chart is left out and the page says why.
+- Your position. The holding page draws the holding's value at each daily close beside a dashed line of the net put in (the shares held at the first close at that close, plus buys less sells at their fill prices). The gap is what the price did for the position, whatever was traded; the note gives it in the account currency.
+- `get_holding_detail`'s text says the same. When older fills were not read, the chart starts at the oldest one read. When the shares do not add up from the fills, the prices jump as across a split, or a fill lacks its price, the chart is left out and the page says why.
 
 ## 2.42.0
 
