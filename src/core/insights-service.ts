@@ -356,6 +356,11 @@ export class InsightsService {
     return exchanges;
   }
 
+  /** Trading 212's exchanges with their working schedules, cached for ten minutes. */
+  schedules(environment: TradingEnvironment): Promise<Exchange[]> {
+    return this.exchanges(environment);
+  }
+
   async marketHours(environment: TradingEnvironment, query: string, now = new Date()): Promise<MarketStatus> {
     const instrument = resolveInstrumentFromList(await this.deps.instruments(environment), query);
     return marketStatus(instrument, await this.exchanges(environment), now);

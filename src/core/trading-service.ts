@@ -596,7 +596,13 @@ export class TradingService {
       .map((entry) => entry.item);
   }
 
-  async getDashboard(environment: TradingEnvironment): Promise<DashboardPayload> {
+  /** The last dashboard read of each account, for a read that follows it within seconds. */
+  private readonly dashboards = new Map<TradingEnvironment, { at: number; payload: DashboardPayload }>();
+
+  /** The account, holdings, open orders and activity; one read in the last `maxAgeMs` is used as it is. */
+  async getDashboard(environment: TradingEnvironment, maxAgeMs = 0): Promise<DashboardPayload> {
+    const recent = this.dashboards.get(environment);
+    if (maxAgeMs > 0 && recent && Date.now() - recent.at <= maxAgeMs) return recent.payload;
     const credentials = credentialStatus(this.deps.config);
     if (!credentials[environment]) {
       return {
@@ -614,7 +620,9 @@ export class TradingService {
     }
     const client = this.client(environment);
     const [account, positions, orders, activity] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders(), this.getActivity(environment)]);
-    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: new Date().toISOString() };
+    const payload: DashboardPayload = { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: new Date().toISOString() };
+    this.dashboards.set(environment, { at: Date.now(), payload });
+    return payload;
   }
 
   async getTradePlan(environment: TradingEnvironment, candidates: TradeCandidate[]): Promise<TradePlanPayload> {
@@ -1704,6 +1712,7 @@ export class TradingService {
 
   /** Something was sent to Trading 212: history read before it is out of date. */
   private wrote(environment: TradingEnvironment): void {
+    this.dashboards.delete(environment);
     try {
       this.deps.afterWrite?.(environment);
     } catch (error) {

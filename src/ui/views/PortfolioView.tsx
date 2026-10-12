@@ -2,6 +2,8 @@ import { Fragment } from "react";
 import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
+import type { DayMissing, DayMove, PortfolioToday } from "../../shared/today";
+import type { MessageKey } from "../i18n";
 import { portfolioProtection, stopProtection } from "../../shared/protection";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Sparkline } from "../components/charts";
@@ -20,6 +22,7 @@ export function PortfolioView({
   onCancel,
   onOpen,
   onProtectAll,
+  today,
 }: {
   payload: DashboardPayload;
   book?: InstrumentBook;
@@ -32,9 +35,13 @@ export function PortfolioView({
   onOpen?: (ticker: string) => void;
   /** Drafts a stop for every holding without a full one, as a basket to review; nothing is sent from here. */
   onProtectAll?: () => void;
+  /** The day's moves, read after the dashboard; none when they are not asked for. */
+  today?: TodayState;
 }) {
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
+  const moves = new Map((today?.data?.moves ?? []).map((move) => [move.ticker, move]));
+  const soldOut = (today?.data?.moves ?? []).filter((move) => move.quantity === 0 && move.profitLoss !== undefined);
   return (
     <main className="contentStack">
       {payload.warning && <div className="notice warning">{payload.warning}</div>}
@@ -44,6 +51,7 @@ export function PortfolioView({
           <span className="sectionEyebrow">{t("accountOverview")}</span>
           <strong className="heroValue">{money(payload.account?.totalValue, currency, locale)}</strong>
           <div className={`pnlBadge ${signedClass(pnl)}`}>{t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}</div>
+          {today && <DayTotal today={today} currency={currency} locale={locale} t={t} />}
           {payload.valueTrend && payload.valueTrend.length >= 2 && <ValueTrend points={payload.valueTrend} currency={currency} locale={locale} t={t} />}
         </div>
         <div className="metricGrid">
@@ -63,7 +71,7 @@ export function PortfolioView({
           <>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
+                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th>{today && <th className="dayColumn">{t("todayColumn")}</th>}<th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
                   {payload.positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
@@ -75,12 +83,20 @@ export function PortfolioView({
                           {/* Where the stop-loss column is hidden, the stop shows under the name. */}
                           {guard && <small className="stopInline">{t("stopLoss")} {stopGuardText(guard, position, locale, t)}{guard.coverage < 1 ? ` · ${stopCoverageText(guard, position, locale, t)}` : ""}</small>}
                         </td>
-                        <td>{qty(position.quantity, locale)}</td>
-                        <td>{money(position.currentPrice, position.instrument.currencyCode, locale)}</td>
+                        <td>
+                          {qty(position.quantity, locale)}
+                          {/* Shares held in pies or by a pending sell are not free to sell; the holding's page has the detail. */}
+                          {position.quantityAvailableForTrading < position.quantity && <small className="freeToSell">{fill(t("freeToSell"), { quantity: qty(position.quantityAvailableForTrading, locale) })}</small>}
+                        </td>
+                        <td>
+                          {money(position.currentPrice, position.instrument.currencyCode, locale)}
+                          {/* Where the Day column is hidden, the day's move shows under the price. */}
+                          {today && <span className="dayUnderPrice"><DayCell move={moves.get(position.instrument.ticker)} loading={today.loading} currency={currency} locale={locale} t={t} layout="row" /></span>}
+                        </td>
+                        {today && <td className="dayColumn"><DayCell move={moves.get(position.instrument.ticker)} loading={today.loading} currency={currency} locale={locale} t={t} /></td>}
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
                         <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}</td>
-                        <td className="optionalColumn">{qty(position.quantityAvailableForTrading, locale)}</td>
                         <td className="optionalColumn stopColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
                       </tr>
                     );
@@ -90,9 +106,15 @@ export function PortfolioView({
             </div>
             <div className="mobilePositionList">
               {payload.positions.map((position) => (
-                <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})} />
+                <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})}
+                  {...(today ? { day: { move: moves.get(position.instrument.ticker), loading: today.loading } } : {})} />
               ))}
             </div>
+            {soldOut.length > 0 && (
+              <p className="panelNote">{fill(t("todaySoldOut"), {
+                items: soldOut.map((move) => `${instrumentLabel(move.ticker, book, move).name} ${money(move.profitLoss, currency, locale, { signed: true })}`).join(", "),
+              })}</p>
+            )}
           </>
         )}
       </section>
@@ -240,6 +262,7 @@ export function PositionCard({
   locale,
   t,
   onOpen,
+  day,
 }: {
   position: Position;
   /** Pending orders; a sell stop on this holding shows under its facts. */
@@ -249,6 +272,8 @@ export function PositionCard({
   locale: SupportedLocale;
   t: Translator;
   onOpen?: (ticker: string) => void;
+  /** The holding's move on the day, when the dashboard reads them. */
+  day?: { move: DayMove | undefined; loading: boolean };
 }) {
   const positionPnl = walletNumber(position, "unrealizedProfitLoss");
   const positionValue = walletNumber(position, "currentValue");
@@ -262,6 +287,12 @@ export function PositionCard({
         <div><span>{t("quantity")}</span><strong>{qty(position.quantity, locale)}</strong></div>
         <div><span>{t("averagePrice")}</span><strong>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</strong></div>
       </div>
+      {day && (
+        <div className="positionDay">
+          <span>{t("todayColumn")}</span>
+          <DayCell move={day.move} loading={day.loading} currency={accountCurrency} locale={locale} t={t} layout="card" />
+        </div>
+      )}
       {guard && (
         <div className={`positionGuard${guard.coverage < 1 ? " partial" : ""}`}>
           <span className="positionGuardMark" aria-hidden="true" />
@@ -287,5 +318,82 @@ function ValueTrend({ points, currency, locale, t }: { points: ValuePoint[]; cur
         label={fill(t("valueTrendLabel"), { date: since, first: money(first.totalValue, currency, locale), last: money(last.totalValue, currency, locale) })} />
       <span><b className={signedClass(change)}>{changeText}</b> {fill(t("valueTrendSince"), { date: since })}</span>
     </div>
+  );
+}
+
+/** The day's moves as the dashboard holds them: being read, or read (a failed read shows nothing). */
+export interface TodayState { data?: PortfolioToday; loading: boolean }
+
+const DAY_MISSING: Record<DayMissing, MessageKey> = {
+  provider: "todayMissingProvider",
+  plan: "todayMissingPlan",
+  symbol: "todayMissingSymbol",
+  data: "todayMissingData",
+  unit: "todayMissingUnit",
+  sample: "todayMissingSample",
+  later: "todayMissingLater",
+  lag: "todayMissingLag",
+  fx: "todayMissingFx",
+};
+
+const dayMissingText = (move: DayMove, t: Translator) => t(DAY_MISSING[move.missing ?? "data"]);
+
+/** The holdings' move on the day, in the account currency, named "Today's move", or by its day when the latest session is an earlier one. */
+function DayTotal({ today, currency, locale, t }: { today: TodayState; currency: string; locale: SupportedLocale; t: Translator }) {
+  const data = today.data;
+  if (!data) return today.loading ? <div className="dayTotal loading" aria-busy="true"><span>{t("todayLoading")}</span></div> : null;
+  const days = [...new Set(data.moves.map((move) => move.day))].sort();
+  const latest = days[days.length - 1];
+  const label = !latest || latest === data.timestamp.slice(0, 10) ? t("todayLabel") : fill(t("todayLastSession"), { day: dayLabel(latest, locale, { year: false, weekday: true }) });
+  const total = data.total;
+  if (!total) {
+    const first = data.moves.find((move) => move.missing);
+    return first ? <div className="dayTotal" title={first.problem}><span>{fill(t("todayNone"), { reason: dayMissingText(first, t) })}</span></div> : null;
+  }
+  const notes = [
+    ...(days.length > 1 ? [t("todaySessions")] : []),
+    ...(data.moves.some((move) => move.bought || move.sold) ? [t("todayTraded")] : []),
+    ...(data.fillsProblem ? [t("todayFills")] : []),
+    ...data.moves.filter((move) => move.profitLoss === undefined).map((move) => `${move.shortName ?? move.ticker}: ${dayMissingText(move, t)}.`),
+    t("todayRates"),
+  ];
+  return (
+    <div className="dayTotal" title={notes.join(" ")}>
+      <b className={signedClass(total.profitLoss)}>
+        {money(total.profitLoss, currency, locale, { signed: true })}
+        {total.change !== undefined && ` (${pct(total.change, locale, 2, { signed: true })})`}
+      </b>
+      <span>
+        {label}
+        {total.counted < total.of && ` · ${fill(t("todayPartial"), { counted: num(total.counted, locale), of: num(total.of, locale) })}`}
+        <span className="visuallyHidden"> {notes.join(" ")}</span>
+      </span>
+    </div>
+  );
+}
+
+/** One holding's move on the day: the change since its previous close and, under it, what it made or lost. */
+function DayCell({ move, loading, currency, locale, t, layout = "stack" }: {
+  move: DayMove | undefined;
+  loading: boolean;
+  currency: string;
+  locale: SupportedLocale;
+  t: Translator;
+  /** The change over the amount (the Day column), side by side (under the price), or side by side with the close and any reason written out (the phone card). */
+  layout?: "stack" | "row" | "card";
+}) {
+  const inline = layout !== "stack";
+  if (!move) return <span className="mutedInline" {...(loading ? { "aria-busy": "true" } : {})}>{loading ? "…" : "—"}</span>;
+  const card = layout === "card";
+  if (move.change === undefined) return <span className="mutedInline dayMissing" title={move.problem}>{card ? dayMissingText(move, t) : "—"}<span className="visuallyHidden">{card ? "" : ` ${dayMissingText(move, t)}`}</span></span>;
+  const close = move.previousClose;
+  const since = close ? fill(t("todaySince"), { date: dayLabel(close.date, locale, { year: false, weekday: true }), price: money(close.close, move.currencyCode ?? currency, locale) }) : "";
+  const title = [since, move.bought || move.sold ? t("todayTraded") : "", move.problem ?? ""].filter(Boolean).join(" ");
+  return (
+    <span className={`dayCell${inline ? " inline" : ""} ${signedClass(move.change)}`} title={title}>
+      <strong>{pct(move.change, locale, 2, { signed: true })}</strong>
+      {move.profitLoss !== undefined && <small>{money(move.profitLoss, currency, locale, { signed: true })}</small>}
+      {card && since && <small className="daySince">{since}</small>}
+    </span>
   );
 }

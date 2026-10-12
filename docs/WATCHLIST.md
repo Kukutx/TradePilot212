@@ -13,7 +13,7 @@ An instrument is added at its price then (Trading 212's for a holding, else the 
 ## What each row shows
 
 - **The price now**: Trading 212's for a holding, the quote provider's otherwise, else the last daily close, named with its date.
-- **The change** to that price since the previous close (**1D**: the last close before the day the price is from, so a quote from Friday is compared with Thursday over the weekend), or over 1, 3 or 12 months when the closes cover the period in full. The figure is written out, not only coloured.
+- **The change** to that price since the previous close (**1D**: the last close before the day the price is from, so a quote from Friday is compared with Thursday over the weekend; for a holding, Trading 212's price belongs to its market's session in progress or its last one, as on the dashboard), or over 1, 3 or 12 months when the closes cover the period in full. The figure is written out, not only coloured.
 - **Three months** of closes as a small line ending at the price now, green when it ends above where it started and red when below, with the start dotted across.
 - **The 12-month range**: where the price sits between the lowest and highest close of the year (and the price now), and how far below the high it is. When the closes cover less than a year (a recent listing, or Alpha Vantage's 100 days), the row gives the range since their first day instead.
 - **Levels**: the nearest open order (a stop at its trigger, a limit at its price) or armed above/below price alert, and its distance from the price; "+2 more" when there are others. `get_watchlist` returns all of them, nearest first.

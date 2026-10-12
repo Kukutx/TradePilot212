@@ -1,5 +1,6 @@
 import type { PolicyCheck } from "./automation.js";
 import type { ValuePoint } from "./history.js";
+import type { PortfolioToday } from "./today.js";
 
 export type TradingEnvironment = "demo" | "live";
 export type OrderSide = "buy" | "sell";
@@ -188,6 +189,8 @@ export interface PortfolioSnapshot {
   activity?: ActivityEvent[];
   /** The account value TradePilot recorded over the last 30 days, oldest first, when it has two days or more. */
   valueTrend?: ValuePoint[];
+  /** Each holding's move on the day, when the read asked for it (get_portfolio_today). */
+  today?: PortfolioToday;
   timestamp: string;
   warning?: string;
 }

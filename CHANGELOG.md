@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.34.0
+
+- The day's move. The dashboard now shows how the holdings moved on the day, in your currency, under the account value, with a **Day** column (a card row on a phone) giving each holding's change since its previous close and what it made or lost. Before the open, at night and over a weekend it is the last session's move, and the dashboard names that day ("Move on Fri, Oct 9, the last session").
+- The previous close is the quote provider's last close before the trading day of Trading 212's price, worked out from the exchange's own schedule; closes that do not yet have the last session give no move instead of two days' worth. Shares bought or sold that day count from their fill price, so a holding bought this morning shows only what it did since, and an instrument sold out that day still counts. Amounts are at today's exchange rates.
+- `get_portfolio_today` gives the same in the chat: the dashboard with each holding's move, the total and its change, and why a holding has none. The daily-brief skill leads with it.
+- The dashboard reads the moves after it shows, so a slow quote provider never holds it up, and the read reuses the dashboard's account read rather than asking Trading 212 again.
+- The watchlist's 1D for a holding now uses the same trading day, so over a weekend it is Friday's move rather than none.
+- The holdings table gives the shares free to sell under the quantity, and only when some are held in pies or by a pending sell, in place of its own column, so the Day column fits beside the stop-losses. Below 840 pixels the day's move shows under the price.
+
 ## 2.33.0
 
 - Your return against the market. The Performance tab's return chart draws an index fund's price over the same days as a dashed grey line beside your time-weighted return, with a legend, both values in the hover readout and a column in the table view. Under it, how many percentage points you are ahead of it or behind it, and its own return. **Compare with** picks the fund: the default, the ETFs you hold or watch, or none; the choice stays as you switch periods.

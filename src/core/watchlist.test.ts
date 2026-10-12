@@ -213,6 +213,17 @@ describe("watchlist view", () => {
     expect(describePayload(view)).toMatch(/; range since 2026-07-01 [\d.]+ to [\d.]+, 0% below the high;/);
   });
 
+  it("compares a holding's price over the weekend with the close before the last session", async () => {
+    const services = sample();
+    await services.watchlist.add("demo", "NVDA");
+    const points = closes("2026-07-01", 101, 100, 0.25);
+    // Saturday, with no schedule from Trading 212: Friday was the last session, so 1D is against Thursday's close.
+    const view = await watchlistView({ ...services, schedules: async () => [], priceHistory: async () => ({ prices: { source: "stooq", symbol: "NVDA.US", points } }) },
+      "demo", new Date("2026-10-10T12:00:00Z"));
+    expect(view.items[0]!.priceSource).toBe("broker");
+    expect(view.items[0]!.changes["1d"]).toBeCloseTo(128.75 / points.at(-2)!.close - 1, 6);
+  });
+
   it("checks a quote against the orders and alerts for its unit when the closes did not come", async () => {
     const services = sample();
     await services.watchlist.add("demo", "TSLA");

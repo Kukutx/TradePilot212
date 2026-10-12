@@ -213,6 +213,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .pnlBadge.positive { background: var(--tp-green-soft); color: var(--tp-green); }
 .pnlBadge.negative { background: var(--tp-red-soft); color: var(--tp-red); }
+.dayTotal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: 11px; min-width: 0; }
+.dayTotal b { font-size: 15px; font-weight: 740; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dayTotal > span { color: var(--tp-muted); font-size: 12px; }
+.dayCell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; line-height: 1.2; }
+.dayCell strong { font-size: 13px; font-weight: 700; }
+.dayCell small { font-size: 12px; font-weight: 600; opacity: .85; }
+.dayCell.inline { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.dayCell .daySince { flex-basis: 100%; color: var(--tp-muted); font-weight: 500; opacity: 1; }
+.positionDay { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--tp-border); font-size: 13px; }
+.positionDay > span:first-child { flex: none; color: var(--tp-muted); font-size: 12px; }
+.dayMissing { font-size: 12px; }
+.dayUnderPrice { display: none; margin-top: 3px; }
+.freeToSell { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
+.dayUnderPrice .dayCell { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; }
 .overviewSubline { margin-top: 10px; color: var(--tp-muted); font-size: 13px; }
 .valueTrend { display: flex; align-items: center; gap: 10px; margin-top: 12px; min-width: 0; }
 .valueTrend span { color: var(--tp-muted); font-size: 12px; line-height: 1.35; }
@@ -570,7 +584,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .stopInline { display: block; }
 }
 @container (max-width: 840px) {
-  .optionalColumn { display: none; }
+  .optionalColumn, .dayColumn { display: none; }
+  .dayUnderPrice { display: block; }
   .positionsTable { min-width: 0; }
   .actionText { display: none; }
   .iconAction { width: 38px; justify-content: center; padding: 0; }
