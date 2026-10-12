@@ -249,18 +249,19 @@ export function createMcpServer(
     {
       title: "Portfolio Performance",
       description:
-        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals). Read-only.",
+        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const summary = await insights.performance(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages);
+        const window = parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) });
         // The value TradePilot recorded each day; Trading 212 itself has no value history.
-        const points = await values.points(environment, { ...(summary.period.from ? { from: summary.period.from } : {}), to: summary.period.to }).catch(() => []);
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary, ...(points.length >= 2 ? { valueHistory: points } : {}) };
-        return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        const summary = await insights.performance(environment, window, maxPages, (account) =>
+          values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), ...(account === undefined ? {} : { account }) }));
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary };
+        return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }

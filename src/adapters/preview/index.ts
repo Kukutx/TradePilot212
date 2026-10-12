@@ -187,8 +187,10 @@ async function seedValueHistory(): Promise<void> {
     const progress = index / (days - 1);
     // A steady climb with a wobble and a dip two thirds of the way in; the last point is today's value.
     const wobble = index === days - 1 ? 0 : 0.018 * Math.sin(index / 6) + 0.01 * Math.sin(index / 1.7) - 0.05 * Math.exp(-(((progress - 0.66) / 0.05) ** 2));
-    const value = round(total * (0.8 + 0.2 * progress + wobble));
-    const at = new Date(today - (days - 1 - index) * 86_400_000);
+    // The sample account took out 500 ninety days ago, so the days before held that much more.
+    const ago = days - 1 - index;
+    const value = round(total * (0.8 + 0.2 * progress + wobble) + (ago > 90 ? 500 : 0));
+    const at = new Date(today - ago * 86_400_000);
     await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
   }
 }

@@ -1,13 +1,14 @@
-import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary, ValuePoint } from "../../shared/history";
+import { useState } from "react";
+import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
-import { BarList, ColumnChart, LineChart, type ChartLabels } from "../components/charts";
+import { BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels } from "../components/charts";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
 
-export type InsightPeriod = "ytd" | "1y" | "all";
+export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
 const COST_KEYS: Record<string, MessageKey> = {
   CURRENCY_CONVERSION_FEE: "costCurrencyConversionFee",
@@ -44,11 +45,14 @@ function instrumentDatum(ticker: string, book: InstrumentBook | undefined, name?
 }
 
 export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
-  const options: Array<[InsightPeriod, MessageKey]> = [["ytd", "periodYtd"], ["1y", "period1y"], ["all", "periodAll"]];
+  // Short labels keep five periods on one line in a phone-width frame; the full name is the accessible name.
+  const options: Array<[InsightPeriod, MessageKey, MessageKey]> = [
+    ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],
+  ];
   return (
     <div className="segmented" role="radiogroup" aria-label={t("period")}>
-      {options.map(([key, label]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(label)}</button>
+      {options.map(([key, short, full]) => (
+        <button key={key} type="button" role="radio" aria-checked={value === key} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
       ))}
     </div>
   );
@@ -176,20 +180,52 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
   );
 }
 
-/** The account value TradePilot recorded each day, with the change over the window. */
-function ValueHistoryPanel({ points, currency, locale, t }: { points: ValuePoint[]; currency: string; locale: SupportedLocale; t: Translator }) {
+/**
+ * The account value TradePilot recorded each day, with the change over the window. With a time-weighted
+ * return it opens on that instead, since the value also moves with every deposit and withdrawal.
+ */
+function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: ValuePoint[]; returns?: TimeWeightedReturn; currency: string; locale: SupportedLocale; t: Translator }) {
+  const [show, setShow] = useState<"return" | "value">("return");
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const change = last.totalValue - first.totalValue;
-  const compact = new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 });
+  const compact = new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", maximumFractionDigits: 2 });
+  const largest = Math.max(...points.map((point) => Math.abs(point.totalValue)));
+  // "€14.1K" or "1.41万" is exact to two digits after the leading ones; a finer step is written in full.
+  const valueAxis = (value: number, step: number) => step >= 10 ** (Math.floor(Math.log10(largest || 1)) - 2) ? compact.format(value)
+    : new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: decimalsOf(step) }).format(value);
+  const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
+  const asReturn = returns && show === "return";
+  // As many decimals as the gridline step needs: "+10%" a step of 10%, "+7.5%" a step of 2.5%.
+  const percentAxis = (value: number, step: number) => pct(value, locale, decimalsOf(step * 100), { signed: true });
+  const controls = returns && (
+    <div className="segmented" role="radiogroup" aria-label={t("chartShow")}>
+      {(["return", "value"] as const).map((key) => (
+        <button key={key} type="button" role="radio" aria-checked={show === key} className={show === key ? "active" : ""} onClick={() => setShow(key)}>{t(key === "return" ? "chartReturn" : "chartValue")}</button>
+      ))}
+    </div>
+  );
   return (
     <section className="dataPanel">
-      <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={(value) => compact.format(value)}
-        data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale), time: Date.parse(`${point.date}T00:00:00Z`) }))} />
-      <p className="panelNote">
-        <strong className={signedClass(change)}>{money(change, currency, locale, { signed: true })}{first.totalValue ? ` (${pct(change / first.totalValue, locale, 1, { signed: true })})` : ""}</strong>
-        {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}
-      </p>
+      {asReturn ? (
+        <LineChart title={t("returnHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("returnColumn")} labels={chartLabels(t)} zero controls={controls}
+          axis={percentAxis}
+          data={returns.series.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.return, display: pct(point.return, locale, 2, { signed: true }), time: time(point.date) }))} />
+      ) : (
+        <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={valueAxis} {...(controls ? { controls } : {})}
+          data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale), time: time(point.date) }))} />
+      )}
+      {asReturn ? (
+        <p className="panelNote">
+          <strong className={signedClass(returns.return)}>{pct(returns.return, locale, 1, { signed: true })}</strong>
+          {" · "}{fill(t(returns.netFlows > 0 ? "returnHistoryNoteDeposits" : returns.netFlows < 0 ? "returnHistoryNoteWithdrawals" : "returnHistoryNote"), { days: String(returns.series.length), amount: money(Math.abs(returns.netFlows), currency, locale) })}
+        </p>
+      ) : (
+        <p className="panelNote">
+          <strong className={signedClass(change)}>{money(change, currency, locale, { signed: true })}{first.totalValue ? ` (${pct(change / first.totalValue, locale, 1, { signed: true })})` : ""}</strong>
+          {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}
+        </p>
+      )}
     </section>
   );
 }
@@ -216,6 +252,12 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, busy 
               {data.annualizedSince && <> · <span className="noWrap">{fill(t("annualizedSince"), { date: dayLabel(data.annualizedSince, locale) })}</span></>}
             </span>
           )}
+          {data.timeWeighted && (
+            <span className="overviewSubline">
+              {t("timeWeightedReturn")} · <strong className={signedClass(data.timeWeighted.return)}>{pct(data.timeWeighted.return, locale, 1, { signed: true })}</strong>
+              {" · "}<span className="noWrap">{fill(t("timeWeightedRange"), { from: dayLabel(data.timeWeighted.from, locale), to: dayLabel(data.timeWeighted.to, locale) })}</span>
+            </span>
+          )}
         </div>
         <div className="metricGrid">
           <Metric label={t("incomeTotal")} value={m(data.income.dividends + data.income.interest)} />
@@ -225,7 +267,7 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, busy 
         </div>
       </section>
 
-      {data.valueHistory && data.valueHistory.length >= 2 && <ValueHistoryPanel points={data.valueHistory} currency={currency} locale={locale} t={t} />}
+      {data.valueHistory && data.valueHistory.length >= 2 && <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} currency={currency} locale={locale} t={t} />}
 
       <div className="twoColumn">
         <section className="dataPanel">

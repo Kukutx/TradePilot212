@@ -13,6 +13,7 @@ import type {
   MarketStatus,
   PerformanceSummary,
   TaxYearSummary,
+  ValuePoint,
 } from "../shared/history.js";
 import {
   analyzeAllocation, currentTaxYear, DEFAULT_ALLOCATION_LIMITS, marketStatus, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear,
@@ -146,9 +147,15 @@ export class InsightsService {
     return analyzeAllocation(environment, account, positions, instruments, { ...DEFAULT_ALLOCATION_LIMITS, ...Object.fromEntries(Object.entries(limits ?? {}).filter(([, value]) => value !== undefined)) });
   }
 
-  async performance(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number): Promise<PerformanceSummary> {
+  /**
+   * `readValues` gives the account values TradePilot recorded in the window for one Trading 212 account, for
+   * the value chart and the time-weighted return.
+   */
+  async performance(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number, readValues?: (account: number | undefined) => Promise<ValuePoint[]>): Promise<PerformanceSummary> {
     const client = this.client(environment);
     const account: AccountSummary = await client.getAccountSummary();
+    // Only this account's days: after a switch of keys, the old account's days would mix with its history.
+    const values = readValues ? await readValues(typeof account.id === "number" ? account.id : undefined).catch(() => []) : [];
     const valuedAt = new Date();
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
@@ -157,6 +164,8 @@ export class InsightsService {
       environment, account, window, now: valuedAt,
       orders: orders.items, dividends: dividends.items, transactions: transactions.items,
       truncated: orders.truncated || dividends.truncated || transactions.truncated,
+      transactionsTruncated: transactions.truncated,
+      ...(values.length ? { values } : {}),
     });
   }
 

@@ -36822,6 +36822,31 @@ function moneyWeightedReturn(flows) {
   }
   return (low + high) / 2;
 }
+var MIN_INVESTED = 1;
+function timeWeightedReturn(points2, flows) {
+  const readings = points2.map((point) => ({ point, at: Date.parse(point.at) })).filter((reading) => Number.isFinite(reading.at) && Number.isFinite(reading.point.totalValue)).sort((a, b) => a.at - b.at);
+  if (readings.length < 2) return void 0;
+  const series = [{ date: readings[0].point.date, return: 0 }];
+  let growth = 1, netFlows = 0;
+  for (let index = 1; index < readings.length; index++) {
+    const start = readings[index - 1], end = readings[index];
+    const length = end.at - start.at;
+    const inside = flows.filter((flow) => Number.isFinite(flow.amount) && flow.at > start.at && flow.at <= end.at);
+    const total = inside.reduce((sum, flow) => sum + flow.amount, 0);
+    const weighted = inside.reduce((sum, flow) => sum + flow.amount * (length > 0 ? (end.at - flow.at) / length : 0), 0);
+    const invested = start.point.totalValue + weighted;
+    const gain = end.point.totalValue - start.point.totalValue - total;
+    netFlows += total;
+    if (invested < MIN_INVESTED) {
+      if (Math.abs(gain) >= MIN_INVESTED) return void 0;
+    } else {
+      growth *= 1 + gain / invested;
+    }
+    if (!(growth > 0)) return void 0;
+    series.push({ date: end.point.date, return: round4(growth - 1, 6) });
+  }
+  return { return: round4(growth - 1, 6), from: readings[0].point.date, to: readings[readings.length - 1].point.date, netFlows: round4(netFlows), series };
+}
 function summarizePerformance(input2) {
   const { window } = input2;
   const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
@@ -36898,6 +36923,24 @@ function summarizePerformance(input2) {
       notes.push("annualizedReturn needs at least a year of deposits; it is omitted until then.");
     }
   }
+  let timeWeighted;
+  if (input2.values && input2.values.length >= 2) {
+    const firstReading = Math.min(...input2.values.map((point) => Date.parse(point.at)).filter(Number.isFinite));
+    const oldestRead = Math.min(...input2.transactions.map((item) => Date.parse(item.dateTime ?? "")).filter(Number.isFinite));
+    if ((input2.transactionsTruncated ?? input2.truncated) && !(oldestRead <= firstReading)) {
+      notes.push("timeWeighted is omitted because the deposit and withdrawal history stops before the first recorded day; raise maxPages.");
+    } else {
+      const flows = transactions.flatMap((item) => {
+        const type = (item.type ?? "").toUpperCase();
+        const at = Date.parse(item.dateTime ?? "");
+        const amount2 = Math.abs(item.amount ?? 0);
+        if (!Number.isFinite(at)) return [];
+        return DEPOSIT.has(type) ? [{ at, amount: amount2 }] : WITHDRAW.has(type) ? [{ at, amount: -amount2 }] : type === "TRANSFER" && item.amount ? [{ at, amount: item.amount }] : [];
+      });
+      timeWeighted = timeWeightedReturn(input2.values, flows);
+      if (!timeWeighted) notes.push("timeWeighted is omitted because a stretch between recorded days began with nothing invested.");
+    }
+  }
   return {
     kind: "performance",
     environment: input2.environment,
@@ -36914,6 +36957,8 @@ function summarizePerformance(input2) {
     ...annualized ? { annualizedReturn: Math.round(annualized.rate * 1e4) / 1e4, annualizedSince: annualized.since } : {},
     trades: { buys, sells, turnover: round4(turnover) },
     byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round4(row.realizedProfitLoss), dividends: round4(row.dividends), costs: round4(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    ...input2.values && input2.values.length >= 2 ? { valueHistory: input2.values } : {},
+    ...timeWeighted ? { timeWeighted } : {},
     notes,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -37206,9 +37251,14 @@ var InsightsService = class {
     const [account, positions, instruments] = await Promise.all([client.getAccountSummary(), client.getPositions(), this.deps.instruments(environment).catch(() => [])]);
     return analyzeAllocation(environment, account, positions, instruments, { ...DEFAULT_ALLOCATION_LIMITS, ...Object.fromEntries(Object.entries(limits ?? {}).filter(([, value]) => value !== void 0)) });
   }
-  async performance(environment, window, maxPages) {
+  /**
+   * `readValues` gives the account values TradePilot recorded in the window for one Trading 212 account, for
+   * the value chart and the time-weighted return.
+   */
+  async performance(environment, window, maxPages, readValues) {
     const client = this.client(environment);
     const account = await client.getAccountSummary();
+    const values = readValues ? await readValues(typeof account.id === "number" ? account.id : void 0).catch(() => []) : [];
     const valuedAt = /* @__PURE__ */ new Date();
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
@@ -37221,7 +37271,9 @@ var InsightsService = class {
       orders: orders.items,
       dividends: dividends.items,
       transactions: transactions.items,
-      truncated: orders.truncated || dividends.truncated || transactions.truncated
+      truncated: orders.truncated || dividends.truncated || transactions.truncated,
+      transactionsTruncated: transactions.truncated,
+      ...values.length ? { values } : {}
     });
   }
   async income(environment, window, maxPages) {
@@ -38110,7 +38162,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.27.0"
+  version: "2.28.0"
 };
 
 // src/core/text-summary.ts
@@ -38263,6 +38315,7 @@ function performance(data) {
     ...data.annualizedReturn === void 0 ? [] : [`Annualized return (money-weighted, since ${day(data.annualizedSince)}) ${signed(data.annualizedReturn * 100, 1)}% a year.`],
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num2(data.trades.turnover)}.`,
     ...valueHistoryLines(data.valueHistory),
+    ...data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num2(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : [],
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
     ...data.notes
@@ -38882,17 +38935,17 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals). Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const summary = await insights.performance(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages);
-        const points2 = await values.points(environment, { ...summary.period.from ? { from: summary.period.from } : {}, to: summary.period.to }).catch(() => []);
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...points2.length >= 2 ? { valueHistory: points2 } : {} };
-        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
+        const summary = await insights.performance(environment, window, maxPages, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }));
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary };
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

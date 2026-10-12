@@ -1,7 +1,7 @@
 // Small, dependency-free charts. Single-series only: one hue, values always labelled,
 // a native tooltip on every mark, and a table fallback so nothing relies on color alone.
 
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 export interface BarDatum { key: string; label: string; value: number; display: string; sublabel?: string; title?: string }
 
@@ -93,17 +93,50 @@ const LINE_HEIGHT = 184;
 const LINE_PAD = { top: 14, right: 14, bottom: 26, left: 60 };
 
 /**
- * One series over time: a 2px line over a faint area, three recessive gridlines with values, the first
- * and last dates, and a crosshair with a tooltip on hover or arrow keys. A table view lists every point.
+ * Gridline values at round steps (1, 2, 2.5 or 5 times a power of ten) inside `min`..`max`, so the axis
+ * reads "0%, +10%, +20%", not "+13%": three of them where a step allows, up to five rather than only two.
  */
-export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }: {
+export function niceTicks(min: number, max: number): { ticks: number[]; step: number } {
+  const span = max - min;
+  if (!(span > 0) || !Number.isFinite(span)) return { ticks: [min], step: 0 };
+  const base = 10 ** (Math.floor(Math.log10(span)) - 1);
+  let best: { ticks: number[]; step: number; score: number } | undefined;
+  for (const multiple of [1, 2, 2.5, 5, 10, 20, 25, 50, 100]) {
+    const step = multiple * base;
+    const first = Math.ceil(min / step - 1e-9);
+    const last = Math.floor(max / step + 1e-9);
+    const count = last - first + 1;
+    // One gridline says nothing about scale, and two leave much of the line unmarked.
+    const score = count < 2 ? 100 : count === 2 ? 2.5 : count - 3;
+    if (best && score >= best.score) continue;
+    const ticks = Array.from({ length: Math.max(0, count) }, (_, index) => Number(((first + index) * step).toPrecision(12)));
+    best = { ticks, step, score };
+  }
+  return { ticks: best!.ticks, step: best!.step };
+}
+
+/** The decimals a gridline step is written with: 0 for 10 or 5, 1 for 2.5 or 0.5, at most 2. */
+export function decimalsOf(step: number): number {
+  for (let digits = 0; digits < 2; digits++) if (Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) < 1e-6) return digits;
+  return 2;
+}
+
+/**
+ * One series over time: a 2px line over a faint area, recessive gridlines at round values, the first
+ * and last dates, and a crosshair with a tooltip on hover or arrow keys. A table view lists every point.
+ * With `zero`, a line marks zero and the area fills between it and the series, for values that go negative.
+ */
+export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, zero, controls }: {
   data: LinePoint[];
   title: string;
   labels: ChartLabels;
   nameHeader: string;
   valueHeader: string;
-  /** Short form of a value for the axis. */
-  axis: (value: number) => string;
+  /** Short form of a gridline value; `step` is the distance between gridlines, for its precision. */
+  axis: (value: number, step: number) => string;
+  zero?: boolean;
+  /** Shown in the caption beside the table switch. */
+  controls?: ReactNode;
 }) {
   const [asTable, setAsTable] = useState(false);
   const [active, setActive] = useState<number | null>(null);
@@ -117,9 +150,10 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }
     return () => observer.disconnect();
   }, [asTable]);
   const values = data.map((item) => item.value);
-  let low = Math.min(...values);
-  let high = Math.max(...values);
+  let low = Math.min(...values, ...(zero ? [0] : []));
+  let high = Math.max(...values, ...(zero ? [0] : []));
   if (high - low < 1e-9) { low -= Math.max(1, Math.abs(low) * 0.01); high += Math.max(1, Math.abs(high) * 0.01); }
+  const grid = niceTicks(low, high);
   const span = high - low;
   low -= span * 0.08;
   high += span * 0.08;
@@ -133,8 +167,8 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }
   const y = (value: number) => LINE_PAD.top + (1 - (value - low) / (high - low)) * plotHeight;
   const line = data.map((item, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(item.value).toFixed(1)}`).join("");
   const base = LINE_PAD.top + plotHeight;
-  const area = `${line}L${x(data.length - 1).toFixed(1)},${base}L${x(0).toFixed(1)},${base}Z`;
-  const ticks = [high - span * 0.08, (high + low) / 2, low + span * 0.08];
+  const floor = zero ? y(0) : base;
+  const area = `${line}L${x(data.length - 1).toFixed(1)},${floor.toFixed(1)}L${x(0).toFixed(1)},${floor.toFixed(1)}Z`;
   const point = active === null ? undefined : data[active];
   const pick = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -154,7 +188,11 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }
   const latest = data[data.length - 1];
   return (
     <figure className="chartFigure">
-      <figcaption><span>{title}</span><ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} /></figcaption>
+      <figcaption>
+        <span>{title}</span>
+        {controls ? <span className="chartControls">{controls}<ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} /></span>
+          : <ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} />}
+      </figcaption>
       {asTable ? (
         <table className="chartTable"><thead><tr><th>{nameHeader}</th><th>{valueHeader}</th></tr></thead>
           <tbody>{[...data].reverse().map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.display}</td></tr>)}</tbody></table>
@@ -165,12 +203,13 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis }
             aria-label={`${title}: ${first?.label} ${first?.display}, ${latest?.label} ${latest?.display}`}
             onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onKeyDown={step} onBlur={() => setActive(null)}
           >
-            {ticks.map((tick) => (
+            {grid.ticks.map((tick) => (
               <g key={tick} className="lineGrid">
                 <line x1={LINE_PAD.left} x2={width - LINE_PAD.right} y1={y(tick)} y2={y(tick)} />
-                <text x={LINE_PAD.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{axis(tick)}</text>
+                <text x={LINE_PAD.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{axis(tick, grid.step)}</text>
               </g>
             ))}
+            {zero && <line className="lineZero" x1={LINE_PAD.left} x2={width - LINE_PAD.right} y1={floor} y2={floor} />}
             <path className="lineArea" d={area} />
             <path className="linePath" d={line} />
             <text className="lineAxis" x={x(0)} y={LINE_HEIGHT - 6} textAnchor="start">{first?.label}</text>

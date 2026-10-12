@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.28.0
+
+- A real return for any period. `get_portfolio_performance` adds `timeWeighted`: the time-weighted return over the days TradePilot recorded the account value, with deposits and withdrawals taken out, so it shows how the money invested did. Each stretch between two recorded days is measured by the Modified Dietz method, which weighs a deposit or withdrawal by how long it was in, and the stretches are chained. Unlike the simple and money-weighted returns, it works for a window that starts or ends in the past, such as the last month or three months. It is left out when the deposit and withdrawal history read stops after the first recorded day.
+- The Performance tab's chart opens on **Return**, the time-weighted return day by day with a line at zero, and switches to **Value** for the account value as before. The note under it says how much was paid in or taken out in between and that it is not counted as a gain or a loss. The overview adds a "Time-weighted return" line with its dates.
+- The period switch adds **1M** and **3M** next to YTD, 1Y and All, with short labels so the five fit on a phone; each keeps its full name for screen readers.
+- The line charts put their gridlines at round values, "0%, +10%, +20%" or "€15K, €16K, €17K", instead of at the top, middle and bottom of the line, and write each with the decimals its step needs, so no two gridlines read the same.
+- The text summary and the tool's one-line result give the time-weighted return too. The preview's made-up value history now reflects the sample account's withdrawal.
+
 ## 2.27.0
 
 - Size a buy by risk. The `risk` sizing mode of `review_trading212_order_intent` buys as many shares as would lose a set amount, or a percentage of the account value, if the price fell to a stop-loss: "buy Apple risking 1% of my account with a stop at 200". The entry is the worst price the buy can fill at (the limit, or the higher of the trigger or reference price and the last price), the loss is converted to the account currency like other amounts, and the quantity never goes beyond what the available cash buys. The stop-loss itself is still a separate order, set once the buy fills.

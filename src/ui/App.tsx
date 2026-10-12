@@ -82,7 +82,10 @@ const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", al
 function periodOf(range: { from?: string; to: string }): InsightPeriod {
   if (!range.from) return "all";
   const from = new Date(range.from);
-  return from.getUTCMonth() === 0 && from.getUTCDate() === 1 && from.getUTCHours() === 0 ? "ytd" : "1y";
+  if (from.getUTCMonth() === 0 && from.getUTCDate() === 1 && from.getUTCHours() === 0) return "ytd";
+  // The server's 1m and 3m windows are 30 and 91 days long; any other bounded window shows as 12 months.
+  const days = (Date.parse(range.to) - from.getTime()) / 86_400_000;
+  return Math.abs(days - 30) < 1 ? "1m" : Math.abs(days - 91) < 1 ? "3m" : "1y";
 }
 const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
   payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income";
