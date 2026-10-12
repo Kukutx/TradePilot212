@@ -34,6 +34,7 @@ export type TradePilotErrorCode =
   | "BROKER_REQUEST_FAILED"
   | "EXECUTION_STATUS_UNKNOWN"
   | "EXECUTION_BUSY"
+  | "RISK_CHANGED"
   | "INTERNAL_ERROR";
 
 export interface StructuredError {
@@ -351,7 +352,8 @@ export type OrderNoticeCode =
   | "LIMIT_FILLS_AT_ONCE"
   | "PRICE_FAR_FROM_LAST"
   | "RISK_OVER_BUDGET"
-  | "RISK_STOP_ABOVE_PRICE";
+  | "RISK_STOP_ABOVE_PRICE"
+  | "STOP_SLIPPAGE";
 
 export interface OrderNotice {
   code: OrderNoticeCode;

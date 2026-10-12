@@ -45,7 +45,9 @@ interface PendingBasket {
   independentSells: boolean;
   planId?: string;
 }
-type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
+/** What the preview of a risk-sized buy showed: the loss over budget it named, or that the price was under the stop-loss. */
+type RiskShown = { loss?: number; stopAbove?: true };
+type Pending = { kind: "order"; draft: OrderDraft; risk?: RiskShown } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
 export interface OrderOutcome {
@@ -310,20 +312,22 @@ export function validateOrderAgainstSnapshot(
   };
 }
 
-/** Warnings for a limit or stop that will not behave the way its price suggests. */
 /**
  * A risk-sized buy checked again at the prices of the moment: the loss at its stop-loss, valued as the review
  * values the order (the limit, or the highest of the trigger, reference and last price). Over the budget it was
- * sized for, because the price moved or the quantity was changed, it says so before you confirm.
+ * sized for, because the price moved or the quantity was changed, it says so before you confirm. So it does
+ * when the order's price, or the market price (`marketPrice`, the holding's or the quote's), is at or under the
+ * stop-loss: the stop would trigger as soon as the buy fills.
  */
-export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; estimatedNotionalCurrency: string; accountCurrency?: string }): OrderNotice[] {
+export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; estimatedNotionalCurrency: string; accountCurrency?: string; marketPrice?: number }): OrderNotice[] {
   const limit = draft.riskBudget;
   if (!limit || draft.side !== "buy" || !current.estimatedNotional || current.accountNotional === undefined || !(draft.quantity > 0)) return [];
   const price = current.estimatedNotional / draft.quantity;
   const instrumentCurrency = current.estimatedNotionalCurrency;
   const accountCurrency = current.accountCurrency ?? instrumentCurrency;
-  if (!(price > limit.stopLossPrice)) {
-    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round(price, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round(price, 6), currency: instrumentCurrency } }];
+  const lowest = current.marketPrice && current.marketPrice > 0 ? Math.min(price, current.marketPrice) : price;
+  if (!(lowest > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round(lowest, 6), currency: instrumentCurrency } }];
   }
   const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
   // A cent of rounding is not over the budget.
@@ -335,6 +339,30 @@ export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: nu
   }];
 }
 
+/** The risk notices a preview showed, kept with its confirmation so the send can tell what is new. */
+function riskShown(notices: OrderNotice[]): { risk?: RiskShown } {
+  const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
+  const loss = typeof over?.details?.loss === "number" ? over.details.loss : undefined;
+  const stopAbove = notices.some((notice) => notice.code === "RISK_STOP_ABOVE_PRICE");
+  return loss === undefined && !stopAbove ? {} : { risk: { ...(loss === undefined ? {} : { loss }), ...(stopAbove ? { stopAbove: true as const } : {}) } };
+}
+
+/**
+ * At the send, a risk-sized buy must lose no more at its stop-loss than the preview said: its budget, or the
+ * larger loss the preview named. A price under the stop-loss the preview did not show stops it too. Either
+ * way nothing is sent, and a new review shows the order at the new price.
+ */
+export function assertRiskAsShown(notices: OrderNotice[], shown: RiskShown | undefined) {
+  for (const notice of notices) {
+    if (notice.code === "RISK_STOP_ABOVE_PRICE" && !shown?.stopAbove)
+      fail("RISK_CHANGED", `${notice.message} The price moved after the review; review the order again.`, notice.details ?? {});
+    const loss = notice.details?.loss;
+    if (notice.code === "RISK_OVER_BUDGET" && typeof loss === "number" && !(shown?.loss !== undefined && loss <= shown.loss + 0.005))
+      fail("RISK_CHANGED", `${notice.message} The review showed ${shown?.loss === undefined ? "no loss over the budget" : `a loss of ${shown.loss.toFixed(2)}`}; review the order again.`, notice.details ?? {});
+  }
+}
+
+/** Warnings for a limit or stop that will not behave the way its price suggests. */
 export function priceNotices(draft: OrderDraft, last: number | undefined, currency: string): OrderNotice[] {
   if (!last || draft.type === "market") return [];
   const notices: OrderNotice[] = [];
@@ -820,17 +848,22 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    // A risk-sized Market or Stop buy of an instrument you do not hold is checked at the quote of the moment
-    // when that is above the price it was sized at, so its value and its loss at the stop are not understated.
-    if (draft.riskBudget && draft.side === "buy" && !position?.currentPrice && (draft.type === "market" || draft.type === "stop")) {
+    // A risk-sized buy of an instrument you do not hold reads the quote of the moment. A Market or Stop takes it
+    // when it is above the price it was sized at, so its value and its loss at the stop are not understated; any
+    // order type keeps it as the market price, so a fall to or under the stop-loss is seen too.
+    let marketPrice = position?.currentPrice || undefined;
+    if (draft.riskBudget && draft.side === "buy" && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => undefined);
-      if (quote && quote.price > (draft.referencePrice ?? 0)) {
-        draft.referencePrice = quote.price;
-        draft.referencePriceAt = quote.asOf;
+      if (quote) {
+        marketPrice = quote.price;
+        if ((draft.type === "market" || draft.type === "stop") && quote.price > (draft.referencePrice ?? 0)) {
+          draft.referencePrice = quote.price;
+          draft.referencePriceAt = quote.asOf;
+        }
       }
     }
     const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
 
   private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
@@ -862,7 +895,7 @@ export class TradingService {
     }
   }
 
-  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number }, market?: MarketStatus): OrderNotice[] {
+  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number; marketPrice?: number }, market?: MarketStatus): OrderNotice[] {
     const notices: OrderNotice[] = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency), ...riskNotices(draft, current)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === undefined) {
@@ -877,6 +910,13 @@ export class TradingService {
       if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    // A Stop becomes a Market order when it triggers, so a gap through the trigger fills past it.
+    if (draft.type === "stop")
+      notices.push({
+        code: "STOP_SLIPPAGE",
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the trigger, and a fill above it loses more" : ""}.`,
+        details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" },
+      });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))
       notices.push({
         code: "MARKET_HOURS_UNKNOWN",
@@ -945,7 +985,7 @@ export class TradingService {
     const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
-    const confirmation = await this.issue({ kind: "order", draft });
+    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
       kind: "order_preview",
@@ -1019,6 +1059,7 @@ export class TradingService {
       // Re-check the policy: the market may have closed or the daily budget filled since review.
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+      assertRiskAsShown(riskNotices(draft, current), pending.risk);
     } catch (error) {
       return this.failedSubmission(draft, 0, error);
     }

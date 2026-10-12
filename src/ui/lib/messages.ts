@@ -139,6 +139,12 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "BROKER_REQUEST_FAILED": return t("errorBroker");
     case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
     case "EXECUTION_BUSY": return t("errorExecutionBusy");
+    case "RISK_CHANGED": {
+      const account = typeof details.accountCurrency === "string" ? details.accountCurrency : undefined;
+      if (typeof details.loss === "number") return fill(t("errorRiskChangedLoss"), { loss: amount(details.loss, account, locale) });
+      if (typeof details.stopLossPrice === "number") return fill(t("errorRiskChangedStop"), { stop: sum("stopLossPrice") });
+      return problem.message;
+    }
     case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
     case "PIE_NOT_FOUND": return t("errorPieNotFound");
@@ -156,6 +162,7 @@ export function noticeText(notice: OrderNotice, t: Translator, locale: Supported
   switch (notice.code) {
     case "LIVE_FUNDS": return t("liveFundsNotice");
     case "MARKET_SLIPPAGE": return t("marketSlippageNotice");
+    case "STOP_SLIPPAGE": return t(details.side === "sell" ? "noticeStopSlippageSell" : details.riskSized === true ? "noticeStopSlippageRisk" : "noticeStopSlippageBuy");
     case "REFERENCE_PRICE_STALE": {
       const seconds = typeof details.ageSeconds === "number" ? details.ageSeconds : undefined;
       return seconds === undefined ? t("referenceStaleNotice") : `${t("referenceStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;

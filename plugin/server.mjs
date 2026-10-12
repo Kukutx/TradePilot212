@@ -35494,8 +35494,9 @@ function riskNotices(draft, current) {
   const price = current.estimatedNotional / draft.quantity;
   const instrumentCurrency = current.estimatedNotionalCurrency;
   const accountCurrency = current.accountCurrency ?? instrumentCurrency;
-  if (!(price > limit.stopLossPrice)) {
-    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round3(price, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round3(price, 6), currency: instrumentCurrency } }];
+  const lowest = current.marketPrice && current.marketPrice > 0 ? Math.min(price, current.marketPrice) : price;
+  if (!(lowest > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round3(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round3(lowest, 6), currency: instrumentCurrency } }];
   }
   const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
   if (loss <= limit.budget + 5e-3) return [];
@@ -35504,6 +35505,21 @@ function riskNotices(draft, current) {
     message: `At the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency}, this order would now lose about ${loss.toFixed(2)} ${accountCurrency}, more than the ${limit.budget.toFixed(2)} ${accountCurrency} it was sized for: the price has moved or the quantity was changed.`,
     details: { loss: round3(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency }
   }];
+}
+function riskShown(notices) {
+  const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
+  const loss = typeof over?.details?.loss === "number" ? over.details.loss : void 0;
+  const stopAbove = notices.some((notice) => notice.code === "RISK_STOP_ABOVE_PRICE");
+  return loss === void 0 && !stopAbove ? {} : { risk: { ...loss === void 0 ? {} : { loss }, ...stopAbove ? { stopAbove: true } : {} } };
+}
+function assertRiskAsShown(notices, shown) {
+  for (const notice of notices) {
+    if (notice.code === "RISK_STOP_ABOVE_PRICE" && !shown?.stopAbove)
+      fail("RISK_CHANGED", `${notice.message} The price moved after the review; review the order again.`, notice.details ?? {});
+    const loss = notice.details?.loss;
+    if (notice.code === "RISK_OVER_BUDGET" && typeof loss === "number" && !(shown?.loss !== void 0 && loss <= shown.loss + 5e-3))
+      fail("RISK_CHANGED", `${notice.message} The review showed ${shown?.loss === void 0 ? "no loss over the budget" : `a loss of ${shown.loss.toFixed(2)}`}; review the order again.`, notice.details ?? {});
+  }
 }
 function priceNotices(draft, last, currency) {
   if (!last || draft.type === "market") return [];
@@ -35925,15 +35941,19 @@ var TradingService = class {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    if (draft.riskBudget && draft.side === "buy" && !position?.currentPrice && (draft.type === "market" || draft.type === "stop")) {
+    let marketPrice = position?.currentPrice || void 0;
+    if (draft.riskBudget && draft.side === "buy" && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => void 0);
-      if (quote && quote.price > (draft.referencePrice ?? 0)) {
-        draft.referencePrice = quote.price;
-        draft.referencePriceAt = quote.asOf;
+      if (quote) {
+        marketPrice = quote.price;
+        if ((draft.type === "market" || draft.type === "stop") && quote.price > (draft.referencePrice ?? 0)) {
+          draft.referencePrice = quote.price;
+          draft.referencePriceAt = quote.asOf;
+        }
       }
     }
     const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
   async snapshot(environment) {
     const client = this.client(environment);
@@ -35975,6 +35995,12 @@ var TradingService = class {
       if (fxAgeSeconds !== void 0 && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (draft.type === "stop")
+      notices.push({
+        code: "STOP_SLIPPAGE",
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the trigger, and a fill above it loses more" : ""}.`,
+        details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" }
+      });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))
       notices.push({
         code: "MARKET_HOURS_UNKNOWN",
@@ -36037,7 +36063,7 @@ var TradingService = class {
     const policy2 = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy2, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
-    const confirmation = await this.issue({ kind: "order", draft });
+    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
       kind: "order_preview",
@@ -36105,6 +36131,7 @@ var TradingService = class {
       current = await this.current(draft);
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+      assertRiskAsShown(riskNotices(draft, current), pending.risk);
     } catch (error62) {
       return this.failedSubmission(draft, 0, error62);
     }
@@ -38144,9 +38171,8 @@ function protectionLines(positions, orders, currency) {
     return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  const { atStops, atStopsShare } = portfolioProtection(positions, orders);
-  const limits = orders.some((order) => isSellStop(order) && sellsOnFall(order) && typeof order.limitPrice === "number");
-  const total = atStops === void 0 ? "" : ` If every stop triggers${limits ? " and fills" : ""}, the holdings: ${money2(-atStops, currency)} from now${atStopsShare === void 0 ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
+  const { atStops, atStopsShare, atStopsLimited } = portfolioProtection(positions, orders);
+  const total = atStops === void 0 ? "" : ` If every stop triggers${atStopsLimited ? " and fills" : ""}, the holdings: ${money2(-atStops, currency)} from now${atStopsShare === void 0 ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
   return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${total}${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 function portfolio(data) {

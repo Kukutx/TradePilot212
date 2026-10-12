@@ -136,6 +136,9 @@ describe("stop-loss protection", () => {
       { id: 97, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 112, status: "NEW" },
     ] });
     expect(twoLimits).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 \(stop-limits sell at their limit or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -/m);
+    // A stop-limit for something no longer held is not in the total, so the total needs no fill.
+    const stale = describePayload({ ...dashboard, orders: [...dashboard.orders, { id: 94, ticker: "TSLA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -3, stopPrice: 150, limitPrice: 145, status: "NEW" }] });
+    expect(stale).toMatch(/If every stop triggers, the holdings: -49\.45 EUR from now/m);
     // A stop placed by amount has no share count.
     const byAmount = describePayload({ ...dashboard, orders: [{ id: 95, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 118, status: "NEW" }] });
     expect(byAmount).toMatch(/^Stop-loss orders: NVDA_US_EQ an unknown number of 20 \(1 stop\(s\) placed by amount\) from 118, 8\.3% below the last price\./m);

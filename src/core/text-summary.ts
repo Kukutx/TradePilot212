@@ -7,7 +7,7 @@ import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, 
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
-import { isSellStop, portfolioProtection, sellsOnFall, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
+import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
 const MAX_ROWS = 30;
@@ -137,10 +137,9 @@ function protectionLines(positions: Position[], orders: PendingOrder[], currency
     return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  const { atStops, atStopsShare } = portfolioProtection(positions, orders);
-  // Stop-limits are counted at their limit, so the total holds only if they fill.
-  const limits = orders.some((order) => isSellStop(order) && sellsOnFall(order) && typeof order.limitPrice === "number");
-  const total = atStops === undefined ? "" : ` If every stop triggers${limits ? " and fills" : ""}, the holdings: ${money(-atStops, currency)} from now${atStopsShare === undefined ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
+  // Stop-limits are counted at their limit, so a total with one in it holds only if it fills.
+  const { atStops, atStopsShare, atStopsLimited } = portfolioProtection(positions, orders);
+  const total = atStops === undefined ? "" : ` If every stop triggers${atStopsLimited ? " and fills" : ""}, the holdings: ${money(-atStops, currency)} from now${atStopsShare === undefined ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
   return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${total}${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 

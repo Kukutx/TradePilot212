@@ -393,12 +393,44 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(limit.draft).toMatchObject({ limitPrice: 212, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" });
   });
 
+  it("sends a risk-sized buy only at a loss its review showed, and sees a fall under the stop-loss", async () => {
+    const writes: string[] = [];
+    let price = 216;
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "msft.us", fxRate: async () => undefined,
+      quote: async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price, asOf: new Date().toISOString(), source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true, writes }), quotes });
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    // Reviewed at 216, the quote is 230 by the send: the stop would lose 56.25 EUR, not the 30 the review showed.
+    const preview = await service.prepareOrder({ ...sized.draft });
+    expect(preview.notices.map((notice) => notice.code)).not.toContain("RISK_OVER_BUDGET");
+    price = 230;
+    const refused = await service.executeOrder(preview.token);
+    expect(refused).toMatchObject({ ok: false, status: "rejected", error: { code: "RISK_CHANGED", details: { loss: 56.25, budget: 30 } } });
+    expect(writes).toEqual([]);
+    // Reviewed at 230, the review names that loss, and the order is sent at it.
+    const again = await service.prepareOrder({ ...sized.draft });
+    expect(again.notices.map((notice) => notice.code)).toContain("RISK_OVER_BUDGET");
+    expect((await service.executeOrder(again.token)).ok).toBe(true);
+    expect(writes).toEqual(["POST /equity/orders/market"]);
+    // A fall to 190 keeps the higher price to value the order, but the review says it is under the stop-loss.
+    price = 190;
+    const fallen = await service.prepareOrder({ ...sized.draft });
+    expect(fallen.draft.referencePrice).toBe(216);
+    expect(fallen.notices.find((notice) => notice.code === "RISK_STOP_ABOVE_PRICE")?.details).toMatchObject({ price: 190, stopLossPrice: 200 });
+    // A Limit at 212 sees the fall too.
+    const limit = await service.prepareOrder({ ...sized.draft, type: "limit", limitPrice: 212, timeValidity: "DAY" });
+    expect(limit.notices.map((notice) => notice.code)).toContain("RISK_STOP_ABOVE_PRICE");
+  });
+
   it("counts a reference above a Stop's trigger, and carries the budget for the review to check", async () => {
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
     // Trigger 220, last price 216, but the price given is 230: 30 USD a share to the stop, not 20.
     const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "stop", stopPrice: 220, referencePrice: 230, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     expect(stop.risk?.entryPrice).toBe(230);
     expect(stop.draft).toMatchObject({ referencePrice: 230, riskBudget: { stopLossPrice: 200, budget: 30 } });
+    // A Stop fills at the market once triggered, so its review warns that a gap fills above the trigger.
+    const stopReview = await service.prepareOrder({ ...stop.draft, referencePriceAt: new Date().toISOString() });
+    expect(stopReview.notices.find((notice) => notice.code === "STOP_SLIPPAGE")).toMatchObject({ details: { side: "buy", riskSized: true }, message: expect.stringMatching(/fill above its trigger price; the loss at the stop-loss is counted from the trigger/) });
     const market = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     const fresh = { referencePriceAt: new Date().toISOString() };
     // As sized, the review finds the loss within the budget.
