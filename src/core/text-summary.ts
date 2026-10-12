@@ -289,6 +289,24 @@ function allocation(data: AllocationAnalysis): string[] {
     `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num(data.concentration.effectiveHoldings, 1)}.`,
     ...section("Flags", rows(data.flags, (flag) => flag.message)),
     ...(data.drift ? driftLines(data.drift) : []),
+    ...holdingRiskLines(data),
+  ];
+}
+
+/** Each holding's share of the holdings' risk beside its share of their value, and what was left out. */
+function holdingRiskLines(data: AllocationAnalysis): string[] {
+  const missing = data.riskMissing?.length ? [`Risk by holding leaves out ${data.riskMissing.map((item) => `${item.ticker} (${item.problem.replace(/\.$/, "")})`).join("; ")}.`] : [];
+  const { risk } = data;
+  if (!risk) return [...(data.riskProblem ? [`No risk by holding: ${data.riskProblem}`] : []), ...missing];
+  const pairs = risk.correlations.tickers.flatMap((a, i) => risk.correlations.tickers.slice(i + 1).map((b, k) => ({ a, b, value: risk.correlations.matrix[i]![i + 1 + k]! })))
+    .sort((x, y) => y.value - x.value);
+  const pair = (item: { a: string; b: string; value: number }) => `${item.a}–${item.b} ${num(item.value, 2)}`;
+  return [
+    ...section(`Risk by holding (weekly closes ${risk.from} to ${risk.to}, ${risk.weeks} weeks, each in its own currency; ${pct(risk.covered, 0)} of the holdings' value): together ${pct(risk.volatility)} a year, diversification ratio ${num(risk.diversification, 2)} (their own volatilities, weighted, over that)`,
+      rows(risk.rows, (row) => `${row.ticker}: ${pct(row.risk, 0)} of the risk, ${pct(row.weight, 0)} of the value; volatility ${pct(row.volatility, 0)} a year, correlation with them together ${num(row.correlation, 2)}`)),
+    ...(pairs.length > 1 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : []),
+    ...(risk.short?.length ? [`Too few weekly closes to measure: ${risk.short.join(", ")}.`] : []),
+    ...missing,
   ];
 }
 

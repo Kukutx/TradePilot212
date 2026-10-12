@@ -32702,10 +32702,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round18 = 0;
+    let round19 = 0;
     while (true) {
-      round18 += 1;
-      if (round18 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round19 += 1;
+      if (round19 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -37867,9 +37867,11 @@ var InsightsService = class {
     if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value });
     return value;
   }
-  async allocation(environment, limits) {
+  /** `onRead` is handed the positions and instruments read, for a caller that needs them too (risk by holding). */
+  async allocation(environment, limits, onRead) {
     const client = this.client(environment);
     const [account, positions, instruments] = await Promise.all([client.getAccountSummary(), client.getPositions(), this.deps.instruments(environment).catch(() => [])]);
+    onRead?.({ positions, instruments });
     return analyzeAllocation(environment, account, positions, instruments, { ...DEFAULT_ALLOCATION_LIMITS, ...Object.fromEntries(Object.entries(limits ?? {}).filter(([, value]) => value !== void 0)) });
   }
   /**
@@ -38972,7 +38974,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.45.0"
+  version: "2.46.0"
 };
 
 // src/shared/position-history.ts
@@ -39301,7 +39303,24 @@ function allocation(data) {
     `Types: ${data.byType.map((item) => `${item.type} ${pct(item.weight)}`).join(", ") || "none"}.`,
     `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num2(data.concentration.effectiveHoldings, 1)}.`,
     ...section("Flags", rows(data.flags, (flag2) => flag2.message)),
-    ...data.drift ? driftLines(data.drift) : []
+    ...data.drift ? driftLines(data.drift) : [],
+    ...holdingRiskLines(data)
+  ];
+}
+function holdingRiskLines(data) {
+  const missing = data.riskMissing?.length ? [`Risk by holding leaves out ${data.riskMissing.map((item) => `${item.ticker} (${item.problem.replace(/\.$/, "")})`).join("; ")}.`] : [];
+  const { risk } = data;
+  if (!risk) return [...data.riskProblem ? [`No risk by holding: ${data.riskProblem}`] : [], ...missing];
+  const pairs = risk.correlations.tickers.flatMap((a, i) => risk.correlations.tickers.slice(i + 1).map((b, k) => ({ a, b, value: risk.correlations.matrix[i][i + 1 + k] }))).sort((x, y) => y.value - x.value);
+  const pair = (item) => `${item.a}\u2013${item.b} ${num2(item.value, 2)}`;
+  return [
+    ...section(
+      `Risk by holding (weekly closes ${risk.from} to ${risk.to}, ${risk.weeks} weeks, each in its own currency; ${pct(risk.covered, 0)} of the holdings' value): together ${pct(risk.volatility)} a year, diversification ratio ${num2(risk.diversification, 2)} (their own volatilities, weighted, over that)`,
+      rows(risk.rows, (row) => `${row.ticker}: ${pct(row.risk, 0)} of the risk, ${pct(row.weight, 0)} of the value; volatility ${pct(row.volatility, 0)} a year, correlation with them together ${num2(row.correlation, 2)}`)
+    ),
+    ...pairs.length > 1 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : [],
+    ...risk.short?.length ? [`Too few weekly closes to measure: ${risk.short.join(", ")}.`] : [],
+    ...missing
   ];
 }
 var points = (value) => `${signed(value * 100, 1)} pts`;
@@ -39900,6 +39919,7 @@ function createPriceHistory(deps) {
   };
 }
 var SAMPLE_DAILY_MOVE = 0.015;
+var MARKET_SEED = 6221071;
 function seedOf(text) {
   let hash2 = 2166136261;
   for (let index = 0; index < text.length; index++) hash2 = Math.imul(hash2 ^ text.charCodeAt(index), 16777619);
@@ -39923,10 +39943,12 @@ function samplePriceHistory(ticker, input2) {
   const days = [];
   for (let day2 = dayOf(input2.from.getTime()); day2 <= dayOf(input2.to.getTime()); day2++) if (weekday(day2)) days.push(day2);
   const seed = seedOf(ticker);
-  const normal = (day2) => {
-    const random = seeded(seed ^ Math.imul(day2, 2654435761));
+  const draw = (from, day2) => {
+    const random = seeded(from ^ Math.imul(day2, 2654435761));
     return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
   };
+  const loading = 0.35 + 0.5 * seeded(seed)();
+  const normal = (day2) => loading * draw(MARKET_SEED, day2) + Math.sqrt(1 - loading ** 2) * draw(seed, day2);
   const walk = [0];
   for (let index = 1; index < days.length; index++) walk.push(walk[index - 1] + SAMPLE_DAILY_MOVE * normal(days[index]));
   const fixed = /* @__PURE__ */ new Map();
@@ -40948,12 +40970,119 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
   };
 }
 
-// src/core/benchmark.ts
+// src/shared/holding-risk.ts
+var MIN_WEEKS = 26;
+var MATRIX_SIZE = 10;
+var WEEKS_A_YEAR = 52;
+var FLAT_VARIANCE = 1e-6;
 var DAY_MS12 = 864e5;
+var round15 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
+var dayNumber2 = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS12;
+var weekdayOf2 = (day2) => ((day2 + 3) % 7 + 7) % 7;
+var weekOf = (day2) => day2 - weekdayOf2(day2);
+function weeklyCloses(points2, today) {
+  const now = dayNumber2(today);
+  const open2 = weekdayOf2(now) < 5 ? weekOf(now) : void 0;
+  const weeks = /* @__PURE__ */ new Map();
+  for (const point of points2) {
+    const day2 = dayNumber2(point.date);
+    if (!Number.isFinite(day2) || !(point.close > 0) || day2 > now) continue;
+    const week = weekOf(day2);
+    if (week === open2) continue;
+    const seen = weeks.get(week);
+    if (!seen || seen.date <= point.date) weeks.set(week, { date: point.date, close: point.close });
+  }
+  return weeks;
+}
+function holdingRiskOf(inputs, today, totalValue) {
+  const valued = inputs.filter((input2) => input2.value > 0 && Number.isFinite(input2.value));
+  const total = Math.max(totalValue ?? 0, valued.reduce((sum, input2) => sum + input2.value, 0));
+  const read = valued.map((input2) => ({ ...input2, weeks: weeklyCloses(input2.points, today) }));
+  const short = read.filter((input2) => input2.weeks.size <= MIN_WEEKS).map((input2) => input2.ticker);
+  const measured = read.filter((input2) => input2.weeks.size > MIN_WEEKS);
+  if (measured.length < 2) return void 0;
+  const common = [...measured[0].weeks.keys()].filter((week) => measured.every((input2) => input2.weeks.has(week))).sort((a, b) => a - b);
+  if (common.length <= MIN_WEEKS) return void 0;
+  const returns = measured.map((input2) => common.slice(1).map((week, index) => {
+    const before = common[index];
+    return Math.log(input2.weeks.get(week).close / input2.weeks.get(before).close) / Math.sqrt((week - before) / 7);
+  }));
+  const n = common.length - 1;
+  const means = returns.map((series) => series.reduce((sum, value2) => sum + value2, 0) / n);
+  const covariance = returns.map((a, i) => returns.map((b, j2) => a.reduce((sum, value2, k) => sum + (value2 - means[i]) * (b[k] - means[j2]), 0) / (n - 1) * WEEKS_A_YEAR));
+  const value = measured.reduce((sum, input2) => sum + input2.value, 0);
+  const weights = measured.map((input2) => input2.value / value);
+  const withPortfolio = covariance.map((row) => row.reduce((sum, cell, j2) => sum + cell * weights[j2], 0));
+  const variance = withPortfolio.reduce((sum, cell, i) => sum + cell * weights[i], 0);
+  if (!(variance > FLAT_VARIANCE)) return void 0;
+  const volatility = Math.sqrt(variance);
+  const own2 = covariance.map((row, i) => Math.sqrt(Math.max(0, row[i])));
+  const rows2 = measured.map((input2, i) => ({
+    ticker: input2.ticker,
+    weight: round15(weights[i]),
+    volatility: round15(own2[i]),
+    risk: round15(weights[i] * withPortfolio[i] / variance),
+    correlation: own2[i] > 0 ? round15(Math.max(-1, Math.min(1, withPortfolio[i] / (own2[i] * volatility)))) : 0
+  })).sort((a, b) => b.risk - a.risk || b.weight - a.weight);
+  const largest = measured.map((input2, i) => ({ ticker: input2.ticker, i, value: input2.value })).sort((a, b) => b.value - a.value).slice(0, MATRIX_SIZE);
+  const correlation = (i, j2) => i === j2 ? 1 : own2[i] > 0 && own2[j2] > 0 ? round15(Math.max(-1, Math.min(1, covariance[i][j2] / (own2[i] * own2[j2]))), 4) : 0;
+  const first = measured[0].weeks.get(common[0]).date;
+  const last = measured.map((input2) => input2.weeks.get(common[n]).date).sort().at(-1);
+  return {
+    from: first,
+    to: last,
+    weeks: n,
+    volatility: round15(volatility),
+    diversification: round15(measured.reduce((sum, _, i) => sum + weights[i] * own2[i], 0) / volatility, 4),
+    covered: round15(value / total, 4),
+    rows: rows2,
+    correlations: { tickers: largest.map((entry) => entry.ticker), matrix: largest.map((a) => largest.map((b) => correlation(a.i, b.i))) },
+    ...short.length ? { short } : {}
+  };
+}
+
+// src/core/holding-risk.ts
+var DAY_MS13 = 864e5;
+var CONCURRENCY4 = 4;
+var READ_BUDGET_MS4 = 5e3;
+async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__PURE__ */ new Date()) {
+  const valued = holdings.filter((holding2) => holding2.value > 0).sort((a, b) => b.value - a.value);
+  if (valued.length < 2) return { riskProblem: "Risk by holding needs two holdings or more." };
+  const priceHistory = deps.priceHistory;
+  if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
+  const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
+  const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
+  const from = new Date(Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13);
+  const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS4);
+  const readOne = async (holding2) => {
+    const position = positions.get(holding2.ticker);
+    const instrument = listed.get(holding2.ticker) ?? position?.instrument;
+    if (!instrument) return { reason: "data", problem: `Trading 212 does not list ${holding2.ticker} at the moment.` };
+    const result2 = await priceHistory({ instrument, from, ...position?.currentPrice ? { last: position.currentPrice } : {} }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+    return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
+  };
+  const later = async (holding2) => ({ reason: "later", problem: `${holding2.ticker}'s closes are asked for on the next read: this one ran out of time.` });
+  const results = await eachLimited(valued, CONCURRENCY4, deadline, readOne, later);
+  const inputs = [];
+  const missing = [];
+  valued.forEach((holding2, index) => {
+    const result2 = results[index];
+    if ("points" in result2) inputs.push({ ticker: holding2.ticker, value: holding2.value, points: result2.points });
+    else missing.push({ ticker: holding2.ticker, reason: result2.reason, problem: result2.problem });
+  });
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding2) => sum + holding2.value, 0));
+  return {
+    ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} are needed), or did not move.` },
+    ...missing.length ? { riskMissing: missing } : {}
+  };
+}
+
+// src/core/benchmark.ts
+var DAY_MS14 = 864e5;
 var START_SLACK_DAYS = 7;
 var LIST_WAIT_MS3 = 3e3;
 var MAX_OPTIONS = 8;
-var round15 = (value) => Math.round(value * 1e6) / 1e6;
+var round16 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
   SPY: "SPDR S&P 500 ETF",
   VOO: "Vanguard S&P 500 ETF",
@@ -40970,8 +41099,8 @@ function benchmarkReturns(series, points2, through) {
     return index >= 0 ? points2[index] : void 0;
   };
   const base = closeOn(first.date);
-  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS12) return void 0;
-  const out = series.map((point) => ({ date: point.date, return: round15(closeOn(point.date).close / base.close - 1) }));
+  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS14) return void 0;
+  const out = series.map((point) => ({ date: point.date, return: round16(closeOn(point.date).close / base.close - 1) }));
   const drawdown = drawdownOf(out);
   const risk = through ? benchmarkRiskOf(series, out, through) : void 0;
   return { return: out[out.length - 1].return, series: out, ...drawdown ? { drawdown } : {}, ...risk ? { risk } : {} };
@@ -41020,8 +41149,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
   if (none) return { ...offered, benchmarkChoice: "none" };
   if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
-  const yearAgo = Math.floor(now.getTime() / DAY_MS12) * DAY_MS12 - 365 * DAY_MS12;
-  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS12));
+  const yearAgo = Math.floor(now.getTime() / DAY_MS14) * DAY_MS14 - 365 * DAY_MS14;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS14));
   const read = await deps.priceHistory({
     instrument,
     from,
@@ -41248,7 +41377,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. Use this instead of estimating weights yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -41261,8 +41390,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = { ...await targetAllocations.withDrift(await insights.allocation(environment, limits)), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}.`);
+        let read;
+        const analysis = await insights.allocation(environment, limits, (positions) => {
+          read = positions;
+        });
+        const risk = read ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
+        const data = { ...await targetAllocations.withDrift({ ...analysis, ...risk }), credentials: credentialStatus(config3), writeEnabled: canWrite };
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42958,13 +43092,13 @@ var TradeJournal = class {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS13 = 864e5;
+var DAY_MS15 = 864e5;
 var watchKey2 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS13).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS15).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -43071,7 +43205,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS13);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS15);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -43079,16 +43213,16 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS14 = 864e5;
-var round16 = (value) => Math.round(value * 100) / 100;
-var signed2 = (value) => `${value >= 0 ? "+" : ""}${round16(value)}`;
-var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round16(value * 100)}%`;
+var DAY_MS16 = 864e5;
+var round17 = (value) => Math.round(value * 100) / 100;
+var signed2 = (value) => `${value >= 0 ? "+" : ""}${round17(value)}`;
+var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round17(value * 100)}%`;
 var MOVERS = 3;
 var EXPECTED_DIVIDENDS = 3;
 var RECEIVED_DIVIDENDS = 5;
-var WEEK_MS = 7 * DAY_MS14;
-var LATE_DIVIDEND_MS = 3 * DAY_MS14;
-var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS14;
+var WEEK_MS = 7 * DAY_MS16;
+var LATE_DIVIDEND_MS = 3 * DAY_MS16;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS16;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -43097,7 +43231,7 @@ function dividendsSince(mark, now) {
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
   if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
-  return { since: now.getTime() - DAY_MS14, known: false };
+  return { since: now.getTime() - DAY_MS16, known: false };
 }
 function dividendMark(dividends, now) {
   const from = now.getTime() - LATE_DIVIDEND_MS;
@@ -43117,13 +43251,13 @@ function digestDividends(dividends, positions, window, now) {
     if (!ticker || !item.amount || !(at > window.since && at <= now.getTime()) || seen.has(dividendKey(item))) continue;
     received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
   }
-  const today = Math.floor(now.getTime() / DAY_MS14) * DAY_MS14;
+  const today = Math.floor(now.getTime() / DAY_MS16) * DAY_MS16;
   const day2 = new Date(today).toISOString().slice(0, 10);
   const weekAgo = new Date(today - WEEK_MS).toISOString().slice(0, 10);
   const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(now.getTime()), today - WEEK_MS), today + WEEK_MS, now);
   const expected = upcoming.filter((payment) => payment.on >= weekAgo).map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day2 }));
   return {
-    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round16(amount2) })),
+    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round17(amount2) })),
     // Coming first: one due and not paid may never come, and should not crowd out the week's.
     expected: [...expected.filter((payment) => !payment.due), ...expected.filter((payment) => payment.due)]
   };
@@ -43144,22 +43278,22 @@ function digestDay(today) {
 }
 function digestText(input2) {
   const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round16(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round17(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
   const day2 = input2.day;
   return [
-    `Total ${round16(input2.totalValue)} ${input2.currency}${change}`,
+    `Total ${round17(input2.totalValue)} ${input2.currency}${change}`,
     day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} instruments` : ""}` : void 0,
     // One sold out on the day has no price to compare: its sells' amount instead.
     day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(", ")}` : void 0,
-    `cash ${round16(input2.cash)}`,
+    `cash ${round17(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
     input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
-    input2.dividends?.received.length ? `dividends ${round16(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round16(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
-    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round16(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
+    input2.dividends?.received.length ? `dividends ${round17(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round17(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
+    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round17(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
     input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
     input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
   ].filter(Boolean).join(" \xB7 ");
@@ -43182,7 +43316,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS14, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS16, now.getTime());
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
@@ -43198,7 +43332,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS14;
+        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS16;
         const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
@@ -43426,7 +43560,7 @@ var ProtectiveLinks = class {
 var HOUR_MS2 = 36e5;
 var KEEP_MS = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
-var round17 = (value) => Math.round(value * 100) / 100;
+var round18 = (value) => Math.round(value * 100) / 100;
 var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
 function within(point, bound, side) {
   if (!bound) return true;
@@ -43458,9 +43592,9 @@ var ValueHistory = class {
       const read = new Date(now.getTime() + Date.now() - started);
       const point = {
         date: read.toISOString().slice(0, 10),
-        totalValue: round17(account.totalValue),
-        ...typeof account.cash?.availableToTrade === "number" ? { cash: round17(account.cash.availableToTrade) } : {},
-        ...typeof account.investments?.currentValue === "number" ? { invested: round17(account.investments.currentValue) } : {},
+        totalValue: round18(account.totalValue),
+        ...typeof account.cash?.availableToTrade === "number" ? { cash: round18(account.cash.availableToTrade) } : {},
+        ...typeof account.investments?.currentValue === "number" ? { invested: round18(account.investments.currentValue) } : {},
         at: read.toISOString(),
         ...typeof account.id === "number" ? { account: account.id } : {}
       };

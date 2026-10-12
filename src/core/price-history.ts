@@ -147,6 +147,8 @@ export function createPriceHistory(deps: {
 
 /** Daily volatility of the simulated walk. */
 const SAMPLE_DAILY_MOVE = 0.015;
+/** Every sample instrument's daily move is partly the market's, drawn from this seed, so they move together as shares do. */
+const MARKET_SEED = 0x5eed_0f;
 
 /** FNV-1a, so each ticker seeds its own path. */
 function seedOf(text: string): number {
@@ -177,9 +179,12 @@ const weekday = (day: number) => { const weekdayIndex = new Date(day * DAY_MS).g
 export function samplePriceHistory(ticker: string, input: { from: Date; to: Date; last: number; anchors: PriceAnchor[] }): PriceHistory {
   const days: number[] = [];
   for (let day = dayOf(input.from.getTime()); day <= dayOf(input.to.getTime()); day++) if (weekday(day)) days.push(day);
-  // Each day's move is drawn from the ticker and the day alone, so a later start leaves the days after it the same.
+  // Each day's move is drawn from the ticker and the day alone, so a later start leaves the days after it the same. Part
+  // of it (a share drawn from the ticker, 0.35 to 0.85) is the market's move that day, the same for every instrument.
   const seed = seedOf(ticker);
-  const normal = (day: number) => { const random = seeded(seed ^ Math.imul(day, 0x9e3779b1)); return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); };
+  const draw = (from: number, day: number) => { const random = seeded(from ^ Math.imul(day, 0x9e3779b1)); return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); };
+  const loading = 0.35 + 0.5 * seeded(seed)();
+  const normal = (day: number) => loading * draw(MARKET_SEED, day) + Math.sqrt(1 - loading ** 2) * draw(seed, day);
   const walk = [0];
   for (let index = 1; index < days.length; index++) walk.push(walk[index - 1]! + SAMPLE_DAILY_MOVE * normal(days[index]!));
   // Fixed log prices by day index; a later anchor on the same day wins, and the last price fixes the last day.

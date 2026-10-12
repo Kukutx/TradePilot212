@@ -128,7 +128,46 @@ export interface AllocationAnalysis {
   flags: Array<{ code: "SINGLE_HOLDING_OVER_LIMIT" | "TOP5_OVER_LIMIT" | "CASH_HIGH" | "CASH_LOW" | "CURRENCY_CONCENTRATED" | "DRIFT_OVER_THRESHOLD"; message: string }>;
   /** How far the account is from the saved target weights; present when targets are saved. */
   drift?: AllocationDrift;
+  /** Each holding's share of the holdings' risk, from a year of weekly closes; absent when they could not be read. */
+  risk?: HoldingRisk;
+  /** Why there is no risk by holding, when there is none. */
+  riskProblem?: string;
+  /** Holdings whose closes could not be read: the reason as for the price chart, or "later" when the read ran out of time. */
+  riskMissing?: Array<{ ticker: string; reason: PricesMissing | "later"; problem: string }>;
   timestamp: string;
+}
+
+export interface HoldingRiskRow {
+  ticker: string;
+  /** Its share of the value of the holdings measured. */
+  weight: number;
+  /** Its own volatility a year, from its weekly returns. */
+  volatility: number;
+  /** Its share of the portfolio's variance: its weight times its covariance with the portfolio, over that variance. Below 0 for a holding that offsets the rest. */
+  risk: number;
+  /** Its correlation with the portfolio of the holdings measured, itself included. */
+  correlation: number;
+}
+
+/** Where the holdings' risk is, from the weekly closes of the last year, each instrument in its own currency. */
+export interface HoldingRisk {
+  /** The first and last weekly closes used. */
+  from: string;
+  to: string;
+  /** Weekly returns read. */
+  weeks: number;
+  /** The volatility a year of the holdings measured, together, at today's weights. */
+  volatility: number;
+  /** Their own volatilities, weighted, over the volatility together: 1 when they all move as one, higher the more they offset each other. */
+  diversification: number;
+  /** The share of the holdings' value measured. */
+  covered: number;
+  /** Largest share of the risk first. */
+  rows: HoldingRiskRow[];
+  /** Correlations of weekly returns between the largest holdings by value. */
+  correlations: { tickers: string[]; matrix: number[][] };
+  /** Holdings with too few weekly closes to measure, left out. */
+  short?: string[];
 }
 
 /** Current against target weight, as shares of total account value; drift is current minus target. */

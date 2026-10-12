@@ -56,6 +56,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 账户市值走势图，来自 TradePilot 自己每天的记录（Trading 212 的 API 没有历史市值）
 - 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
 - 风险指标：业绩页给出年化波动率、收益 ÷ 波动、相对基准的 Beta 和相关系数、单日最大涨跌幅，以及每日涨跌分布图（[docs/ANALYTICS.md](./docs/ANALYTICS.md#risk)）
+- 持仓风险分布：配置页按最近一年的周收盘价，给出每个持仓的风险占比和市值占比、组合波动率、分散度，以及最大几个持仓之间的相关系数（[docs/ANALYTICS.md](./docs/ANALYTICS.md#risk-by-holding)）
 - 持仓走势：持仓详情页画出该持仓每天收盘时的市值，并和“净投入”（期初持股按当天收盘价计，加买入减卖出）的虚线对比，看出价格本身为这笔持仓赚了或亏了多少，不受买卖影响（[docs/ANALYTICS.md](./docs/ANALYTICS.md#your-position)）
 - 月度收益：按月、按年的时间加权收益，用红绿深浅的年×月表格展示（[docs/ANALYTICS.md](./docs/ANALYTICS.md#monthly-returns)）
 - 回撤：时间加权收益距前高的最大跌幅、哪天回到前高、目前比高点低多少，以及同期指数基金的最大回撤，在收益图里切到“回撤”查看（[docs/ANALYTICS.md](./docs/ANALYTICS.md#drawdown)）

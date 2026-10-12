@@ -126,7 +126,7 @@ Owns application rules.
 
 ### `InsightsService` and `analytics`
 
-Read-only. `InsightsService` walks Trading 212's newest-first history pages within a page budget and caches them briefly. `analytics.ts` turns that data into allocation, performance, income and market-session results with pure, unit-tested functions. Nothing on this path can write to the broker.
+Read-only. `InsightsService` walks Trading 212's newest-first history pages within a page budget and caches them briefly. `analytics.ts` turns that data into allocation, performance, income and market-session results with pure, unit-tested functions. `readHoldingRisk` (`holding-risk.ts`) adds a year of each holding's closes from the price history to the allocation, largest first and within a few seconds, and the pure `holdingRiskOf` (`shared/holding-risk.ts`) turns them into each holding's share of the risk and the correlations. Nothing on this path can write to the broker.
 
 ### `StateStore`
 
