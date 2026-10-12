@@ -8,7 +8,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, CalendarReturn, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -368,12 +368,14 @@ function riskLines(data: PerformanceSummary): string[] {
   const bench = data.benchmark?.risk;
   const name = data.benchmark ? data.benchmark.shortName ?? data.benchmark.ticker : "";
   const moved = risk.up + risk.down;
+  const day = (move: DailyMove) => `${signed(move.return * 100, 2)}% on ${move.date}`;
+  const days = [risk.best && `best day ${day(risk.best)}`, risk.worst && `worst ${day(risk.worst)}`].filter(Boolean).join(", ");
   return [[
-    `Risk over ${risk.days} days (${risk.stretches} stretches between readings): volatility ${num(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num(bench.volatility * 100, 1)}%)` : ""}.`,
+    `Risk from ${risk.from} to ${risk.to}, ${risk.days} weekdays (${risk.stretches} stretches between readings; today is left out until it is over): volatility ${num(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num(bench.volatility * 100, 1)}%)` : ""}.`,
     ...(risk.ratio !== undefined && risk.annualized !== undefined ? [`Return ${signed(risk.annualized * 100, 1)}% a year at this rate, ${num(risk.ratio, 2)} times the volatility.`] : []),
-    ...(bench ? [`Beta ${num(bench.beta, 2)} and correlation ${num(bench.correlation, 2)} to ${name}.`] : []),
-    ...(risk.best && risk.worst ? [`Best day ${signed(risk.best.return * 100, 2)}% on ${risk.best.date}, worst ${signed(risk.worst.return * 100, 2)}% on ${risk.worst.date}.`] : []),
-    ...(moved ? [`Up on ${risk.up} of the ${moved} days it moved.`] : []),
+    ...(bench ? [`Beta ${num(bench.beta, 2)} and correlation ${num(bench.correlation, 2)} to ${name}, counting its day before and after too.`] : []),
+    ...(days ? [`${days[0]!.toUpperCase()}${days.slice(1)}.`] : []),
+    ...(moved > 1 ? [`Up on ${risk.up} of the ${moved} days it moved.`] : moved ? [`${risk.up ? "Up" : "Down"} on the one day it moved.`] : []),
   ].join(" ")];
 }
 

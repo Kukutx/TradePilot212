@@ -157,5 +157,10 @@ describe("the price chart's closes", () => {
     // The same ticker draws the same path.
     expect(samplePriceHistory("AAPL_US_EQ", { from: new Date("2025-10-12T00:00:00Z"), to: now(), last: 231.55, anchors: [] }))
       .toEqual(samplePriceHistory("AAPL_US_EQ", { from: new Date("2025-10-12T00:00:00Z"), to: now(), last: 231.55, anchors: [] }));
+    // A later start leaves the days after it as they were, so a day's move does not change as the year rolls on.
+    const later = samplePriceHistory("AAPL_US_EQ", { from: new Date("2025-11-14T00:00:00Z"), to: now(), last: 231.55, anchors: [] }).points;
+    const earlier = new Map(samplePriceHistory("AAPL_US_EQ", { from: new Date("2025-10-12T00:00:00Z"), to: now(), last: 231.55, anchors: [] }).points.map((point) => [point.date, point.close]));
+    expect(later.length).toBeGreaterThan(200);
+    expect(later.every((point) => earlier.get(point.date) === point.close)).toBe(true);
   });
 });

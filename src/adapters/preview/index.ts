@@ -242,7 +242,7 @@ async function seedValueHistory(): Promise<void> {
   const market = (date: string) => Math.log(closes.filter((point) => point.date <= date).at(-1)?.close ?? 1);
   // A seeded walk, so every start of the preview draws the same days.
   let seed = 212;
-  const random = () => { seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648; return seed / 2_147_483_648; };
+  const random = () => { seed = (Math.imul(seed, 1_103_515_245) + 12_345) & 0x7fff_ffff; return seed / 2_147_483_648; };
   const normal = () => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
   const dates = Array.from({ length: days }, (_, index) => new Date(today - (days - 1 - index) * day));
   const weekend = (at: Date) => at.getUTCDay() === 0 || at.getUTCDay() === 6;

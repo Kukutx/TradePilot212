@@ -1241,7 +1241,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .riskTile { min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
 .riskTile span { display: block; margin-bottom: 5px; color: var(--tp-muted); font-size: 12px; }
 .riskTile strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 720; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.riskTile small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.riskTile small { display: block; margin-top: 3px; overflow-wrap: anywhere; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .riskMoves h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
 .moveChart { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding-top: 18px; border-bottom: 1px solid var(--tp-border); }
 .moveColumn { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }

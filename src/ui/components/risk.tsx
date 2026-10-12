@@ -7,10 +7,10 @@ import type { BenchmarkReturn, DailyMove, TimeWeightedReturn } from "../../share
 import { dailyMoves } from "../../shared/risk";
 import type { SupportedLocale } from "../i18n";
 import { dayLabel, num, pct } from "../lib/format";
-import { fill, sentences, type Translator } from "../lib/messages";
+import { fill, plural, sentences, type Translator } from "../lib/messages";
 import { ViewSwitch } from "./charts";
 
-/** Bar widths to choose from: the smallest that keeps the chart to 16 bars. */
+/** Bar widths to choose from: the smallest that keeps the chart to 16 bars (the widest caps it there). */
 const BIN_WIDTHS = [0.0025, 0.005, 0.01, 0.02, 0.05, 0.1];
 const MAX_BINS = 16;
 
@@ -19,6 +19,8 @@ export interface MoveBin {
   from: number;
   to: number;
   count: number;
+  /** The last bar of a chart capped at 16 also holds every larger rise. */
+  over?: true;
 }
 
 /** The daily moves counted into bars of one width, from the bar holding the largest fall to the one holding the largest rise. */
@@ -29,8 +31,11 @@ export function moveBins(moves: DailyMove[]): { width: number; bins: MoveBin[] }
   const indexOf = (value: number, width: number) => Math.floor(value / width + 1e-9);
   const width = BIN_WIDTHS.find((step) => indexOf(high, step) - indexOf(low, step) + 1 <= MAX_BINS) ?? BIN_WIDTHS[BIN_WIDTHS.length - 1]!;
   const first = indexOf(low, width);
-  const bins = Array.from({ length: indexOf(high, width) - first + 1 }, (_, offset) => ({ from: (first + offset) * width, to: (first + offset + 1) * width, count: 0 }));
-  for (const move of moves) bins[indexOf(move.return, width) - first]!.count++;
+  // Falls stop at -100%, so only a rise can run past 16 bars of the widest (a glitch): the last bar takes it.
+  const last = Math.min(indexOf(high, width), first + MAX_BINS - 1);
+  const bins: MoveBin[] = Array.from({ length: last - first + 1 }, (_, offset) => ({ from: (first + offset) * width, to: (first + offset + 1) * width, count: 0 }));
+  for (const move of moves) bins[Math.min(indexOf(move.return, width), last) - first]!.count++;
+  if (indexOf(high, width) > last) bins[bins.length - 1]!.over = true;
   return { width, bins };
 }
 
@@ -51,14 +56,17 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
   const bench = benchmark?.risk;
   const name = benchmark ? benchmark.shortName ?? benchmark.ticker : "";
   const moved = risk.up + risk.down;
-  const histogram = moveBins(dailyMoves(returns.series));
+  const histogram = moveBins(dailyMoves(returns.series, risk.to));
   const digits = histogram && histogram.width < 0.01 ? 2 : 0;
   const edge = (value: number) => pct(Math.abs(value) < 1e-9 ? 0 : value, locale, digits, { signed: true });
-  const range = (bin: MoveBin) => fill(t("riskMovesBin"), { from: edge(bin.from), to: edge(bin.to), count: String(bin.count) });
+  const range = (bin: MoveBin) => (bin.over ? fill(t("riskMovesOver"), { from: edge(bin.from) }) : `${edge(bin.from)} – ${edge(bin.to)}`);
+  const binTitle = (bin: MoveBin) => plural(bin.count, locale, t("riskMovesBinOne"), t("riskMovesBin"), { range: range(bin) });
   const top = histogram ? Math.max(...histogram.bins.map((bin) => bin.count)) : 0;
   const most = histogram?.bins.find((bin) => bin.count === top);
   // Where 0 falls along the bars, for its label: away from the ends, whose labels it would run into.
   const zeroAt = histogram ? histogram.bins.findIndex((bin) => Math.abs(bin.from) < 1e-9) / histogram.bins.length : -1;
+  const lastBin = histogram?.bins[histogram.bins.length - 1];
+  const highEnd = lastBin ? (lastBin.over ? range(lastBin) : edge(lastBin.to)) : "";
   const day = (move: DailyMove) => dayLabel(move.date, locale, { year: false });
   return (
     <figure className="chartFigure riskPanel">
@@ -78,12 +86,12 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
           <h3>{t("riskMovesTitle")}</h3>
           {asTable ? (
             <table className="chartTable"><thead><tr><th>{t("riskMovesRange")}</th><th>{t("riskMovesDays")}</th></tr></thead>
-              <tbody>{histogram.bins.map((bin) => <tr key={bin.from}><td>{edge(bin.from)} – {edge(bin.to)}</td><td>{bin.count}</td></tr>)}</tbody></table>
+              <tbody>{histogram.bins.map((bin) => <tr key={bin.from}><td>{range(bin)}</td><td>{bin.count}</td></tr>)}</tbody></table>
           ) : (
             <>
-              <div className="moveChart" role="img" aria-label={fill(t("riskMovesSummary"), { count: String(moved), low: edge(histogram.bins[0]!.from), high: edge(histogram.bins[histogram.bins.length - 1]!.to), most: most ? `${edge(most.from)} – ${edge(most.to)}` : "" })}>
+              <div className="moveChart" role="img" aria-label={fill(t("riskMovesSummary"), { count: String(moved), low: edge(histogram.bins[0]!.from), high: highEnd, most: most ? range(most) : "" })}>
                 {histogram.bins.map((bin) => (
-                  <div key={bin.from} className={`moveColumn ${bin.from < 0 ? "down" : "up"}`} title={range(bin)}>
+                  <div key={bin.from} className={`moveColumn ${bin.from < 0 ? "down" : "up"}`} title={binTitle(bin)}>
                     {bin === most && <span className="moveCount">{bin.count}</span>}
                     <span className="moveBar" style={{ height: `${top > 0 ? (bin.count / top) * 100 : 0}%` }} />
                   </div>
@@ -92,13 +100,13 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
               <div className="moveAxis" aria-hidden="true">
                 <span>{edge(histogram.bins[0]!.from)}</span>
                 {zeroAt >= 0.15 && zeroAt <= 0.85 && <span className="moveZero" style={{ left: `${zeroAt * 100}%` }}>{edge(0)}</span>}
-                <span>{edge(histogram.bins[histogram.bins.length - 1]!.to)}</span>
+                <span>{highEnd}</span>
               </div>
             </>
           )}
         </div>
       )}
-      <p className="panelNote">{sentences(locale, [t("riskNote"), risk.ratio !== undefined && t("riskNoteRatio"), bench && fill(t("riskNoteBenchmark"), { name })])}</p>
+      <p className="panelNote">{sentences(locale, [t("riskNote"), risk.ratio !== undefined ? t("riskNoteRatio") : risk.annualized === undefined && t("riskNoteNoRatio"), bench && fill(t("riskNoteBenchmark"), { name })])}</p>
     </figure>
   );
 }

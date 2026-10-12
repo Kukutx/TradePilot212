@@ -209,28 +209,29 @@ export interface DailyMove {
 
 /** The time-weighted return's day-to-day risk (`src/shared/risk.ts`). */
 export interface Risk {
-  /** Stretches between readings it is read over, and the calendar days they cover. */
+  /** The first and last day it is read over: stretches that end today are left out, as the day is not over. */
+  from: string;
+  to: string;
+  /** Stretches between readings it is read over (a reading at the weekend joins the next), and the weekdays they cover. */
   stretches: number;
   days: number;
-  /** The standard deviation of the moves, per calendar day, times √365: a year's worth. */
+  /** The standard deviation of the moves, per weekday, times √261: a year's worth. */
   volatility: number;
-  /** One-day stretches that rose, and that fell, by 0.001% or more; ones that moved less (weekends, holidays) are in neither. */
+  /** One-weekday stretches that rose, and that fell, by 0.005% or more; ones that moved less (holidays) are in neither. */
   up: number;
   down: number;
-  /** The largest rise and fall of a one-day stretch. */
+  /** The largest rise and fall of a one-weekday stretch. */
   best?: DailyMove;
   worst?: DailyMove;
-  /** The return a year at the rate over these days, and it over the volatility: only from 90 days. */
+  /** The return a year at the rate over these days, from a year of them, and it over the volatility (from 0.5% a year). */
   annualized?: number;
   ratio?: number;
 }
-
-/** How the return moved with a benchmark's over the same stretches. */
 export interface BenchmarkRisk {
   volatility: number;
-  /** How much the return moved for each 1% the benchmark moved. */
+  /** How much the return moved for each 1% the benchmark moved, over the benchmark's day before, the same day and the day after. */
   beta: number;
-  /** -1 to 1: how closely the two moved together. */
+  /** -1 to 1: how closely the two moved together, over the same days. */
   correlation: number;
 }
 
