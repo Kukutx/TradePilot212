@@ -1,14 +1,16 @@
 // The detail of one instrument in one account, gathered from the services that already read each part.
 
-import type { TradingEnvironment } from "../shared/contracts.js";
+import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import type { HoldingDetail } from "../shared/holding.js";
 import type { JournalEntry } from "../shared/journal.js";
 import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
+import { knownFxRates } from "./fx.js";
 import type { InsightsService } from "./insights-service.js";
 import type { TradeJournal } from "./journal.js";
 import { quoteUnitProblem, settleWithin, unitReference, type PriceAnchor, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { TargetAllocations } from "./targets.js";
+import { dayMove, fillsOfDay, sessionFinder, type TodayDeps } from "./today.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 import type { Watchlist } from "./watchlist.js";
 
@@ -24,6 +26,8 @@ const MAX_NOTES = 20;
 const HISTORY_PAGES = 2;
 /** The page waits this long for the quote provider's price of an instrument not held; a slower one is left out. */
 const QUOTE_WAIT_MS = 3000;
+/** The wait for Trading 212's instrument list for a holding (its exchange's schedule); without it the session is unknown. */
+const LIST_WAIT_MS = 3000;
 
 export interface HoldingDeps {
   trading: TradingService;
@@ -35,6 +39,8 @@ export interface HoldingDeps {
   priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
   /** Whether the instrument is on the watchlist; without it the page does not say. */
   watchlist?: Pick<Watchlist, "get">;
+  /** Previous closes kept for the day, shared with the dashboard's day. */
+  closes?: TodayDeps["closes"];
 }
 
 /**
@@ -70,6 +76,11 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
     ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
     : []));
+  // Trading 212's holdings name an instrument without its exchange schedule: the instrument list (cached) has it.
+  const subjectRead: Promise<Instrument> = listed
+    ? Promise.resolve(listed)
+    : settleWithin(deps.trading.instruments(environment).catch((): Instrument[] => []), LIST_WAIT_MS)
+      .then((list) => ({ ...position!.instrument, ...(list ?? []).find((item) => item.ticker === ticker) }));
   const subject = listed ?? position!.instrument;
   // Not held: Trading 212 has no price for it, so the quote provider's, when it answers in time.
   const quoteRead = position?.currentPrice ? Promise.resolve(undefined) : settleWithin(deps.trading.externalQuote(subject).catch(() => undefined), QUOTE_WAIT_MS);
@@ -79,18 +90,20 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price),
   ].filter((price): price is number => typeof price === "number" && price > 0));
-  const [targets, alerts, notes, market, history, read, quoted, watched] = await Promise.all([
+  const [targets, alerts, notes, market, history, read, quoted, watched, full, exchanges] = await Promise.all([
     deps.targets.get(environment),
     alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
-    deps.insights.tryMarketStatus(environment, subject, now),
+    subjectRead.then((instrument) => deps.insights.tryMarketStatus(environment, instrument, now)),
     historyRead,
     deps.priceHistory?.({ instrument: subject, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : { quote: quoteRead.then((read) => read?.price) }), levels, fills })
       .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message })),
     quoteRead,
     deps.watchlist?.get(environment, ticker).catch(() => undefined),
+    subjectRead,
+    deps.insights.schedules(environment).catch(() => []),
   ]);
   // The quote comes from the closes' mapping: in another unit when they are, and checked the same way when they did not come.
   const unitProblem = quoted ? quoteUnitProblem(quoted, ticker, unitReference(undefined, await levels, await fills)) : undefined;
@@ -102,6 +115,21 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const onFill = (note: JournalEntry) => note.orderId !== undefined && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
+  // The day's move from the closes just read (or the day's kept close), with the day's fills from the history.
+  const session = sessionFinder(exchanges, now)(full);
+  const accountCurrency = dashboard.account?.currency;
+  const day = prices && "prices" in prices
+    ? await dayMove({ priceHistory: async () => prices, ...(deps.closes ? { closes: deps.closes } : {}) }, {
+        environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {},
+      }, {
+        ticker,
+        instrument: full,
+        ...(position ? { position } : {}),
+        ...(quote ? { price: quote.price } : {}),
+        session,
+        fills: Array.isArray(history) ? fillsOfDay(history[0].fills, ticker, session) : [],
+      })
+    : undefined;
   return {
     kind: "holding",
     environment,
@@ -155,6 +183,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
         }
       : { historyProblem: history.message }),
     ...(prices && "prices" in prices ? { prices: prices.prices } : prices ? { pricesMissing: prices.missing, pricesProblem: prices.problem } : {}),
+    ...(day ? { day } : {}),
     timestamp: new Date().toISOString(),
   };
 }

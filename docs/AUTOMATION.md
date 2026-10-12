@@ -186,7 +186,7 @@ Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each 
 
 ### Daily digest
 
-Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, cash, unrealized P/L, the three largest holdings, pending orders, orders filled in the last day, plans that are due, alerts that triggered in the last day and, with saved targets, the largest drift from them. Once any holding has a pending sell stop, it also names the holdings that no stop fully covers. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
+Set `DIGEST_HOUR_UTC` (0 to 23) together with `NOTIFY_WEBHOOK_URL` to receive one short message per environment per day: total value and its change since the previous digest, the holdings' move on their last session with the three that moved most (as on the dashboard; left out when the quote provider's closes cannot be read), cash, unrealized P/L, the three largest holdings, pending orders, orders filled in the last day, plans that are due, alerts that triggered in the last day and, with saved targets, the largest drift from them. Once any holding has a pending sell stop, it also names the holdings that no stop fully covers. It only reads. The digest is sent whatever `NOTIFY_EVENTS` lists, and a day counts as done only once the webhook accepted it; until then it is tried again every 15 minutes.
 
 ## Seeing what runs
 

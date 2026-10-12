@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { Instrument } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
 import { createConfig } from "./config.js";
-import { digestText } from "./digest.js";
+import type { PortfolioToday } from "../shared/today.js";
+import { DailyDigest, digestDay, digestText } from "./digest.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const instrument: Instrument = { ticker: "VUSA_EQ", name: "VUSA ETF", shortName: "VUSA", currencyCode: "EUR", type: "ETF" };
@@ -29,7 +30,7 @@ function setup(env: Record<string, string>) {
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", NOTIFY_WEBHOOK_URL: "https://hooks.example/t", ...env });
   const store = new MemoryStateStore();
-  return { ...createServices({ config, store, fetcher }), store, hooks, total, outage, hookDown, orders };
+  return { ...createServices({ config, store, fetcher }), config, store, hooks, total, outage, hookDown, orders };
 }
 
 describe("daily digest", () => {
@@ -40,6 +41,49 @@ describe("daily digest", () => {
       .toBe("Total 2010 EUR · cash 10 · 2 order(s) filled in the last day · largest drift from targets 7.1 points");
     expect(digestText({ environment: "demo", currency: "EUR", totalValue: 10, cash: 0, positions: [], pendingOrders: 1, duePlans: [], triggeredAlerts: 0, uncovered: ["A", "B", "C", "D", "E", "F", "G"] }))
       .toBe("Total 10 EUR · cash 0 · 1 pending order(s) · no full stop-loss: A, B, C, D, E +2");
+  });
+
+  it("leads with the holdings' move on their last session and the biggest movers", () => {
+    const today: PortfolioToday = {
+      kind: "portfolio_today", environment: "demo", accountCurrency: "EUR", timestamp: "2026-10-10T07:00:00Z",
+      moves: [
+        { ticker: "VUSAl_EQ", shortName: "VUSA", quantity: 40, day: "2026-10-09", change: -0.0233, profitLoss: -103.08 },
+        { ticker: "AAPL_US_EQ", shortName: "AAPL", quantity: 12, day: "2026-10-09", change: 0.0393, profitLoss: 96.6 },
+        { ticker: "TSLA_US_EQ", quantity: 0, day: "2026-10-09", profitLoss: -27.6, sold: 3 },
+        { ticker: "KO_US_EQ", shortName: "KO", quantity: 25, day: "2026-10-09", missing: "lag" },
+        { ticker: "MSFT_US_EQ", shortName: "MSFT", quantity: 6, day: "2026-10-09", change: -0.0119, profitLoss: -8.48 },
+      ],
+      total: { profitLoss: -42.56, change: -0.0085, counted: 4, of: 5 },
+    };
+    const day = digestDay(today)!;
+    expect(day.movers.map((mover) => mover.name)).toEqual(["VUSA", "AAPL", "TSLA_US_EQ"]);
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, day }))
+      .toBe("Total 2010 EUR · day -42.56 (-0.85%) on 2026-10-09 for 4 of 5 holdings · movers: VUSA -2.33%, AAPL +3.93%, TSLA_US_EQ -27.6 · cash 10");
+    expect(digestDay({ ...today, total: undefined })).toBeUndefined();
+  });
+
+  it("reads the day for the digest's own time, and goes on without it when it fails", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    const texts: string[] = [];
+    const asked: Date[] = [];
+    const total = { profitLoss: 12.5, change: 0.0125, counted: 1, of: 1 };
+    const moves = [{ ticker: "VUSA_EQ", shortName: "VUSA", quantity: 10, day: "2026-10-09", change: 0.0125, profitLoss: 12.5 }];
+    let fail = false;
+    const digest = new DailyDigest({
+      config: services.config, store: services.store, trading: services.trading,
+      notify: async (event) => { texts.push(event.outcome ?? ""); return true; },
+      today: async (environment, now) => {
+        asked.push(now);
+        if (fail) throw new Error("rate limit");
+        return { kind: "portfolio_today", environment, accountCurrency: "EUR", moves, total, timestamp: now.toISOString() };
+      },
+    });
+    expect(await digest.run(new Date("2026-10-10T07:00:00Z"))).toEqual(["demo"]);
+    expect(asked.map((date) => date.toISOString())).toEqual(["2026-10-10T07:00:00.000Z"]);
+    expect(texts[0]).toMatch(/^Total 2000 EUR · day \+12\.5 \(\+1\.25%\) on 2026-10-09 · movers: VUSA \+1\.25% · cash 1000/);
+    fail = true;
+    expect(await digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
+    expect(texts[1]).toBe("Total 2000 EUR (+0 since the last digest) · cash 1000 · unrealized +100 · top: VUSA_EQ 1000 (+100)");
   });
 
   it("names holdings a stop does not fully cover, once any stop is in place", async () => {

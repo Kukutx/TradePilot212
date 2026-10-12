@@ -66,4 +66,25 @@ describe("holding price levels", () => {
     expect(render({ ...base, pricesMissing: "provider", pricesProblem: "No quote provider is configured" }, "zh-CN")).toContain("还没有价格走势图：没有设置行情源");
     expect(render(base)).not.toContain("priceChart");
   });
+
+  it("gives a holding's day under its value, and the change alone under the price of one not held", () => {
+    const base = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "AAPL_US_EQ", instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" },
+      accountCurrency: "EUR", orders: [], alerts: [], journal: [], timestamp: "2026-10-10T09:00:00Z",
+    } as unknown as HoldingDetail;
+    const render = (data: HoldingDetail, locale: "en" | "zh-CN" = "en") => renderToStaticMarkup(createElement(HoldingView, {
+      data, locale, t: createTranslator(locale), writeEnabled: false, busy: false,
+      onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
+    }));
+    const position = { instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" }, quantity: 12, quantityAvailableForTrading: 12, quantityInPies: 0, averagePricePaid: 168.4, currentPrice: 231.55, walletImpact: { currentValue: 2556.31, unrealizedProfitLoss: 697.17 } };
+    const day = { ticker: "AAPL_US_EQ", currencyCode: "USD", quantity: 12, price: 231.55, day: "2026-10-09", previousClose: { date: "2026-10-08", close: 222.8, source: "stooq" }, change: 0.039273, profitLoss: -12.5, base: 2459.71, bought: 2 };
+    const held = render({ ...base, position, day } as unknown as HoldingDetail);
+    // Shares bought above the close lost more than the rest made: each figure has its own sign.
+    expect(held).toContain('<div class="dayTotal dayLine" title="Shares traded on the day count from their fill price. Amounts at today&#x27;s exchange rates."><b><span class="negative">-€12.50 </span><span class="positive">(+3.93%)</span></b><span>Move on Fri, Oct 9, the last session');
+    expect(held).toContain('<small class="daySince">Since the close on Thu, Oct 8: $222.80</small>');
+    const quoted = render({ ...base, quote: { price: 231.55, asOf: "2026-10-09T20:00:00Z", source: "stooq", symbol: "AAPL.US" }, day: { ...day, quantity: 0, profitLoss: undefined, base: undefined, bought: undefined } } as HoldingDetail, "zh-CN");
+    expect(quoted).toContain('<div class="dayTotal dayLine"><b><span class="positive">+3.93%</span></b><span>上个交易日（10月9日周五）的涨跌</span>');
+    // Without a quote there is no price to set it under.
+    expect(render({ ...base, day: { ...day, quantity: 0, profitLoss: undefined } } as HoldingDetail)).not.toContain("dayLine");
+  });
 });

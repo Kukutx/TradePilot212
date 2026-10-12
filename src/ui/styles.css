@@ -216,6 +216,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dayTotal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: 11px; min-width: 0; }
 .dayTotal b { font-size: 15px; font-weight: 740; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dayTotal > span { color: var(--tp-muted); font-size: 12px; }
+.dayLine .daySince { flex-basis: 100%; color: var(--tp-muted); font-size: 12px; }
 .dayCell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; line-height: 1.2; }
 .dayCell strong { font-size: 13px; font-weight: 700; }
 .dayCell small { font-size: 12px; font-weight: 600; opacity: .85; }

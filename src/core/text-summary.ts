@@ -380,6 +380,7 @@ function holding(data: HoldingDetail): string[] {
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.quote ? `; price ${num(data.quote.price, 6)}${data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : ""} (${data.quote.source === "sample" ? "simulated for the sample account" : `${data.quote.source} ${data.quote.symbol}, ${minute(data.quote.asOf)}`})` : ""}${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
+    ...(data.day ? [`On the day (${data.day.day}): ${dayMoveLine(data.day, c).replace(/^[^:]*: /, "")}.`] : []),
     ...priceLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),

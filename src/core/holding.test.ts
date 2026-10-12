@@ -32,6 +32,32 @@ describe("holding detail", () => {
     expect(text).toMatch(/NVDA_US_EQ \(NVIDIA\) below 110 USD/);
   });
 
+  it("gives a holding's move on the day, and the change alone of one not held", async () => {
+    const held = await holdingDetail(sample(), "demo", "NVDA");
+    const day = held.day!;
+    expect(day.previousClose?.source).toBe("sample");
+    expect(day.change).toBeCloseTo(128.75 / day.previousClose!.close - 1, 6);
+    expect(day.profitLoss).toBeDefined();
+    expect(describePayload(held)).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2} \([\d.]+ USD\), [+-][\d.]+ EUR/m);
+    const tesla = await holdingDetail(sample(), "demo", "Tesla");
+    expect(tesla.day).toMatchObject({ quantity: 0, price: 244.1 });
+    expect(tesla.day!.change).toBeCloseTo(244.1 / tesla.day!.previousClose!.close - 1, 6);
+    expect(tesla.day!.profitLoss).toBeUndefined();
+  });
+
+  it("finds a holding's exchange in the instrument list, as Trading 212's holdings do not name it", async () => {
+    const services = sample();
+    const trading = Object.create(services.trading) as typeof services.trading;
+    trading.getDashboard = async (environment, maxAgeMs) => {
+      const dashboard = await services.trading.getDashboard(environment, maxAgeMs);
+      return { ...dashboard, positions: dashboard.positions.map(({ instrument, ...position }) => ({ ...position, instrument: { ticker: instrument.ticker, name: instrument.name, currencyCode: instrument.currencyCode } as typeof instrument })) };
+    };
+    // Opened from the holdings, by its exact ticker.
+    const detail = await holdingDetail({ ...services, trading }, "demo", "NVDA_US_EQ");
+    expect(detail.market?.session).not.toBe("unknown");
+    expect(detail.market?.scheduleId).toBe(1);
+  });
+
   it("totals a year of dividends and lists the newest", async () => {
     const detail = await holdingDetail(sample(), "demo", "AAPL_US_EQ");
     // The sample pays Apple four quarterly dividends in the last year.
