@@ -35725,12 +35725,19 @@ var TradingService = class {
     const cached2 = this.cache.get(environment);
     return cached2 && cached2.expiresAt > Date.now() ? cached2.instruments : void 0;
   }
+  /** Instrument-list reads under way: Trading 212 allows few, so callers at the same moment share one. */
+  instrumentReads = /* @__PURE__ */ new Map();
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.instruments;
-    const instruments = await this.client(environment).getInstruments();
-    this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
-    return instruments;
+    const pending = this.instrumentReads.get(environment);
+    if (pending) return pending;
+    const read = this.client(environment).getInstruments().then((instruments) => {
+      this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
+      return instruments;
+    }).finally(() => this.instrumentReads.delete(environment));
+    this.instrumentReads.set(environment, read);
+    return read;
   }
   /**
    * Pending orders carry only a ticker. Name them from the holdings or from instrument metadata already
@@ -37672,12 +37679,19 @@ var InsightsService = class {
     }));
     return { kind: "trade_history", environment, fills, ...unfilled ? { unfilled } : {}, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
   }
+  /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */
+  exchangeReads = /* @__PURE__ */ new Map();
   async exchanges(environment) {
     const cached2 = this.exchangeCache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.exchanges;
-    const exchanges = await this.client(environment).getExchanges();
-    this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
-    return exchanges;
+    const pending = this.exchangeReads.get(environment);
+    if (pending) return pending;
+    const read = this.client(environment).getExchanges().then((exchanges) => {
+      this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
+      return exchanges;
+    }).finally(() => this.exchangeReads.delete(environment));
+    this.exchangeReads.set(environment, read);
+    return read;
   }
   /** Trading 212's exchanges with their working schedules, cached for ten minutes. */
   schedules(environment) {
@@ -38624,6 +38638,9 @@ function portfolio(data) {
 }
 function dayMoveLine(move, currency) {
   const name = `${move.name ?? move.ticker}${move.shortName && move.shortName !== move.name ? ` (${move.shortName})` : ""}`;
+  return `${name}: ${dayMoveText(move, currency)}`;
+}
+function dayMoveText(move, currency) {
   const traded = [move.bought ? `bought ${num2(move.bought, 8)}` : "", move.sold ? `sold ${num2(move.sold, 8)}` : ""].filter(Boolean).join(", ");
   const tradedText = traded ? ` (${traded} on the day, from the fill price)` : "";
   const close = move.previousClose ? `the close on ${move.previousClose.date} (${num2(move.previousClose.close, 6)}${move.currencyCode ? ` ${move.currencyCode}` : ""})` : "";
@@ -38632,9 +38649,9 @@ function dayMoveLine(move, currency) {
       move.change !== void 0 ? `${signedPct(move.change)} since ${close}` : move.quantity === 0 ? `sold out on the day against ${close}` : "",
       move.profitLoss !== void 0 ? `${signed(move.profitLoss)}${currency ? ` ${currency}` : ""}` : ""
     ].filter(Boolean);
-    return `${name}: ${parts.join(", ")}${tradedText}${move.problem ? `; ${move.problem}` : ""}`;
+    return `${parts.join(", ")}${tradedText}${move.problem ? `; ${move.problem}` : ""}`;
   }
-  return `${name}: no move for the day; ${move.problem ?? "no previous close"}`;
+  return `no move for the day; ${move.problem ?? "no previous close"}`;
 }
 function todayLines(data) {
   const currency = data.accountCurrency;
@@ -38742,7 +38759,7 @@ function holding(data) {
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight2}.` : `Not held${data.quote ? `; price ${num2(data.quote.price, 6)}${data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : ""} (${data.quote.source === "sample" ? "simulated for the sample account" : `${data.quote.source} ${data.quote.symbol}, ${minute(data.quote.asOf)}`})` : ""}${data.targetWeight === void 0 ? "" : `; target ${pct(data.targetWeight)}`}.`,
     ...data.position ? [holdingStopLine(data.position, data.orders, c)] : [],
-    ...data.day ? [`On the day (${data.day.day}): ${dayMoveLine(data.day, c).replace(/^[^:]*: /, "")}.`] : [],
+    ...data.day ? [`On the day (${data.day.day}): ${dayMoveText(data.day, c).replace(/\.$/, "")}.`] : [],
     ...priceLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
@@ -39422,7 +39439,13 @@ var MAX_DIVIDENDS = 12;
 var MAX_NOTES = 20;
 var HISTORY_PAGES = 2;
 var QUOTE_WAIT_MS = 3e3;
-var LIST_WAIT_MS2 = 3e3;
+function marketStatusOf(instrument, exchanges, now) {
+  try {
+    return marketStatus(instrument, exchanges, now);
+  } catch {
+    return void 0;
+  }
+}
 async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new Date()) {
   const dashboard = await deps.trading.getDashboard(environment);
   if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
@@ -39448,7 +39471,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
   const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
-  const subjectRead = listed ? Promise.resolve(listed) : settleWithin(deps.trading.instruments(environment).catch(() => []), LIST_WAIT_MS2).then((list2) => ({ ...position.instrument, ...(list2 ?? []).find((item) => item.ticker === ticker) }));
+  const subjectRead = listed ? Promise.resolve(listed) : deps.trading.instruments(environment).catch(() => []).then((list2) => ({ ...position.instrument, ...list2.find((item) => item.ticker === ticker) }));
   const subject = listed ?? position.instrument;
   const quoteRead = position?.currentPrice ? Promise.resolve(void 0) : settleWithin(deps.trading.externalQuote(subject).catch(() => void 0), QUOTE_WAIT_MS);
   const alertsRead = deps.alerts.list(environment);
@@ -39456,20 +39479,21 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list2.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price)
   ].filter((price) => typeof price === "number" && price > 0));
-  const [targets, alerts, notes, market, history, read, quoted2, watched, full, exchanges] = await Promise.all([
+  const [targets, alerts, notes, history, read, quoted2, watched, full, exchanges] = await Promise.all([
     deps.targets.get(environment),
     alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
-    subjectRead.then((instrument2) => deps.insights.tryMarketStatus(environment, instrument2, now)),
     historyRead,
     deps.priceHistory?.({ instrument: subject, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : { quote: quoteRead.then((read2) => read2?.price) }, levels, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message })),
     quoteRead,
     deps.watchlist?.get(environment, ticker).catch(() => void 0),
     subjectRead,
-    deps.insights.schedules(environment).catch(() => [])
+    // One read of the exchanges (Trading 212 allows one in 30 seconds) for the market session and the trading day.
+    deps.insights.schedules(environment).catch(() => void 0)
   ]);
+  const market = exchanges ? marketStatusOf(full, exchanges, now) : void 0;
   const unitProblem = quoted2 ? quoteUnitProblem(quoted2, ticker, unitReference(void 0, await levels, await fills)) : void 0;
   const quote = quoted2 && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted2 : void 0;
   const prices = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
@@ -39479,9 +39503,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const onFill = (note) => note.orderId !== void 0 && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
-  const session = sessionFinder(exchanges, now)(full);
+  const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
-  const day2 = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
+  const moved = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
     environment,
     now,
     from: window.from,
@@ -39495,6 +39519,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     session,
     fills: Array.isArray(history) ? fillsOfDay(history[0].fills, ticker, session) : []
   }) : void 0;
+  const shown = moved && (moved.change !== void 0 || moved.profitLoss !== void 0 || moved.missing) ? moved : void 0;
+  const day2 = shown && shown.profitLoss !== void 0 && !Array.isArray(history) ? { ...shown, problem: [shown.problem, "The order history could not be read, so shares traded on the day count from the previous close."].filter(Boolean).join(" ") } : shown;
   return {
     kind: "holding",
     environment,
@@ -39932,7 +39958,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
 // src/core/benchmark.ts
 var DAY_MS10 = 864e5;
 var START_SLACK_DAYS = 7;
-var LIST_WAIT_MS3 = 3e3;
+var LIST_WAIT_MS2 = 3e3;
 var MAX_OPTIONS = 8;
 var round9 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
@@ -39978,8 +40004,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const wanted = choice?.trim() || deps.config.benchmark;
   const none = !wanted || /^none$/i.test(wanted);
   const [instruments, positions, watched] = await Promise.all([
-    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS3),
-    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS3),
+    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS2),
+    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS2),
     deps.watchlist?.list(environment).catch(() => []) ?? []
   ]);
   const listed = new Map((instruments ?? []).map((instrument2) => [instrument2.ticker, instrument2]));
@@ -41959,8 +41985,9 @@ function digestText(input2) {
   const day2 = input2.day;
   return [
     `Total ${round10(input2.totalValue)} ${input2.currency}${change}`,
-    day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} holdings` : ""}` : void 0,
-    day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? signed2(mover.profitLoss) : signedPct2(mover.change)}`).join(", ")}` : void 0,
+    day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} instruments` : ""}` : void 0,
+    // One sold out on the day has no price to compare: its sells' amount instead.
+    day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(", ")}` : void 0,
     `cash ${round10(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,

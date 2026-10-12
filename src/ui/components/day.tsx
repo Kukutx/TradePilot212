@@ -97,19 +97,21 @@ export function DayCell({ move, loading, currency, locale, t, layout = "stack" }
 
 /**
  * One instrument's day on its page, under its value or price: what the holding made or lost and the price's change,
- * or the change alone for one not held, with the close it is measured from.
+ * the change alone for one not held, or what its sells made for one sold out on the day, with the close it is
+ * measured from.
  */
 export function DayLine({ move, timestamp, currency, locale, t }: { move: DayMove; timestamp: string; currency: string; locale: SupportedLocale; t: Translator }) {
-  if (move.change === undefined) {
+  if (move.change === undefined && move.profitLoss === undefined) {
     return <div className="dayTotal" title={move.problem}><span>{fill(t("todayNone"), { reason: dayMissingText(move, t) })}</span></div>;
   }
   const since = sinceText(move, currency, locale, t);
-  const notes = [move.bought || move.sold ? t("todayTraded") : "", move.profitLoss !== undefined ? t("todayRates") : ""].filter(Boolean).join(" ");
+  const notes = [move.bought || move.sold ? t("todayTraded") : "", move.profitLoss !== undefined ? t("todayRates") : "", move.problem ?? ""].filter(Boolean).join(" ");
+  const change = move.change === undefined ? undefined : pct(move.change, locale, 2, { signed: true });
   return (
     <div className="dayTotal dayLine" {...(notes ? { title: notes } : {})}>
       <b>
-        {move.profitLoss !== undefined && <span className={signedClass(move.profitLoss)}>{money(move.profitLoss, currency, locale, { signed: true })} </span>}
-        <span className={signedClass(move.change)}>{move.profitLoss !== undefined ? `(${pct(move.change, locale, 2, { signed: true })})` : pct(move.change, locale, 2, { signed: true })}</span>
+        {move.profitLoss !== undefined && <span className={signedClass(move.profitLoss)}>{money(move.profitLoss, currency, locale, { signed: true })}{change ? " " : ""}</span>}
+        {change && <span className={signedClass(move.change)}>{move.profitLoss !== undefined ? `(${change})` : change}</span>}
       </b>
       <span>{sessionLabel(move.day, timestamp, locale, t)}{notes && <span className="visuallyHidden"> {notes}</span>}</span>
       {since && <small className="daySince">{since}</small>}

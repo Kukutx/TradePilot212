@@ -69,8 +69,9 @@ export function digestText(input: DigestInput): string {
   const day = input.day;
   return [
     `Total ${round(input.totalValue)} ${input.currency}${change}`,
-    day ? `day ${signed(day.profitLoss)}${day.change === undefined ? "" : ` (${signedPct(day.change)})`} on ${day.days.join(", ")}${day.counted < day.of ? ` for ${day.counted} of ${day.of} holdings` : ""}` : undefined,
-    day?.movers.length ? `movers: ${day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? signed(mover.profitLoss) : signedPct(mover.change)}`).join(", ")}` : undefined,
+    day ? `day ${signed(day.profitLoss)}${day.change === undefined ? "" : ` (${signedPct(day.change)})`} on ${day.days.join(", ")}${day.counted < day.of ? ` for ${day.counted} of ${day.of} instruments` : ""}` : undefined,
+    // One sold out on the day has no price to compare: its sells' amount instead.
+    day?.movers.length ? `movers: ${day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? `${signed(mover.profitLoss)} ${input.currency}`.trim() : signedPct(mover.change)}`).join(", ")}` : undefined,
     `cash ${round(input.cash)}`,
     input.unrealized === undefined ? undefined : `unrealized ${signed(input.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : undefined,

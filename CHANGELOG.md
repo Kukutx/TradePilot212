@@ -2,10 +2,11 @@
 
 ## 2.35.0
 
-- An instrument's page shows its move on the day under the holding's value: what it made or lost in your currency and the price's change since its previous close, with that close written out ("Since the close on Thu, Oct 8: $222.80"). An instrument you do not hold shows the change under its quoted price. The figures are the dashboard's, from the closes the page's chart already reads, so the page asks the quote provider for nothing more.
+- An instrument's page shows its move on the day under the holding's value: what it made or lost in your currency and the price's change since its previous close, with that close written out ("Since the close on Thu, Oct 8: $222.80"). An instrument you do not hold shows the change under its quoted price (before the open, the last session's, since a quote does not move then). The figures are the dashboard's, from the closes the page's chart already reads, so the page asks the quote provider for nothing more.
 - `get_holding_detail` returns the move as `day`, and its text has a line for it.
-- The daily digest leads with the holdings' move on their last session and the three that moved most: "day -42.56 (-0.85%) on 2026-10-09 · movers: VUSA -2.33%, AAPL +3.93%, MSFT -1.19%". A digest whose day cannot be read goes out without it.
-- Fixed: a holding opened from the dashboard showed its market session as unknown on a real account, because Trading 212's holdings do not name the instrument's exchange schedule. The page now takes it from the instrument list (cached), waiting at most 3 seconds.
+- The daily digest leads with the holdings' move on their last session and the three that moved most: "day -42.56 (-0.85%) on 2026-10-09 · movers: VUSA -2.33%, AAPL +3.93%, MSFT -1.19%". A digest whose day cannot be read goes out without it. It asks the quote provider for each holding's closes, as opening the dashboard does.
+- Fixed: a holding opened from the dashboard showed its market session as unknown on a real account, because Trading 212's holdings do not name the instrument's exchange schedule. The page now takes it from the instrument list, which its order history already reads.
+- Reads of Trading 212's instrument list and of its exchanges that start at the same moment now share one request, so an instrument's page, the dashboard's day and the watchlist no longer spend Trading 212's tight limits on these lists twice.
 
 ## 2.34.0
 

@@ -86,5 +86,11 @@ describe("holding price levels", () => {
     expect(quoted).toContain('<div class="dayTotal dayLine"><b><span class="positive">+3.93%</span></b><span>上个交易日（10月9日周五）的涨跌</span>');
     // Without a quote there is no price to set it under.
     expect(render({ ...base, day: { ...day, quantity: 0, profitLoss: undefined } } as HoldingDetail)).not.toContain("dayLine");
+    // Sold out on the day: what the sells made, without a price to compare.
+    const sold = render({ ...base, day: { ...day, quantity: 0, price: undefined, change: undefined, profitLoss: -27.6, bought: undefined, sold: 3 } } as HoldingDetail);
+    expect(sold).toContain('<b><span class="negative">-€27.60</span></b>');
+    // A holding without an exchange rate gives the change, and why there is no amount.
+    const noRate = render({ ...base, position, day: { ...day, profitLoss: undefined, bought: undefined, missing: "fx", problem: "No exchange rate from USD to EUR." } } as unknown as HoldingDetail);
+    expect(noRate).toContain('<div class="dayTotal dayLine" title="No exchange rate from USD to EUR."><b><span class="positive">+3.93%</span></b>');
   });
 });

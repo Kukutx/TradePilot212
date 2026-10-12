@@ -211,7 +211,7 @@ export function HoldingView({
           ) : (
             <>
               {data.quote && <strong className="heroValue small">{amount(data.quote.price, quote, locale)}</strong>}
-              {data.quote && data.day?.change !== undefined && <DayLine move={data.day} timestamp={data.timestamp} currency={currency} locale={locale} t={t} />}
+              {data.day && ((data.quote && data.day.change !== undefined) || data.day.profitLoss !== undefined) && <DayLine move={data.day} timestamp={data.timestamp} currency={currency} locale={locale} t={t} />}
               <div className="pnlBadge">{t("notHeld")}{data.targetWeight === undefined ? "" : ` · ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`}</div>
               {data.quote && <small className="quoteNote">{data.quote.source === "sample" ? t("quoteFromSample") : fill(t("quoteFrom"), { source: quoteProviderLabel(data.quote.source, t), symbol: data.quote.symbol, time: dateTime(data.quote.asOf, locale) })}</small>}
             </>

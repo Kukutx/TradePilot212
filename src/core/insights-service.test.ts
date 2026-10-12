@@ -64,6 +64,18 @@ describe("history collection", () => {
     expect(history.fills[0]).toMatchObject({ ticker: "AAPL_US_EQ", name: "Apple", price: 230 });
   });
 
+  it("reads the exchanges once for callers at the same moment", async () => {
+    const calls: string[] = [];
+    const service = new InsightsService({
+      config,
+      instruments: async () => [],
+      fetcher: fetcherFor({ "https://demo.test/api/v0/equity/metadata/exchanges": [{ id: 1, name: "NASDAQ", workingSchedules: [] }] }, calls),
+    });
+    const instrument = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", workingScheduleId: 1 };
+    await Promise.all([service.schedules("demo"), service.tryMarketStatus("demo", instrument), service.schedules("demo")]);
+    expect(calls).toEqual(["https://demo.test/api/v0/equity/metadata/exchanges"]);
+  });
+
   it("refuses an environment without credentials", async () => {
     const service = new InsightsService({ config, instruments: async () => [], fetcher: fetcherFor({}, []) });
     await expect(service.collect("live", "orders", { to: new Date() })).rejects.toThrow(/LIVE credentials are not configured/);

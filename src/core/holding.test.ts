@@ -39,10 +39,30 @@ describe("holding detail", () => {
     expect(day.change).toBeCloseTo(128.75 / day.previousClose!.close - 1, 6);
     expect(day.profitLoss).toBeDefined();
     expect(describePayload(held)).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2} \([\d.]+ USD\), [+-][\d.]+ EUR/m);
+    const late = describePayload({ ...held, day: { ...day, change: undefined, profitLoss: undefined, missing: "lag", problem: "stooq's closes for NVDA.US end on 2026-10-07, before the last session (2026-10-08); the day's move shows once they have it." } });
+    expect(late).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): no move for the day; stooq's closes for NVDA\.US end on 2026-10-07, before the last session \(2026-10-08\); the day's move shows once they have it\.$/m);
     const tesla = await holdingDetail(sample(), "demo", "Tesla");
     expect(tesla.day).toMatchObject({ quantity: 0, price: 244.1 });
     expect(tesla.day!.change).toBeCloseTo(244.1 / tesla.day!.previousClose!.close - 1, 6);
     expect(tesla.day!.profitLoss).toBeUndefined();
+  });
+
+  it("sets a quoted price against the last session before the open, as a quote does not move then", async () => {
+    const services = sample();
+    // NASDAQ with a pre-market from 08:00 UTC: Monday 12 October 2026 at 09:00 is in it.
+    const week = [5, 6, 7, 8, 9, 12, 13].flatMap((date) => {
+      const at = (hours: number) => new Date(Date.UTC(2026, 9, date) + hours * 3_600_000).toISOString();
+      return [{ date: at(8), type: "PRE_MARKET_OPEN" }, { date: at(13.5), type: "OPEN" }, { date: at(20), type: "CLOSE" }];
+    });
+    const insights = Object.create(services.insights) as typeof services.insights;
+    insights.schedules = async () => [{ id: 1, name: "NASDAQ", workingSchedules: [{ id: 1, timeEvents: week as never }] }];
+    const monday = new Date("2026-10-12T09:00:00Z");
+    const tesla = await holdingDetail({ ...services, insights }, "demo", "Tesla", monday);
+    expect(tesla.day?.day).toBe("2026-10-09");
+    // Trading 212's own price of a holding traded in the pre-market belongs to the coming day.
+    const nvidia = await holdingDetail({ ...services, insights }, "demo", "NVDA_US_EQ", monday);
+    expect(nvidia.day?.day).toBe("2026-10-12");
+    expect(nvidia.market).toMatchObject({ scheduleId: 1, session: "pre_market" });
   });
 
   it("finds a holding's exchange in the instrument list, as Trading 212's holdings do not name it", async () => {
@@ -169,6 +189,8 @@ describe("holding detail", () => {
     expect(detail.historyProblem).toMatch(/rate limit/);
     expect(detail.position?.quantity).toBe(12);
     expect(describePayload(detail)).toMatch(/History not read: .*rate limit/);
+    // The day's move still shows, and says that the day's trades could not be counted from their price.
+    expect(detail.day?.problem).toBe("The order history could not be read, so shares traded on the day count from the previous close.");
   });
 
   it("says when the account is not connected", async () => {

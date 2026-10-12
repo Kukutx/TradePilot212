@@ -99,6 +99,24 @@ describe("trade safety", () => {
   });
 });
 
+describe("the instrument list", () => {
+  it("is read once for callers at the same moment, and cached", async () => {
+    let reads = 0;
+    const inner = fakeFetch();
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/metadata/instruments")) reads += 1;
+      return inner(input, init);
+    }) as typeof fetch;
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher });
+    const lists = await Promise.all([service.instruments("demo"), service.instruments("demo"), service.instruments("demo")]);
+    expect(reads).toBe(1);
+    expect(lists[1]).toBe(lists[0]);
+    await service.instruments("demo");
+    expect(reads).toBe(1);
+  });
+});
+
 describe("the dashboard read", () => {
   it("shares a recent or running read with a caller that takes one, and keeps none that started before a write", async () => {
     let reads = 0;

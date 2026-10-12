@@ -58,7 +58,7 @@ describe("daily digest", () => {
     const day = digestDay(today)!;
     expect(day.movers.map((mover) => mover.name)).toEqual(["VUSA", "AAPL", "TSLA_US_EQ"]);
     expect(digestText({ environment: "demo", currency: "EUR", totalValue: 2010, cash: 10, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, day }))
-      .toBe("Total 2010 EUR · day -42.56 (-0.85%) on 2026-10-09 for 4 of 5 holdings · movers: VUSA -2.33%, AAPL +3.93%, TSLA_US_EQ -27.6 · cash 10");
+      .toBe("Total 2010 EUR · day -42.56 (-0.85%) on 2026-10-09 for 4 of 5 instruments · movers: VUSA -2.33%, AAPL +3.93%, TSLA_US_EQ -27.6 EUR · cash 10");
     expect(digestDay({ ...today, total: undefined })).toBeUndefined();
   });
 
