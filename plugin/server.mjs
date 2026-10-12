@@ -39053,7 +39053,7 @@ function holdingRiskOf(inputs, today, totalValue) {
   if (!(variance > FLAT_VARIANCE)) return void 0;
   const volatility = Math.sqrt(variance);
   const own2 = covariance.map((row, i) => Math.sqrt(Math.max(0, row[i])));
-  const parity = parityOf(shrunkCovariance(returns, means), weights, own2);
+  const parity = parityOf(solvedOn(covariance, returns, means, own2), weights, own2);
   const rows2 = measured.map((input2, i) => ({
     ticker: input2.ticker,
     weight: round10(weights[i]),
@@ -39116,6 +39116,13 @@ function shrunkCovariance(returns, means) {
   const weight2 = apart > 0 ? Math.max(0, Math.min(1, (doubt - shared) / apart / weeks)) : 1;
   return yearly(sample.map((row, i) => row.map((cell, j2) => weight2 * target[i][j2] + (1 - weight2) * cell)));
 }
+function solvedOn(covariance, returns, means, own2) {
+  const moving = own2.flatMap((volatility, i) => volatility >= PARITY_MIN_VOLATILITY ? [i] : []);
+  if (moving.length < 2) return covariance;
+  const shrunk = shrunkCovariance(moving.map((i) => returns[i]), moving.map((i) => means[i]));
+  const at = new Map(moving.map((i, k) => [i, k]));
+  return covariance.map((row, i) => row.map((cell, j2) => at.has(i) && at.has(j2) ? shrunk[at.get(i)][at.get(j2)] : cell));
+}
 var quadratic = (covariance, x) => covariance.reduce((sum, row, i) => sum + x[i] * row.reduce((inner, cell, j2) => inner + cell * x[j2], 0), 0);
 function parityOf(covariance, weights, own2) {
   const moving = own2.flatMap((volatility, i) => volatility >= PARITY_MIN_VOLATILITY ? [i] : []);
@@ -39153,17 +39160,22 @@ function equalRiskTargets(analysis) {
   const rows2 = analysis.risk?.rows ?? [];
   if (rows2.length < 2 || !rows2.every((row) => row.parity !== void 0) || !(analysis.totalValue > 0)) return void 0;
   const values = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.value]));
-  const measured = rows2.reduce((sum, row) => sum + (values.get(row.ticker) ?? 0), 0);
-  if (!(measured > 0)) return void 0;
+  const value = (row) => values.get(row.ticker) ?? 0;
+  if (!rows2.every((row) => value(row) > 0)) return void 0;
+  const measured = rows2.reduce((sum, row) => sum + value(row), 0);
   const moved = [...rows2].sort((a, b) => Math.abs(b.parity - b.weight) - Math.abs(a.parity - a.weight) || b.weight - a.weight).slice(0, MAX_PARITY_TARGETS);
-  const now = moved.reduce((sum, row) => sum + row.weight, 0);
+  const now = moved.reduce((sum, row) => sum + value(row), 0);
   const then = moved.reduce((sum, row) => sum + row.parity, 0);
-  if (!(now > 0 && then > 0)) return void 0;
-  const floor = (value) => Math.floor(value * 1e6) / 1e6;
-  const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(row.parity * (now / then) * measured / analysis.totalValue) }));
+  if (!(then > 0)) return void 0;
+  const after = (row) => row.parity / then * now;
+  const whole = Math.max(analysis.totalValue, analysis.holdings.reduce((sum, holding2) => sum + Math.max(0, holding2.value), 0) + Math.max(0, analysis.cash));
+  const floor = (share3) => Math.floor(share3 * 1e6) / 1e6;
+  const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(after(row) / whole) }));
   const taken = targets.reduce((sum, target) => sum + target.weight, 0);
-  const cashWeight = Math.max(0, floor(Math.min((analysis.availableCash ?? analysis.cash) / analysis.totalValue, 1 - taken)));
-  return { targets, cashWeight, ...moved.length < rows2.length ? { partial: true } : {} };
+  const cashWeight = Math.max(0, floor(Math.min((analysis.availableCash ?? 0) / whole, 1 - taken)));
+  if (taken + cashWeight > 1 + 1e-9) return void 0;
+  const sold = moved.reduce((sum, row) => sum + Math.max(0, value(row) - after(row)), 0) / measured;
+  return { targets, cashWeight, sold: round10(sold), ...moved.length < rows2.length ? { partial: true } : {} };
 }
 function mixOf(measured, weights, common, dateOf, value) {
   const steps = common.slice(1).map((week, index) => {
@@ -39571,7 +39583,7 @@ function parityLines(data) {
   const plan = equalRiskTargets(data);
   return [
     `Equal-risk weights, at which each holding measured brings the same share of their risk (from the same weeks, the correlations pulled toward their average as far as the weeks leave them in doubt; a holding that moved less than ${pct(PARITY_MIN_VOLATILITY, 0)} a year keeps its weight): together ${pct(risk.parityVolatility)} a year against ${pct(risk.volatility)} at today's weights. Furthest from it first: ${moves.slice(0, MAX_PARITY_NAMED).map((row) => `${row.ticker} ${pct(row.parity, 1)} (now ${pct(row.weight, 1)})`).join(", ")}${moves.length > MAX_PARITY_NAMED ? `, and ${moves.length - MAX_PARITY_NAMED} more` : ""}. They spread the risk by the past year; they are not a forecast.`,
-    ...plan ? [`To plan the move, call plan_portfolio_rebalance with targets ${plan.targets.map((target) => `${target.ticker} ${target.weight}`).join(", ")} and cashWeight ${plan.cashWeight}: shares of the account, so the holdings measured keep their value together and the holdings not measured and the cash free to trade stay as they are${plan.partial ? `; only the ${plan.targets.length} furthest from their equal-risk weight move, as a basket takes ${plan.targets.length} orders at most` : ""}.`] : []
+    ...plan ? [`To plan the move, call plan_portfolio_rebalance with targets ${plan.targets.map((target) => `${target.ticker} ${target.weight}`).join(", ")} and cashWeight ${plan.cashWeight}: shares of the account, so the holdings measured keep their value together and the holdings not measured and the cash free to trade stay as they are, at the values read now${plan.partial ? `; only the ${plan.targets.length} furthest from their equal-risk weight move, as a basket takes ${plan.targets.length} orders at most` : ""}.`] : []
   ];
 }
 function mixLine(mix, currency) {

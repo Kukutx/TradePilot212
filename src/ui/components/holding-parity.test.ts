@@ -40,6 +40,8 @@ describe("equal-risk weights", () => {
   it("offers to plan the move with order tools, and says when a basket cannot take every holding", () => {
     const html = render(data(), { onPlan: () => undefined });
     expect(html).toContain(">Plan this rebalance</button>");
+    // The plan moves every holding here: it sells what the tile says.
+    expect(html).toContain("<span>To move</span><strong>€2,000</strong>");
     expect(html).toContain("nothing is sent until you do");
     expect(html).not.toContain("A basket takes");
     const many = Array.from({ length: 22 }, (_, index) => row(`T${index}_US_EQ`, 1 / 22, 1 / 22 + (index % 2 ? 1 : -1) * 0.001));

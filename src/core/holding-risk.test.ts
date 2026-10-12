@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createServices } from "../app/services.js";
 import type { Instrument, Position } from "../shared/contracts.js";
 import type { HoldingWeight } from "../shared/history.js";
+import { MAX_PARITY_TARGETS } from "../shared/holding-risk.js";
 import type { PricePoint } from "../shared/prices.js";
 import { createConfig } from "./config.js";
 import { readHoldingRisk } from "./holding-risk.js";
 import type { PriceHistoryRequest, PriceHistoryResult } from "./price-history.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
+import { MAX_BASKET_LEGS } from "./trading-service.js";
 
 const DAY_MS = 86_400_000;
 const NOW = new Date("2026-10-10T12:00:00Z");
@@ -174,6 +176,8 @@ describe("the allocation tool's risk by holding", () => {
     const target = (share: number) => String(Math.floor(share * measured / analysis.totalValue * 1e6) / 1e6);
     expect(text).toMatch(new RegExp(`To plan the move, call plan_portfolio_rebalance with targets (${a!.ticker} ${target(0.4)}, ${b!.ticker} ${target(0.6)}|${b!.ticker} ${target(0.6)}, ${a!.ticker} ${target(0.4)}) and cashWeight 0\\.\\d+: shares of the account`));
     expect(text).not.toContain("furthest from their equal-risk weight move");
+    // The plan never has more targets than the planner's basket takes.
+    expect(MAX_PARITY_TARGETS).toBe(MAX_BASKET_LEGS);
   });
 
   it("adds the holdings' risk to the allocation and its text", async () => {

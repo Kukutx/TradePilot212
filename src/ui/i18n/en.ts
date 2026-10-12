@@ -538,7 +538,7 @@ export const en = {
   holdingParityRowTitle: "{name}: {parity} at equal risk, {weight} today; volatility {volatility} a year",
   holdingParityMore: "{count} more in the table view.",
   holdingParityPlan: "Plan this rebalance",
-  holdingParityPlanNote: "It opens the trades as one basket for you to review and confirm; nothing is sent until you do. The holdings not measured and the cash stay as they are.",
+  holdingParityPlanNote: "It opens the trades as one basket for you to review and confirm; nothing is sent until you do. The holdings not measured and the cash stay as they are. It plans from the values read here, so after a large move, refresh first.",
   holdingParityPartial: "A basket takes {count} orders, so it moves the {count} furthest from their equal-risk weight and leaves the rest.",
   holdingParityNote: "At equal-risk weights each holding measured brings the same share of their risk, by how much it moved and how it moved with the others over the same weeks. The correlations are pulled toward their average as far as the weeks leave them in doubt, so the weights do not chase noise, and a holding that moved less than {floor} a year keeps its weight. They spread the risk by the past year; they say nothing of returns. Shares are of the holdings measured.",
   amountColumn: "Amount",

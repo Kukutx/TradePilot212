@@ -131,7 +131,7 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   if (!(variance > FLAT_VARIANCE)) return undefined;
   const volatility = Math.sqrt(variance);
   const own = covariance.map((row, i) => Math.sqrt(Math.max(0, row[i]!)));
-  const parity = parityOf(shrunkCovariance(returns, means), weights, own);
+  const parity = parityOf(solvedOn(covariance, returns, means, own), weights, own);
   const rows: HoldingRiskRow[] = measured.map((input, i) => ({
     ticker: input.ticker,
     weight: round(weights[i]!),
@@ -205,6 +205,18 @@ function shrunkCovariance(returns: number[][], means: number[]): number[][] {
   return yearly(sample.map((row, i) => row.map((cell, j) => weight * target[i]![j]! + (1 - weight) * cell)));
 }
 
+/**
+ * The covariance the equal-risk weights are solved on: the holdings that move shrunk among themselves, so a quiet
+ * holding (which keeps its weight) neither stops the shrinking nor pulls the average correlation down.
+ */
+function solvedOn(covariance: number[][], returns: number[][], means: number[], own: number[]): number[][] {
+  const moving = own.flatMap((volatility, i) => (volatility >= PARITY_MIN_VOLATILITY ? [i] : []));
+  if (moving.length < 2) return covariance;
+  const shrunk = shrunkCovariance(moving.map((i) => returns[i]!), moving.map((i) => means[i]!));
+  const at = new Map(moving.map((i, k) => [i, k]));
+  return covariance.map((row, i) => row.map((cell, j) => (at.has(i) && at.has(j) ? shrunk[at.get(i)!]![at.get(j)!]! : cell)));
+}
+
 /** x'Σx: the variance a year of weights x. */
 const quadratic = (covariance: number[][], x: number[]) =>
   covariance.reduce((sum, row, i) => sum + x[i]! * row.reduce((inner, cell, j) => inner + cell * x[j]!, 0), 0);
@@ -249,6 +261,18 @@ export function parityOf(covariance: number[][], weights: number[], own: number[
   return parity;
 }
 
+/** What equalRiskTargets gives plan_portfolio_rebalance, and what the plan sells. */
+export interface EqualRiskPlan {
+  /** Shares of the account's value. */
+  targets: Array<{ ticker: string; weight: number }>;
+  /** The share of the account's value in cash free to trade, kept, so the sells pay for the buys. */
+  cashWeight: number;
+  /** The share of the holdings measured the plan sells, and buys again. */
+  sold: number;
+  /** Only the MAX_PARITY_TARGETS furthest from their equal-risk weight move. */
+  partial?: true;
+}
+
 /**
  * The targets, as shares of the account's value, that move the holdings measured to their equal-risk weights for
  * plan_portfolio_rebalance: the holdings measured keep their value together, and the holdings not measured and the
@@ -256,25 +280,32 @@ export function parityOf(covariance: number[][], weights: number[], own: number[
  * holdings measured than a basket takes, the MAX_PARITY_TARGETS furthest from their equal-risk weight move, keeping
  * their value together, and the others stay (`partial`). Undefined without equal-risk weights or an account value.
  */
-export function equalRiskTargets(analysis: Pick<AllocationAnalysis, "risk" | "holdings" | "totalValue" | "cash" | "availableCash">):
-  { targets: Array<{ ticker: string; weight: number }>; cashWeight: number; partial?: true } | undefined {
+export function equalRiskTargets(analysis: Pick<AllocationAnalysis, "risk" | "holdings" | "totalValue" | "cash" | "availableCash">): EqualRiskPlan | undefined {
   const rows = analysis.risk?.rows ?? [];
   if (rows.length < 2 || !rows.every((row) => row.parity !== undefined) || !(analysis.totalValue > 0)) return undefined;
   const values = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.value]));
-  const measured = rows.reduce((sum, row) => sum + (values.get(row.ticker) ?? 0), 0);
-  if (!(measured > 0)) return undefined;
+  const value = (row: HoldingRiskRow) => values.get(row.ticker) ?? 0;
+  // A holding measured that is not among the holdings would be bought from nothing.
+  if (!rows.every((row) => value(row) > 0)) return undefined;
+  const measured = rows.reduce((sum, row) => sum + value(row), 0);
   const moved = [...rows].sort((a, b) => Math.abs(b.parity! - b.weight) - Math.abs(a.parity! - a.weight) || b.weight - a.weight)
     .slice(0, MAX_PARITY_TARGETS);
-  // The holdings moved keep their value together: their equal-risk weights are scaled to the share they have now.
-  const now = moved.reduce((sum, row) => sum + row.weight, 0);
+  // The holdings moved keep their value together, shared by their equal-risk weights.
+  const now = moved.reduce((sum, row) => sum + value(row), 0);
   const then = moved.reduce((sum, row) => sum + row.parity!, 0);
-  if (!(now > 0 && then > 0)) return undefined;
-  // Floored, so the targets and the cash never come to more than the account.
-  const floor = (value: number) => Math.floor(value * 1e6) / 1e6;
-  const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(row.parity! * (now / then) * measured / analysis.totalValue) }));
+  if (!(then > 0)) return undefined;
+  const after = (row: HoldingRiskRow) => row.parity! / then * now;
+  // Shares of the account's value, or of the holdings and the cash where, rounded, they come to more: floored, so
+  // the targets and the cash weight never come to more than 1 (beyond the planner's 1e-9 for sums), which it refuses.
+  const whole = Math.max(analysis.totalValue, analysis.holdings.reduce((sum, holding) => sum + Math.max(0, holding.value), 0) + Math.max(0, analysis.cash));
+  const floor = (share: number) => Math.floor(share * 1e6) / 1e6;
+  const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(after(row) / whole) }));
   const taken = targets.reduce((sum, target) => sum + target.weight, 0);
-  const cashWeight = Math.max(0, floor(Math.min((analysis.availableCash ?? analysis.cash) / analysis.totalValue, 1 - taken)));
-  return { targets, cashWeight, ...(moved.length < rows.length ? { partial: true as const } : {}) };
+  // The planner spends only the cash free to trade, none without it.
+  const cashWeight = Math.max(0, floor(Math.min((analysis.availableCash ?? 0) / whole, 1 - taken)));
+  if (taken + cashWeight > 1 + 1e-9) return undefined;
+  const sold = moved.reduce((sum, row) => sum + Math.max(0, value(row) - after(row)), 0) / measured;
+  return { targets, cashWeight, sold: round(sold), ...(moved.length < rows.length ? { partial: true as const } : {}) };
 }
 
 /**

@@ -450,10 +450,10 @@ export default function App() {
   }
 
   /** Plan the move to the equal-risk weights; the trades open as a basket to review, nothing is sent. */
-  async function rebalanceToEqualRisk(plan: EqualRiskPlan): Promise<void> {
+  async function rebalanceToEqualRisk(plan: EqualRiskPlan, env: TradingEnvironment): Promise<void> {
     await run("errorTitleRebalance", async () => {
-      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment, targets: plan.targets, cashWeight: plan.cashWeight }));
-    }, () => void rebalanceToEqualRisk(plan));
+      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment: env, targets: plan.targets, cashWeight: plan.cashWeight }));
+    }, () => void rebalanceToEqualRisk(plan, env));
   }
 
   /** Draft a stop for every holding without a full one; they open as a basket to review, nothing is sent. */
@@ -875,6 +875,8 @@ export default function App() {
   const canToggleFullscreen = availableDisplayModes.includes("fullscreen") || displayMode === "fullscreen";
   const loading = status === "loading";
   const portfolioLike = base?.kind === "portfolio" || isInsight(base);
+  // A plan from the allocation shown is for that allocation's account.
+  const allocationEnvironment = insights.allocation?.environment ?? environment;
   // Views that read an account: without its API key they would only show an empty account.
   const accountView = portfolioLike || base?.kind === "trade_plan" || base?.kind === "pies" || base?.kind === "automation" || base?.kind === "holding";
   const missingCredentials = (accountView && !credentials[environment])
@@ -990,7 +992,7 @@ export default function App() {
             {portfolioLike && tab === "allocation" && insights.allocation && (
               <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
                 {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})}
-                {...(writeEnabled && connected ? { onPlanEqualRisk: (plan: EqualRiskPlan) => void rebalanceToEqualRisk(plan) } : {})} />
+                {...(writeEnabled && connected ? { onPlanEqualRisk: (plan: EqualRiskPlan) => void rebalanceToEqualRisk(plan, allocationEnvironment) } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}

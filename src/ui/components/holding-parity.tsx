@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import type { AllocationAnalysis, HoldingRiskRow } from "../../shared/history";
-import { equalRiskTargets, MAX_PARITY_TARGETS, PARITY_MIN_VOLATILITY } from "../../shared/holding-risk";
+import { equalRiskTargets, MAX_PARITY_TARGETS, PARITY_MIN_VOLATILITY, type EqualRiskPlan } from "../../shared/holding-risk";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { money, pct } from "../lib/format";
 import { instrumentLabel, instrumentText, type InstrumentBook } from "../lib/instruments";
@@ -16,7 +16,7 @@ import { Tile } from "./risk";
 /** At most this many dumbbells: those furthest from their equal-risk weight. */
 const MAX_ROWS = 12;
 
-export type EqualRiskPlan = NonNullable<ReturnType<typeof equalRiskTargets>>;
+export type { EqualRiskPlan };
 
 type Parity = HoldingRiskRow & { parity: number };
 
@@ -31,8 +31,9 @@ export function HoldingParityPanel({ data, book, locale, t, onPlan, busy }: {
   const plan = equalRiskTargets(data);
   const values = new Map(data.holdings.map((holding) => [holding.ticker, holding.value]));
   const measured = risk.rows.reduce((sum, row) => sum + (values.get(row.ticker) ?? 0), 0);
-  // What moves: the value sold, which buys the same again.
-  const turnover = rows.reduce((sum, row) => sum + Math.max(0, row.weight - row.parity), 0);
+  // What moves: the value sold, which buys the same again; with the plan offered, what it sells (fewer holdings when
+  // a basket cannot take them all).
+  const turnover = onPlan && plan ? plan.sold : rows.reduce((sum, row) => sum + Math.max(0, row.weight - row.parity), 0);
   const share = (value: number) => pct(value, locale, value > 0 && value < 0.1 ? 1 : 0);
   const points = new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
   const furthest = rows[0]!;

@@ -249,6 +249,10 @@ describe("equal-risk weights", () => {
     const inputs = Array.from({ length: 40 }, (_, index) => holding(`N${index}`, 1000, Array.from({ length: 52 }, () => noise() * 0.06)));
     const risk = holdingRiskOf(inputs, TODAY)!;
     for (const row of risk.rows) expect(Math.abs(row.parity! * 40 - 1)).toBeLessThan(0.35);
+    // A holding whose price never moved keeps its weight, and does not stop the others being shrunk.
+    const still = holdingRiskOf([...inputs, holding("FLAT", 1000, Array.from({ length: 52 }, () => 0))], TODAY)!;
+    expect(still.rows.find((row) => row.ticker === "FLAT")!.parity).toBeCloseTo(1 / 41, 6);
+    for (const row of still.rows.filter((item) => item.ticker !== "FLAT")) expect(Math.abs(row.parity! * 41 - 1)).toBeLessThan(0.35);
   });
 });
 
@@ -265,9 +269,31 @@ describe("the targets that plan the move to equal risk", () => {
     // The 1,000 measured, of 2,000: A 400, B 600; C is not measured and is not a target.
     expect(plan.targets).toEqual([{ ticker: "A", weight: 0.2 }, { ticker: "B", weight: 0.3 }]);
     expect(plan.cashWeight).toBe(0.225);
+    // A sells 200 of the 1,000 measured, which B buys.
+    expect(plan.sold).toBe(0.2);
     expect(plan.partial).toBeUndefined();
-    // Without free cash given, the cash.
-    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400 }, { availableCash: undefined }))!.cashWeight).toBe(0.25);
+    // Without free cash, as the planner counts none, none is kept.
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400 }, { availableCash: undefined }))!.cashWeight).toBe(0);
+    // A holding measured but not among the holdings would be bought from nothing.
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600 }))).toBeUndefined();
+  });
+
+  it("never asks the planner for more than the account, however the values were rounded", () => {
+    // Fully invested, every holding measured: the rounded weights and values can come to a little more than 1.
+    let seed = 5;
+    const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const six = (value: number) => Math.round(value * 1e6) / 1e6;
+    for (let trial = 0; trial < 2000; trial += 1) {
+      const raw = Array.from({ length: 19 }, () => 50 + random() * 5000);
+      const total = raw.reduce((sum, value) => sum + value, 0);
+      const values = raw.map((value) => Math.round(value * 100) / 100);
+      const measured = values.reduce((sum, value) => sum + value, 0);
+      const spread = raw.map(() => random() + 0.2);
+      const rows = values.map((value, index) => ({ ticker: `T${index}`, weight: six(value / measured), parity: six(spread[index]! / spread.reduce((sum, item) => sum + item, 0)) }));
+      const plan = equalRiskTargets(analysis(rows, Object.fromEntries(values.map((value, index) => [`T${index}`, value])), { totalValue: Math.round(total * 100) / 100, cash: 0, availableCash: 0 }))!;
+      // The planner refuses more than 1 + 1e-9.
+      expect(plan.targets.reduce((sum, target) => sum + target.weight, 0) + plan.cashWeight).toBeLessThanOrEqual(1 + 1e-9);
+    }
   });
 
   it("moves the furthest from equal risk when a basket cannot take them all, keeping their value together", () => {

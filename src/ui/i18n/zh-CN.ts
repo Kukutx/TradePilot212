@@ -540,7 +540,7 @@ export const zhCN: Record<MessageKey, string> = {
   holdingParityRowTitle: "{name}：风险平价 {parity}，今天 {weight}；年化波动 {volatility}",
   holdingParityMore: "另外 {count} 个在表格视图里。",
   holdingParityPlan: "生成调仓草稿",
-  holdingParityPlanNote: "交易会作为一个订单篮打开，由你检查并确认，确认前不会发送任何订单。没测到的持仓和现金保持不变。",
+  holdingParityPlanNote: "交易会作为一个订单篮打开，由你检查并确认，确认前不会发送任何订单。没测到的持仓和现金保持不变。草稿按这次读到的市值计算，价格变动较大时请先刷新。",
   holdingParityPartial: "一个订单篮最多 {count} 笔，所以只调整偏离风险平价最多的 {count} 个，其余不动。",
   holdingParityNote: "按风险平价权重，每个所测持仓贡献的风险份额相同，依据是同一段时间里各自的波动大小以及和其他持仓的联动。周数越少、相关性越不可靠，就越向平均相关性收缩，免得权重追着噪声走；年化波动低于 {floor} 的持仓保持原权重。这些权重按过去一年分散风险，不代表收益判断。比例都按所测持仓计算。",
   amountColumn: "金额",
