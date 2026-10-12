@@ -154,6 +154,7 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
     case "PIE_NOT_FOUND": return t("errorPieNotFound");
     case "ALERT_NOT_FOUND": return t("errorAlertNotFound");
+    case "JOURNAL_ENTRY_NOT_FOUND": return t("errorJournalNotFound");
     case "LIVE_ACK_REQUIRED": return t("errorLiveAckRequired");
     case "INVALID_INPUT": return problem.message;
     default: return problem.message || t("errorInternal");

@@ -21,6 +21,7 @@ import type {
 } from "../shared/contracts";
 import type { AutomationOverview, BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
 import type { HoldingDetail } from "../shared/holding";
+import { journalText } from "../shared/journal";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
@@ -158,6 +159,8 @@ function defaultDraft(
     quantity: candidate.suggestedQuantity ?? 1,
     ...(candidate.referencePrice ? { referencePrice: candidate.referencePrice } : {}),
     ...(candidate.referencePriceAt ? { referencePriceAt: candidate.referencePriceAt } : {}),
+    // The plan's reasoning starts the journal note; the editor can change or clear it.
+    ...(journalText(candidate.thesis ?? candidate.rationale) ? { thesis: journalText(candidate.thesis ?? candidate.rationale)! } : {}),
   };
 }
 
@@ -472,6 +475,18 @@ export default function App() {
       await callTool("manage_price_alerts", { environment, ...input });
     });
     if (done) await refresh(environment, "holdings");
+    return done;
+  }
+
+  /**
+   * Add, change or delete a trade journal note, then read the page again so it shows the change. Notes never trade.
+   * They go to the account of the page shown, which can lag the switch while the other account's page loads.
+   */
+  async function changeNote(env: TradingEnvironment, input: Record<string, unknown>): Promise<boolean> {
+    const done = await run("errorTitleJournal", async () => {
+      await callTool("manage_trade_journal", { environment: env, ...input });
+    });
+    if (done && base?.kind === "holding" && base.environment === env) await refresh(env, "holdings");
     return done;
   }
 
@@ -811,6 +826,8 @@ export default function App() {
           <div className="noticeCopy">
             <strong>{execution.status === "unknown" ? t("unknownStatus") : execution.ok ? t("submitted") : t("notSubmitted")}</strong>
             <span>{execution.ok ? executionText(executionKind, execution.environment, t) : execution.error ? formatProblem(execution.error, t, locale) : execution.message}</span>
+            {execution.journalEntryId && <span>{t("orderThesisSaved")}</span>}
+            {execution.journalNotSaved && <span>{t("orderThesisNotSaved")}</span>}
             {verification && <span className="verificationResult">{verificationText(verification, t)}</span>}
           </div>
           {execution.status === "unknown" && execution.verificationId && (
@@ -868,6 +885,8 @@ export default function App() {
             )}
             {base?.kind === "holding" && (
               <HoldingView
+                // A new account or instrument starts the page afresh, so an open form cannot save to the wrong one.
+                key={`${base.environment}:${base.ticker}`}
                 data={base}
                 book={book}
                 locale={locale}
@@ -878,6 +897,10 @@ export default function App() {
                 onSaveAlert={(request) => changeAlert({ action: "create", instrument: base.ticker, ...request })}
                 onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
                 onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
+                onSaveNote={({ entryId, orderId, thesis, review, tags }) => changeNote(base.environment, entryId
+                  ? { action: "update", entryId, thesis, review, tags }
+                  : { action: "add", instrument: base.ticker, ...(orderId ? { orderId } : {}), ...(thesis ? { thesis } : {}), ...(review ? { review } : {}), ...(tags.length ? { tags } : {}) })}
+                onDeleteNote={(entryId) => void changeNote(base.environment, { action: "delete", entryId })}
                 onCancel={(id) => void startCancel(id)}
                 onTrade={(side) => {
                   // One share to start; the editor changes the size and type before anything is reviewed.

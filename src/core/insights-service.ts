@@ -66,6 +66,9 @@ export interface CashHistoryItem {
 
 export type HistoryPeriod = "1w" | "1m" | "3m" | "ytd" | "1y" | "all";
 
+/** The Trading 212 order id of a history record, as text, so a journal note can name it. */
+const orderIdOf = (id: number | string | undefined): { orderId?: string } => (id === undefined || id === null || id === "" ? {} : { orderId: String(id) });
+
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 
@@ -296,6 +299,7 @@ export class InsightsService {
     // Orders that closed without a fill: cancelled, rejected or expired.
     const unfilled = includeUnfilled
       ? inWindow.filter((item) => !item.fill).slice(0, max).map((item) => ({
+          ...orderIdOf(item.order?.id),
           ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
           ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
           side: item.order?.side,
@@ -314,6 +318,7 @@ export class InsightsService {
       .filter((item) => item.fill)
       .slice(0, max)
       .map((item) => ({
+        ...orderIdOf(item.order?.id),
         ticker: item.order?.ticker,
         ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
         side: item.order?.side,

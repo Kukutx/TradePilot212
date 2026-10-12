@@ -42,7 +42,7 @@ const copy = {
     exitFullscreen: "Exit full screen (Esc)",
     footSample: "Simulated EUR account. Orders fill against it and nothing is sent to Trading 212. Restart the preview to start fresh.",
     footDemo: "Your Trading 212 Demo account. Confirmed orders go to the practice account. Live is switched off here.",
-    footShared: "Plans and alerts you create are kept in memory and never run on their own.",
+    footShared: "Plans, alerts and journal notes you create are kept in memory; plans and alerts never run on their own.",
   },
   "zh-CN": {
     title: "TradePilot 预览", sample: "样例账户", demo: "你的 Demo 账户", view: "页面", theme: "主题", light: "浅色", dark: "深色",
@@ -52,7 +52,7 @@ const copy = {
     exitFullscreen: "退出全屏（Esc）",
     footSample: "模拟的 EUR 账户。订单在本地成交，不会发到 Trading 212。重启预览即恢复初始数据。",
     footDemo: "你的 Trading 212 Demo 模拟账户。确认后的订单会发到模拟账户。这里不会使用 Live。",
-    footShared: "新建的定投计划和价格提醒只保存在内存里，不会自动执行。",
+    footShared: "新建的定投计划、价格提醒和交易日志只保存在内存里；计划和提醒不会自动执行。",
   },
 } as const;
 
@@ -63,6 +63,7 @@ const labels: Record<string, { en: string; zh: string }> = {
   income: { en: "Income", zh: "股息收入" },
   tradeplan: { en: "Trade ideas", zh: "交易思路" },
   holding: { en: "One holding", zh: "单只持仓" },
+  journal: { en: "Trade journal", zh: "交易日志" },
   order: { en: "Order review", zh: "下单确认" },
   risk: { en: "Size by risk", zh: "按止损风险买入" },
   protective: { en: "Stop-loss and take-profit", zh: "止损止盈" },

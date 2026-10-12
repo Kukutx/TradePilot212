@@ -11,6 +11,7 @@ import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insight
 import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import type { PieChangeDraft } from "../shared/pies.js";
+import { MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
 import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
@@ -91,6 +92,8 @@ const orderDraftSchema = z.object({
   fxRateAt: z.string().datetime().optional(),
   fxRateQuoted: z.boolean().optional().describe("Set by TradePilot when fxRate came from the quote source; pass it back as returned."),
   riskBudget: z.object({ stopLossPrice: z.number().positive(), budget: z.number().positive() }).optional(),
+  thesis: z.string().max(MAX_JOURNAL_TEXT).optional()
+    .describe("Why the user is making this trade, in their words. Never sent to Trading 212: once the order is sent it is saved to the trade journal with its order id."),
 });
 
 const orderSizingSchema = z.discriminatedUnion("mode", [
@@ -123,7 +126,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, targets: targetAllocations, values, pies, automationOverview }: Services,
+  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -135,7 +138,7 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
-  const holdingDeps = { trading, insights, alerts, targets: targetAllocations };
+  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);
@@ -320,7 +323,7 @@ export function createMcpServer(
     "get_trade_history",
     {
       title: "Trade History",
-      description: "List executed fills with price, quantity, net value, realized P/L, FX rate and costs, newest first. Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
+      description: "List executed fills with their order id, price, quantity, net value, realized P/L, FX rate and costs, newest first, and the trade journal notes on those orders (why each was made, and any review). Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         ticker: z.string().min(1).optional(),
@@ -333,8 +336,12 @@ export function createMcpServer(
     },
     async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled);
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        const history = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled);
+        const orderIds = [...history.fills, ...(history.unfilled ?? [])].flatMap((item) => (item.orderId ? [item.orderId] : []));
+        // The notes are an extra: a store that cannot be read leaves the history as it is.
+        const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
+        const data = { ...history, ...(notes.length ? { journal: notes } : {}) };
+        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -529,6 +536,7 @@ export function createMcpServer(
           referencePriceAt: z.string().datetime().optional(),
           fxRate: fxRateSchema,
           fxRateAt: z.string().datetime().optional(),
+          thesis: orderDraftSchema.shape.thesis,
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -916,6 +924,79 @@ export function createMcpServer(
     },
   );
 
+  // Notes only: the journal never reaches Trading 212, so it works without order tools.
+  registerAppTool(
+    server,
+    "manage_trade_journal",
+    {
+      title: "Trade Journal",
+      description: "Keep a trade journal: why each trade was made (thesis) and, looking back, what came of it (review), with optional tags. list shows notes newest first, optionally for one instrument or order; add writes one on an instrument, optionally tied to a Trading 212 order id (from get_trade_history or get_order_status; one note per order); update changes a note's thesis, review or tags (an empty value clears it); delete removes it. An order sent with a thesis saves its note by itself. Notes stay in TradePilot and are never sent to Trading 212.",
+      inputSchema: z.object({
+        action: z.enum(["list", "add", "update", "delete"]).default("list"),
+        environment: environmentWithDefault,
+        entryId: z.string().min(1).max(40).optional().describe("Required for update and delete"),
+        instrument: z.string().min(1).optional().describe("Ticker, symbol, ISIN or name; required for add, a filter for list"),
+        orderId: z.string().min(1).max(24).optional().describe("Trading 212 order id the note is about; a filter for list"),
+        thesis: z.string().max(MAX_JOURNAL_TEXT).optional().describe("Why the trade was made"),
+        review: z.string().max(MAX_JOURNAL_TEXT).optional().describe("Looking back: what happened, and what to keep or change"),
+        tags: z.array(z.string().max(MAX_JOURNAL_TAG + 8)).max(MAX_JOURNAL_TAGS * 2).optional().describe(`Up to ${MAX_JOURNAL_TAGS} short labels, such as earnings or breakout`),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      _meta: {},
+    },
+    async (input) => {
+      try {
+        if (input.action === "list") {
+          // A ticker some note carries matches as it is, also one Trading 212 no longer lists; anything else
+          // resolves like an order's instrument. A failed instruments read is an error, not "no notes".
+          let ticker = input.instrument?.trim();
+          if (ticker) {
+            const wanted = ticker.toUpperCase();
+            const noted = (await journal.list(input.environment)).find((entry) => entry.ticker.toUpperCase() === wanted)?.ticker;
+            if (noted) ticker = noted;
+            else {
+              const instruments = await trading.instruments(input.environment);
+              try {
+                ticker = resolveInstrumentFromList(instruments, ticker).ticker;
+              } catch {
+                // Not an instrument Trading 212 lists, and no note carries it: nothing matches.
+              }
+            }
+          }
+          const matched = await journal.list(input.environment, { ...(ticker ? { ticker } : {}), ...(input.orderId ? { orderIds: [input.orderId.trim()] } : {}) });
+          const data: JournalPayload = { kind: "trade_journal", environment: input.environment, entries: matched.slice(0, input.limit), total: matched.length };
+          return result(data, `${matched.length} journal note(s)${matched.length > input.limit ? `, ${input.limit} shown` : ""}.`);
+        }
+        if (input.action === "add") {
+          if (!input.instrument) return toolError(new Error("instrument is required to add a journal note"));
+          const entry = await journal.add({
+            environment: input.environment,
+            instrument: input.instrument,
+            ...(input.orderId ? { orderId: input.orderId } : {}),
+            ...(input.thesis === undefined ? {} : { thesis: input.thesis }),
+            ...(input.review === undefined ? {} : { review: input.review }),
+            ...(input.tags ? { tags: input.tags } : {}),
+          });
+          return result({ kind: "journal_entry", entry }, `Saved journal note ${entry.id} on ${entry.ticker}${entry.orderId ? ` for order ${entry.orderId}` : ""}.`);
+        }
+        if (!input.entryId) return toolError(new Error("entryId is required"));
+        if (input.action === "delete") {
+          await journal.delete(input.entryId);
+          return result({ kind: "journal_entry", deleted: input.entryId }, `Deleted journal note ${input.entryId}.`);
+        }
+        const entry = await journal.update(input.entryId, {
+          ...(input.thesis === undefined ? {} : { thesis: input.thesis }),
+          ...(input.review === undefined ? {} : { review: input.review }),
+          ...(input.tags === undefined ? {} : { tags: input.tags }),
+        });
+        return result({ kind: "journal_entry", entry }, `Updated journal note ${entry.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
   if (canWrite) {
     registerAppTool(
       server,
@@ -1068,7 +1149,7 @@ export function createMcpServer(
           environment: environmentWithDefault,
           title: z.string().min(1).max(80).default("Order basket"),
           // A basket checks its orders as ordinary ones, without a risk budget.
-          orders: z.array(orderDraftSchema.omit({ environment: true, riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
+          orders: z.array(orderDraftSchema.omit({ environment: true, riskBudget: true, thesis: true })).min(1).max(MAX_BASKET_LEGS),
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -1322,7 +1403,7 @@ export function createMcpServer(
           environment: environmentEnum,
           purpose: z.enum(["rebalance", "protective", "dca", "custom"]),
           title: z.string().min(1).max(80),
-          drafts: z.array(orderDraftSchema.omit({ riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
+          drafts: z.array(orderDraftSchema.omit({ riskBudget: true, thesis: true })).min(1).max(MAX_BASKET_LEGS),
           planId: z.string().optional(),
           notes: z.array(z.string().max(500)).max(20).optional(),
         }),

@@ -1,16 +1,18 @@
 ---
 name: trade-journal
-description: Review recent Trading 212 trades with fills, realized P/L, fees and FX from TradePilot history, and help the user extract lessons. Use for "review my trades", "what did I trade last month", or a post-trade journal.
+description: Review recent Trading 212 trades with fills, realized P/L, fees and FX from TradePilot history, set against the reasons written in the trade journal, and save what the user learns. Use for "review my trades", "what did I trade last month", "why did I buy X", or a post-trade journal.
 ---
 
 # Trade journal
 
-1. Call `get_trade_history` for the requested window (default `1m`), filtered by ticker if the user names one. Set `includeUnfilled` when the user asks about orders that did not fill.
-2. Call `get_portfolio_performance` for the same window to get totals and costs. For one order the user asks about, `get_order_status` gives its state and each fill.
+1. Call `get_trade_history` for the requested window (default `1m`), filtered by ticker if the user names one. Set `includeUnfilled` when the user asks about orders that did not fill. Each fill carries its `orderId`, and `journal` holds the notes on those orders: the `thesis` written when the trade was made and any `review` written since.
+2. Call `get_portfolio_performance` for the same window to get totals and costs. For one order the user asks about, `get_order_status` gives its state and each fill. For one instrument, `manage_trade_journal` with `action: "list"` and the `instrument` also returns notes that are not tied to an order.
 3. Group the fills by ticker and present each round trip or position change with:
    - date, side, quantity and price;
    - net value and realized P/L from the tool;
-   - costs, with FX conversion fees called out.
-4. Ask the user, or infer from the conversation, why each trade was made. Then reflect briefly on what went well, what cost money (fees, FX, timing), and one habit to keep or change.
+   - costs, with FX conversion fees called out;
+   - the reason recorded at the time, quoted as written, when a note exists.
+4. Compare each recorded reason with what happened: did the thesis play out, was the exit planned, what cost money (fees, FX, timing). For a trade with no note, ask the user why they made it, or infer it from the conversation and say it is inferred.
+5. Offer one habit to keep or change. When the user agrees with a reflection on a trade, save it with `manage_trade_journal`: `update` with the note's `entryId` and a `review` when the trade has a note, or `add` with the `instrument`, `orderId` and `review` when it has none. Keep the user's own words; tags such as `earnings` or `breakout` help find patterns later.
 
-Never recompute P/L from prices; Trading 212's `realisedProfitLoss` already includes FX. If the history is truncated, say so. Reply in the user's language.
+Never recompute P/L from prices; Trading 212's `realisedProfitLoss` already includes FX. Never rewrite a thesis after the fact: it records what the user thought then. If the history is truncated, say so. Reply in the user's language.

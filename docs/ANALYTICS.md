@@ -1,6 +1,6 @@
 # Portfolio analytics
 
-TradePilot computes portfolio figures deterministically from Trading 212 data, so the model does not have to do arithmetic. All of these tools are read-only.
+TradePilot computes portfolio figures deterministically from Trading 212 data, so the model does not have to do arithmetic. All of these tools are read-only, except that `manage_history_export` can request a report and `manage_trade_journal` writes notes to TradePilot's own store.
 
 | Tool | What it returns | Trading 212 API permission |
 |---|---|---|
@@ -8,12 +8,13 @@ TradePilot computes portfolio figures deterministically from Trading 212 data, s
 | `get_portfolio_performance` | Realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, costs by type, trade counts, per-ticker contribution; for all-time windows, a simple return on net contributions and, after a year of deposits, an annualized money-weighted return; the account value per day that TradePilot recorded in the window, and the time-weighted return over those days for any window | account, history (orders, dividends, transactions), TradePilot's daily value record |
 | `get_income_summary` | Dividends and interest by month and by ticker, trailing 12 months, and expected dividends for the next 12 months from current holdings | account, positions, history (dividends, transactions) |
 | `get_tax_year_summary` | One tax year: number of sales, proceeds, realised gains and losses kept apart, per-instrument results, dividends, interest and costs. `year` is the calendar year it starts in, `yearStart` its first day as `MM-DD` (`04-06` for the UK) and `timeZone` the zone its days are counted in (`Europe/London`) | account, history (orders, dividends, transactions) |
-| `get_trade_history` | Executed fills with price, quantity, net value, realized P/L, FX rate, and costs; with `includeUnfilled`, also orders cancelled, rejected or expired without a fill. A ticker filter is applied by Trading 212, so older trades of one instrument are found | history (orders) |
+| `get_trade_history` | Executed fills with their order id, price, quantity, net value, realized P/L, FX rate, and costs, and the trade journal notes on those orders; with `includeUnfilled`, also orders cancelled, rejected or expired without a fill. A ticker filter is applied by Trading 212, so older trades of one instrument are found | history (orders), TradePilot's trade journal |
 | `get_cash_history` | Dividends, deposits, withdrawals, interest and fees one by one, with totals per type; filter by type or by an instrument's dividends | history (dividends, transactions) |
-| `get_holding_detail` | One instrument, held or not: position, share of the account and saved target weight, pending orders with their distance from the last price, price alerts, market session, and the last 12 months of fills and dividends (with the total). Renders the holding page | account, portfolio, orders, metadata, history (orders, dividends) |
+| `get_holding_detail` | One instrument, held or not: position, share of the account and saved target weight, pending orders with their distance from the last price, price alerts, trade journal notes, market session, and the last 12 months of fills and dividends (with the total). Renders the holding page | account, portfolio, orders, metadata, history (orders, dividends), TradePilot's trade journal |
 | `get_order_status` | One order by id: open (and how much filled), filled, partly filled, cancelled or rejected, with its fills | orders, history (orders) |
 | `get_market_hours` | Current session (regular, pre-market, after-hours, overnight, break, closed) and the next open and close | metadata |
 | `manage_history_export` | Lists the broker's CSV reports, or requests a new one | history |
+| `manage_trade_journal` | Lists, adds, changes and deletes trade journal notes: why each trade was made and what came of it ([JOURNAL.md](./JOURNAL.md)). Writes only TradePilot's own store | metadata (to resolve an instrument) |
 
 ## Periods
 

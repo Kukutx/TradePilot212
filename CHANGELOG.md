@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.29.0
+
+- A trade journal. Each trade can have a note with why you made it and, later, what came of it looking back, plus a few tags. Notes stay in TradePilot and never reach Trading 212 ([docs/JOURNAL.md](./docs/JOURNAL.md)).
+- Write the reason with the order. The order editor has a **Why this trade** field, and the order review tools and `app_prepare_order` take a `thesis`. The review shows it, and once Trading 212 accepts the order it is saved as a note with the order id Trading 212 gave it; the send's result says so, or says the reason could not be saved (a full journal or a failed store), which never changes the order's result. An order whose result is unclear keeps its note too, marked unconfirmed and without an order id, until checking the result finds the order. The thesis stays with the draft when you switch between Demo and Live. An order opened from a trade plan card starts with the card's thesis or rationale. Baskets carry none.
+- The holding page has a **Trade journal** section: the instrument's notes, newest first, each dated by the trade it is about and naming its side, size and price, with **Add note**, **Edit**, **Delete** (asked once more in place) and, for a note with only a reason, **Add a look back**. Each fill shows the reason on its order underneath, or **Add note** to write one on it.
+- `manage_trade_journal` lists, adds, changes and deletes notes from the chat, for an instrument or an order. It works without order tools, like price alerts. An order has one note; adding a second names the first.
+- `get_trade_history` returns each fill's and each unfilled order's `orderId`, and the notes on the orders it lists; `get_holding_detail` returns the instrument's notes. The text summaries quote them, so a text-only host sees the reasons too.
+- The `trade-journal` skill reads the reasons written at the time next to how each trade turned out, and saves the review the user agrees with.
+- The preview's sample account has notes on its two newest Apple buys and one without an order, and a **Trade journal** view.
+
 ## 2.28.0
 
 - A real return for any period. `get_portfolio_performance` adds `timeWeighted`: the time-weighted return over the days TradePilot recorded the account value, with deposits and withdrawals taken out, so it shows how the money invested did. Each stretch between two recorded days is measured by the Modified Dietz method, which weighs a deposit or withdrawal by how long it was in, and the stretches are chained; a stretch that starts empty is measured from its first deposit, and one that ends empty up to its last withdrawal, so the hours with nothing invested don't inflate it. Unlike the simple and money-weighted returns, it works for a window that starts or ends in the past, such as the last month or three months. It is left out when the deposit and withdrawal history read stops after the first recorded day.

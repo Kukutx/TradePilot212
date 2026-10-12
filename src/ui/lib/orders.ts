@@ -125,5 +125,7 @@ export function intentForAccount(draft: OrderDraft, resolution: OrderResolution 
     ...(draft.referencePriceAt === undefined ? {} : { referencePriceAt: draft.referencePriceAt }),
     ...(draft.timeValidity === undefined ? {} : { timeValidity: draft.timeValidity }),
     ...(draft.extendedHours === undefined ? {} : { extendedHours: draft.extendedHours }),
+    // The reason is the user's, whichever account the order goes to.
+    ...(draft.thesis ? { thesis: draft.thesis } : {}),
   };
 }

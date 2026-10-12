@@ -2,10 +2,12 @@ import { useState, type ReactNode } from "react";
 import type { PriceAlert } from "../../shared/automation";
 import type { Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
+import type { JournalEntry } from "../../shared/journal";
 import { stopOutcome, stopProtection, suggestedStop } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
+import { JournalForm, JournalNote, type JournalRequest } from "../components/journal";
 import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { alertConditionLabel, fill, instrumentTypeLabel, orderTypeLabel, type Translator } from "../lib/messages";
@@ -81,6 +83,8 @@ export function HoldingView({
   onSaveAlert,
   onDeleteAlert,
   onRearmAlert,
+  onSaveNote,
+  onDeleteNote,
 }: {
   data: HoldingDetail;
   book?: InstrumentBook;
@@ -98,8 +102,25 @@ export function HoldingView({
   onSaveAlert: (request: AlertRequest) => Promise<boolean>;
   onDeleteAlert: (alertId: string) => void;
   onRearmAlert: (alertId: string) => void;
+  /** Adds a note (on a fill's order when `orderId` is given) or changes one; resolves true once saved. */
+  onSaveNote: (request: JournalRequest & { entryId?: string; orderId?: string }) => Promise<boolean>;
+  onDeleteNote: (entryId: string) => void;
 }) {
   const [addingAlert, setAddingAlert] = useState(false);
+  // The open journal form: a change to a note, a new note on a fill's order, or (neither) a new note.
+  const [noteForm, setNoteForm] = useState<{ entryId?: string; orderId?: string; focus?: "review" } | null>(null);
+  const journal = data.journal ?? [];
+  const fills = data.history?.fills ?? [];
+  // A fill shows the note on its order; the newest note wins when there are several.
+  const notes = new Map<string, JournalEntry>();
+  for (const entry of journal) if (entry.orderId && !notes.has(entry.orderId)) notes.set(entry.orderId, entry);
+  const saveNote = (request: JournalRequest) => {
+    const form = noteForm;
+    if (!form) return;
+    void onSaveNote({ ...request, ...(form.entryId ? { entryId: form.entryId } : {}), ...(form.orderId ? { orderId: form.orderId } : {}) })
+      .then((saved) => { if (saved) setNoteForm(null); });
+  };
+  const addingNote = noteForm !== null && !noteForm.entryId && !noteForm.orderId;
   const position = data.position;
   const currency = data.accountCurrency ?? "EUR";
   const quote = data.instrument.currencyCode;
@@ -198,9 +219,34 @@ export function HoldingView({
         )}
       </section>
 
+      <section className="dataPanel">
+        <div className="pieHeader">
+          <h2>{t("journalTitle")}</h2>
+          {!addingNote && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => setNoteForm({})}>{t("journalAdd")}</button>}
+        </div>
+        {addingNote && <JournalForm t={t} busy={busy} onCancel={() => setNoteForm(null)} onSave={saveNote} />}
+        {journal.length === 0 ? (!addingNote && <div className="emptyState compact">{t("journalEmpty")}</div>) : (
+          <ul className="journalList">
+            {journal.map((entry) => noteForm?.entryId === entry.id ? (
+              <li key={entry.id} className="journalNote editing">
+                <JournalForm entry={entry} {...(noteForm.focus ? { focus: noteForm.focus } : {})} t={t} busy={busy} onCancel={() => setNoteForm(null)} onSave={saveNote} />
+              </li>
+            ) : (
+              <JournalNote key={entry.id} entry={entry} fills={fills} locale={locale} t={t} busy={busy}
+                onEdit={(focus) => setNoteForm({ entryId: entry.id, ...(focus ? { focus } : {}) })}
+                onDelete={() => onDeleteNote(entry.id)} />
+            ))}
+          </ul>
+        )}
+        {data.journalTotal !== undefined && data.journalTotal > journal.length && <p className="panelNote">{fill(t("journalMore"), { shown: String(journal.length), total: String(data.journalTotal) })}</p>}
+      </section>
+
       {data.history ? (
         <>
-          <FillsPanel fills={data.history.fills} truncated={data.history.fillsTruncated} locale={locale} t={t} />
+          <FillsPanel fills={data.history.fills} truncated={data.history.fillsTruncated} notes={notes} locale={locale} t={t} busy={busy}
+            formFor={noteForm?.orderId && !noteForm.entryId ? noteForm.orderId : undefined}
+            onAddNote={(orderId) => setNoteForm({ orderId })}
+            form={<JournalForm t={t} busy={busy} onCancel={() => setNoteForm(null)} onSave={saveNote} />} />
           <section className="dataPanel">
             <div className="pieHeader">
               <h2>{t("holdingDividendsTitle")}</h2>
@@ -250,7 +296,22 @@ function PriceLadder({ levels, last, currency, locale, t, guardNote, guardDetail
   );
 }
 
-function FillsPanel({ fills, truncated, locale, t }: { fills: HoldingFill[]; truncated: boolean; locale: SupportedLocale; t: Translator }) {
+/**
+ * The fills, each with the journal note on its order, or a link to write one. `formFor` names the order whose
+ * new note is being written; the form shows under that order's newest fill.
+ */
+function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, onAddNote }: {
+  fills: HoldingFill[];
+  truncated: boolean;
+  notes: Map<string, JournalEntry>;
+  locale: SupportedLocale;
+  t: Translator;
+  busy: boolean;
+  formFor?: string | undefined;
+  form: ReactNode;
+  onAddNote: (orderId: string) => void;
+}) {
+  const formAt = formFor ? fills.findIndex((item) => item.orderId === formFor) : -1;
   return (
     <section className="dataPanel">
       <SectionHeader title={t("holdingFillsTitle")} count={fills.length} />
@@ -258,16 +319,24 @@ function FillsPanel({ fills, truncated, locale, t }: { fills: HoldingFill[]; tru
         <ul className="historyList">
           {fills.map((item, index) => {
             const sell = String(item.side ?? "").toUpperCase() === "SELL" || (item.quantity ?? 0) < 0;
+            const note = item.orderId ? notes.get(item.orderId) : undefined;
+            const writing = index === formAt;
+            const text = note?.thesis ?? note?.review;
             return (
-              <li key={`${item.filledAt}-${index}`}>
+              <li key={`${item.filledAt}-${index}`} className={note || writing ? "withNote" : undefined}>
                 <div>
                   <strong><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b> {qty(Math.abs(item.quantity ?? 0), locale)} · {amount(item.price, item.priceCurrency, locale)}</strong>
-                  <small>{item.filledAt ? dayLabel(item.filledAt, locale) : "—"}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}</small>
+                  <small>
+                    {item.filledAt ? dayLabel(item.filledAt, locale) : "—"}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}
+                    {!note && !writing && item.orderId && <>{" · "}<button type="button" className="inlineLink" disabled={busy} aria-label={`${t("journalAdd")}: ${sell ? t("sell") : t("buy")} ${qty(Math.abs(item.quantity ?? 0), locale)}${item.filledAt ? `, ${dayLabel(item.filledAt, locale)}` : ""}`} onClick={() => onAddNote(item.orderId!)}>{t("journalAdd")}</button></>}
+                  </small>
                 </div>
                 <div className="historyAmount">
                   <strong>{item.netValue === undefined ? "—" : money(item.netValue, item.accountCurrency ?? "EUR", locale)}</strong>
                   {item.realisedProfitLoss ? <small className={signedClass(item.realisedProfitLoss)}>{fill(t("holdingRealized"), { amount: money(item.realisedProfitLoss, item.accountCurrency ?? "EUR", locale, { signed: true }) })}</small> : null}
                 </div>
+                {note && text && <p className="fillNote"><span>{t(note.thesis ? "journalWhy" : "journalReview")}</span>{text}</p>}
+                {writing && <div className="fillNoteForm">{form}</div>}
               </li>
             );
           })}

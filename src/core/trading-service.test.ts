@@ -257,9 +257,15 @@ describe("flexible order intent", () => {
       createdAt: new Date().toISOString(),
     });
 
+    const settled: Array<[string, string | undefined]> = [];
+    const journaled = new TradingService({ config: config(), store, fetcher: fakeFetch(), afterVerification: async (entryId, orderId) => { settled.push([entryId, orderId]); } });
     const result = await service.verifyExecution("test-order");
     expect(result.status).toBe("likely_executed");
     expect(result.positionDelta).toBe(1);
+    // A check that finds the order settles its journal note; a market fill names no order.
+    await store.put("verify:noted-order", { ...(await store.get<Record<string, unknown>>("verify:test-order")), journalEntryId: "jrn_1" });
+    await journaled.verifyExecution("noted-order");
+    expect(settled).toEqual([["jrn_1", undefined]]);
     const activity = await service.getActivity("demo");
     expect(activity.some((event) => event.type === "order_verification" && event.outcome === "likely_executed")).toBe(true);
   });
@@ -668,6 +674,36 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(result.status).toBe("unknown");
     expect(result.verificationId).toBeTruthy();
     await expect(service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() })).rejects.toThrow(/order 2 today; the daily limit is 1/);
+  });
+
+  it("keeps the thesis of an order whose result is unclear, marked unconfirmed, and never lets the journal fail an order", async () => {
+    const broken = () => new ReadableStream({ start(controller) { controller.error(new Error("connection reset")); } });
+    const policy = createConfig({ POLICY_APPLY_TO: "demo", POLICY_MAX_POSITION_WEIGHT: "0" }).policy;
+    const calls: Array<{ thesis?: string; unconfirmed?: boolean; order?: unknown }> = [];
+    const unclear = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: fxFetch({ writeBody: broken }),
+      afterOrder: async (draft, outcome) => { calls.push({ ...(draft.thesis ? { thesis: draft.thesis } : {}), ...outcome }); return "jrn_unclear"; } });
+    const order = { environment: "demo" as const, ticker: "AAPL_US_EQ", side: "buy" as const, type: "market" as const, quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() };
+    const result = await unclear.executeOrder((await unclear.prepareOrder({ ...order, thesis: "why" })).token);
+    expect(result).toMatchObject({ status: "unknown", journalEntryId: "jrn_unclear" });
+    expect(calls).toEqual([{ thesis: "why", unconfirmed: true }]);
+
+    // A journal that throws is logged; the accepted order still reads as submitted and says the reason was not saved.
+    const bodies: string[] = [];
+    const inner = fxFetch();
+    const capture = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (init?.method === "POST") bodies.push(String(init.body));
+      return inner(input, init);
+    }) as typeof fetch;
+    const failing = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: capture,
+      afterOrder: async () => { throw new Error("store unavailable"); } });
+    const sent = await failing.executeOrder((await failing.prepareOrder({ ...order, thesis: "why" })).token);
+    expect(sent).toMatchObject({ status: "submitted", journalNotSaved: true });
+    expect(sent).not.toHaveProperty("journalEntryId");
+    // The thesis never reaches Trading 212.
+    expect(bodies).toEqual([JSON.stringify({ ticker: "AAPL_US_EQ", quantity: 1 })]);
+    // A full journal saves nothing, and the result says so too.
+    const full = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: fxFetch(), afterOrder: async () => undefined });
+    expect(await full.executeOrder((await full.prepareOrder({ ...order, thesis: "why" })).token)).toMatchObject({ status: "submitted", journalNotSaved: true });
   });
 
   it("needs the second confirmation to cancel a Live order and keeps the token until then", async () => {

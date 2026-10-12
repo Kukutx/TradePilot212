@@ -4,6 +4,7 @@ import { credentialStatus, type RuntimeConfig } from "../core/config.js";
 import type { AutomationOverview } from "../shared/automation.js";
 import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import { InsightsService } from "../core/insights-service.js";
+import { TradeJournal } from "../core/journal.js";
 import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
 import { OrderWatch } from "../core/order-watch.js";
@@ -34,7 +35,7 @@ export function createServices(input: ServiceDependencies) {
   // Sample mode answers Trading 212 requests from the simulated account; other requests pass through.
   const sampleFetcher = () => (input.fetcher ? createSampleBroker(input.fetcher) : (processSampleBroker ??= createSampleBroker()));
   const deps = input.config.sampleData ? { ...input, fetcher: sampleFetcher() } : input;
-  // The closures only run after all three services exist.
+  // The closures only run after the services they call exist.
   const notify = createNotifier(deps.config, deps.fetcher);
   const quotes = createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
@@ -43,6 +44,8 @@ export function createServices(input: ServiceDependencies) {
     ...(quotes ? { quotes } : {}),
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
     afterBasket: (planId, result) => automation.recordRun(planId, result),
+    afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
+    afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
@@ -50,6 +53,7 @@ export function createServices(input: ServiceDependencies) {
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
   const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
+  const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
@@ -116,5 +120,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, targets, pies, digest, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, runScheduled, automationOverview };
 }

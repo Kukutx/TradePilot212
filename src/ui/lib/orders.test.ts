@@ -78,6 +78,8 @@ describe("switching accounts", () => {
     // The dated reference carries over, for an instrument neither account holds and no quote source prices.
     expect(intentForAccount(draft, risk, "live")).toEqual({ environment: "live", instrument: "AAPL_US_EQ", side: "buy", type: "limit", sizing: risk.sizing, limitPrice: 208, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z", timeValidity: "DAY" });
     expect(intentForAccount(draft, { sizing: { mode: "cash_percent", percent: 10 }, resolvedQuantity: 2 }, "live")).toMatchObject({ sizing: { mode: "cash_percent" } });
+    // The reason for the trade goes with it to the other account.
+    expect(intentForAccount({ ...draft, thesis: "my reason" }, risk, "live")).toMatchObject({ thesis: "my reason" });
   });
 
   it("leaves out an exchange rate given for the first account's currency", () => {
