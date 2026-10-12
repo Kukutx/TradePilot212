@@ -36934,6 +36934,7 @@ var TradingService = class {
 
 // src/shared/drawdown.ts
 var round4 = (value) => Math.round(value * 1e6) / 1e6 || 0;
+var MIN_FALL = 5e-4;
 function drawdownOf(series) {
   const first = series[0];
   if (!first || series.length < 2) return void 0;
@@ -36941,13 +36942,15 @@ function drawdownOf(series) {
   let max = 0, peak, trough, recovered;
   for (const point of series.slice(1)) {
     const level = 1 + point.return;
-    if (level >= high) {
+    const fall = round4(level / high - 1);
+    if (fall > -MIN_FALL) {
       if (trough && !recovered) recovered = point.date;
-      high = level;
-      highDate = point.date;
+      if (level >= high) {
+        high = level;
+        highDate = point.date;
+      }
       continue;
     }
-    const fall = round4(level / high - 1);
     if (fall < max) {
       max = fall;
       peak = highDate;
@@ -36956,7 +36959,8 @@ function drawdownOf(series) {
     }
   }
   const last = series[series.length - 1];
-  const current = Math.min(0, round4((1 + last.return) / high - 1));
+  const below = round4((1 + last.return) / high - 1);
+  const current = below > -MIN_FALL ? 0 : below;
   return {
     max,
     ...peak && trough ? { peak, trough } : {},
@@ -38916,7 +38920,7 @@ function benchmarkLines(data) {
   const major = (currency2) => currency2?.toUpperCase() === "GBX" ? "GBP" : currency2?.toUpperCase();
   const currency = benchmark2.currencyCode && major(benchmark2.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark2.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
   const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num2(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
-  const fall = benchmark2.drawdown && timeWeighted.drawdown ? ` Its largest fall from a high over these days: ${signed(benchmark2.drawdown.max * 100, 1)}%.` : "";
+  const fall = !benchmark2.drawdown || !timeWeighted.drawdown ? "" : benchmark2.drawdown.peak ? ` Its largest fall from a high over these days: ${signed(benchmark2.drawdown.max * 100, 1)}%.` : " It never fell below an earlier high over these days.";
   return [`Benchmark ${name} over the same days: ${signed(benchmark2.return * 100, 1)}% (${benchmark2.source === "sample" ? "simulated" : benchmark2.source} closes), so the time-weighted return is ${standing}.${fall}${currency}`];
 }
 function valueHistoryLines(points2) {
@@ -40739,7 +40743,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high (the high and low days, the day it was made up if it was) and how far below its high it ends. With it, benchmark gives an index fund's return (and drawdown) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current). With timeWeighted, benchmark gives an index fund's return (and drawdown) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,

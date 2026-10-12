@@ -437,6 +437,8 @@ export const zhCN: Record<MessageKey, string> = {
   drawdownAtHigh: "目前处于高点。",
   drawdownNone: "这 {days} 天里没有跌破此前的高点。",
   drawdownBenchmark: "{name} 同期最大回撤 {amount}。",
+  drawdownBenchmarkNone: "{name} 同期没有跌破此前的高点。",
+  drawdownYou: "你的回撤",
   amountColumn: "金额",
   costCurrencyConversionFee: "汇兑费",
   costCommissionTurnover: "佣金",

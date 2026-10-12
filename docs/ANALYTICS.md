@@ -53,8 +53,8 @@ The Performance tab's **Gain by instrument** chart, and `attribution` in `get_po
 
 The return chart's **Drawdown** view, and `timeWeighted.drawdown` in `get_portfolio_performance`, show how far the time-weighted return fell from its high. Each recorded day's value is the growth up to that day (one plus the return) against the highest growth on any recorded day up to it, less one: 0 on a day at a new high, −0.08 on a day 8% below it. Because it is read from the time-weighted return, a withdrawal is not a fall and a deposit not a rise.
 
-- `max` is the deepest of those falls, `peak` and `trough` the days of the high it fell from and of the low, and `recovered` the first day after the low back at that high; without `recovered` it has not been made up. When it never fell, `max` is 0 and there are no days.
-- `current` is how far below its highest point so far it is on the last recorded day, and `currentPeak` the day of that high.
+- `max` is the deepest of those falls, as a negative fraction, `peak` and `trough` the days of the high it fell from and of the low, and `recovered` the first day after the low back at that high; without `recovered` it has not been made up. A day within 0.05% of the high counts as at it, since such a fall reads 0.0%. When it never fell further, `max` is 0 and there are no days.
+- `current` is how far below its highest point so far it is on the last recorded day, and `currentPeak`, given only when it is below it, the day of that high.
 - The benchmark's drawdown (`benchmark.drawdown`, and the dashed line) is read the same way from its return on the same days.
 - It only sees the days TradePilot recorded the account value on, so a fall and recovery between two recorded days is not in it.
 

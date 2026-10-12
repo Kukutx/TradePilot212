@@ -141,7 +141,7 @@ export function axisMoney(value: number, grid: Grid, currency: string, locale: S
  * and last dates, and a crosshair with a tooltip on hover or arrow keys. A table view lists every point.
  * With `zero`, a line marks zero and the area fills between it and the series, for values that go negative.
  */
-export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, zero, flat = 1, controls, compare }: {
+export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, zero, flat = 1, belowZero, controls, compare }: {
   data: LinePoint[];
   title: string;
   labels: ChartLabels;
@@ -152,6 +152,8 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   zero?: boolean;
   /** How far above and below a line that never moves the scale reaches, in the chart's units: 1 by default. */
   flat?: number;
+  /** The values never rise above zero, as falls from a high: a line that never moves gets a scale below zero only. */
+  belowZero?: boolean;
   /** Shown in the caption beside the table switch. */
   controls?: ReactNode;
   /**
@@ -174,7 +176,11 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   const values = [...data.map((item) => item.value), ...(compare?.points.flatMap((item) => (item ? [item.value] : [])) ?? [])];
   let low = Math.min(...values, ...(zero ? [0] : []));
   let high = Math.max(...values, ...(zero ? [0] : []));
-  if (high - low < 1e-9) { low -= Math.max(flat, Math.abs(low) * 0.01); high += Math.max(flat, Math.abs(high) * 0.01); }
+  // A line that never moves: a scale either side of it, or only below zero for one that cannot rise above it.
+  if (high - low < 1e-9) {
+    if (belowZero && high === 0) low -= flat;
+    else { low -= Math.max(flat, Math.abs(low) * 0.01); high += Math.max(flat, Math.abs(high) * 0.01); }
+  }
   const grid = niceTicks(low, high);
   const span = high - low;
   low -= span * 0.08;

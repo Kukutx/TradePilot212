@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, IncomeSummary, PerformanceSummary, TimeWeightedReturn, ValuePoint } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, IncomeSummary, PerformanceSummary, ReturnPoint, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
@@ -251,26 +251,23 @@ function BenchmarkPicker({ data, busy, t, onBenchmark }: { data: PerformanceSumm
   );
 }
 
-/**
- * The account value TradePilot recorded each day, with the change over the window. With a time-weighted
- * return it opens on that instead, since the value also moves with every deposit and withdrawal, and draws the
- * benchmark's return over the same days beside it.
- */
 /** Each day's fall from the highest return before it, beside the benchmark's over the same days. */
 export function DrawdownChart({ returns, data, controls, locale, t }: {
   returns: TimeWeightedReturn; data: PerformanceSummary; controls: ReactNode; locale: SupportedLocale; t: Translator;
 }) {
   const percentAxis = (value: number, grid: Grid) => pct(value, locale, decimalsOf(grid.step * 100), { signed: value !== 0 });
-  const fallen = drawdownSeries(returns.series);
-  const benchmark = data.benchmark ? new Map(drawdownSeries(data.benchmark.series).map((point) => [point.date, point.return])) : undefined;
+  // Within 0.05% of the high is at it, as in the note.
+  const falls = (series: ReturnPoint[]) => drawdownSeries(series).map((point) => (point.return > -0.0005 ? { ...point, return: 0 } : point));
+  const fallen = falls(returns.series);
+  const benchmark = data.benchmark ? new Map(falls(data.benchmark.series).map((point) => [point.date, point.return])) : undefined;
   const display = (value: number) => value === 0 ? t("drawdownAtHighShort") : pct(value, locale, 2);
   return (
-    <LineChart title={t("drawdownTitle")} nameHeader={t("dateColumn")} valueHeader={t("drawdownColumn")} labels={chartLabels(t)} zero flat={0.01} controls={controls}
+    <LineChart title={t("drawdownTitle")} nameHeader={t("dateColumn")} valueHeader={t("drawdownColumn")} labels={chartLabels(t)} zero flat={0.01} belowZero controls={controls}
       axis={percentAxis}
       {...(data.benchmark && benchmark ? {
         compare: {
           name: benchmarkName(data.benchmark),
-          mainName: t("benchmarkYou"),
+          mainName: t("drawdownYou"),
           points: fallen.map((point) => {
             const value = benchmark.get(point.date);
             return value === undefined ? undefined : { value, display: display(value) };
@@ -296,11 +293,16 @@ export function DrawdownNote({ returns, data, locale, t }: { returns: TimeWeight
           {" "}{drawdown.current < 0 ? fill(t("drawdownNow"), { amount: pct(-drawdown.current, locale, 1), date: day(drawdown.currentPeak) }) : t("drawdownAtHigh")}
         </>
       ) : fill(t("drawdownNone"), { days: String(returns.series.length) })}
-      {data.benchmark && fall && <>{" "}{fill(t("drawdownBenchmark"), { name: benchmarkName(data.benchmark), amount: pct(fall.max, locale, 1) })}</>}
+      {data.benchmark && fall && <>{" "}{fall.peak ? fill(t("drawdownBenchmark"), { name: benchmarkName(data.benchmark), amount: pct(fall.max, locale, 1) }) : fill(t("drawdownBenchmarkNone"), { name: benchmarkName(data.benchmark) })}</>}
     </p>
   );
 }
 
+/**
+ * The account value TradePilot recorded each day, with the change over the window. With a time-weighted
+ * return it opens on that instead, since the value also moves with every deposit and withdrawal, and draws the
+ * benchmark's return over the same days beside it; its drawdown view shows the falls from each high.
+ */
 function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, onBenchmark }: {
   points: ValuePoint[]; returns?: TimeWeightedReturn; data: PerformanceSummary; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
   onBenchmark?: (choice: string) => void;
@@ -358,7 +360,8 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
       )}
       {(asReturn || asDrawdown) && (
         <div className="benchmarkRow">
-          {asReturn ? <BenchmarkNote data={data} locale={locale} t={t} /> : <span />}
+          {/* In the drawdown view the note below names the benchmark's fall; only a missing one is said here. */}
+          {asReturn || !data.benchmark ? <BenchmarkNote data={data} locale={locale} t={t} /> : <span />}
           {onBenchmark && <BenchmarkPicker data={data} busy={busy} t={t} onBenchmark={onBenchmark} />}
         </div>
       )}

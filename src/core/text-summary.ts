@@ -362,7 +362,8 @@ function benchmarkLines(data: PerformanceSummary): string[] {
   const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
   const currency = benchmark.currencyCode && major(benchmark.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
   const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
-  const fall = benchmark.drawdown && timeWeighted.drawdown ? ` Its largest fall from a high over these days: ${signed(benchmark.drawdown.max * 100, 1)}%.` : "";
+  const fall = !benchmark.drawdown || !timeWeighted.drawdown ? ""
+    : benchmark.drawdown.peak ? ` Its largest fall from a high over these days: ${signed(benchmark.drawdown.max * 100, 1)}%.` : " It never fell below an earlier high over these days.";
   return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${standing}.${fall}${currency}`];
 }
 

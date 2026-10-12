@@ -16,7 +16,13 @@ export function drawdownSeries(series: ReturnPoint[]): ReturnPoint[] {
   });
 }
 
-/** The deepest fall in a return series and where it stands now; undefined with fewer than two days. */
+/** A fall shallower than this (0.05%) counts as being at the high: it would read as 0.0% wherever it is shown. */
+const MIN_FALL = 0.0005;
+
+/**
+ * The deepest fall in a return series and where it stands now; undefined with fewer than two days. A day within 0.05%
+ * of the high is at it: such a fall is not counted, and coming back that close makes a fall up.
+ */
 export function drawdownOf(series: ReturnPoint[]): Drawdown | undefined {
   const first = series[0];
   if (!first || series.length < 2) return undefined;
@@ -24,14 +30,16 @@ export function drawdownOf(series: ReturnPoint[]): Drawdown | undefined {
   let max = 0, peak: string | undefined, trough: string | undefined, recovered: string | undefined;
   for (const point of series.slice(1)) {
     const level = 1 + point.return;
-    if (level >= high) {
-      // Back at the high (or above it) for the first time since the deepest fall: that fall is made up.
+    const fall = round(level / high - 1);
+    if (fall > -MIN_FALL) {
+      // Back at the high for the first time since the deepest fall: that fall is made up.
       if (trough && !recovered) recovered = point.date;
-      high = level;
-      highDate = point.date;
+      if (level >= high) {
+        high = level;
+        highDate = point.date;
+      }
       continue;
     }
-    const fall = round(level / high - 1);
     if (fall < max) {
       max = fall;
       peak = highDate;
@@ -40,7 +48,8 @@ export function drawdownOf(series: ReturnPoint[]): Drawdown | undefined {
     }
   }
   const last = series[series.length - 1]!;
-  const current = Math.min(0, round((1 + last.return) / high - 1));
+  const below = round((1 + last.return) / high - 1);
+  const current = below > -MIN_FALL ? 0 : below;
   return {
     max,
     ...(peak && trough ? { peak, trough } : {}),

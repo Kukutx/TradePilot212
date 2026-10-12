@@ -435,6 +435,8 @@ export const en = {
   drawdownAtHigh: "Now at its high.",
   drawdownNone: "Over these {days} days it never fell below an earlier high.",
   drawdownBenchmark: "{name}'s largest fall over the same days: {amount}.",
+  drawdownBenchmarkNone: "{name} never fell below an earlier high over the same days.",
+  drawdownYou: "Your drawdown",
   amountColumn: "Amount",
   costCurrencyConversionFee: "FX conversion fee",
   costCommissionTurnover: "Commission",

@@ -83,6 +83,7 @@ describe("the performance view's drawdown", () => {
     const chart = renderToStaticMarkup(createElement(DrawdownChart, { returns: twr, data, controls: null, locale: "en", t: createTranslator("en") }));
     expect(chart).toContain("<span>Drawdown</span>");
     expect(chart).toContain('class="lineCompare"');
+    expect(chart).toContain("Your drawdown</li>");
     // 0.88 against the high of 1.1 is 20% down, the axis's lowest gridline; 1.045 against it 5% down. Zero is the top.
     expect(chart).toContain('aria-label="Drawdown: Sep 1, 2026 At the high, Sep 4, 2026 -5.00%; VUSA At the high"');
     expect(chart).toMatch(/<text x="52" y="148\.\d+" dy="0\.32em" text-anchor="end">-20%<\/text>/);
@@ -96,12 +97,17 @@ describe("the performance view's drawdown", () => {
     const note = renderToStaticMarkup(createElement(DrawdownNote, { returns: flat, data: { ...data, timeWeighted: flat }, locale: "zh-CN", t: createTranslator("zh-CN") }));
     expect(note).toContain("这 4 天里没有跌破此前的高点。");
     expect(note).toContain("VUSA 同期最大回撤 -5.0%。");
+    const calm = { ...data.benchmark!, drawdown: { max: 0, current: 0 } };
+    expect(renderToStaticMarkup(createElement(DrawdownNote, { returns: flat, data: { ...data, timeWeighted: flat, benchmark: calm }, locale: "en", t: createTranslator("en") })))
+      .toContain("VUSA never fell below an earlier high over the same days.");
   });
 
   it("keeps a flat line's scale at a percent either side, not a hundred", () => {
     const flat = { ...twr, series: twr.series.map((point) => ({ ...point, return: 0 })), drawdown: { max: 0, current: 0 } };
     const chart = renderToStaticMarkup(createElement(DrawdownChart, { returns: flat, data: { ...data, benchmark: undefined } as PerformanceSummary, controls: null, locale: "en", t: createTranslator("en") }));
-    expect(chart).toContain(">-1%</text>");
+    // Below zero only: a fall from a high never rises above it.
+    expect(chart).toContain(">-1.0%</text>");
+    expect(chart).not.toContain("+1%");
     expect(chart).not.toContain("100%");
   });
 });

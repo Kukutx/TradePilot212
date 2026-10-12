@@ -19,6 +19,12 @@ describe("drawdown", () => {
     expect(drawdownOf(series(0, -0.05))).toEqual({ max: -0.05, peak: "2026-09-01", trough: "2026-09-02", current: -0.05, currentPeak: "2026-09-01" });
   });
 
+  it("takes a day within 0.05% of the high as at it, so a fall that would read 0.0% is none", () => {
+    expect(drawdownOf(series(0, 0.1, 0.099999))).toEqual({ max: 0, current: 0 });
+    // Down a third, then back to a hair under the high: made up, and at the high now.
+    expect(drawdownOf(series(0, 1.5, 0.5, 1.499999))).toEqual({ max: -0.4, peak: "2026-09-02", trough: "2026-09-03", recovered: "2026-09-04", current: 0 });
+  });
+
   it("says when it never fell, and needs two days", () => {
     expect(drawdownOf(series(0, 0.01, 0.01, 0.03))).toEqual({ max: 0, current: 0 });
     expect(drawdownOf(series(0))).toBeUndefined();
