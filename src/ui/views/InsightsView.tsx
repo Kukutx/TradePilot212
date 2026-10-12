@@ -9,6 +9,7 @@ import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
 import { HoldingMixPanel } from "../components/holding-mix";
+import { HoldingParityPanel, type EqualRiskPlan } from "../components/holding-parity";
 import { HoldingRiskPanel } from "../components/holding-risk";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
@@ -139,8 +140,10 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   );
 }
 
-export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, busy }: {
-  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; busy?: boolean;
+export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, busy }: {
+  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void;
+  /** Drafts the rebalance to the equal-risk weights as a basket to review; only with order tools. */
+  onPlanEqualRisk?: (plan: EqualRiskPlan) => void; busy?: boolean;
 }) {
   const currency = data.accountCurrency || "EUR";
   const tableProps = { labels: chartLabels(t), valueHeader: t("weightColumn") };
@@ -187,6 +190,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
 
       <HoldingRiskPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} />
       {data.risk?.mix && <HoldingMixPanel mix={data.risk.mix} currency={currency} locale={locale} t={t} />}
+      <HoldingParityPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(onPlanEqualRisk ? { onPlan: onPlanEqualRisk } : {})} {...(busy === undefined ? {} : { busy })} />
 
       <div className="twoColumn">
         <section className="dataPanel">

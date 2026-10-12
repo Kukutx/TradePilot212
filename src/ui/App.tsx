@@ -32,6 +32,7 @@ import { intentForAccount } from "./lib/orders";
 import { PortfolioView, type TodayState } from "./views/PortfolioView";
 import type { PortfolioToday } from "../shared/today";
 import { AllocationView, IncomeView, PerformanceView, periodOf, type InsightPeriod } from "./views/InsightsView";
+import type { EqualRiskPlan } from "./components/holding-parity";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
@@ -446,6 +447,13 @@ export default function App() {
     await run("errorTitleRebalance", async () => {
       showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment, ...(buyOnly ? { buyOnly } : {}) }));
     }, () => void rebalanceToTargets(buyOnly));
+  }
+
+  /** Plan the move to the equal-risk weights; the trades open as a basket to review, nothing is sent. */
+  async function rebalanceToEqualRisk(plan: EqualRiskPlan): Promise<void> {
+    await run("errorTitleRebalance", async () => {
+      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment, targets: plan.targets, cashWeight: plan.cashWeight }));
+    }, () => void rebalanceToEqualRisk(plan));
   }
 
   /** Draft a stop for every holding without a full one; they open as a basket to review, nothing is sent. */
@@ -981,7 +989,8 @@ export default function App() {
             )}
             {portfolioLike && tab === "allocation" && insights.allocation && (
               <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
-                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})} />
+                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})}
+                {...(writeEnabled && connected ? { onPlanEqualRisk: (plan: EqualRiskPlan) => void rebalanceToEqualRisk(plan) } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}

@@ -154,6 +154,26 @@ describe("the allocation tool's risk by holding", () => {
     expect(calm).toContain("up in 30 of 52 weeks. It fell in fewer than one week in 20 (that week +0.2%). Worst week");
     expect(calm).not.toContain("A bad week");
     expect(grouped).toContain("Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: +12%, up in 30 of 52 weeks. A bad week, one in 20: -3.4% or worse, about 272 EUR of today's 8000 EUR measured; -4.1% on average in those weeks. Worst week -5.2% to 2026-04-03, best +4.4% to 2025-11-14. Deepest fall -9.8%, from 2026-02-13 to 2026-04-03, not made up yet.");
+    // No equal-risk weights before 2.48, or when none were found.
+    expect(grouped).not.toContain("Equal-risk weights");
+  });
+
+  it("gives the equal-risk weights and the targets that plan the move", async () => {
+    const analysis = await sample().insights.allocation("demo");
+    const [a, b] = analysis.holdings;
+    const measured = a!.value + b!.value;
+    const risk = {
+      from: "2025-10-10", to: "2026-10-09", weeks: 52, volatility: 0.16, diversification: 1.3, covered: 0.8, parityVolatility: 0.131,
+      rows: [{ ticker: a!.ticker, weight: a!.value / measured, volatility: 0.3, risk: 0.8, correlation: 0.9, parity: 0.4 }, { ticker: b!.ticker, weight: b!.value / measured, volatility: 0.2, risk: 0.2, correlation: 0.5, parity: 0.6 }],
+      correlations: { tickers: [a!.ticker, b!.ticker], matrix: [[1, 0.5], [0.5, 1]] },
+    };
+    const text = describePayload({ ...analysis, risk });
+    expect(text).toContain("a holding that moved less than 2% a year keeps its weight): together 13.1% a year against 16% at today's weights. Furthest from it first: ");
+    expect(text).toContain(`${b!.ticker} 60% (now ${Number((b!.value / measured * 100).toFixed(1))}%)`);
+    expect(text).toContain("They spread the risk by the past year; they are not a forecast.");
+    const target = (share: number) => String(Math.floor(share * measured / analysis.totalValue * 1e6) / 1e6);
+    expect(text).toMatch(new RegExp(`To plan the move, call plan_portfolio_rebalance with targets (${a!.ticker} ${target(0.4)}, ${b!.ticker} ${target(0.6)}|${b!.ticker} ${target(0.6)}, ${a!.ticker} ${target(0.4)}) and cashWeight 0\\.\\d+: shares of the account`));
+    expect(text).not.toContain("furthest from their equal-risk weight move");
   });
 
   it("adds the holdings' risk to the allocation and its text", async () => {
@@ -175,6 +195,8 @@ describe("the allocation tool's risk by holding", () => {
     expect(text).toMatch(/Most alike: [^;]+; least alike: /);
     expect(text).toMatch(/a bad week one in 20 -\d+\.\d%/);
     expect(text).toMatch(/Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: [+-][\d.]+%, up in \d+ of \d+ weeks\. A bad week, one in 20: -[\d.]+% or worse, about [\d.]+ EUR of today's [\d.]+ EUR measured/);
+    expect(text).toMatch(/Equal-risk weights, at which each holding measured brings the same share of their risk .*: together [\d.]+% a year against [\d.]+% at today's weights/);
+    expect(text).toMatch(/To plan the move, call plan_portfolio_rebalance with targets \w+_\w+ 0\.\d+/);
     await client.close();
   });
 });

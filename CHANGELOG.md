@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.48.0
+
+- Equal-risk weights. Below today's mix, the Allocation tab gives the weights at which each holding measured would bring the same share of their risk (risk parity), beside today's, as a dumbbell per holding, furthest first, with a table view. The tiles give their volatility together beside today's, what moving to them sells and buys again, in the account currency, and the holding furthest from its equal-risk weight.
+- The covariance they are solved on is shrunk toward the average correlation as far as the weeks leave each pair in doubt (Ledoit–Wolf), so 52 weeks of many holdings do not give weights that chase noise. A holding that moved less than 2% a year keeps its weight.
+- With order tools, **Plan this rebalance** drafts the move as one basket to review: the holdings measured keep their value together, and the holdings not measured and the free cash stay as they are. Nothing is sent until the basket is confirmed.
+- `analyze_portfolio_allocation` returns each row's `parity` and `risk.parityVolatility`, and its text gives the equal-risk weights and the `plan_portfolio_rebalance` targets that move to them.
+
 ## 2.47.0
 
 - Today's mix over the year. Below risk by holding, the Allocation tab draws what the holdings measured would have done over the same weeks at today's weights, put back to them each week: its return, **a bad week, 1 in 20** (the weekly return it fell to or below in its worst 5% of weeks, a historical 95% value at risk, in percent and in the account currency on today's value, with the average of those weeks), its worst and best weeks and its deepest fall, with a table view of the line.

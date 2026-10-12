@@ -3,6 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
+import { equalRiskTargets, PARITY_MIN_VOLATILITY } from "../shared/holding-risk.js";
 import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
@@ -333,7 +334,23 @@ function holdingRiskLines(data: AllocationAnalysis): string[] {
     ...(risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : []),
     ...(risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : []),
     ...(risk.mix ? [mixLine(risk.mix, data.accountCurrency)] : []),
+    ...parityLines(data),
     ...missing,
+  ];
+}
+
+/** At most this many holdings are named with their equal-risk weight, those furthest from it first. */
+const MAX_PARITY_NAMED = 12;
+
+/** The equal-risk weights beside today's, and the targets that plan the move. */
+function parityLines(data: AllocationAnalysis): string[] {
+  const { risk } = data;
+  if (!risk || risk.parityVolatility === undefined || !risk.rows.every((row) => row.parity !== undefined)) return [];
+  const moves = [...risk.rows].sort((a, b) => Math.abs(b.parity! - b.weight) - Math.abs(a.parity! - a.weight) || b.weight - a.weight);
+  const plan = equalRiskTargets(data);
+  return [
+    `Equal-risk weights, at which each holding measured brings the same share of their risk (from the same weeks, the correlations pulled toward their average as far as the weeks leave them in doubt; a holding that moved less than ${pct(PARITY_MIN_VOLATILITY, 0)} a year keeps its weight): together ${pct(risk.parityVolatility)} a year against ${pct(risk.volatility)} at today's weights. Furthest from it first: ${moves.slice(0, MAX_PARITY_NAMED).map((row) => `${row.ticker} ${pct(row.parity, 1)} (now ${pct(row.weight, 1)})`).join(", ")}${moves.length > MAX_PARITY_NAMED ? `, and ${moves.length - MAX_PARITY_NAMED} more` : ""}. They spread the risk by the past year; they are not a forecast.`,
+    ...(plan ? [`To plan the move, call plan_portfolio_rebalance with targets ${plan.targets.map((target) => `${target.ticker} ${target.weight}`).join(", ")} and cashWeight ${plan.cashWeight}: shares of the account, so the holdings measured keep their value together and the holdings not measured and the cash free to trade stay as they are${plan.partial ? `; only the ${plan.targets.length} furthest from their equal-risk weight move, as a basket takes ${plan.targets.length} orders at most` : ""}.`] : []),
   ];
 }
 

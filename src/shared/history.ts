@@ -147,6 +147,11 @@ export interface HoldingRiskRow {
   risk: number;
   /** Its correlation with the portfolio of the holdings measured, itself included. */
   correlation: number;
+  /**
+   * Its equal-risk weight: the share of the holdings measured at which each adds the same to their risk, from the same
+   * weeks. A holding that barely moved keeps its weight. Absent before 2.48, or when no such weights were found.
+   */
+  parity?: number;
 }
 
 /** Where the holdings' risk is, from the weekly closes of the last year, each instrument in its own currency. */
@@ -172,6 +177,8 @@ export interface HoldingRisk {
   jumps?: string[];
   /** Today's mix of the holdings measured over the same weeks; absent from results before 2.47. */
   mix?: HoldingMix;
+  /** The volatility a year of the holdings measured at their equal-risk weights; present with each row's `parity`. */
+  parityVolatility?: number;
 }
 
 /**

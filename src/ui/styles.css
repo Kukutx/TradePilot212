@@ -1302,8 +1302,27 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
   .riskShareFill.risk.offset { background: repeating-linear-gradient(135deg, CanvasText 0 2px, Canvas 2px 5px) !important; }
   .riskShareFill.value, .riskSwatch.value { background: GrayText !important; }
 }
+/* ---- Equal-risk weights: a ring at today's weight, a dot at the equal-risk one, joined ---- */
+.parityList { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.parityList li { display: grid; grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+/* The marks sit on the track's line; the inset keeps a mark at 0 or at the top inside it. */
+.parityTrack { position: relative; height: 14px; margin: 0 6px; }
+.parityTrack::before { content: ""; position: absolute; left: -6px; right: -6px; top: 6px; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--tp-border) 45%, transparent); }
+.paritySpan { position: absolute; top: 5px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--tp-chart) 40%, var(--tp-bg-soft)); }
+.parityMark { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; transform: translateX(-50%); box-sizing: border-box; }
+.parityMark.now { border: 2px solid var(--tp-muted); background: var(--tp-bg); }
+.parityMark.equal { background: var(--tp-chart); box-shadow: 0 0 0 2px var(--tp-bg); }
+.riskShareLegend .parityMark { position: static; display: inline-block; transform: none; }
+.parityPlan { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; color: var(--tp-muted); font-size: 12px; }
+.parityPlan span { flex: 1 1 220px; min-width: 0; }
+@media (forced-colors: active) {
+  .parityMark.now { border-color: GrayText !important; background: Canvas !important; }
+  .parityMark.equal { background: CanvasText !important; }
+  .paritySpan { background: GrayText !important; }
+}
 @container (max-width: 640px) {
-  .holdingRisk .riskTile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .holdingRisk .riskTile:last-child:nth-child(odd), .holdingParity .riskTile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .parityList li { grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) auto; gap: 7px; }
   .riskShareList li { grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) auto; gap: 7px; }
   .corrTable thead td:first-child, .corrTable tbody th { width: 44px; }
   .corrTable td { height: 24px; }
