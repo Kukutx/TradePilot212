@@ -42,6 +42,8 @@ export function PortfolioView({
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
   const moves = new Map((today?.data?.moves ?? []).map((move) => [move.ticker, move]));
   const soldOut = (today?.data?.moves ?? []).filter((move) => move.quantity === 0 && move.profitLoss !== undefined);
+  /** The holdings' day, unless its read failed. */
+  const day = today && !today.failed ? today : undefined;
   return (
     <main className="contentStack">
       {payload.warning && <div className="notice warning">{payload.warning}</div>}
@@ -71,7 +73,7 @@ export function PortfolioView({
           <>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th>{today && <th className="dayColumn">{t("todayColumn")}</th>}<th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
+                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th>{day && <th className="dayColumn">{t("todayColumn")}</th>}<th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
                   {payload.positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
@@ -91,9 +93,9 @@ export function PortfolioView({
                         <td>
                           {money(position.currentPrice, position.instrument.currencyCode, locale)}
                           {/* Where the Day column is hidden, the day's move shows under the price. */}
-                          {today && <span className="dayUnderPrice"><DayCell move={moves.get(position.instrument.ticker)} loading={today.loading} currency={currency} locale={locale} t={t} layout="row" /></span>}
+                          {day && <span className="dayUnderPrice"><DayCell move={moves.get(position.instrument.ticker)} loading={day.loading} currency={currency} locale={locale} t={t} layout="row" /></span>}
                         </td>
-                        {today && <td className="dayColumn"><DayCell move={moves.get(position.instrument.ticker)} loading={today.loading} currency={currency} locale={locale} t={t} /></td>}
+                        {day && <td className="dayColumn"><DayCell move={moves.get(position.instrument.ticker)} loading={day.loading} currency={currency} locale={locale} t={t} /></td>}
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
                         <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}</td>
@@ -107,7 +109,7 @@ export function PortfolioView({
             <div className="mobilePositionList">
               {payload.positions.map((position) => (
                 <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})}
-                  {...(today ? { day: { move: moves.get(position.instrument.ticker), loading: today.loading } } : {})} />
+                  {...(day ? { day: { move: moves.get(position.instrument.ticker), loading: day.loading } } : {})} />
               ))}
             </div>
             {soldOut.length > 0 && (
@@ -321,8 +323,8 @@ function ValueTrend({ points, currency, locale, t }: { points: ValuePoint[]; cur
   );
 }
 
-/** The day's moves as the dashboard holds them: being read, or read (a failed read shows nothing). */
-export interface TodayState { data?: PortfolioToday; loading: boolean }
+/** The day's moves as the dashboard holds them: being read, read, or failed (the overview says so; the column goes). */
+export interface TodayState { data?: PortfolioToday; loading: boolean; failed?: boolean }
 
 const DAY_MISSING: Record<DayMissing, MessageKey> = {
   provider: "todayMissingProvider",
@@ -341,7 +343,10 @@ const dayMissingText = (move: DayMove, t: Translator) => t(DAY_MISSING[move.miss
 /** The holdings' move on the day, in the account currency, named "Today's move", or by its day when the latest session is an earlier one. */
 function DayTotal({ today, currency, locale, t }: { today: TodayState; currency: string; locale: SupportedLocale; t: Translator }) {
   const data = today.data;
-  if (!data) return today.loading ? <div className="dayTotal loading" aria-busy="true"><span>{t("todayLoading")}</span></div> : null;
+  if (!data) {
+    if (today.loading) return <div className="dayTotal loading" aria-busy="true"><span>{t("todayLoading")}</span></div>;
+    return today.failed ? <div className="dayTotal"><span>{t("todayFailed")}</span></div> : null;
+  }
   const days = [...new Set(data.moves.map((move) => move.day))].sort();
   const latest = days[days.length - 1];
   const label = !latest || latest === data.timestamp.slice(0, 10) ? t("todayLabel") : fill(t("todayLastSession"), { day: dayLabel(latest, locale, { year: false, weekday: true }) });
@@ -385,15 +390,16 @@ function DayCell({ move, loading, currency, locale, t, layout = "stack" }: {
   const inline = layout !== "stack";
   if (!move) return <span className="mutedInline" {...(loading ? { "aria-busy": "true" } : {})}>{loading ? "…" : "—"}</span>;
   const card = layout === "card";
-  if (move.change === undefined) return <span className="mutedInline dayMissing" title={move.problem}>{card ? dayMissingText(move, t) : "—"}<span className="visuallyHidden">{card ? "" : ` ${dayMissingText(move, t)}`}</span></span>;
+  if (move.change === undefined) return <span className="mutedInline dayMissing" title={move.problem}>{card ? dayMissingText(move, t) : <>—<span className="visuallyHidden"> {dayMissingText(move, t)}</span></>}</span>;
   const close = move.previousClose;
   const since = close ? fill(t("todaySince"), { date: dayLabel(close.date, locale, { year: false, weekday: true }), price: money(close.close, move.currencyCode ?? currency, locale) }) : "";
   const title = [since, move.bought || move.sold ? t("todayTraded") : "", move.problem ?? ""].filter(Boolean).join(" ");
+  // The price's change and the amount each take their own sign: shares traded on the day can make them differ.
   return (
-    <span className={`dayCell${inline ? " inline" : ""} ${signedClass(move.change)}`} title={title}>
-      <strong>{pct(move.change, locale, 2, { signed: true })}</strong>
-      {move.profitLoss !== undefined && <small>{money(move.profitLoss, currency, locale, { signed: true })}</small>}
-      {card && since && <small className="daySince">{since}</small>}
+    <span className={`dayCell${inline ? " inline" : ""}`} title={title}>
+      <strong className={signedClass(move.change)}>{pct(move.change, locale, 2, { signed: true })}</strong>
+      {move.profitLoss !== undefined && <small className={signedClass(move.profitLoss)}>{money(move.profitLoss, currency, locale, { signed: true })}</small>}
+      {card ? since && <small className="daySince">{since}</small> : since && <span className="visuallyHidden"> {since}</span>}
     </span>
   );
 }

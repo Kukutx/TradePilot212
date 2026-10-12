@@ -99,6 +99,40 @@ describe("trade safety", () => {
   });
 });
 
+describe("the dashboard read", () => {
+  it("shares a recent or running read with a caller that takes one, and keeps none that started before a write", async () => {
+    let reads = 0;
+    let release: () => void = () => {};
+    let gate: Promise<void> = Promise.resolve();
+    const inner = fakeFetch();
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/account/summary")) {
+        reads += 1;
+        await gate;
+      }
+      return inner(input, init);
+    }) as typeof fetch;
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher });
+    const [first, second] = await Promise.all([service.getDashboard("demo", 15_000), service.getDashboard("demo", 15_000)]);
+    expect(reads).toBe(1);
+    expect(second).toBe(first);
+    expect(await service.getDashboard("demo", 15_000)).toBe(first);
+    // A caller that takes no read but its own gets one.
+    await service.getDashboard("demo");
+    expect(reads).toBe(2);
+    // A write while a read runs: that read is neither joined nor kept.
+    gate = new Promise((resolve) => { release = resolve; });
+    const running = service.getDashboard("demo");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.cancelLinkedOrder("demo", "42", "test", { quiet: true });
+    release();
+    await running;
+    await service.getDashboard("demo", 15_000);
+    expect(reads).toBe(4);
+  });
+});
+
 function config(): RuntimeConfig {
   return {
     publicBaseUrl: "https://example.test",

@@ -40,13 +40,30 @@ describe("the dashboard's day", () => {
     const html = render({ data: today, loading: false });
     expect(html).toContain('<b class="positive">+€69.00 (+2.19%)</b><span>Move on Fri, Oct 9, the last session · 2 of 3');
     expect(html).toContain('<th class="dayColumn">Day</th>');
-    expect(html).toContain('title="Since the close on Thu, Oct 8: $222.80 Shares traded on the day count from their fill price."><strong>+3.93%</strong><small>+€96.60</small>');
+    expect(html).toContain('title="Since the close on Thu, Oct 8: $222.80 Shares traded on the day count from their fill price."><strong class="positive">+3.93%</strong><small class="positive">+€96.60</small><span class="visuallyHidden"> Since the close on Thu, Oct 8: $222.80</span>');
     // A holding without a move says why, for screen readers and on hover.
     expect(html).toContain('title="stooq&#x27;s closes for KO.US end on 2026-10-07.">—<span class="visuallyHidden"> the provider has no close for the last session yet</span>');
     expect(html).toContain("Sold out on the day: Tesla -€27.60");
     // On narrower screens the column gives way to a line under the price.
-    expect(html).toContain('$231.55<span class="dayUnderPrice"><span class="dayCell inline positive"');
+    expect(html).toContain('$231.55<span class="dayUnderPrice"><span class="dayCell inline"');
+    // The phone card writes the close out and the reason a holding has no move.
+    expect(html).toContain('<small class="daySince">Since the close on Thu, Oct 8: $222.80</small>');
+    expect(html).toContain('<span class="mutedInline dayMissing" title="stooq&#x27;s closes for KO.US end on 2026-10-07.">the provider has no close for the last session yet</span>');
     expect(render({ data: { ...today, timestamp: "2026-10-09T15:00:00Z" }, loading: false })).toContain("<span>Today&#x27;s move · 2 of 3");
+  });
+
+  it("gives the price's change and the amount their own sign", () => {
+    // Up on the day, but shares bought above the close lost more than the rest made.
+    const html = render({ data: { ...today, moves: [{ ...today.moves[0]!, profitLoss: -12.5 }] }, loading: false });
+    expect(html).toContain('<strong class="positive">+3.93%</strong><small class="negative">-€12.50</small>');
+  });
+
+  it("says when the day could not be read, without the column", () => {
+    const html = render({ loading: false, failed: true });
+    expect(html).toContain('<div class="dayTotal"><span>The day&#x27;s move could not be read; refresh to try again.</span></div>');
+    expect(html).not.toContain("dayColumn");
+    expect(html).not.toContain("dayUnderPrice");
+    expect(render({ loading: false, failed: true }, "zh-CN")).toContain("没能读到当日涨跌，刷新可重试。");
   });
 
   it("shows the column while the day is read, and nothing of it when it is not asked for", () => {

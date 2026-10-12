@@ -35840,10 +35840,28 @@ var TradingService = class {
   }
   /** The last dashboard read of each account, for a read that follows it within seconds. */
   dashboards = /* @__PURE__ */ new Map();
-  /** The account, holdings, open orders and activity; one read in the last `maxAgeMs` is used as it is. */
+  /** A dashboard read under way, which a read that takes a recent one joins. */
+  reading = /* @__PURE__ */ new Map();
+  /** Counts what was sent to Trading 212: a read that started before a write is not kept. */
+  writes = 0;
+  /** The account, holdings, open orders and activity; one read in the last `maxAgeMs`, or under way, is used as it is. */
   async getDashboard(environment, maxAgeMs = 0) {
     const recent = this.dashboards.get(environment);
     if (maxAgeMs > 0 && recent && Date.now() - recent.at <= maxAgeMs) return recent.payload;
+    const pending = this.reading.get(environment);
+    if (maxAgeMs > 0 && pending) return pending;
+    const generation = this.writes;
+    const read = this.readDashboard(environment);
+    this.reading.set(environment, read);
+    try {
+      const payload = await read;
+      if (this.writes === generation) this.dashboards.set(environment, { at: Date.now(), payload });
+      return payload;
+    } finally {
+      if (this.reading.get(environment) === read) this.reading.delete(environment);
+    }
+  }
+  async readDashboard(environment) {
     const credentials = credentialStatus(this.deps.config);
     if (!credentials[environment]) {
       return {
@@ -35861,9 +35879,7 @@ var TradingService = class {
     }
     const client = this.client(environment);
     const [account, positions, orders, activity] = await Promise.all([client.getAccountSummary(), client.getPositions(), client.getOrders(), this.getActivity(environment)]);
-    const payload = { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
-    this.dashboards.set(environment, { at: Date.now(), payload });
-    return payload;
+    return { kind: "portfolio", appName: "TradePilot 212", environment, credentials, account, positions, orders: this.namedOrders(environment, orders, positions), activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
   }
   async getTradePlan(environment, candidates2) {
     const credentials = credentialStatus(this.deps.config);
@@ -36842,7 +36858,9 @@ var TradingService = class {
   }
   /** Something was sent to Trading 212: history read before it is out of date. */
   wrote(environment) {
+    this.writes += 1;
     this.dashboards.delete(environment);
+    this.reading.delete(environment);
     try {
       this.deps.afterWrite?.(environment);
     } catch (error62) {
@@ -37635,7 +37653,7 @@ var InsightsService = class {
     })) : void 0;
     const fills = inWindow2.filter((item) => item.fill).slice(0, max).map((item) => ({
       ...orderIdOf2(item.order?.id),
-      ticker: item.order?.ticker,
+      ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
       side: item.order?.side,
       type: item.order?.type,
@@ -39480,27 +39498,35 @@ var DAY_MS8 = 864e5;
 var CONCURRENCY = 4;
 var READ_BUDGET_MS = 5e3;
 var FILLS_WAIT_MS = 3e3;
+var LIST_WAIT_MS = 3e3;
+var LAG_WINDOW_MS = 6 * 36e5;
+var DAY_ORDER_PAGES = 2;
 var DASHBOARD_REUSE_MS = 15e3;
 var round7 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits;
 var isoDay2 = (time3) => new Date(time3).toISOString().slice(0, 10);
-function sessionOf(events, now) {
+function sessionOf(events, now, extendedHours = false) {
   const sorted = (events ?? []).map((event) => ({ type: event.type, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
   const at = now.getTime();
   const opens = sorted.filter((event) => event.type === "OPEN");
   const lastEvent = sorted.filter((event) => event.time <= at).pop();
   const lastOpen = opens.filter((event) => event.time <= at).pop();
   const nextOpen = opens.find((event) => event.time > at);
-  const early = lastEvent && (lastEvent.type === "PRE_MARKET_OPEN" || lastEvent.type === "OVERNIGHT_OPEN");
+  const early = extendedHours && lastEvent && (lastEvent.type === "PRE_MARKET_OPEN" || lastEvent.type === "OVERNIGHT_OPEN");
   const open2 = early && nextOpen ? nextOpen.time : lastOpen?.time;
   if (open2 === void 0) return void 0;
   const day2 = isoDay2(open2);
   const previous = opens.filter((event) => isoDay2(event.time) < day2).pop();
-  return { day: day2, ...previous ? { previous: isoDay2(previous.time) } : {} };
+  const closed = sorted.filter((event) => event.type === "CLOSE" && event.time < open2).pop();
+  return { day: day2, ...previous ? { previous: isoDay2(previous.time) } : {}, ...closed ? { previousClose: closed.time } : {} };
 }
 function fallbackDay(now) {
   const weekday2 = now.getUTCDay();
   const back = weekday2 === 6 ? 1 : weekday2 === 0 ? 2 : 0;
   return isoDay2(now.getTime() - back * DAY_MS8);
+}
+function inCloseUnit(price, close) {
+  const ratio2 = price / close;
+  return ratio2 > 30 ? price / 100 : ratio2 < 1 / 30 ? price * 100 : price;
 }
 function dayFigures(input2) {
   const { quantity, price, previous } = input2;
@@ -39529,49 +39555,51 @@ function sessionFinder(exchanges, now) {
   const byId = new Map(exchanges.flatMap((exchange) => (exchange.workingSchedules ?? []).map((schedule) => [schedule.id, schedule.timeEvents])));
   return (instrument) => {
     const events = instrument?.workingScheduleId === void 0 ? void 0 : byId.get(instrument.workingScheduleId);
-    return sessionOf(events, now) ?? { day: fallbackDay(now) };
+    return sessionOf(events, now, instrument?.extendedHours === true) ?? { day: fallbackDay(now) };
   };
 }
+var fillsFrom = (session) => session.previousClose ?? Date.parse(`${session.day}T00:00:00Z`);
 var sideOf = (fill) => String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "sell" : "buy";
 async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date()) {
   const dashboard = await deps.trading.getDashboard(environment, DASHBOARD_REUSE_MS);
   if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
   const accountCurrency = dashboard.account?.currency;
   const [instruments, exchanges] = await Promise.all([
-    deps.trading.instruments(environment).catch(() => []),
-    deps.schedules?.(environment).catch(() => []) ?? []
+    settleWithin(deps.trading.instruments(environment).catch(() => []), LIST_WAIT_MS),
+    deps.schedules ? settleWithin(deps.schedules(environment).catch(() => []), LIST_WAIT_MS) : void 0
   ]);
-  const listed = new Map(instruments.map((instrument) => [instrument.ticker, instrument]));
-  const session = sessionFinder(exchanges, now);
+  const listed = new Map((instruments ?? []).map((instrument) => [instrument.ticker, instrument]));
+  const finder = sessionFinder(exchanges ?? [], now);
+  const session = (ticker) => finder(listed.get(ticker));
   const positions = dashboard.positions.filter((position) => position.instrument?.ticker);
-  const days = positions.map((position) => session(listed.get(position.instrument.ticker)).day);
-  const firstDay = days.reduce((first, day2) => day2 < first ? day2 : first, fallbackDay(now));
+  const earliest = positions.reduce((first, position) => Math.min(first, fillsFrom(session(position.instrument.ticker))), fillsFrom({ day: fallbackDay(now) }));
   let fillsProblem;
   let fills = [];
   if (deps.fills) {
-    const read = await settleWithin(deps.fills(environment, /* @__PURE__ */ new Date(`${firstDay}T00:00:00Z`)).then(
-      (items2) => ({ items: items2 }),
-      (error62) => ({ problem: asStructuredError(error62).message })
-    ), FILLS_WAIT_MS);
+    const read = await settleWithin(deps.fills(environment, new Date(earliest)).catch((error62) => ({ problem: asStructuredError(error62).message })), FILLS_WAIT_MS);
     if (!read) fillsProblem = `Trading 212's order history took more than ${FILLS_WAIT_MS / 1e3} seconds.`;
     else if ("problem" in read) fillsProblem = read.problem;
     else {
-      fills = read.items.flatMap((item) => item.ticker && item.filledAt && item.price && item.price > 0 && item.quantity ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }] : []);
+      if (read.truncated) fillsProblem = `The day has more orders than one read covers (${DAY_ORDER_PAGES * 50}); the oldest of them are left out.`;
+      fills = read.fills.flatMap((item) => item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }] : []);
     }
   }
+  const dayFills = (ticker) => {
+    const start = fillsFrom(session(ticker));
+    return fills.filter((fill) => fill.ticker === ticker && Date.parse(fill.at) >= start);
+  };
   const rates = accountCurrency ? knownFxRates(positions, accountCurrency) : {};
   const from = new Date(Math.floor(now.getTime() / DAY_MS8) * DAY_MS8 - 365 * DAY_MS8);
   const held = new Set(positions.map((position) => position.instrument.ticker));
-  const soldOut = [...new Set(fills.filter((fill) => fill.side === "sell" && !held.has(fill.ticker)).map((fill) => fill.ticker))];
+  const soldOut = [...new Set(fills.filter((fill) => !held.has(fill.ticker)).map((fill) => fill.ticker))].filter((ticker) => dayFills(ticker).some((fill) => fill.side === "sell"));
   const items = [...positions.map((position) => ({ ticker: position.instrument.ticker, position })), ...soldOut.map((ticker) => ({ ticker }))];
   const move = async ({ ticker, position }, ask) => {
     const instrument = listed.get(ticker) ?? position?.instrument;
     const currency = (instrument?.currencyCode ?? position?.instrument?.currency)?.toUpperCase();
-    const { day: day2, previous: lastSession } = session(listed.get(ticker));
-    const dayStart = `${day2}T00:00:00Z`;
-    const own2 = fills.filter((fill) => fill.ticker === ticker && fill.at >= dayStart);
+    const { day: day2, previous: lastSession, previousClose: lastClosed } = session(ticker);
+    const own2 = dayFills(ticker);
     const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : void 0;
-    const lastFill = [...own2].sort((a, b) => a.at.localeCompare(b.at)).pop();
+    const lastFill = [...own2].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).pop();
     const identity = {
       ticker,
       ...instrument?.name ? { name: instrument.name } : {},
@@ -39583,18 +39611,32 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     };
     if (!ask) return { ...identity, missing: "later", problem: "Asked on the next read: this one ran out of time." };
     if (!instrument || !deps.priceHistory) return { ...identity, missing: deps.priceHistory ? "data" : "provider", problem: deps.priceHistory ? `Trading 212 does not list ${ticker} at the moment.` : "No quote provider is configured." };
-    const reference = price ?? lastFill?.price;
-    const read = await deps.priceHistory({ instrument, from, ...reference ? { last: reference } : {} }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
-    if (!("prices" in read)) return { ...identity, missing: read.missing, problem: read.problem };
-    const before = read.prices.points.filter((point) => point.date < day2);
-    const close = before[before.length - 1];
-    const symbol2 = read.prices.symbol ?? ticker;
-    if (!close || !(close.close > 0)) return { ...identity, missing: "data", problem: `${read.prices.source} has no close for ${symbol2} before ${day2}.` };
-    const previousClose = { ...close, source: read.prices.source };
-    if (lastSession && close.date < lastSession) {
-      return { ...identity, previousClose, missing: "lag", problem: `${read.prices.source}'s closes for ${symbol2} end on ${close.date}, before the last session (${lastSession}); the day's move shows once they have it.` };
+    const key = `${environment}:${ticker}:${day2}`;
+    let previousClose = deps.closes?.get(key);
+    if (!previousClose) {
+      const reference = price ?? lastFill?.price;
+      const read = await deps.priceHistory({ instrument, from, ...reference ? { last: reference } : {} }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+      if (!("prices" in read)) return { ...identity, missing: read.missing, problem: read.problem };
+      const before = read.prices.points.filter((point) => point.date < day2);
+      const close = before[before.length - 1];
+      const symbol2 = read.prices.symbol ?? ticker;
+      if (!close || !(close.close > 0)) return { ...identity, missing: "data", problem: `${read.prices.source} has no close for ${symbol2} before ${day2}.` };
+      previousClose = { ...close, source: read.prices.source };
+      if (lastSession && close.date < lastSession && lastClosed !== void 0 && now.getTime() - lastClosed < LAG_WINDOW_MS) {
+        return { ...identity, previousClose, missing: "lag", problem: `${read.prices.source}'s closes for ${symbol2} end on ${close.date}, before the last session (${lastSession}); the day's move shows once they have it.` };
+      }
+      if (deps.closes && lastSession && (close.date === lastSession || lastClosed !== void 0 && now.getTime() - lastClosed >= LAG_WINDOW_MS)) {
+        if (deps.closes.size > 1e3) deps.closes.clear();
+        deps.closes.set(key, previousClose);
+      }
     }
-    const figures = dayFigures({ quantity: identity.quantity, ...price ? { price } : {}, previous: close.close, fills: own2 });
+    const previous = previousClose.close;
+    const figures = dayFigures({
+      quantity: identity.quantity,
+      ...price ? { price } : {},
+      previous,
+      fills: own2.map((fill) => ({ ...fill, price: inCloseUnit(fill.price, previous) }))
+    });
     const inAccount = (amount2) => accountCurrency && currency ? toAccountCurrency(amount2, currency, accountCurrency, rates) : void 0;
     const profitLoss2 = figures.profitLoss === void 0 ? void 0 : inAccount(figures.profitLoss);
     const base2 = inAccount(figures.base);
@@ -39846,7 +39888,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
 // src/core/benchmark.ts
 var DAY_MS10 = 864e5;
 var START_SLACK_DAYS = 7;
-var LIST_WAIT_MS = 3e3;
+var LIST_WAIT_MS2 = 3e3;
 var MAX_OPTIONS = 8;
 var round9 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
@@ -39892,8 +39934,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const wanted = choice?.trim() || deps.config.benchmark;
   const none = !wanted || /^none$/i.test(wanted);
   const [instruments, positions, watched] = await Promise.all([
-    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS),
-    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS),
+    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS2),
+    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS2),
     deps.watchlist?.list(environment).catch(() => []) ?? []
   ]);
   const listed = new Map((instruments ?? []).map((instrument2) => [instrument2.ticker, instrument2]));
@@ -40101,7 +40143,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
         const day2 = data.credentials[environment] ? await today(environment) : void 0;
         const total = day2?.total;
         const currency = day2?.accountCurrency ? ` ${day2.accountCurrency}` : "";
-        return result({ ...data, ...day2 ? { today: day2 } : {} }, total ? `${environment.toUpperCase()} holdings today: ${total.profitLoss >= 0 ? "+" : ""}${num2(total.profitLoss, 2)}${currency}${total.change === void 0 ? "" : ` (${total.change >= 0 ? "+" : ""}${num2(total.change * 100, 2)}%)`}, ${total.counted} of ${total.of} with a move.` : `Rendered the ${environment.toUpperCase()} dashboard; no holding has a move for the day.`);
+        const days = [...new Set((day2?.moves ?? []).map((move) => move.day))].sort().join(", ");
+        return result({ ...data, ...day2 ? { today: day2 } : {} }, total ? `${environment.toUpperCase()} holdings on ${days}: ${total.profitLoss >= 0 ? "+" : ""}${num2(total.profitLoss, 2)}${currency}${total.change === void 0 ? "" : ` (${total.change >= 0 ? "+" : ""}${num2(total.change * 100, 2)}%)`}, ${total.counted} of ${total.of} with a move.` : `Rendered the ${environment.toUpperCase()} dashboard; no holding has a move for the day.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42209,11 +42252,13 @@ function createServices(input2) {
     } : {}
   });
   const schedules = (environment) => insights.schedules(environment);
+  const closes2 = /* @__PURE__ */ new Map();
   const today = (environment, now) => portfolioToday({
     trading,
     priceHistory,
     schedules,
-    fills: async (env2, from) => (await insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, 2)).fills
+    closes: closes2,
+    fills: (env2, from) => insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, DAY_ORDER_PAGES)
   }, environment, now);
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...notify ? { notify } : {} });
   const stage = async (name, run) => {

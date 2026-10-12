@@ -328,7 +328,7 @@ export class InsightsService {
       .slice(0, max)
       .map((item) => ({
         ...orderIdOf(item.order?.id),
-        ticker: item.order?.ticker,
+        ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
         ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
         side: item.order?.side,
         type: item.order?.type,

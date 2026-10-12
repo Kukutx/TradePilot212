@@ -207,8 +207,10 @@ export function createMcpServer(
         const day = data.credentials[environment] ? await today(environment) : undefined;
         const total = day?.total;
         const currency = day?.accountCurrency ? ` ${day.accountCurrency}` : "";
+        // Over a weekend or before the open the day is the last session's.
+        const days = [...new Set((day?.moves ?? []).map((move) => move.day))].sort().join(", ");
         return result({ ...data, ...(day ? { today: day } : {}) }, total
-          ? `${environment.toUpperCase()} holdings today: ${total.profitLoss >= 0 ? "+" : ""}${num(total.profitLoss, 2)}${currency}${total.change === undefined ? "" : ` (${total.change >= 0 ? "+" : ""}${num(total.change * 100, 2)}%)`}, ${total.counted} of ${total.of} with a move.`
+          ? `${environment.toUpperCase()} holdings on ${days}: ${total.profitLoss >= 0 ? "+" : ""}${num(total.profitLoss, 2)}${currency}${total.change === undefined ? "" : ` (${total.change >= 0 ? "+" : ""}${num(total.change * 100, 2)}%)`}, ${total.counted} of ${total.of} with a move.`
           : `Rendered the ${environment.toUpperCase()} dashboard; no holding has a move for the day.`);
       } catch (error) {
         return toolError(error);

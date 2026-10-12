@@ -94,6 +94,8 @@ const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
 const LOCALE_STORAGE_KEY = "tradepilot212.locale";
+/** How old a dashboard can be for the day's moves to be read for it: an older one is a saved result shown again. */
+const TODAY_FRESH_MS = 2 * 60_000;
 
 function readSavedLocale(): SupportedLocale | null {
   try {
@@ -361,8 +363,10 @@ export default function App() {
       return;
     }
     if (!app || today?.key === key) return;
+    // A dashboard shown again long after it was read (the host's saved result) is not set against today's closes.
+    if (Date.now() - Date.parse(base.timestamp) > TODAY_FRESH_MS) return;
     setToday({ key, loading: true });
-    const settle = (data?: PortfolioToday) => setToday((current) => (current?.key === key ? { key, ...(data ? { data } : {}), loading: false } : current));
+    const settle = (data?: PortfolioToday) => setToday((current) => (current?.key === key ? { key, ...(data ? { data } : { failed: true }), loading: false } : current));
     callTool<PortfolioToday>("app_get_today", { environment: base.environment }).then(settle, () => settle());
     // Only a new dashboard (or the connection) starts a read; the day's state itself does not.
   }, [app, base]);
