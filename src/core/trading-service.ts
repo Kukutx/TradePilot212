@@ -87,7 +87,7 @@ export interface BasketRequest {
 }
 export const MAX_BASKET_LEGS = 20;
 type VerificationRecord =
-  | { kind: "order"; environment: TradingEnvironment; draft: OrderDraft; baselineQuantity: number; createdAt: string }
+  | { kind: "order"; environment: TradingEnvironment; draft: OrderDraft; baselineQuantity: number; createdAt: string; journalEntryId?: string }
   | { kind: "cancel"; environment: TradingEnvironment; orderId: string; createdAt: string };
 export interface InstrumentCacheEntry { expiresAt: number; instruments: Instrument[] }
 export type InstrumentCache = Map<TradingEnvironment, InstrumentCacheEntry>;
@@ -106,6 +106,8 @@ export interface TradingServiceDeps {
    * to the trade journal and returns the note's id. A failure here never changes the order's result.
    */
   afterOrder?: (draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }) => Promise<string | undefined>;
+  /** Called when the check of an unclear order finds it, to settle the note `afterOrder` saved for it. */
+  afterVerification?: (journalEntryId: string, orderId?: string) => Promise<void>;
   /** Optional webhook for notable events; it filters the types itself and never throws. */
   notify?: Notifier;
   /** Optional external quotes for instruments that are not held (Trading 212 has no quote endpoint). */
@@ -1403,28 +1405,33 @@ export class TradingService {
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot activity log failed", error: error instanceof Error ? error.message : String(error) }));
     }
-    const journalEntryId = await this.journal(draft, { order });
-    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, ...(journalEntryId ? { journalEntryId } : {}), message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
+    const journal = await this.journal(draft, { order });
+    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, ...journal, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
   }
 
-  /** Save the order's thesis to the journal; a failure is logged and the order's result stands. */
-  private async journal(draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }): Promise<string | undefined> {
-    if (!draft.thesis || !this.deps.afterOrder) return undefined;
+  /**
+   * Save the order's thesis to the journal. A note that could not be saved (the journal is full or its store
+   * failed) is reported, so the reason is not lost unnoticed; the order's result stands either way.
+   */
+  private async journal(draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }): Promise<{ journalEntryId?: string; journalNotSaved?: true }> {
+    if (!draft.thesis || !this.deps.afterOrder) return {};
     try {
-      return await this.deps.afterOrder(draft, outcome);
+      const journalEntryId = await this.deps.afterOrder(draft, outcome);
+      return journalEntryId ? { journalEntryId } : { journalNotSaved: true };
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot journal note failed", error: error instanceof Error ? error.message : String(error) }));
-      return undefined;
+      return { journalNotSaved: true };
     }
   }
 
   private async failedSubmission(draft: OrderDraft, baselineQuantity: number, error: unknown): Promise<OrderExecutionResult> {
     if (error instanceof ExecutionStatusUnknownError) {
-      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString() });
+      // The order may have gone through, so its reason is kept, marked unconfirmed and without an order id;
+      // the check of the order settles it.
+      const journal = await this.journal(draft, { unconfirmed: true });
+      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString(), ...(journal.journalEntryId ? { journalEntryId: journal.journalEntryId } : {}) });
       await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
-      // The order may have gone through, so its reason is kept, marked unconfirmed and without an order id.
-      const journalEntryId = await this.journal(draft, { unconfirmed: true });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), ...(journalEntryId ? { journalEntryId } : {}), error: asStructuredError(error), message: error.message };
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), ...journal, error: asStructuredError(error), message: error.message };
     }
     await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
@@ -1665,6 +1672,16 @@ export class TradingService {
     }
   }
 
+  /** The unclear order's note is settled once its check finds the order; a failure here is only logged. */
+  private async settleJournal(journalEntryId: string | undefined, orderId?: string): Promise<void> {
+    if (!journalEntryId || !this.deps.afterVerification) return;
+    try {
+      await this.deps.afterVerification(journalEntryId, orderId);
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot journal note failed", error: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+
   async verifyExecution(verificationId: string): Promise<ExecutionVerificationResult> {
     const record = await this.deps.store.get<VerificationRecord>(`verify:${verificationId}`);
     if (!record) fail("VERIFICATION_NOT_FOUND", "Verification record is missing or expired", { verificationId });
@@ -1693,8 +1710,10 @@ export class TradingService {
       const expectedMovement = record.draft.side === "buy" ? positionDelta : -positionDelta;
       if (pendingMatch) {
         result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "confirmed_pending", checkedAt, ticker: record.draft.ticker, positionDelta, message: "A matching pending order is visible in Trading 212. Do not resubmit it." };
+        await this.settleJournal(record.journalEntryId, pendingMatch.id === undefined ? undefined : String(pendingMatch.id));
       } else if (record.draft.type === "market" && expectedMovement >= record.draft.quantity - Math.max(1e-8, record.draft.quantity * 1e-6)) {
         result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "likely_executed", checkedAt, ticker: record.draft.ticker, positionDelta, message: "The position moved in the expected direction by the requested size. The market order was likely executed; verify broker activity before any retry." };
+        await this.settleJournal(record.journalEntryId);
       } else {
         result = { kind: "execution_verification", verificationId, environment: record.environment, operation: "order", status: "no_evidence", checkedAt, ticker: record.draft.ticker, positionDelta, message: "No matching pending order or conclusive position change is visible yet. Do not retry automatically; verify Trading 212 activity first." };
       }

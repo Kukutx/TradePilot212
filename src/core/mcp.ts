@@ -338,9 +338,10 @@ export function createMcpServer(
       try {
         const history = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled);
         const orderIds = [...history.fills, ...(history.unfilled ?? [])].flatMap((item) => (item.orderId ? [item.orderId] : []));
-        const notes = orderIds.length ? await journal.list(environment, { orderIds }) : [];
+        // The notes are an extra: a store that cannot be read leaves the history as it is.
+        const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { ...history, ...(notes.length ? { journal: notes } : {}) };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, ${notes.length} with a journal note` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -947,9 +948,22 @@ export function createMcpServer(
     async (input) => {
       try {
         if (input.action === "list") {
-          // A name resolves like an order's; an instrument Trading 212 no longer lists still matches by its ticker.
+          // A ticker some note carries matches as it is, also one Trading 212 no longer lists; anything else
+          // resolves like an order's instrument. A failed instruments read is an error, not "no notes".
           let ticker = input.instrument?.trim();
-          if (ticker) ticker = await trading.instruments(input.environment).then((all) => resolveInstrumentFromList(all, ticker!).ticker, () => ticker);
+          if (ticker) {
+            const wanted = ticker.toUpperCase();
+            const noted = (await journal.list(input.environment)).find((entry) => entry.ticker.toUpperCase() === wanted)?.ticker;
+            if (noted) ticker = noted;
+            else {
+              const instruments = await trading.instruments(input.environment);
+              try {
+                ticker = resolveInstrumentFromList(instruments, ticker).ticker;
+              } catch {
+                // Not an instrument Trading 212 lists, and no note carries it: nothing matches.
+              }
+            }
+          }
           const matched = await journal.list(input.environment, { ...(ticker ? { ticker } : {}), ...(input.orderId ? { orderIds: [input.orderId.trim()] } : {}) });
           const data: JournalPayload = { kind: "trade_journal", environment: input.environment, entries: matched.slice(0, input.limit), total: matched.length };
           return result(data, `${matched.length} journal note(s)${matched.length > input.limit ? `, ${input.limit} shown` : ""}.`);

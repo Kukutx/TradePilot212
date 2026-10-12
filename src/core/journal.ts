@@ -12,6 +12,13 @@ import { randomToken } from "./web-utils.js";
 
 export const MAX_JOURNAL_ENTRIES = 1000;
 const entryKey = (id: string) => `journal:${id}`;
+/**
+ * Taken atomically while a note on an order is saved, so two saves at once cannot both write one. It lapses
+ * after a minute, by when the first note is stored and found by any later save; a failed write, and deleting
+ * the note, release it.
+ */
+const claimKey = (environment: TradingEnvironment, orderId: string) => `journal-order:${environment}:${orderId}`;
+const CLAIM_MS = 60_000;
 
 export interface JournalInput {
   environment: TradingEnvironment;
@@ -59,6 +66,27 @@ export class TradeJournal {
       .sort(newestFirst);
   }
 
+  /**
+   * Take an order for one note: fails, naming the note, when the order has one, and when another save for it is
+   * under way. The notes are read after the claim is taken, so a save that finished before is always seen.
+   */
+  private async claim(environment: TradingEnvironment, orderId: string): Promise<void> {
+    const { count } = await this.deps.store.increment(claimKey(environment, orderId), CLAIM_MS);
+    const existing = (await this.list(environment, { orderIds: [orderId] }))[0];
+    if (existing) fail("INVALID_INPUT", `Order ${orderId} already has journal note ${existing.id}; update that note instead`, { field: "orderId", entryId: existing.id });
+    if (count > 1) fail("INVALID_INPUT", `Another note on order ${orderId} is being saved; list the notes, and try again in a minute if it is not there`, { field: "orderId" });
+  }
+
+  /** Store a new note; a claim taken for it is released when the write fails. */
+  private async save(entry: JournalEntry): Promise<void> {
+    try {
+      await this.deps.store.put(entryKey(entry.id), entry);
+    } catch (error) {
+      if (entry.orderId) await this.deps.store.delete(claimKey(entry.environment, entry.orderId)).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async add(input: JournalInput, now = new Date()): Promise<JournalEntry> {
     requireCredentials(this.deps.config, input.environment);
     const thesis = journalText(input.thesis);
@@ -69,8 +97,7 @@ export class TradeJournal {
     const all = await this.list();
     if (all.length >= MAX_JOURNAL_ENTRIES) fail("INVALID_INPUT", `At most ${MAX_JOURNAL_ENTRIES} journal notes can be stored; delete old ones first`);
     // One note per order, so a fill shows one reason; a second one changes the first.
-    const existing = orderId ? all.find((entry) => entry.environment === input.environment && entry.orderId === orderId) : undefined;
-    if (existing) fail("INVALID_INPUT", `Order ${orderId} already has journal note ${existing.id}; update that note instead`, { field: "orderId", entryId: existing.id });
+    if (orderId) await this.claim(input.environment, orderId);
     const tags = journalTags(input.tags);
     const entry: JournalEntry = {
       id: `jrn_${randomToken(12)}`,
@@ -82,7 +109,7 @@ export class TradeJournal {
       ...(tags ? { tags } : {}),
       createdAt: now.toISOString(),
     };
-    await this.deps.store.put(entryKey(entry.id), entry);
+    await this.save(entry);
     return entry;
   }
 
@@ -104,9 +131,11 @@ export class TradeJournal {
     return entry;
   }
 
+  /** Delete a note; its order is free for a new one at once. */
   async delete(id: string): Promise<void> {
-    await this.get(id);
+    const entry = await this.get(id);
     await this.deps.store.delete(entryKey(id));
+    if (entry.orderId) await this.deps.store.delete(claimKey(entry.environment, entry.orderId)).catch(() => undefined);
   }
 
   /**
@@ -119,6 +148,7 @@ export class TradeJournal {
     const all = await this.list();
     if (all.length >= MAX_JOURNAL_ENTRIES) return undefined;
     const orderId = outcome.unconfirmed ? undefined : acceptedOrderId(outcome.order);
+    if (orderId) await this.claim(draft.environment, orderId);
     const entry: JournalEntry = {
       id: `jrn_${randomToken(12)}`,
       environment: draft.environment,
@@ -128,7 +158,27 @@ export class TradeJournal {
       thesis,
       createdAt: now.toISOString(),
     };
-    await this.deps.store.put(entryKey(entry.id), entry);
+    await this.save(entry);
     return entry.id;
+  }
+
+  /**
+   * The check of an order whose result was unclear found it: tie its note to the order (when the check names one
+   * and that order has no note yet) and drop the unconfirmed mark. A note already settled is left as it is.
+   */
+  async confirmOrder(entryId: string, orderId?: string): Promise<void> {
+    const current = await this.deps.store.get<JournalEntry>(entryKey(entryId));
+    if (!current?.order?.unconfirmed) return;
+    let linked: string | undefined;
+    if (orderId && /^\d{1,20}$/.test(orderId)) {
+      try {
+        await this.claim(current.environment, orderId);
+        linked = orderId;
+      } catch {
+        linked = undefined;
+      }
+    }
+    const { unconfirmed: _u, ...order } = current.order;
+    await this.save({ ...current, ...(linked ? { orderId: linked } : {}), order });
   }
 }

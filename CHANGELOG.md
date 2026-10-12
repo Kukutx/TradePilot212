@@ -3,12 +3,12 @@
 ## 2.29.0
 
 - A trade journal. Each trade can have a note with why you made it and, later, what came of it looking back, plus a few tags. Notes stay in TradePilot and never reach Trading 212 ([docs/JOURNAL.md](./docs/JOURNAL.md)).
-- Write the reason with the order. The order editor has a **Why this trade** field, and the order review tools and `app_prepare_order` take a `thesis`. The review shows it, and once Trading 212 accepts the order it is saved as a note with the order id Trading 212 gave it; the send's result says so. An order whose result is unclear keeps its note too, marked unconfirmed and without an order id. A failure to save a note never changes the order's result. An order opened from a trade plan card starts with the card's thesis or rationale. Baskets carry none.
+- Write the reason with the order. The order editor has a **Why this trade** field, and the order review tools and `app_prepare_order` take a `thesis`. The review shows it, and once Trading 212 accepts the order it is saved as a note with the order id Trading 212 gave it; the send's result says so, or says the reason could not be saved (a full journal or a failed store), which never changes the order's result. An order whose result is unclear keeps its note too, marked unconfirmed and without an order id, until checking the result finds the order. The thesis stays with the draft when you switch between Demo and Live. An order opened from a trade plan card starts with the card's thesis or rationale. Baskets carry none.
 - The holding page has a **Trade journal** section: the instrument's notes, newest first, each dated by the trade it is about and naming its side, size and price, with **Add note**, **Edit**, **Delete** (asked once more in place) and, for a note with only a reason, **Add a look back**. Each fill shows the reason on its order underneath, or **Add note** to write one on it.
 - `manage_trade_journal` lists, adds, changes and deletes notes from the chat, for an instrument or an order. It works without order tools, like price alerts. An order has one note; adding a second names the first.
 - `get_trade_history` returns each fill's and each unfilled order's `orderId`, and the notes on the orders it lists; `get_holding_detail` returns the instrument's notes. The text summaries quote them, so a text-only host sees the reasons too.
 - The `trade-journal` skill reads the reasons written at the time next to how each trade turned out, and saves the review the user agrees with.
-- The preview's sample account has notes on its newest Apple buy and sell, and a **Trade journal** view.
+- The preview's sample account has notes on its two newest Apple buys and one without an order, and a **Trade journal** view.
 
 ## 2.28.0
 

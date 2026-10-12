@@ -2,6 +2,7 @@
 
 import type { TradingEnvironment } from "../shared/contracts.js";
 import type { HoldingDetail } from "../shared/holding.js";
+import type { JournalEntry } from "../shared/journal.js";
 import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
 import type { InsightsService } from "./insights-service.js";
@@ -55,7 +56,9 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const [targets, alerts, notes, market, history] = await Promise.all([
     deps.targets.get(environment),
     deps.alerts.list(environment),
-    deps.journal.list(environment, { ticker }),
+    // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
+    // read leaves the page without notes rather than without everything else.
+    deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position!.instrument, now),
     Promise.all([
       deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
@@ -64,7 +67,9 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])) : []);
-  const journal = notes.filter((note, index) => index < MAX_NOTES || (note.orderId !== undefined && filled.has(note.orderId)));
+  const onFill = (note: JournalEntry) => note.orderId !== undefined && filled.has(note.orderId);
+  const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
+  const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   return {
     kind: "holding",
     environment,
@@ -78,7 +83,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     orders: dashboard.orders.filter((order) => order.ticker === ticker),
     alerts: alerts.filter((alert) => alert.ticker === ticker),
     journal,
-    ...(notes.length > journal.length ? { journalTotal: notes.length } : {}),
+    ...(relevant.length > journal.length ? { journalTotal: relevant.length } : {}),
     ...(market ? { market } : {}),
     ...(Array.isArray(history)
       ? {

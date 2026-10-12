@@ -403,6 +403,8 @@ export interface OrderExecutionResult {
   verificationId?: string;
   /** The trade journal note the order's thesis was saved to. */
   journalEntryId?: string;
+  /** The order had a thesis that could not be saved to the trade journal (it is full, or its store failed). */
+  journalNotSaved?: true;
 }
 
 export type ExecutionVerificationStatus =

@@ -48,8 +48,8 @@ function draftLine(draft: OrderDraft, instrument?: Instrument): string {
 
 /** Text written by the user, on one line and shortened, so a long note cannot crowd out the rest. */
 function quoted(text: string, max = 160): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return `"${line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line}"`;
+  const characters = Array.from(text.replace(/\s+/g, " ").trim());
+  return `"${characters.length > max ? `${characters.slice(0, max - 1).join("").trimEnd()}…` : characters.join("")}"`;
 }
 
 function journalLine(entry: JournalEntry, withTicker = true): string {
@@ -398,6 +398,7 @@ function orderExecution(data: OrderExecutionResult): string[] {
     ...(order && typeof order === "object" && order.id !== undefined ? [`Trading 212 order ${orderLine(order)}.`] : []),
     ...(data.status === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : []),
     ...(data.journalEntryId ? [`The reason was saved to the trade journal as ${data.journalEntryId}.`] : []),
+    ...(data.journalNotSaved ? ["The reason could not be saved to the trade journal (it is full or its store failed); add it with manage_trade_journal."] : []),
   ];
 }
 

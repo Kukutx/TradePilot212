@@ -655,11 +655,12 @@ export const zhCN: Record<MessageKey, string> = {
   journalOnOrder: "订单 {id}",
   journalUnconfirmed: "发出时结果不明",
   journalEdited: "{date} 修改",
-  journalMore: "这里显示最新的 {shown} 条，共 {total} 条；更早的可以在对话里查。",
+  journalMore: "这里显示 {shown} 条（最新的和下方成交对应的），共 {total} 条；其余的可以在对话里查。",
   journalOnlyHere: "记录只保存在 TradePilot，不会发给 Trading 212。",
   orderThesis: "交易理由（选填）",
   orderThesisHint: "订单发出后存进交易日志，不会发给 Trading 212。",
   orderThesisSaved: "交易理由已存进交易日志。",
+  orderThesisNotSaved: "交易理由没能存进交易日志，可以在持仓页补写。",
   errorTitleJournal: "记录没能保存",
   errorJournalNotFound: "找不到这条记录。",
 };

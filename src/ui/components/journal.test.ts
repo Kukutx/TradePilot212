@@ -53,7 +53,7 @@ describe("journal notes", () => {
     expect(html).toMatch(/<strong>Sep 1, 2026<\/strong><span class="journalOrder sell">Sell 2 · \$231\.50<\/span>/);
     expect(html.match(/Add a look back/g)).toHaveLength(1);
     expect(html).toContain("edited Oct 11, 2026");
-    expect(html).toContain("Showing the newest 2 of 30 notes");
+    expect(html).toContain("Showing 2 of 30 notes: the newest and those on the fills listed.");
     // The fill with a note shows its reason; the other offers to write one.
     expect(html).toContain('<p class="fillNote"><span>Why</span>Trim near the target weight</p>');
     expect(html.match(/class="inlineLink"/g)).toHaveLength(1);

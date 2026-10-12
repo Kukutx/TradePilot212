@@ -653,11 +653,12 @@ export const en = {
   journalOnOrder: "Order {id}",
   journalUnconfirmed: "Result unclear when sent",
   journalEdited: "edited {date}",
-  journalMore: "Showing the newest {shown} of {total} notes; ask in the chat for older ones.",
+  journalMore: "Showing {shown} of {total} notes: the newest and those on the fills listed. Ask in the chat for the others.",
   journalOnlyHere: "Notes stay in TradePilot and are never sent to Trading 212.",
   orderThesis: "Why this trade (optional)",
   orderThesisHint: "Saved to your trade journal once the order is sent; never sent to Trading 212.",
   orderThesisSaved: "The reason was saved to your trade journal.",
+  orderThesisNotSaved: "The reason could not be saved to your trade journal; add it on the holding's page.",
   errorTitleJournal: "The note couldn't be saved",
   errorJournalNotFound: "That note was not found.",
 } as const;

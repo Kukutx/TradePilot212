@@ -3,7 +3,7 @@ import { createServices } from "../app/services.js";
 import { journalTags, journalText, MAX_JOURNAL_TEXT } from "../shared/journal.js";
 import { createConfig } from "./config.js";
 import { holdingDetail } from "./holding.js";
-import { MAX_JOURNAL_ENTRIES } from "./journal.js";
+import { MAX_JOURNAL_ENTRIES, TradeJournal } from "./journal.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
 
@@ -58,8 +58,40 @@ describe("trade journal", () => {
     const note = await journal.add({ environment: "demo", instrument: "AAPL", thesis: "x", orderId: " 90001 " });
     expect(note.orderId).toBe("90001");
     await expect(journal.add({ environment: "demo", instrument: "AAPL", review: "y", orderId: "90001" })).rejects.toMatchObject({ code: "INVALID_INPUT", details: { entryId: note.id } });
+    // Deleting the note frees its order for a new one.
+    await journal.delete(note.id);
+    expect((await journal.add({ environment: "demo", instrument: "AAPL", review: "y", orderId: "90001" })).review).toBe("y");
+  });
+
+  it("keeps one note per order in each account, also when two saves race", async () => {
+    const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", T212_LIVE_API_KEY: "k", T212_LIVE_API_SECRET: "s" });
+    const journal = new TradeJournal({ config, store: new MemoryStateStore(), trading: { instruments: async () => [{ ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", type: "STOCK" }] } });
+    const outcomes = await Promise.allSettled([1, 2, 3].map((index) => journal.add({ environment: "demo", instrument: "AAPL", thesis: `try ${index}`, orderId: "7" })));
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(await journal.list("demo", { orderIds: ["7"] })).toHaveLength(1);
     // Live has its own orders, so the same id there is another order.
-    await expect(journal.add({ environment: "live", instrument: "AAPL", thesis: "x", orderId: "90001" })).rejects.toThrow(/credentials/i);
+    expect((await journal.add({ environment: "live", instrument: "AAPL", thesis: "x", orderId: "7" })).environment).toBe("live");
+    // A later save sees the note that won.
+    await expect(journal.add({ environment: "demo", instrument: "AAPL", thesis: "again", orderId: "7" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
+  it("ties an unclear order's note to the order once its check finds it", async () => {
+    const { journal } = sample();
+    const draft = { environment: "demo" as const, ticker: "AAPL_US_EQ", side: "buy" as const, type: "limit" as const, quantity: 1, limitPrice: 200, thesis: "why" };
+    const unclear = (await journal.recordOrder(draft, { unconfirmed: true }))!;
+    expect((await journal.list("demo"))[0]).toMatchObject({ id: unclear, order: { unconfirmed: true } });
+    expect((await journal.list("demo"))[0]).not.toHaveProperty("orderId");
+    await journal.confirmOrder(unclear, "555");
+    const [settled] = await journal.list("demo");
+    expect(settled).toMatchObject({ id: unclear, orderId: "555", order: { side: "buy", type: "limit", quantity: 1 } });
+    expect(settled!.order).not.toHaveProperty("unconfirmed");
+    expect(settled).not.toHaveProperty("updatedAt");
+    // An order that already has a note keeps it; the unclear one only loses its mark.
+    const other = (await journal.recordOrder({ ...draft, thesis: "second" }, { unconfirmed: true }))!;
+    await journal.confirmOrder(other, "555");
+    const second = (await journal.list("demo")).find((entry) => entry.id === other)!;
+    expect(second).not.toHaveProperty("orderId");
+    expect(second.order).not.toHaveProperty("unconfirmed");
   });
 
   it("stops at the most notes it keeps", async () => {
@@ -82,10 +114,11 @@ describe("trade journal", () => {
     const [note] = await services.journal.list("demo", { orderIds: [orderId] });
     expect(note).toMatchObject({ id: executed.journalEntryId, ticker: "AAPL_US_EQ", orderId, order: { side: "buy", type: "market", quantity: 2 }, thesis: "Adding before the product event; wrong below 200." });
 
-    // A past fill gets its own note; the holding lists both and each fill carries its order id.
+    // A past fill gets its own note; the holding lists both and each fill carries its order id. A note put on the
+    // wrong instrument still shows on the holding whose fill it names.
     const history = await services.insights.tradeHistory("demo", { to: new Date() }, "AAPL", 50);
     const past = history.fills.find((fill) => fill.orderId && fill.orderId !== orderId)!;
-    await services.journal.add({ environment: "demo", instrument: "AAPL_US_EQ", orderId: past.orderId!, review: "Bought the top; wait for a pullback" });
+    await services.journal.add({ environment: "demo", instrument: "NVDA", orderId: past.orderId!, review: "Bought the top; wait for a pullback" });
     const detail = await holdingDetail(services, "demo", "AAPL");
     expect(detail.journal.map((entry) => entry.orderId)).toEqual([past.orderId, orderId]);
     expect(detail.history?.fills.some((fill) => fill.orderId === past.orderId)).toBe(true);
@@ -137,13 +170,18 @@ describe("trade journal tool", () => {
 
     const again = await call("get_trade_history", { environment: "demo", ticker: "AAPL" });
     expect((again.structuredContent as { journal?: Array<{ id: string }> }).journal?.map((note) => note.id)).toEqual([entry.id]);
-    expect(JSON.stringify(again.content)).toContain("1 with a journal note");
+    expect(JSON.stringify(again.content)).toContain("with 1 journal note(s) on these orders");
     expect(JSON.stringify(again.content)).toContain('why: \\"Bought the dip\\"');
 
     const updated = await call("manage_trade_journal", { action: "update", environment: "demo", entryId: entry.id, review: "Too early" });
     expect(updated.structuredContent).toMatchObject({ entry: { thesis: "Bought the dip", review: "Too early" } });
     const listed = await call("manage_trade_journal", { action: "list", environment: "demo", instrument: "Apple", limit: 1 });
     expect(listed.structuredContent).toMatchObject({ kind: "trade_journal", total: 1, entries: [{ id: entry.id }] });
+    // A ticker Trading 212 no longer lists still finds its notes; an unknown name finds none.
+    await services.store.put("journal:jrn_old", { id: "jrn_old", environment: "demo", ticker: "OLDCO_US_EQ", thesis: "gone", createdAt: "2020-01-01T00:00:00Z" });
+    expect((await call("manage_trade_journal", { action: "list", environment: "demo", instrument: "oldco_us_eq" })).structuredContent).toMatchObject({ total: 1, entries: [{ id: "jrn_old" }] });
+    expect((await call("manage_trade_journal", { action: "list", environment: "demo", instrument: "Nothing Like It" })).structuredContent).toMatchObject({ total: 0 });
+    await services.store.delete("journal:jrn_old");
     expect((await call("manage_trade_journal", { action: "list", environment: "demo", orderId: "1" })).structuredContent).toMatchObject({ total: 0 });
     expect((await call("manage_trade_journal", { action: "update", environment: "demo" })).isError).toBe(true);
     await call("manage_trade_journal", { action: "delete", environment: "demo", entryId: entry.id });

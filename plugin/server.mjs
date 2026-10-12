@@ -36453,25 +36453,29 @@ var TradingService = class {
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot activity log failed", error: error62 instanceof Error ? error62.message : String(error62) }));
     }
-    const journalEntryId = await this.journal(draft, { order });
-    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, ...journalEntryId ? { journalEntryId } : {}, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
+    const journal = await this.journal(draft, { order });
+    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, ...journal, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
   }
-  /** Save the order's thesis to the journal; a failure is logged and the order's result stands. */
+  /**
+   * Save the order's thesis to the journal. A note that could not be saved (the journal is full or its store
+   * failed) is reported, so the reason is not lost unnoticed; the order's result stands either way.
+   */
   async journal(draft, outcome) {
-    if (!draft.thesis || !this.deps.afterOrder) return void 0;
+    if (!draft.thesis || !this.deps.afterOrder) return {};
     try {
-      return await this.deps.afterOrder(draft, outcome);
+      const journalEntryId = await this.deps.afterOrder(draft, outcome);
+      return journalEntryId ? { journalEntryId } : { journalNotSaved: true };
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot journal note failed", error: error62 instanceof Error ? error62.message : String(error62) }));
-      return void 0;
+      return { journalNotSaved: true };
     }
   }
   async failedSubmission(draft, baselineQuantity, error62) {
     if (error62 instanceof ExecutionStatusUnknownError) {
-      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      const journal = await this.journal(draft, { unconfirmed: true });
+      const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: (/* @__PURE__ */ new Date()).toISOString(), ...journal.journalEntryId ? { journalEntryId: journal.journalEntryId } : {} });
       await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
-      const journalEntryId = await this.journal(draft, { unconfirmed: true });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...verificationId ? { verificationId } : {}, ...journalEntryId ? { journalEntryId } : {}, error: asStructuredError(error62), message: error62.message };
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...verificationId ? { verificationId } : {}, ...journal, error: asStructuredError(error62), message: error62.message };
     }
     await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
@@ -36696,6 +36700,15 @@ var TradingService = class {
       return { kind: "order_execution", environment: pending.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
     }
   }
+  /** The unclear order's note is settled once its check finds the order; a failure here is only logged. */
+  async settleJournal(journalEntryId, orderId) {
+    if (!journalEntryId || !this.deps.afterVerification) return;
+    try {
+      await this.deps.afterVerification(journalEntryId, orderId);
+    } catch (error62) {
+      console.error(JSON.stringify({ message: "TradePilot journal note failed", error: error62 instanceof Error ? error62.message : String(error62) }));
+    }
+  }
   async verifyExecution(verificationId) {
     const record2 = await this.deps.store.get(`verify:${verificationId}`);
     if (!record2) fail("VERIFICATION_NOT_FOUND", "Verification record is missing or expired", { verificationId });
@@ -36722,8 +36735,10 @@ var TradingService = class {
       const expectedMovement = record2.draft.side === "buy" ? positionDelta : -positionDelta;
       if (pendingMatch) {
         result2 = { kind: "execution_verification", verificationId, environment: record2.environment, operation: "order", status: "confirmed_pending", checkedAt, ticker: record2.draft.ticker, positionDelta, message: "A matching pending order is visible in Trading 212. Do not resubmit it." };
+        await this.settleJournal(record2.journalEntryId, pendingMatch.id === void 0 ? void 0 : String(pendingMatch.id));
       } else if (record2.draft.type === "market" && expectedMovement >= record2.draft.quantity - Math.max(1e-8, record2.draft.quantity * 1e-6)) {
         result2 = { kind: "execution_verification", verificationId, environment: record2.environment, operation: "order", status: "likely_executed", checkedAt, ticker: record2.draft.ticker, positionDelta, message: "The position moved in the expected direction by the requested size. The market order was likely executed; verify broker activity before any retry." };
+        await this.settleJournal(record2.journalEntryId);
       } else {
         result2 = { kind: "execution_verification", verificationId, environment: record2.environment, operation: "order", status: "no_evidence", checkedAt, ticker: record2.draft.ticker, positionDelta, message: "No matching pending order or conclusive position change is visible yet. Do not retry automatically; verify Trading 212 activity first." };
       }
@@ -38246,8 +38261,8 @@ function draftLine(draft, instrument) {
   return `${draft.side.toUpperCase()} ${num2(draft.quantity, 8)} ${draft.ticker}${name} ${draft.type.replace("_", "-")}${price}${stop}${validity}${draft.extendedHours ? " extended hours" : ""}`;
 }
 function quoted(text, max = 160) {
-  const line = text.replace(/\s+/g, " ").trim();
-  return `"${line.length > max ? `${line.slice(0, max - 1).trimEnd()}\u2026` : line}"`;
+  const characters = Array.from(text.replace(/\s+/g, " ").trim());
+  return `"${characters.length > max ? `${characters.slice(0, max - 1).join("").trimEnd()}\u2026` : characters.join("")}"`;
 }
 function journalLine(entry, withTicker = true) {
   const order = entry.order ? ` ${entry.order.side.toUpperCase()} ${num2(entry.order.quantity, 8)} ${entry.order.type.replace("_", "-")}${entry.order.unconfirmed ? " (result unclear when sent)" : ""}` : "";
@@ -38518,7 +38533,8 @@ function orderExecution(data) {
   return [
     ...order && typeof order === "object" && order.id !== void 0 ? [`Trading 212 order ${orderLine(order)}.`] : [],
     ...data.status === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : [],
-    ...data.journalEntryId ? [`The reason was saved to the trade journal as ${data.journalEntryId}.`] : []
+    ...data.journalEntryId ? [`The reason was saved to the trade journal as ${data.journalEntryId}.`] : [],
+    ...data.journalNotSaved ? ["The reason could not be saved to the trade journal (it is full or its store failed); add it with manage_trade_journal."] : []
   ];
 }
 function candidates(data) {
@@ -38758,7 +38774,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const [targets, alerts, notes, market, history] = await Promise.all([
     deps.targets.get(environment),
     deps.alerts.list(environment),
-    deps.journal.list(environment, { ticker }),
+    // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
+    // read leaves the page without notes rather than without everything else.
+    deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position.instrument, now),
     Promise.all([
       deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
@@ -38767,7 +38785,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => fill.orderId ? [fill.orderId] : []) : []);
-  const journal = notes.filter((note, index) => index < MAX_NOTES || note.orderId !== void 0 && filled.has(note.orderId));
+  const onFill = (note) => note.orderId !== void 0 && filled.has(note.orderId);
+  const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
+  const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   return {
     kind: "holding",
     environment,
@@ -38781,7 +38801,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     orders: dashboard.orders.filter((order) => order.ticker === ticker),
     alerts: alerts.filter((alert) => alert.ticker === ticker),
     journal,
-    ...notes.length > journal.length ? { journalTotal: notes.length } : {},
+    ...relevant.length > journal.length ? { journalTotal: relevant.length } : {},
     ...market ? { market } : {},
     ...Array.isArray(history) ? {
       history: {
@@ -39096,9 +39116,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
       try {
         const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled);
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
-        const notes = orderIds.length ? await journal.list(environment, { orderIds }) : [];
+        const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { ...history, ...notes.length ? { journal: notes } : {} };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, ${notes.length} with a journal note` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -39676,7 +39696,18 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
       try {
         if (input2.action === "list") {
           let ticker = input2.instrument?.trim();
-          if (ticker) ticker = await trading.instruments(input2.environment).then((all) => resolveInstrumentFromList(all, ticker).ticker, () => ticker);
+          if (ticker) {
+            const wanted = ticker.toUpperCase();
+            const noted = (await journal.list(input2.environment)).find((entry2) => entry2.ticker.toUpperCase() === wanted)?.ticker;
+            if (noted) ticker = noted;
+            else {
+              const instruments = await trading.instruments(input2.environment);
+              try {
+                ticker = resolveInstrumentFromList(instruments, ticker).ticker;
+              } catch {
+              }
+            }
+          }
           const matched = await journal.list(input2.environment, { ...ticker ? { ticker } : {}, ...input2.orderId ? { orderIds: [input2.orderId.trim()] } : {} });
           const data = { kind: "trade_journal", environment: input2.environment, entries: matched.slice(0, input2.limit), total: matched.length };
           return result(data, `${matched.length} journal note(s)${matched.length > input2.limit ? `, ${input2.limit} shown` : ""}.`);
@@ -40323,6 +40354,8 @@ var PriceAlerts = class {
 // src/core/journal.ts
 var MAX_JOURNAL_ENTRIES = 1e3;
 var entryKey = (id) => `journal:${id}`;
+var claimKey = (environment, orderId) => `journal-order:${environment}:${orderId}`;
+var CLAIM_MS = 6e4;
 function orderIdOf3(value) {
   const id = value?.trim();
   if (!id) return void 0;
@@ -40345,6 +40378,25 @@ var TradeJournal = class {
     const orders = filter.orderIds ? new Set(filter.orderIds) : void 0;
     return (await this.deps.store.list("journal:")).map((entry) => entry.value).filter((entry) => (!environment || entry.environment === environment) && (!ticker || entry.ticker.toUpperCase() === ticker) && (!orders || entry.orderId !== void 0 && orders.has(entry.orderId))).sort(newestFirst);
   }
+  /**
+   * Take an order for one note: fails, naming the note, when the order has one, and when another save for it is
+   * under way. The notes are read after the claim is taken, so a save that finished before is always seen.
+   */
+  async claim(environment, orderId) {
+    const { count } = await this.deps.store.increment(claimKey(environment, orderId), CLAIM_MS);
+    const existing = (await this.list(environment, { orderIds: [orderId] }))[0];
+    if (existing) fail("INVALID_INPUT", `Order ${orderId} already has journal note ${existing.id}; update that note instead`, { field: "orderId", entryId: existing.id });
+    if (count > 1) fail("INVALID_INPUT", `Another note on order ${orderId} is being saved; list the notes, and try again in a minute if it is not there`, { field: "orderId" });
+  }
+  /** Store a new note; a claim taken for it is released when the write fails. */
+  async save(entry) {
+    try {
+      await this.deps.store.put(entryKey(entry.id), entry);
+    } catch (error62) {
+      if (entry.orderId) await this.deps.store.delete(claimKey(entry.environment, entry.orderId)).catch(() => void 0);
+      throw error62;
+    }
+  }
   async add(input2, now = /* @__PURE__ */ new Date()) {
     requireCredentials(this.deps.config, input2.environment);
     const thesis = journalText(input2.thesis);
@@ -40354,8 +40406,7 @@ var TradeJournal = class {
     const instrument = resolveInstrumentFromList(await this.deps.trading.instruments(input2.environment), input2.instrument);
     const all = await this.list();
     if (all.length >= MAX_JOURNAL_ENTRIES) fail("INVALID_INPUT", `At most ${MAX_JOURNAL_ENTRIES} journal notes can be stored; delete old ones first`);
-    const existing = orderId ? all.find((entry2) => entry2.environment === input2.environment && entry2.orderId === orderId) : void 0;
-    if (existing) fail("INVALID_INPUT", `Order ${orderId} already has journal note ${existing.id}; update that note instead`, { field: "orderId", entryId: existing.id });
+    if (orderId) await this.claim(input2.environment, orderId);
     const tags = journalTags(input2.tags);
     const entry = {
       id: `jrn_${randomToken(12)}`,
@@ -40367,7 +40418,7 @@ var TradeJournal = class {
       ...tags ? { tags } : {},
       createdAt: now.toISOString()
     };
-    await this.deps.store.put(entryKey(entry.id), entry);
+    await this.save(entry);
     return entry;
   }
   async get(id) {
@@ -40386,9 +40437,11 @@ var TradeJournal = class {
     await this.deps.store.put(entryKey(id), entry);
     return entry;
   }
+  /** Delete a note; its order is free for a new one at once. */
   async delete(id) {
-    await this.get(id);
+    const entry = await this.get(id);
     await this.deps.store.delete(entryKey(id));
+    if (entry.orderId) await this.deps.store.delete(claimKey(entry.environment, entry.orderId)).catch(() => void 0);
   }
   /**
    * Save the thesis an order was sent with, once Trading 212 accepted it (with its order id) or its result was
@@ -40400,6 +40453,7 @@ var TradeJournal = class {
     const all = await this.list();
     if (all.length >= MAX_JOURNAL_ENTRIES) return void 0;
     const orderId = outcome.unconfirmed ? void 0 : acceptedOrderId(outcome.order);
+    if (orderId) await this.claim(draft.environment, orderId);
     const entry = {
       id: `jrn_${randomToken(12)}`,
       environment: draft.environment,
@@ -40409,8 +40463,27 @@ var TradeJournal = class {
       thesis,
       createdAt: now.toISOString()
     };
-    await this.deps.store.put(entryKey(entry.id), entry);
+    await this.save(entry);
     return entry.id;
+  }
+  /**
+   * The check of an order whose result was unclear found it: tie its note to the order (when the check names one
+   * and that order has no note yet) and drop the unconfirmed mark. A note already settled is left as it is.
+   */
+  async confirmOrder(entryId, orderId) {
+    const current = await this.deps.store.get(entryKey(entryId));
+    if (!current?.order?.unconfirmed) return;
+    let linked;
+    if (orderId && /^\d{1,20}$/.test(orderId)) {
+      try {
+        await this.claim(current.environment, orderId);
+        linked = orderId;
+      } catch {
+        linked = void 0;
+      }
+    }
+    const { unconfirmed: _u, ...order } = current.order;
+    await this.save({ ...current, ...linked ? { orderId: linked } : {}, order });
   }
 };
 
@@ -40574,14 +40647,14 @@ var DailyDigest = class {
       if (!credentials[environment]) continue;
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
-      const claimKey = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey, 2 * DAY_MS6, now.getTime());
+      const claimKey2 = `digest:${environment}:${day2}`;
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS6, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
         const account = dashboard.account;
         if (!account) {
-          await this.deps.store.delete(claimKey);
+          await this.deps.store.delete(claimKey2);
           continue;
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
@@ -40613,14 +40686,14 @@ var DailyDigest = class {
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {
-          await this.deps.store.delete(claimKey);
+          await this.deps.store.delete(claimKey2);
           continue;
         }
         await this.deps.store.put(`digest-value:${environment}`, totalValue);
         await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
       } catch (error62) {
-        await this.deps.store.delete(claimKey).catch(() => {
+        await this.deps.store.delete(claimKey2).catch(() => {
         });
         console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
@@ -40877,7 +40950,8 @@ function createServices(input2) {
     ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
     afterBasket: (planId, result2) => automation2.recordRun(planId, result2),
-    afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome)
+    afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
+    afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId)
   });
   const insights = new InsightsService({ config: deps.config, ...deps.fetcher ? { fetcher: deps.fetcher } : {}, instruments: (environment) => trading.instruments(environment) });
   const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
