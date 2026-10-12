@@ -23,6 +23,8 @@ export interface StopProtection {
 export interface StopLevel {
   stopPrice: number;
   quantity: number;
+  /** A stop-limit's limit: once triggered it sells at this price or better, or not at all. */
+  limitPrice?: number;
 }
 
 export interface StopOutcome {
@@ -34,16 +36,18 @@ export interface StopOutcome {
 
 /**
  * What the stops mean once the price has fallen through every one, each selling its shares at its own
- * price, converted at the rate the broker's valuation of the holding implies. Undefined without that
- * valuation, or when the highest stop is not below the last price (it would trigger at once). A gap can
- * fill a triggered stop lower, so this is the best case.
+ * price, converted at the rate the broker's valuation of the holding implies. A stop-limit is costed at
+ * its limit when that is lower, the least it can sell for. Undefined without that valuation, or when the
+ * highest stop is not below the last price (it would trigger at once). A gap can fill a stop lower, or
+ * leave a stop-limit unfilled, so this is what the stops promise rather than what a fall guarantees.
  */
 export function stopOutcome(position: Position, guard: StopProtection): StopOutcome | undefined {
   const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown } | undefined;
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : undefined;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
   const rate = value / (position.quantity * position.currentPrice);
-  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - level.stopPrice) * level.quantity, 0) * rate;
+  const sale = (level: StopLevel) => Math.min(level.stopPrice, level.limitPrice ?? level.stopPrice);
+  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : undefined;
   return { drop, ...(pnl === undefined ? {} : { pnlAtStop: pnl * guard.coverage - drop }) };
 }
@@ -63,13 +67,19 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
   // Trading 212 quantities have at most 8 decimals; rounding the sum keeps 0.1 + 0.7 equal to 0.8.
   const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice as number));
-  const byPrice = new Map<number, number>();
-  for (const order of stops) byPrice.set(order.stopPrice as number, (byPrice.get(order.stopPrice as number) ?? 0) + remaining(order));
+  // One level per stop and limit; the highest stops trigger first, and of two at one stop the plain stop sorts first.
+  const byPrice = new Map<string, StopLevel>();
+  for (const order of stops) {
+    const limit = typeof order.limitPrice === "number" && order.limitPrice > 0 ? order.limitPrice : undefined;
+    const key = `${order.stopPrice}|${limit ?? ""}`;
+    const level = byPrice.get(key) ?? { stopPrice: order.stopPrice as number, quantity: 0, ...(limit === undefined ? {} : { limitPrice: limit }) };
+    byPrice.set(key, { ...level, quantity: level.quantity + remaining(order) });
+  }
   const levels: StopLevel[] = [];
   let left = covered;
-  for (const [price, quantity] of [...byPrice].sort((a, b) => b[0] - a[0])) {
-    const take = Number(Math.min(quantity, left).toFixed(8));
-    if (take > 0) levels.push({ stopPrice: price, quantity: take });
+  for (const level of [...byPrice.values()].sort((a, b) => b.stopPrice - a.stopPrice || (b.limitPrice ?? Infinity) - (a.limitPrice ?? Infinity))) {
+    const take = Number(Math.min(level.quantity, left).toFixed(8));
+    if (take > 0) levels.push({ ...level, quantity: take });
     left = Number((left - take).toFixed(8));
   }
   const last = position.currentPrice;

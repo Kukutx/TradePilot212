@@ -27,10 +27,10 @@ describe("stop-loss protection", () => {
       { ticker: "NVDA_US_EQ", type: "LIMIT", side: "SELL", quantity: -5, limitPrice: 150 },
       { ticker: "AAPL_US_EQ", type: "STOP", side: "SELL", quantity: -3, stopPrice: 200 },
     ];
-    expect(stopProtection(position(), orders)).toEqual({ ticker: "NVDA_US_EQ", stopPrice: 115, gap: -0.08, covered: 11, coverage: 0.55, orders: 2, levels: [{ stopPrice: 115, quantity: 6 }, { stopPrice: 110, quantity: 5 }] });
+    expect(stopProtection(position(), orders)).toEqual({ ticker: "NVDA_US_EQ", stopPrice: 115, gap: -0.08, covered: 11, coverage: 0.55, orders: 2, levels: [{ stopPrice: 115, quantity: 6, limitPrice: 112 }, { stopPrice: 110, quantity: 5 }] });
     // Stops for more than the holding: the price reaches the higher one first, so the lower one goes without.
-    expect(stopProtection(position({ quantity: 6 }), orders)).toMatchObject({ coverage: 1, levels: [{ stopPrice: 115, quantity: 6 }] });
-    expect(stopProtection(position({ quantity: 8 }), orders)?.levels).toEqual([{ stopPrice: 115, quantity: 6 }, { stopPrice: 110, quantity: 2 }]);
+    expect(stopProtection(position({ quantity: 6 }), orders)).toMatchObject({ coverage: 1, levels: [{ stopPrice: 115, quantity: 6, limitPrice: 112 }] });
+    expect(stopProtection(position({ quantity: 8 }), orders)?.levels).toEqual([{ stopPrice: 115, quantity: 6, limitPrice: 112 }, { stopPrice: 110, quantity: 2 }]);
     expect(stopProtection(position(), orders.slice(2))).toBeUndefined();
     // Fractional stops that add up to the holding cover all of it, despite binary floating point.
     const fractional = stopProtection(position({ quantity: 0.8 }), [
@@ -77,6 +77,12 @@ describe("stop-loss protection", () => {
       { ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 100 },
     ])!;
     expect(stopOutcome(held, ladder)).toEqual({ drop: 160, pnlAtStop: -10 });
+    // A stop-limit sells at its limit or better, so 10 shares stopped at 110 with a limit of 105 cost (125 - 105) x 10 x 0.8.
+    const stopLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 105 }])!;
+    expect(stopOutcome(held, stopLimit)).toEqual({ drop: 160, pnlAtStop: -10 });
+    // A limit above the stop sells at the limit or better, so the stop stays the lower bound.
+    const highLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 112 }])!;
+    expect(stopOutcome(held, highLimit)?.drop).toBe(120);
   });
 
   it("sums coverage across the portfolio in the account currency", () => {

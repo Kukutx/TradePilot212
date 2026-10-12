@@ -211,7 +211,8 @@ export function BasketView({
   onClose: () => void;
   onVerify: (verificationId: string) => void;
 }) {
-  const basket: BasketShape = { purpose: payload.purpose, title: payload.title, legs: payload.legs };
+  // The legs still in the basket, so removing one relabels it ("Stop-loss" once only the stop is left).
+  const basket: BasketShape = { purpose: payload.purpose, title: payload.title, legs };
   if (result) return <BasketResultView result={result} basket={basket} verifications={verifications} busy={busy} book={book} locale={locale} t={t} onClose={onClose} onVerify={onVerify} />;
   if (preview) return <BasketConfirmation preview={preview} basket={basket} rebalance={payload.rebalance} busy={busy} book={book} locale={locale} t={t} onBack={onBack} onConfirm={onConfirm} />;
 

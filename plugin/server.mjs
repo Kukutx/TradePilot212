@@ -34948,7 +34948,8 @@ function stopOutcome(position, guard) {
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
   const rate = value / (position.quantity * position.currentPrice);
-  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - level.stopPrice) * level.quantity, 0) * rate;
+  const sale = (level) => Math.min(level.stopPrice, level.limitPrice ?? level.stopPrice);
+  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : void 0;
   return { drop, ...pnl === void 0 ? {} : { pnlAtStop: pnl * guard.coverage - drop } };
 }
@@ -34964,12 +34965,17 @@ function stopProtection(position, orders) {
   const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
   const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
   const byPrice = /* @__PURE__ */ new Map();
-  for (const order of stops) byPrice.set(order.stopPrice, (byPrice.get(order.stopPrice) ?? 0) + remaining(order));
+  for (const order of stops) {
+    const limit = typeof order.limitPrice === "number" && order.limitPrice > 0 ? order.limitPrice : void 0;
+    const key = `${order.stopPrice}|${limit ?? ""}`;
+    const level = byPrice.get(key) ?? { stopPrice: order.stopPrice, quantity: 0, ...limit === void 0 ? {} : { limitPrice: limit } };
+    byPrice.set(key, { ...level, quantity: level.quantity + remaining(order) });
+  }
   const levels = [];
   let left = covered;
-  for (const [price, quantity] of [...byPrice].sort((a, b) => b[0] - a[0])) {
-    const take = Number(Math.min(quantity, left).toFixed(8));
-    if (take > 0) levels.push({ stopPrice: price, quantity: take });
+  for (const level of [...byPrice.values()].sort((a, b) => b.stopPrice - a.stopPrice || (b.limitPrice ?? Infinity) - (a.limitPrice ?? Infinity))) {
+    const take = Number(Math.min(level.quantity, left).toFixed(8));
+    if (take > 0) levels.push({ ...level, quantity: take });
     left = Number((left - take).toFixed(8));
   }
   const last = position.currentPrice;
