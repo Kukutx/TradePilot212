@@ -802,7 +802,16 @@ export function describePayload(data: unknown): string {
     case "pie_change_draft":
     case "pie_change_preview":
     case "pie_change_result": lines = pieChange(payload as unknown as PieChangeDraftPayload | PieChangePreview | PieChangeResult); break;
-    case "price_alerts": lines = [...rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)), ...rows((payload.accountAlerts as AccountAlert[]) ?? [], accountAlertLine)]; break;
+    case "price_alerts": {
+      const onPrice = (payload.alerts as PriceAlert[] | undefined) ?? [];
+      const onAccount = (payload.accountAlerts as AccountAlert[] | undefined) ?? [];
+      lines = [
+        ...section(`Price alerts (${onPrice.length})`, rows(onPrice, (alert) => alertLine(alert))),
+        ...section(`Account alerts (${onAccount.length})`, rows(onAccount, accountAlertLine)),
+        ...(onPrice.length || onAccount.length ? [] : ["No alerts are set."]),
+      ];
+      break;
+    }
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
     case "account_alert": lines = payload.alert ? [accountAlertLine(payload.alert as AccountAlert)] : []; break;
     case "trade_journal": lines = rows((payload as unknown as JournalPayload).entries, (entry) => journalLine(entry)); break;

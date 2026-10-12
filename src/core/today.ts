@@ -366,6 +366,15 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
   const counted = moves.filter((item) => item.profitLoss !== undefined);
   const profitLoss = counted.reduce((sum, item) => sum + item.profitLoss!, 0);
   const base = counted.reduce((sum, item) => sum + (item.base ?? 0), 0);
+  // When each day's sessions all closed; a day with one still on (or unknown) is left out.
+  const closings = new Map<string, number | null>();
+  for (const { ticker } of items) {
+    const { day, ended } = session(ticker);
+    const before = closings.get(day);
+    closings.set(day, before === null || ended === undefined ? null : Math.max(before ?? 0, ended));
+  }
+  const ended = Object.fromEntries([...closings].filter((entry): entry is [string, number] => entry[1] !== null));
+  const invested = dashboard.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
     environment,
@@ -373,6 +382,8 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
     moves: moves.sort((a, b) => Math.abs(b.profitLoss ?? 0) - Math.abs(a.profitLoss ?? 0)),
     ...(counted.length ? { total: { profitLoss: round(profitLoss, 2), ...(base > 0 ? { change: round(profitLoss / base) } : {}), counted: counted.length, of: moves.length } } : {}),
     ...(fillsProblem ? { fillsProblem } : {}),
+    ...(invested !== undefined && Number.isFinite(invested) ? { invested } : {}),
+    ...(Object.keys(ended).length ? { ended } : {}),
     timestamp: now.toISOString(),
   };
 }

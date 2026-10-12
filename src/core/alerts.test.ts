@@ -14,6 +14,7 @@ const alert = (patch: Partial<PriceAlert>): PriceAlert => ({ id: "a", environmen
 function setup(env: RuntimeEnv = {}) {
   const price = { value: 100 };
   const webhooks: Array<{ url: string; body: Record<string, unknown>; headers: Record<string, string> }> = [];
+  const reads = { summary: 0 };
   const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -23,12 +24,12 @@ function setup(env: RuntimeEnv = {}) {
     }
     if (url.endsWith("/equity/metadata/instruments")) return json([instrument]);
     if (url.endsWith("/equity/positions")) return json([{ instrument, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 80, currentPrice: price.value } satisfies Position]);
-    if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 2000, cash: { availableToTrade: 1000 } });
+    if (url.endsWith("/equity/account/summary")) { reads.summary++; return json({ currency: "EUR", totalValue: 2000, cash: { availableToTrade: 1000 } }); }
     return json([]);
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", ...env });
   const store = new MemoryStateStore();
-  return { ...createServices({ config, store, fetcher }), config, store, price, webhooks };
+  return { ...createServices({ config, store, fetcher }), config, store, price, webhooks, reads };
 }
 
 describe("price alert rules", () => {
@@ -114,7 +115,10 @@ describe("price alert scheduler", () => {
     await services.accountAlerts.create({ environment: "demo", condition: "cash_above", amount: 900, note: "Invest it." });
     expect((await services.runScheduled()).accountAlerts).toMatchObject([{ action: "triggered", message: "Free cash is 1000.00 EUR, at or above 900.00 EUR." }]);
     expect(services.webhooks[0]!.body.text).toBe("[TradePilot DEMO] Account alert · Free cash is 1000.00 EUR, at or above 900.00 EUR. Invest it.");
+    // The page takes the summary the tick read.
+    const read = services.reads.summary;
     const overview = await services.automationOverview("demo");
+    expect(services.reads.summary).toBe(read);
     expect(overview).toMatchObject({ currency: "EUR", account: { value: 2000, cash: 1000 }, accountAlerts: [{ condition: "cash_above", amount: 900, currency: "EUR", triggeredValue: 1000 }] });
     expect(describePayload(overview as unknown as Record<string, unknown>)).toContain("Account alerts (1):\n- free cash at or above 900 EUR (");
   });
@@ -242,6 +246,44 @@ describe("price alert scheduler", () => {
     await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "above" })).rejects.toThrow(/positive price/);
     await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "trailing_drop", percent: 150 })).rejects.toThrow(/below 100/);
     await expect(services.alerts.delete("missing")).rejects.toMatchObject({ code: "ALERT_NOT_FOUND" });
+  });
+});
+
+describe("account alert tools", () => {
+  it("creates, lists, re-arms and deletes account alerts, and says what is missing", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const services = setup();
+    const server = createMcpServer(services, services.config, async () => "<html></html>");
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
+    const text = (reply: Awaited<ReturnType<typeof call>>) => (reply.content as Array<{ text: string }>).map((item) => item.text).join("\n");
+
+    expect(text(await call("list_price_alerts", { environment: "demo" }))).toContain("No alerts are set.");
+    // A day's move takes its percent; an amount sent with it is not kept.
+    const created = await call("manage_account_alerts", { action: "create", environment: "demo", condition: "day_move", percent: 2.5, amount: 50 });
+    const alert = (created.structuredContent as { alert: { id: string } }).alert;
+    expect(created.structuredContent).toMatchObject({ kind: "account_alert", alert: { condition: "day_move", percent: 2.5, currency: "EUR" } });
+    expect(created.structuredContent).not.toHaveProperty("alert.amount");
+    await call("manage_account_alerts", { action: "create", environment: "demo", condition: "cash_above", amount: 900 });
+    await services.runScheduled();
+    const listed = text(await call("list_price_alerts", { environment: "demo" }));
+    expect(listed).toContain("Account alerts (2):\n- account's day move of 2.5% either way (");
+    expect(listed).toContain("- free cash at or above 900 EUR (");
+    expect(listed).not.toContain("Price alerts (");
+
+    expect((await call("manage_account_alerts", { action: "rearm", environment: "demo", alertId: alert.id })).structuredContent).toMatchObject({ alert: { id: alert.id } });
+    expect(text(await call("manage_account_alerts", { action: "delete", environment: "demo", alertId: alert.id }))).toContain(`Deleted account alert ${alert.id}.`);
+    expect((await services.accountAlerts.list()).map((item) => item.condition)).toEqual(["cash_above"]);
+
+    expect((await call("manage_account_alerts", { action: "create", environment: "demo" })).isError).toBe(true);
+    expect((await call("manage_account_alerts", { action: "delete", environment: "demo" })).isError).toBe(true);
+    expect((await call("manage_account_alerts", { action: "create", environment: "demo", condition: "day_move", percent: 100 })).isError).toBe(true);
+    expect((await call("manage_account_alerts", { action: "create", environment: "demo", condition: "value_below" })).isError).toBe(true);
+    expect(await services.accountAlerts.list()).toHaveLength(1);
   });
 });
 

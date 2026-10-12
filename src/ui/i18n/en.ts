@@ -688,7 +688,7 @@ export const en = {
   accountAlertAmount: "Amount",
   accountAlertLast: "Last read {value}",
   accountAlertDayValue: "{change} on {day}",
-  accountAlertsNote: "Value and cash are checked every minute, the day's move (the holdings' moves added up, as the dashboard's day shows them) every ten minutes. Alerts notify you; they never place orders.",
+  accountAlertsNote: "Value and cash are checked every minute, the day's move (the holdings' moves on their latest trading day, added up) every ten minutes. Alerts notify you; they never place orders.",
   lastPrice: "last",
   highWatermark: "high",
   linksTitle: "Linked stop-loss / take-profit",

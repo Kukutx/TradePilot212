@@ -8,11 +8,20 @@ import { notificationText } from "./notify.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const alert = (patch: Partial<AccountAlert>): AccountAlert => ({ id: "a", environment: "demo", condition: "value_above", createdAt: "2026-10-01T00:00:00Z", ...patch });
-const today = (change: number | undefined, day = "2026-10-12"): PortfolioToday => ({
+/**
+ * AAPL's move on `day`, VUSA's still from Friday's session (on another exchange) and MSFT's not read: the account's
+ * move is AAPL's alone, against the holdings' 10,000 before it.
+ */
+const today = (profitLoss: number | undefined, day = "2026-10-12", patch: Partial<PortfolioToday> = {}): PortfolioToday => ({
   kind: "portfolio_today", environment: "demo", accountCurrency: "GBP",
-  moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day, profitLoss: -300 }, { ticker: "VUSAl_EQ", quantity: 1, day: "2026-10-09", profitLoss: -100 }],
-  ...(change === undefined ? {} : { total: { profitLoss: -400, change, counted: 2, of: 3 } }),
+  moves: [
+    { ticker: "AAPL_US_EQ", quantity: 1, day, ...(profitLoss === undefined ? {} : { profitLoss, base: 4_000 }) },
+    { ticker: "VUSAl_EQ", quantity: 1, day: "2026-10-09", profitLoss: -100, base: 3_000 },
+    { ticker: "MSFT_US_EQ", quantity: 1, day },
+  ],
+  invested: 10_000 + (profitLoss ?? 0),
   timestamp: "2026-10-12T15:00:00Z",
+  ...patch,
 });
 
 function setup(account: AccountSummary = { currency: "GBP", totalValue: 10_000, cash: { availableToTrade: 800 } }) {
@@ -20,7 +29,7 @@ function setup(account: AccountSummary = { currency: "GBP", totalValue: 10_000, 
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s" });
   const events: ActivityEvent[] = [];
   const reads = { summary: 0, today: 0 };
-  const state = { account, today: today(-0.031) as PortfolioToday | Error };
+  const state = { account, today: today(-310) as PortfolioToday | Error };
   const trading = {
     accountSummary: async () => { reads.summary++; return state.account; },
     accountCurrency: async () => state.account.currency,
@@ -47,9 +56,18 @@ describe("account alert rules", () => {
     expect(evaluateAccountAlert(alert({ condition: "cash_above", amount: 1_000 }), { currency: "GBP" })).toMatchObject({ fired: false, message: "Trading 212 did not report the free cash." });
   });
 
-  it("takes the account's day move with the latest day of the holdings counted", () => {
-    expect(accountDayMove(today(-0.031))).toEqual({ change: -0.031, profitLoss: -400, day: "2026-10-12", counted: 2, of: 3 });
-    expect(accountDayMove(today(undefined))).toBeUndefined();
+  it("takes the account's move on the latest day of its holdings, against the holdings' value before it", () => {
+    expect(accountDayMove(today(-310))).toEqual({ change: -0.031, profitLoss: -310, day: "2026-10-12", counted: 1, of: 3 });
+    // Without AAPL's move, Friday's is the latest.
+    expect(accountDayMove(today(undefined))).toMatchObject({ day: "2026-10-09", profitLoss: -100, change: -100 / 10_100, counted: 1 });
+    // Every holding read on the same day: against their base, as get_portfolio_today's total.
+    const whole: PortfolioToday = { ...today(-310), moves: [{ ticker: "A", quantity: 1, day: "2026-10-12", profitLoss: -300, base: 6_000 }, { ticker: "B", quantity: 0, day: "2026-10-12", profitLoss: -100, base: 4_000 }], ended: { "2026-10-12": 1_000 } };
+    expect(accountDayMove(whole)).toEqual({ change: -0.04, profitLoss: -400, day: "2026-10-12", counted: 2, of: 2, closed: 1_000 });
+    // Some holdings not read and no value from Trading 212: it is not put against the account.
+    const { invested: _, ...unknown } = today(-310);
+    expect(accountDayMove(unknown)).toEqual({ problem: "Trading 212 did not report the holdings' value, so the day's move of 1 of 3 holdings cannot be put against the account." });
+    expect(accountDayMove({ ...today(-310), moves: [] })).toEqual({ problem: "No holding has a move for the day yet." });
+    expect(accountDayMove({ ...today(-310), invested: 0, moves: [{ ticker: "A", quantity: 0, day: "2026-10-12", profitLoss: 5 }, { ticker: "B", quantity: 1, day: "2026-10-12" }] })).toEqual({ problem: "The holdings have no value to measure the day's move against." });
   });
 });
 
@@ -93,23 +111,23 @@ describe("account alerts", () => {
     const { alerts, events, reads, state } = setup();
     const move = await alerts.create({ environment: "demo", condition: "day_move", percent: 3 }, new Date("2026-10-12T08:00:00Z"));
     const at = (time: string) => alerts.check(new Date(time));
-    expect(await at("2026-10-12T15:00:00Z")).toMatchObject([{ action: "triggered", message: "The account is -3.10% on 2026-10-12 (-400.00 GBP across 2 of 3 holdings; alert at 3% either way)." }]);
+    expect(await at("2026-10-12T15:00:00Z")).toMatchObject([{ action: "triggered", message: "The account is -3.10% on 2026-10-12 (-310.00 GBP across 1 of 3 holdings; alert at 3% either way)." }]);
     expect(events).toHaveLength(1);
     expect(events[0]).not.toHaveProperty("value");
     // Within ten minutes it reads nothing; after them, it has fired for the day already.
     expect(await at("2026-10-12T15:05:00Z")).toEqual([]);
     expect(reads.today).toBe(1);
-    state.today = today(-0.05);
+    state.today = today(-500);
     expect(await at("2026-10-12T15:10:00Z")).toMatchObject([{ action: "waiting" }]);
     expect(reads.today).toBe(2);
     expect(events).toHaveLength(1);
     expect((await alerts.list())[0]).toMatchObject({ id: move.id, triggeredDay: "2026-10-12", triggeredValue: -0.031, lastValue: -0.05, lastDay: "2026-10-12" });
     // The next trading day arms it again.
-    state.today = today(0.035, "2026-10-13");
+    state.today = today(350, "2026-10-13");
     expect(await at("2026-10-13T15:00:00Z")).toMatchObject([{ action: "triggered" }]);
     expect((await alerts.list())[0]).toMatchObject({ triggeredDay: "2026-10-13", triggeredValue: 0.035 });
     // A smaller move the day after leaves it armed.
-    state.today = today(0.01, "2026-10-14");
+    state.today = today(100, "2026-10-14");
     expect(await at("2026-10-14T15:00:00Z")).toMatchObject([{ action: "waiting" }]);
     expect((await alerts.list())[0]?.triggeredAt).toBeUndefined();
   });
@@ -118,7 +136,7 @@ describe("account alerts", () => {
     const { alerts, events, reads, state } = setup();
     // Set on a Saturday: Friday's move does not count.
     await alerts.create({ environment: "demo", condition: "day_move", percent: 1 }, new Date("2026-10-10T09:00:00Z"));
-    state.today = today(-0.04, "2026-10-09");
+    state.today = today(-400, "2026-10-09");
     expect(await alerts.check(new Date("2026-10-10T10:00:00Z"))).toMatchObject([{ action: "waiting" }]);
     expect(events).toHaveLength(0);
     // A failed read waits ten minutes too.
@@ -127,6 +145,54 @@ describe("account alerts", () => {
     expect(await alerts.check(new Date("2026-10-12T10:01:00Z"))).toEqual([]);
     expect(reads.today).toBe(2);
     expect(DAY_MOVE_EVERY_MS).toBe(600_000);
+  });
+
+  it("does not count a holding still on the day before, so a move fires once and the next day's still fires", async () => {
+    const { alerts, events, state } = setup();
+    await alerts.create({ environment: "demo", condition: "day_move", percent: 3 }, new Date("2026-10-12T08:00:00Z"));
+    // Monday: the US holding falls 4%.
+    state.today = { ...today(-400), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-12", profitLoss: 0, base: 1_000 }] };
+    expect(await alerts.check(new Date("2026-10-12T20:30:00Z"))).toMatchObject([{ action: "triggered" }]);
+    // Tuesday's Tokyo session opens while the US one is still Monday's: only Tokyo's move is Tuesday's.
+    state.today = { ...today(-400), invested: 10_600, moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000 }] };
+    expect(await alerts.check(new Date("2026-10-13T01:00:00Z"))).toMatchObject([{ action: "waiting", message: "The account is +0.09% on 2026-10-13 (+10.00 GBP across 1 of 2 holdings; alert at 3% either way)." }]);
+    // Tuesday's US session: a 5% fall is Tuesday's to report.
+    state.today = { ...today(-500), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-13", profitLoss: -500, base: 9_600 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000 }] };
+    expect(await alerts.check(new Date("2026-10-13T15:00:00Z"))).toMatchObject([{ action: "triggered" }]);
+    expect(events.map((event) => event.outcome)).toEqual([
+      "The account is -3.64% on 2026-10-12 (-400.00 GBP across 2 of 2 holdings; alert at 3% either way).",
+      "The account is -4.62% on 2026-10-13 (-490.00 GBP across 2 of 2 holdings; alert at 3% either way).",
+    ]);
+  });
+
+  it("reads the day's move once for all the day's-move alerts of an account, every ten minutes", async () => {
+    const { alerts, reads, store } = setup();
+    const first = await alerts.create({ environment: "demo", condition: "day_move", percent: 5 }, new Date("2026-10-12T08:00:00Z"));
+    await alerts.check(new Date("2026-10-12T10:00:00Z"));
+    const second = await alerts.create({ environment: "demo", condition: "day_move", percent: 8 }, new Date("2026-10-12T10:03:00Z"));
+    // The new one is due: both are read and stamped together.
+    expect(await alerts.check(new Date("2026-10-12T10:04:00Z"))).toHaveLength(2);
+    expect(reads.today).toBe(2);
+    expect(await alerts.check(new Date("2026-10-12T10:08:00Z"))).toEqual([]);
+    expect(await alerts.check(new Date("2026-10-12T10:13:00Z"))).toEqual([]);
+    expect(await alerts.check(new Date("2026-10-12T10:14:00Z"))).toHaveLength(2);
+    expect(reads.today).toBe(3);
+    for (const alert of [first, second]) expect((await store.get<AccountAlert>(`account-alert:${alert.id}`))?.lastCheckedAt).toBe("2026-10-12T10:14:00.000Z");
+  });
+
+  it("takes when the session closed for whether it was before the alert", async () => {
+    const { alerts, events, state } = setup();
+    const closed = Date.parse("2026-10-12T20:00:00Z");
+    state.today = today(-400, "2026-10-12", { ended: { "2026-10-12": closed } });
+    // Set the same evening (UTC), after the close: Monday's fall is not its to report.
+    await alerts.create({ environment: "demo", condition: "day_move", percent: 3 }, new Date("2026-10-12T21:00:00Z"));
+    expect(await alerts.check(new Date("2026-10-12T21:05:00Z"))).toMatchObject([{ action: "waiting", message: expect.stringContaining("That session was over before the alert was set") }]);
+    // One set before the close does report it.
+    const { alerts: earlier, state: same } = setup();
+    same.today = state.today;
+    await earlier.create({ environment: "demo", condition: "day_move", percent: 3 }, new Date("2026-10-12T19:00:00Z"));
+    expect(await earlier.check(new Date("2026-10-12T21:05:00Z"))).toMatchObject([{ action: "triggered" }]);
+    expect(events).toHaveLength(0);
   });
 
   it("checks what it is given", async () => {

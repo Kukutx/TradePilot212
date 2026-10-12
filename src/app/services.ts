@@ -11,7 +11,7 @@ import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
 import { OrderWatch } from "../core/order-watch.js";
 import { PiesService } from "../core/pies.js";
-import { createPriceHistory } from "../core/price-history.js";
+import { createPriceHistory, settleWithin } from "../core/price-history.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker, createSampleQuotes } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
@@ -31,6 +31,10 @@ export interface ServiceDependencies {
 }
 
 export type Services = ReturnType<typeof createServices>;
+
+/** The automation page takes an account summary read in the last minute, and waits a few seconds at most for a new one. */
+const OVERVIEW_SUMMARY_MS = 60_000;
+const OVERVIEW_WAIT_MS = 3_000;
 
 /** Build the runtime-neutral services shared by the HTTP and stdio transports and the scheduler. */
 // One simulated account per process, so the HTTP handlers and the scheduler see the same sample data.
@@ -153,11 +157,12 @@ export function createServices(input: ServiceDependencies) {
       ...(saved ? { targets: saved } : {}),
       ...(instruments.length ? { instruments } : {}),
       usageToday: await trading.usageToday(environment),
-      // One summary read gives the currency and the starting amounts of an account alert.
-      ...await trading.accountSummary(environment).then(
-        (summary) => ({ ...(summary.currency ? { currency: summary.currency } : {}), account: { ...(summary.totalValue !== undefined ? { value: summary.totalValue } : {}), ...(summary.cash?.availableToTrade !== undefined ? { cash: summary.cash.availableToTrade } : {}) } }),
-        () => trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {}), () => ({})),
-      ),
+      // The currency and the starting amounts of an account alert, from a summary read in the last minute or a new
+      // one; for at most a few seconds, else the currency alone.
+      ...await settleWithin(trading.accountSummary(environment, OVERVIEW_SUMMARY_MS).catch(() => undefined), OVERVIEW_WAIT_MS).then(
+        (summary) => (summary
+          ? { ...(summary.currency ? { currency: summary.currency } : {}), account: { ...(summary.totalValue !== undefined ? { value: summary.totalValue } : {}), ...(summary.cash?.availableToTrade !== undefined ? { cash: summary.cash.availableToTrade } : {}) } }
+          : trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {}), () => ({})))),
       policy: deps.config.policy[environment],
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,

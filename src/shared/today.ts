@@ -49,5 +49,9 @@ export interface PortfolioToday {
   total?: { profitLoss: number; change?: number; counted: number; of: number };
   /** Why the day's fills could not be read: shares traded on the day then count from the previous close. */
   fillsProblem?: string;
+  /** Trading 212's value of the holdings now (the account summary's investments), when it reports it. */
+  invested?: number;
+  /** For each day whose sessions have all closed, when the last of them closed (ms). */
+  ended?: Record<string, number>;
   timestamp: string;
 }

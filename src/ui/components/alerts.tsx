@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AccountAlert, AlertCondition, PriceAlert } from "../../shared/automation";
+import { parseAmount } from "../lib/format";
 import { alertConditionLabel, fill, type Translator } from "../lib/messages";
 import { Field } from "./common";
 
@@ -21,7 +22,7 @@ export function alertPercentLimit(condition: AlertCondition): number | undefined
 
 /** The same limits the server applies: a positive number, and a percent below its limit. */
 export function alertValueProblem(condition: AlertCondition, text: string): "required" | "range" | undefined {
-  const value = Number(text.trim().replace(",", "."));
+  const value = parseAmount(text);
   if (!text.trim() || !Number.isFinite(value) || value <= 0) return "required";
   const limit = alertPercentLimit(condition);
   return limit !== undefined && value >= limit ? "range" : undefined;
@@ -55,7 +56,7 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
   const [note, setNote] = useState("");
   const [touched, setTouched] = useState(false);
   const byPrice = condition === "above" || condition === "below";
-  const value = Number(valueText.trim().replace(",", "."));
+  const value = parseAmount(valueText);
   const problem = alertValueProblem(condition, valueText);
   const error = problem === "required" ? t("alertValueRequired") : problem === "range" ? fill(t("alertPercentRange"), { limit: String(alertPercentLimit(condition)) }) : undefined;
   const submit = () => {

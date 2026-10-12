@@ -2,8 +2,10 @@
 
 ## 2.45.0
 
-- Account alerts. `manage_account_alerts` sets an alert on the account as a whole: its total value or its free cash at or above, or at or below, an amount in the account currency, or its day's move (the holdings' moves added up, as on the dashboard) a percent or more either way, once per trading day. Value and cash are checked every minute from one account summary read; the day's move every ten minutes. A triggered alert is logged as `account_alert_triggered` and goes to the webhook.
-- The automation page lists them with the last value read and when each fired, with **Add alert**, **Re-arm** and **Delete**. `list_price_alerts`, the automation overview and their text include them. The preview's sample account has three.
+- Account alerts. `manage_account_alerts` sets an alert on the account as a whole: its total value or its free cash at or above, or at or below, an amount in the account currency, or its day's move a percent or more either way, once per trading day. Value and cash are checked every minute from one account summary read, shared with a dashboard read seconds before. A triggered alert is logged as `account_alert_triggered`, goes to the webhook and is counted in the daily digest.
+- The day's move is the holdings' moves on their latest trading day, against the holdings' value before them; a holding still on the session before (another exchange, before its open) is left out, so one day's move is never reported again the next. A session that closed before the alert was set does not count. All of an account's day's-move alerts are read together, every ten minutes.
+- The automation page lists them with the last value read and when each fired, with **Add alert**, **Re-arm** and **Delete**. `list_price_alerts`, the automation overview and their text include them, under their own headings. The preview's sample account has three.
+- Amounts typed into the alert forms read either separator: `10,000` is ten thousand (it was read as 10), and `1.250,50` and `10 000` work too.
 
 ## 2.44.0
 

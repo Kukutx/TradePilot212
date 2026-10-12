@@ -306,6 +306,17 @@ describe("daily digest", () => {
     expect(services.hooks[0]).toMatch(/· 2 order\(s\) filled in the last day/);
   });
 
+  it("counts the price and account alerts that fired in the last day", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    const fired = (id: string, triggeredAt: string, environment = "demo") => ({ id, environment, createdAt: "2026-10-01T00:00:00Z", triggeredAt });
+    await services.store.put("alert:p1", { ...fired("p1", "2026-10-10T09:00:00Z"), ticker: "VUSA_EQ", condition: "below", price: 1 });
+    await services.store.put("alert:p2", { ...fired("p2", "2026-10-09T09:00:00Z"), ticker: "VUSA_EQ", condition: "below", price: 1 });
+    await services.store.put("account-alert:a1", { ...fired("a1", "2026-10-11T06:00:00Z"), condition: "cash_below", amount: 5_000 });
+    await services.store.put("account-alert:a2", { ...fired("a2", "2026-10-11T06:00:00Z", "live"), condition: "cash_below", amount: 5_000 });
+    expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
+    expect(services.hooks[0]).toMatch(/· 2 alert\(s\) triggered in the last day/);
+  });
+
   it("sends once per day at the configured hour and reports the change since the last one", async () => {
     // The store expires the day's claim against the clock, so the clock moves with the scheduler here.
     vi.useFakeTimers({ toFake: ["Date"] });

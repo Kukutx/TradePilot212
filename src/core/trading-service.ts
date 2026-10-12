@@ -441,9 +441,23 @@ export class TradingService {
     }
   }
 
-  /** The account summary alone: one request, for the scheduler's daily value record. */
-  async accountSummary(environment: TradingEnvironment): Promise<AccountSummary> {
+  private readonly summaries = new Map<TradingEnvironment, { at: number; account: AccountSummary }>();
+
+  /**
+   * The account summary alone: one request, for the scheduler's daily value record. With `maxAgeMs`, one read in that
+   * time (alone or with the dashboard) is used as it is: Trading 212 allows few summary reads.
+   */
+  async accountSummary(environment: TradingEnvironment, maxAgeMs = 0): Promise<AccountSummary> {
+    if (maxAgeMs > 0) {
+      const board = this.dashboards.get(environment);
+      const reads = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : undefined]
+        .filter((read): read is { at: number; account: AccountSummary } => read !== undefined && Date.now() - read.at <= maxAgeMs)
+        .sort((a, b) => b.at - a.at);
+      if (reads[0]) return reads[0].account;
+    }
+    const generation = this.writes;
     const account = await this.client(environment).getAccountSummary();
+    if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
     if (account.currency) this.currencies.set(environment, account.currency);
     return account;
   }
@@ -1739,6 +1753,7 @@ export class TradingService {
   private wrote(environment: TradingEnvironment): void {
     this.writes += 1;
     this.dashboards.delete(environment);
+    this.summaries.delete(environment);
     this.reading.delete(environment);
     try {
       this.deps.afterWrite?.(environment);

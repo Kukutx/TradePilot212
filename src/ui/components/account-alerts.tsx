@@ -5,7 +5,7 @@
 import { useState } from "react";
 import type { AccountAlert, AccountAlertCondition } from "../../shared/automation";
 import type { SupportedLocale } from "../i18n";
-import { amount, dateTime, dayLabel, num, pct } from "../lib/format";
+import { amount, dateTime, dayLabel, num, parseAmount, pct } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 import { AlertActions } from "./alerts";
 import { Field } from "./common";
@@ -44,7 +44,7 @@ export function defaultAccountAlertValue(condition: AccountAlertCondition, now: 
 
 /** The same limits the server applies: a positive amount, and a percent below 100. */
 export function accountAlertProblem(condition: AccountAlertCondition, text: string): "required" | "range" | undefined {
-  const value = Number(text.trim().replace(",", "."));
+  const value = parseAmount(text);
   if (!text.trim() || !Number.isFinite(value) || value <= 0) return "required";
   return condition === "day_move" && value >= 100 ? "range" : undefined;
 }
@@ -68,7 +68,7 @@ export function AccountAlertForm({ currency, now, t, busy, onSave, onCancel }: {
   const submit = () => {
     setTouched(true);
     if (error || busy) return;
-    const value = Number(valueText.trim().replace(",", "."));
+    const value = parseAmount(valueText);
     onSave({ condition, ...(byPercent ? { percent: value } : { amount: value }), ...(note.trim() ? { note: note.trim() } : {}) });
   };
   return (

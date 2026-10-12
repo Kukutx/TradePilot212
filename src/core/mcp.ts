@@ -977,14 +977,14 @@ export function createMcpServer(
     "manage_account_alerts",
     {
       title: "Manage Account Alerts",
-      description: `Create, delete or re-arm an alert on the account as a whole. Conditions: value_above or value_below (the account's total value at or above, or at or below, amount in the account currency); cash_above or cash_below (the free cash, available to trade, likewise: for example to be told when dividends have built up to invest, or when cash runs low before a plan is due); day_move (the holdings' move on the day, as get_portfolio_today adds it up, is percent or more either way; it fires once per trading day and arms itself again on the next, so it needs no rearm; a session before the day the alert was set does not count). The scheduler checks value and cash every minute from the account summary, and the day's move every ten minutes (it reads every holding's closes and the day's fills); a triggered alert is logged once and sent to the notification webhook when one is configured, and stays triggered until re-armed. At most ${MAX_ACCOUNT_ALERTS}. Alerts never place orders.`,
+      description: `Create, delete or re-arm an alert on the account as a whole. Conditions: value_above or value_below (the account's total value at or above, or at or below, amount in the account currency); cash_above or cash_below (the free cash, available to trade, likewise: for example to be told when dividends have built up to invest, or when cash runs low before a plan is due); day_move (the holdings' move on their latest trading day is percent or more either way: the moves get_portfolio_today reads for that day, against the holdings' value before them; a holding still on the session before does not count; it fires once per trading day and arms itself again on the next, so it needs no rearm, and a rearm does not make it fire again for the same day; a session that closed before the alert was set does not count). The scheduler checks value and cash every minute from the account summary, and the day's move every ten minutes (it reads every holding's closes and the day's fills); a triggered alert is logged once and sent to the notification webhook when one is configured, and stays triggered until re-armed. At most ${MAX_ACCOUNT_ALERTS}. Alerts never place orders.`,
       inputSchema: z.object({
         action: z.enum(["create", "delete", "rearm"]),
         alertId: z.string().optional().describe("Required for delete and rearm"),
         environment: environmentWithDefault,
         condition: z.enum(["value_above", "value_below", "cash_above", "cash_below", "day_move"]).optional(),
         amount: z.number().positive().optional().describe("In the account currency, for the value and cash conditions"),
-        percent: z.number().positive().optional().describe("Either way, for day_move"),
+        percent: z.number().positive().lt(100).optional().describe("Either way, for day_move"),
         note: z.string().max(200).optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },

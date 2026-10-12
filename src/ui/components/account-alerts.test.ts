@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AccountAlert } from "../../shared/automation";
 import { createTranslator } from "../i18n";
+import { parseAmount } from "../lib/format";
 import { AccountAlertForm, AccountAlertList, accountAlertProblem, defaultAccountAlertValue } from "./account-alerts";
 
 const alerts: AccountAlert[] = [
@@ -10,6 +11,23 @@ const alerts: AccountAlert[] = [
   { id: "a2", environment: "demo", condition: "day_move", percent: 3, currency: "GBP", createdAt: "2026-10-01T00:00:00Z", lastValue: -0.0312, lastDay: "2026-10-12", triggeredAt: "2026-10-12T15:00:00Z", triggeredValue: -0.0312, triggeredDay: "2026-10-12", note: "Check the stops." },
 ];
 const noop = () => undefined;
+
+describe("typed amounts", () => {
+  it("reads either separator, and a lone comma before three digits as thousands", () => {
+    expect(parseAmount("10,000")).toBe(10_000);
+    expect(parseAmount("1,250.5")).toBe(1_250.5);
+    expect(parseAmount("1.250,5")).toBe(1_250.5);
+    expect(parseAmount("1.000.000")).toBe(1_000_000);
+    expect(parseAmount(" 10 000 ")).toBe(10_000);
+    expect(parseAmount("12\u00a0500,75")).toBe(12_500.75);
+    expect(parseAmount("250,5")).toBe(250.5);
+    expect(parseAmount("0,125")).toBe(0.125);
+    expect(parseAmount("1.250")).toBe(1.25);
+    expect(parseAmount(".5")).toBe(0.5);
+    expect(parseAmount("-3")).toBe(-3);
+    for (const text of ["", ",", "1,2,3", "1.000,000.5", "12,34,567", "1e3", "abc"]) expect(parseAmount(text)).toBeNaN();
+  });
+});
 
 describe("account alerts", () => {
   it("lists what each alert watches, its last reading and when it fired", () => {
@@ -44,6 +62,9 @@ describe("account alerts", () => {
     expect(accountAlertProblem("value_above", "0")).toBe("required");
     expect(accountAlertProblem("day_move", "100")).toBe("range");
     expect(accountAlertProblem("cash_below", "250,5")).toBeUndefined();
+    expect(accountAlertProblem("value_below", "10,000")).toBeUndefined();
+    expect(accountAlertProblem("day_move", "1,5")).toBeUndefined();
+    expect(accountAlertProblem("value_below", "10,00,0")).toBe("required");
     const form = renderToStaticMarkup(createElement(AccountAlertForm, { currency: "GBP", now: { value: 10_250 }, t: createTranslator("en"), busy: false, onSave: noop, onCancel: noop }));
     expect(form).toContain('value="9740"');
     expect(form).toContain("GBP");
