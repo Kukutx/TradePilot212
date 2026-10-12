@@ -123,6 +123,37 @@ describe("risk by holding", () => {
     expect(risk.short).toBeUndefined();
   });
 
+  it("follows today's mix at today's weights over the weeks read, with its bad weeks and deepest fall", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    const { mix } = holdingRiskOf([holding("A", 3000, moves), holding("B", 1000, moves)], TODAY)!;
+    expect(mix.value).toBe(4000);
+    expect(mix.series).toHaveLength(53);
+    expect(mix.series[0]).toEqual({ date: "2025-10-10", return: 0 });
+    // Up 2%, back, up 4%, back: each cycle of four weeks ends where it began.
+    expect(mix.series[2]!.return).toBeCloseTo(0, 6);
+    expect(mix.series[3]!.return).toBeCloseTo(Math.exp(0.04) - 1, 6);
+    expect(mix.return).toBeCloseTo(0, 6);
+    const fall = Math.exp(-0.04) - 1;
+    // 52 weeks: one in 20 is the third worst, and the 13 falls of 4% are all as bad.
+    expect(mix.badWeek).toBeCloseTo(fall, 6);
+    expect(mix.badWeeks).toBeCloseTo(fall, 6);
+    expect(mix.worst).toEqual({ date: "2025-11-07", return: expect.closeTo(fall, 6) });
+    expect(mix.best).toEqual({ date: "2025-10-31", return: expect.closeTo(Math.exp(0.04) - 1, 6) });
+    expect(mix.up).toBe(26);
+    expect(mix.drawdown).toMatchObject({ max: expect.closeTo(fall, 6), peak: "2025-10-31", trough: "2025-11-07" });
+  });
+
+  it("weighs each holding's weekly change by today's weight, so a hedge softens the bad weeks", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    const { mix } = holdingRiskOf([holding("A", 3000, moves), holding("H", 1000, moves.map((move) => -move))], TODAY)!;
+    const worst = 0.75 * (Math.exp(-0.04) - 1) + 0.25 * (Math.exp(0.04) - 1);
+    expect(mix.worst.return).toBeCloseTo(worst, 6);
+    expect(mix.badWeek).toBeCloseTo(worst, 6);
+    // The tail is the three worst of the 52.
+    const weekly = moves.map((move) => 0.75 * (Math.exp(move) - 1) + 0.25 * (Math.exp(-move) - 1)).sort((a, b) => a - b);
+    expect(mix.badWeeks).toBeCloseTo((weekly[0]! + weekly[1]! + weekly[2]!) / 3, 6);
+  });
+
   it("shows the correlations between the largest holdings only", () => {
     const inputs = Array.from({ length: MATRIX_SIZE + 2 }, (_, index) => holding(`T${index}`, 100 + index, pattern([1, -1, index % 2 ? 2 : -2, 1])));
     const risk = holdingRiskOf(inputs, TODAY)!;

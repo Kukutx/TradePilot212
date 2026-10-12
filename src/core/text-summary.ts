@@ -8,7 +8,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -332,8 +332,20 @@ function holdingRiskLines(data: AllocationAnalysis): string[] {
       : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : []),
     ...(risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : []),
     ...(risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : []),
+    mixLine(risk.mix, risk.weeks, data.accountCurrency),
     ...missing,
   ];
+}
+
+/** Today's mix of the holdings measured, over the weeks read: its return, bad weeks and deepest fall. */
+function mixLine(mix: HoldingMix, weeks: number, currency: string): string {
+  const { drawdown } = mix;
+  const fall = drawdown?.peak && drawdown.trough
+    ? ` Deepest fall ${pct(drawdown.max)}, from ${drawdown.peak} to ${drawdown.trough}, ${drawdown.recovered ? `made up by ${drawdown.recovered}` : "not made up yet"}.`
+    : "";
+  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${weeks} weeks. `
+    + `A bad week, one in 20: ${signedPct(mix.badWeek)} or worse, about ${money(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money(Math.round(mix.value), currency)}; ${signedPct(mix.badWeeks)} on average in those weeks. `
+    + `Worst week ${signedPct(mix.worst.return)} to ${mix.worst.date}, best ${signedPct(mix.best.return)} to ${mix.best.date}.${fall}`;
 }
 
 const points = (value: number) => `${signed(value * 100, 1)} pts`;

@@ -38976,7 +38976,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.46.0"
+  version: "2.47.0"
 };
 
 // src/shared/position-history.ts
@@ -39342,8 +39342,14 @@ function holdingRiskLines(data) {
     ...pairs.length >= 6 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : [],
     ...risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : [],
     ...risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : [],
+    mixLine(risk.mix, risk.weeks, data.accountCurrency),
     ...missing
   ];
+}
+function mixLine(mix, weeks, currency) {
+  const { drawdown } = mix;
+  const fall = drawdown?.peak && drawdown.trough ? ` Deepest fall ${pct(drawdown.max)}, from ${drawdown.peak} to ${drawdown.trough}, ${drawdown.recovered ? `made up by ${drawdown.recovered}` : "not made up yet"}.` : "";
+  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${weeks} weeks. A bad week, one in 20: ${signedPct(mix.badWeek)} or worse, about ${money3(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money3(Math.round(mix.value), currency)}; ${signedPct(mix.badWeeks)} on average in those weeks. Worst week ${signedPct(mix.worst.return)} to ${mix.worst.date}, best ${signedPct(mix.best.return)} to ${mix.best.date}.${fall}`;
 }
 var points = (value) => `${signed(value * 100, 1)} pts`;
 function driftLines(drift) {
@@ -41002,6 +41008,7 @@ var WEEKS_A_YEAR = 52;
 var FLAT_VARIANCE = 1e-6;
 var COVERAGE = 0.75;
 var JUMP = Math.log(5);
+var BAD_WEEK_ONE_IN = 20;
 var DAY_MS12 = 864e5;
 var round15 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
 var dayNumber2 = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS12;
@@ -41072,11 +41079,10 @@ function holdingRiskOf(inputs, today, totalValue) {
   })).sort((a, b) => b.risk - a.risk || b.weight - a.weight);
   const largest = measured.map((input2, i) => ({ ticker: input2.ticker, i, value: input2.value })).sort((a, b) => b.value - a.value).slice(0, MATRIX_SIZE);
   const correlation = (i, j2) => i === j2 ? 1 : own2[i] > 0 && own2[j2] > 0 ? round15(Math.max(-1, Math.min(1, covariance[i][j2] / (own2[i] * own2[j2]))), 4) : 0;
-  const first = measured[0].weeks.get(common[0]).date;
-  const last = measured.map((input2) => input2.weeks.get(common[n]).date).sort().at(-1);
+  const dateOf = (week) => measured.map((input2) => input2.weeks.get(week).date).sort().at(-1);
   return {
-    from: first,
-    to: last,
+    from: dateOf(common[0]),
+    to: dateOf(common[n]),
     weeks: n,
     volatility: round15(volatility),
     diversification: round15(measured.reduce((sum, _, i) => sum + weights[i] * own2[i], 0) / volatility, 4),
@@ -41084,7 +41090,34 @@ function holdingRiskOf(inputs, today, totalValue) {
     rows: rows2,
     correlations: { tickers: largest.map((entry) => entry.ticker), matrix: largest.map((a) => largest.map((b) => correlation(a.i, b.i))) },
     ...short.length ? { short } : {},
-    ...jumped.length ? { jumps: jumped.map((input2) => input2.ticker) } : {}
+    ...jumped.length ? { jumps: jumped.map((input2) => input2.ticker) } : {},
+    mix: mixOf(measured, weights, common, dateOf, value)
+  };
+}
+function mixOf(measured, weights, common, dateOf, value) {
+  const weekly = common.slice(1).map((week, index) => {
+    const before = common[index];
+    return { date: dateOf(week), return: measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(before).close - 1), 0) };
+  });
+  let level = 1;
+  const series = [{ date: dateOf(common[0]), return: 0 }, ...weekly.map((point2) => {
+    level *= 1 + point2.return;
+    return { date: point2.date, return: round15(level - 1) };
+  })];
+  const sorted = [...weekly].sort((a, b) => a.return - b.return || a.date.localeCompare(b.date));
+  const tail = sorted.slice(0, Math.ceil(weekly.length / BAD_WEEK_ONE_IN));
+  const drawdown = drawdownOf(series);
+  const point = (at) => ({ date: at.date, return: round15(at.return) });
+  return {
+    value: round15(value, 2),
+    series,
+    return: round15(level - 1),
+    badWeek: round15(tail.at(-1).return),
+    badWeeks: round15(tail.reduce((sum, at) => sum + at.return, 0) / tail.length),
+    worst: point(sorted[0]),
+    best: point(weekly.reduce((top, at) => at.return > top.return ? at : top)),
+    up: weekly.filter((at) => at.return > 0).length,
+    ...drawdown ? { drawdown } : {}
   };
 }
 
@@ -41440,7 +41473,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -41459,7 +41492,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         });
         const risk = read ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
         const data = { ...await targetAllocations.withDrift({ ...analysis, ...risk }), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)` : ""}.`);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%), a bad week one in 20 ${(data.risk.mix.badWeek * 100).toFixed(1)}%` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

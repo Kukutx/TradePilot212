@@ -13,7 +13,7 @@ Report:
 - every flag the tool raised, in plain language;
 - the largest holding, the top-5 share and the effective number of holdings;
 - the currency split, noting that FX moves affect returns in the account currency;
-- where its `risk` is: the holdings' volatility together, the diversification ratio, and any holding whose share of the risk is well above its share of the value (it swings more, or moves more with the rest); the most alike pairs from its correlations. Name the holdings in `riskMissing` or `short` as not measured;
+- where its `risk` is: the holdings' volatility together, the diversification ratio, and any holding whose share of the risk is well above its share of the value (it swings more, or moves more with the rest); the most alike pairs from its correlations; from `risk.mix`, what a bad week (one in 20) has cost today's mix, in percent and in the account currency, and its deepest fall over the year, said as history, not a forecast. Name the holdings in `riskMissing` or `short` as not measured;
 - the cash share;
 - pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.
 

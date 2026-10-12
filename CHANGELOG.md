@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.47.0
+
+- Today's mix over the year. Below risk by holding, the Allocation tab draws what the holdings measured would have done over the same weeks at today's weights, put back to them each week: its return, **a bad week, 1 in 20** (the weekly return it fell to or below in its worst 5% of weeks, a historical 95% value at risk, in percent and in the account currency on today's value, with the average of those weeks), its worst and best weeks and its deepest fall, with a table view of the line.
+- `analyze_portfolio_allocation` returns it as `risk.mix` and says it in its text and its one-line summary. It reuses the closes read for risk by holding: no new reads.
+
 ## 2.46.0
 
 - Risk by holding. The Allocation tab shows each holding's share of the holdings' risk beside its share of their value, as two bars, from a year of weekly closes: a holding with a longer risk bar swings more than its weight says, or moves more with the rest. Above them, their volatility together, a diversification ratio (1 when they all move as one) and the holding with most of the risk; below them, how the ten largest move with each other, a grid tinted amber for together and blue for apart with each value written in it. Both have a table view or hover text.

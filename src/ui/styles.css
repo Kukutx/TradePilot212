@@ -1255,8 +1255,9 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 @media (forced-colors: active) {
   .moveBar { background: CanvasText !important; }
 }
+.riskGrid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @container (max-width: 640px) {
-  .riskGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .riskGrid, .riskGrid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ---- Risk by holding: each one's share of the risk over its share of the value, then the correlations ---- */
