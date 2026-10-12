@@ -18,6 +18,8 @@ export interface StopProtection {
    * stops add up to more than the holding, the lowest go without. The quantities add up to covered.
    */
   levels: StopLevel[];
+  /** Stops placed by amount (VALUE) with no share count, so their shares and outcome are unknown. */
+  unsized?: number;
 }
 
 export interface StopLevel {
@@ -47,6 +49,8 @@ export function stopOutcome(position: Position, guard: StopProtection): StopOutc
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : undefined;
   const sale = (level: StopLevel) => level.limitPrice ?? level.stopPrice;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
+  // A stop sized by amount sells shares we cannot count, so any figure would leave it out.
+  if (guard.unsized || !guard.levels.length) return undefined;
   if (guard.levels.some((level) => !(sale(level) < position.currentPrice))) return undefined;
   const rate = value / (position.quantity * position.currentPrice);
   const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
@@ -84,6 +88,7 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
     if (take > 0) levels.push({ ...level, quantity: take });
     left = Number((left - take).toFixed(8));
   }
+  const unsized = stops.filter((order) => String(order.strategy ?? "").toUpperCase() === "VALUE" || typeof order.quantity !== "number" || order.quantity === 0).length;
   const last = position.currentPrice;
   return {
     ticker,
@@ -93,6 +98,7 @@ export function stopProtection(position: Position, orders: PendingOrder[]): Stop
     coverage: covered >= position.quantity ? 1 : covered / position.quantity,
     orders: stops.length,
     levels,
+    ...(unsized ? { unsized } : {}),
   };
 }
 

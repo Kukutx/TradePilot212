@@ -86,6 +86,12 @@ describe("stop-loss protection", () => {
     // A limit at or above the last price would not sell on a fall at all, so there is no outcome to show.
     const aboveLast = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 126 }])!;
     expect(stopOutcome(held, aboveLast)).toBeUndefined();
+    // A stop placed by amount has no share count, so its outcome is unknown rather than zero.
+    const byValue = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 110 }])!;
+    expect(byValue).toMatchObject({ covered: 0, levels: [], unsized: 1 });
+    expect(stopOutcome(held, byValue)).toBeUndefined();
+    const mixed = stopProtection(held, [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110 }, { ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 100 }])!;
+    expect(stopOutcome(held, mixed)).toBeUndefined();
   });
 
   it("sums coverage across the portfolio in the account currency", () => {

@@ -34948,6 +34948,7 @@ function stopOutcome(position, guard) {
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
   const sale = (level) => level.limitPrice ?? level.stopPrice;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
+  if (guard.unsized || !guard.levels.length) return void 0;
   if (guard.levels.some((level) => !(sale(level) < position.currentPrice))) return void 0;
   const rate = value / (position.quantity * position.currentPrice);
   const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
@@ -34979,6 +34980,7 @@ function stopProtection(position, orders) {
     if (take > 0) levels.push({ ...level, quantity: take });
     left = Number((left - take).toFixed(8));
   }
+  const unsized = stops.filter((order) => String(order.strategy ?? "").toUpperCase() === "VALUE" || typeof order.quantity !== "number" || order.quantity === 0).length;
   const last = position.currentPrice;
   return {
     ticker,
@@ -34987,7 +34989,8 @@ function stopProtection(position, orders) {
     covered,
     coverage: covered >= position.quantity ? 1 : covered / position.quantity,
     orders: stops.length,
-    levels
+    levels,
+    ...unsized ? { unsized } : {}
   };
 }
 var SUGGESTED_STOP_DROP = 0.08;
