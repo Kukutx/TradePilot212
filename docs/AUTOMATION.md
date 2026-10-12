@@ -165,6 +165,20 @@ What it costs: while it waits for a move, it reads the price each minute like an
 
 In the widget, a holding's page has an **Add alert** form. It offers above or below a price and the day's move for any instrument, and trailing drop, loss and gain for a holding. The page and the automation overview have **Delete** on each alert and **Re-arm** on a triggered one, except a day's move. The price ladder on the holding page shows where each armed alert would fire (a day's move at both levels, once the previous close is known), and the automation overview gives a day's-move alert's last change from its close. A triggered alert writes one `price_alert_triggered` activity event, goes to the webhook, and stays triggered until you re-arm it (a day's move, until the next trading day). Alerts never place or cancel orders. Held instruments use the broker's last position price; others use the external quote source below. Prices are checked once a minute.
 
+## Account alerts
+
+`manage_account_alerts` creates, deletes and re-arms alerts on the account as a whole; `list_price_alerts` and the automation overview show them with the last value read. They suit what a price alert cannot say: that the account as a whole fell to a level, that dividends and interest have built up enough cash to invest, that cash is running low before a plan is due, or that the whole account had a big day.
+
+| Condition | Fires when |
+|---|---|
+| `value_above` / `value_below` | the account's total value is at or above / at or below `amount`, in the account currency |
+| `cash_above` / `cash_below` | the free cash (available to trade) is at or above / at or below `amount` |
+| `day_move` | the holdings' move on the day, added up as `get_portfolio_today` and the dashboard's day do, is `percent` or more either way |
+
+Value and cash come from Trading 212's account summary, read once per environment each scheduler tick (every minute); a waiting alert writes its last value at most every ten minutes. A day's move reads each holding's previous close and the day's fills, so it is read at most every ten minutes. Its trading day is the latest day of the holdings it counts; it fires at most once for that day and arms itself again on the next, and a session before the day the alert was set does not count, so one set on a weekend waits for Monday. When no holding has a move yet, or the read fails, it waits and tries again ten minutes later.
+
+A triggered alert writes one `account_alert_triggered` activity event (with the value and its currency, for value and cash), goes to the webhook, and stays triggered until you re-arm it (a day's move, until the next trading day). In the widget, the automation page has an **Account alerts** list with **Add alert**: its starting amount is 5% under or over the account's value now, half or twice its free cash, or 2% for the day's move. At most 20. Alerts never place or cancel orders.
+
 ## Quotes for instruments you do not hold
 
 Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, the watchlist, the page of an instrument you do not hold, the benchmark on the Performance tab, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price. The sample account uses simulated quotes and exchange rates for its own instruments instead, with no network.
@@ -187,7 +201,7 @@ An external price only sizes an order; the order still goes through the usual re
 
 ## Notifications
 
-Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `account_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
 
 ### Daily digest
 

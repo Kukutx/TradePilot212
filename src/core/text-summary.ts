@@ -7,7 +7,7 @@ import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
-import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
+import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
@@ -668,6 +668,18 @@ function alertLine(alert: PriceAlert, instrument?: { name?: string; currencyCode
   return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}${unit}` : ", armed"}${day}${alert.note ? ` — ${alert.note}` : ""}`;
 }
 
+function accountAlertLine(alert: AccountAlert): string {
+  const unit = alert.currency ? ` ${alert.currency}` : "";
+  const what = alert.condition.startsWith("cash") ? "free cash" : "account value";
+  const condition = alert.condition === "day_move" ? `account's day move of ${num(alert.percent)}% either way` : `${what} ${alert.condition.endsWith("above") ? "at or above" : "at or below"} ${num(alert.amount)}${unit}`;
+  const last = alert.lastValue === undefined ? ""
+    : alert.condition === "day_move" ? `, last ${signedPct(alert.lastValue)} on ${alert.lastDay ?? "?"}` : `, last ${num(alert.lastValue)}${unit}`;
+  const fired = !alert.triggeredAt ? ", armed"
+    : alert.condition === "day_move" ? `, fired for ${alert.triggeredDay ?? "the day"} at ${signedPct(alert.triggeredValue ?? 0)}, armed again on the next trading day`
+      : `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredValue)}${unit}`;
+  return `${condition} (${alert.id}, ${env(alert.environment)})${last}${fired}${alert.note ? ` — ${alert.note}` : ""}`;
+}
+
 function linkLine(link: ProtectiveLink): string {
   return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;
 }
@@ -678,6 +690,7 @@ function automation(data: AutomationOverview): string[] {
     ...credentialsLine(data.environment, data.credentials),
     ...section(`Plans (${data.plans.length})`, rows(data.plans, planLine)),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, instruments.get(alert.ticker)))),
+    ...(data.accountAlerts?.length ? section(`Account alerts (${data.accountAlerts.length})`, rows(data.accountAlerts, accountAlertLine)) : []),
     ...section(`Linked stop-loss / take-profit pairs (${data.links.length})`, rows(data.links, linkLine)),
     ...(data.targets ? [`Target weights: ${data.targets.targets.map((target) => `${target.ticker} ${pct(target.weight)}`).join(", ")}, cash ${pct(data.targets.cashWeight)}; drift notices above ${num(data.targets.driftThreshold * 100, 1)} points.`] : []),
     `Today through TradePilot: ${data.usageToday.orders} order(s), ${num(data.usageToday.notional)}${data.currency ? ` ${data.currency}` : ""}.`,
@@ -789,8 +802,9 @@ export function describePayload(data: unknown): string {
     case "pie_change_draft":
     case "pie_change_preview":
     case "pie_change_result": lines = pieChange(payload as unknown as PieChangeDraftPayload | PieChangePreview | PieChangeResult); break;
-    case "price_alerts": lines = rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)); break;
+    case "price_alerts": lines = [...rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)), ...rows((payload.accountAlerts as AccountAlert[]) ?? [], accountAlertLine)]; break;
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
+    case "account_alert": lines = payload.alert ? [accountAlertLine(payload.alert as AccountAlert)] : []; break;
     case "trade_journal": lines = rows((payload as unknown as JournalPayload).entries, (entry) => journalLine(entry)); break;
     case "journal_review": lines = journalReview(payload as unknown as JournalReview); break;
     case "watchlist": lines = watchlist(payload as unknown as WatchlistView); break;

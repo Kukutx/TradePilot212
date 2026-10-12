@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.45.0
+
+- Account alerts. `manage_account_alerts` sets an alert on the account as a whole: its total value or its free cash at or above, or at or below, an amount in the account currency, or its day's move (the holdings' moves added up, as on the dashboard) a percent or more either way, once per trading day. Value and cash are checked every minute from one account summary read; the day's move every ten minutes. A triggered alert is logged as `account_alert_triggered` and goes to the webhook.
+- The automation page lists them with the last value read and when each fired, with **Add alert**, **Re-arm** and **Delete**. `list_price_alerts`, the automation overview and their text include them. The preview's sample account has three.
+
 ## 2.44.0
 
 - Risk. The Performance tab has a **Risk** panel: the time-weighted return's volatility a year (and the benchmark's), its return a year over its volatility (from a year of readings), its beta and correlation to the benchmark, its best and worst days, and how many of the days it moved it rose. Below them, **Daily moves** counts how many days it moved by how much, falls in red and rises in green, each bar with its range and count in its hover text and the table view.

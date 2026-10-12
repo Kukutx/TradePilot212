@@ -36,10 +36,11 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs, or one amount split across your saved targets so the most underweight holdings get the most; Demo plans can optionally run unattended
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
 - price alerts on holdings or any quoted instrument (above / below a price, a day's move either way from the previous close that arms itself again each trading day, trailing drop from the high, gain or loss against average cost), checked every minute
+- account alerts: the account value or the free cash at or above / at or below an amount, or the whole account moving a percent in a day either way, added on the automation page or by asking ([docs/AUTOMATION.md](./docs/AUTOMATION.md#account-alerts))
 - a built-in sample account (`TRADEPILOT_SAMPLE_DATA=true`) for trying everything without an API key ([docs/TRY_IT.md](./docs/TRY_IT.md))
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans, rebalancing and the journal review
-- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest with the day's move, the dividends paid since the last one and those expected in the coming week
-- an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
+- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, price and account alerts and unclear results, plus an optional daily account digest with the day's move, the dividends paid since the last one and those expected in the coming week
+- an automation overview in the widget: plans, price and account alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments, as a dividend calendar (paid this month and expected per month) with each payment's approximate date, and a holding's next payments on its page
 - an account value chart from TradePilot's own daily record (Trading 212's API has no value history)
 - your time-weighted return against an index fund's over the same days, the S&P 500 by default or any ETF you hold or watch, as a second line on the return chart with the gap in percentage points ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
@@ -228,7 +229,7 @@ See [docs/ORDERING.md](./docs/ORDERING.md) for the sizing rules and edge cases.
 | L2 | Investment plans: due runs are announced and opened as a basket | once per run |
 | L3 | Unattended runs of due plans | **Demo only**, opt-in with `AUTOMATION_DEMO_ENABLED=true` |
 
-Price alerts and webhook notifications run at every level; they only notify and never trade.
+Price and account alerts and webhook notifications run at every level; they only notify and never trade.
 
 Live never places an order unattended; that is enforced in code, not configuration. The only unattended Live write is cancelling the other half of a stop-loss / take-profit pair after one fills (turn off with `PROTECTIVE_OCO=false`). Live orders and baskets also need a second, explicit confirmation that real money is used. Research and news stay in a scheduled ChatGPT or Claude task. See [docs/AUTOMATION.md](./docs/AUTOMATION.md).
 

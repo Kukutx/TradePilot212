@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AlertCondition, PriceAlert } from "../../shared/automation";
+import type { AccountAlert, AlertCondition, PriceAlert } from "../../shared/automation";
 import { alertConditionLabel, fill, type Translator } from "../lib/messages";
 import { Field } from "./common";
 
@@ -95,7 +95,7 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
 }
 
 /** Re-arm (once triggered; a day's move arms itself on the next trading day) and delete for one alert; delete asks once more in place. */
-export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: PriceAlert; t: Translator; busy: boolean; onRearm: (id: string) => void; onDelete: (id: string) => void }) {
+export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: PriceAlert | AccountAlert; t: Translator; busy: boolean; onRearm: (id: string) => void; onDelete: (id: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   if (confirming) {
     return (

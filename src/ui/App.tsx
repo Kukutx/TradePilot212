@@ -537,6 +537,16 @@ export default function App() {
     return true;
   }
 
+  /** Create, delete or re-arm an account alert, then read the automation page again. Alerts never trade. */
+  async function changeAccountAlert(input: Record<string, unknown>): Promise<boolean> {
+    const done = await run("errorTitleAlert", async () => {
+      await callTool("manage_account_alerts", { environment, ...input });
+    });
+    if (!done) return false;
+    await refresh(environment, "holdings");
+    return true;
+  }
+
   /**
    * Add, change or delete a trade journal note, then read the page again so it shows the change. Notes never trade.
    * They go to the account of the page shown, which can lag the switch while the other account's page loads.
@@ -1051,7 +1061,10 @@ export default function App() {
             {base?.kind === "automation" && (
               <AutomationView data={base} book={book} locale={locale} t={t} busy={loading}
                 onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
-                onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })} />
+                onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
+                onSaveAccountAlert={(request) => changeAccountAlert({ action: "create", ...request })}
+                onDeleteAccountAlert={(alertId) => void changeAccountAlert({ action: "delete", alertId })}
+                onRearmAccountAlert={(alertId) => void changeAccountAlert({ action: "rearm", alertId })} />
             )}
             {base?.kind === "order_draft" && !draft && (loading ? <SkeletonView label={t("refreshing")} /> : <div className="emptyState">{t("orderLoaded")}</div>)}
             {base?.kind === "cancel_draft" && (loading

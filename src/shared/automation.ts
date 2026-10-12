@@ -242,6 +242,44 @@ export interface PriceAlert {
 }
 
 /**
+ * An alert on the account as a whole, checked every scheduler tick against Trading 212's account summary: its total
+ * value or its free cash at or above, or at or below, an amount in the account currency. day_move fires when the
+ * holdings' move on the day, as get_portfolio_today adds it up, is a percent or more either way, once per trading
+ * day. Alerts notify; they never place orders.
+ */
+export type AccountAlertCondition = "value_above" | "value_below" | "cash_above" | "cash_below" | "day_move";
+
+export interface AccountAlert {
+  id: string;
+  environment: TradingEnvironment;
+  condition: AccountAlertCondition;
+  /** The amount for the value and cash conditions, in the account currency. */
+  amount?: number;
+  /** The percent for day_move, either way. */
+  percent?: number;
+  /** The account currency when the alert was saved. */
+  currency?: string;
+  note?: string;
+  createdAt: string;
+  /** The last total value, free cash or day's change (a fraction) read, and when. */
+  lastValue?: number;
+  lastCheckedAt?: string;
+  triggeredAt?: string;
+  triggeredValue?: number;
+  /** day_move: the trading day it fired on; it arms itself again on the next one. */
+  triggeredDay?: string;
+  /** day_move: the trading day of the last change read. */
+  lastDay?: string;
+}
+
+export interface AccountAlertReport {
+  alertId: string;
+  environment: TradingEnvironment;
+  action: "triggered" | "waiting";
+  message: string;
+}
+
+/**
  * Target weights saved for one environment. The scheduler compares them with the account and notifies
  * when a holding or cash drifts too far; plan_portfolio_rebalance uses them when no targets are passed.
  */
@@ -268,6 +306,10 @@ export interface AutomationOverview {
   writeEnabled?: boolean;
   plans: DcaPlan[];
   alerts: PriceAlert[];
+  /** Alerts on the account's value, cash and day's move. */
+  accountAlerts?: AccountAlert[];
+  /** The account's total value and free cash now, for an account alert's starting amount. */
+  account?: { value?: number; cash?: number };
   links: ProtectiveLink[];
   /** Saved target weights, when there are any. */
   targets?: TargetAllocation;

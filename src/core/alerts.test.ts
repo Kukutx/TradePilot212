@@ -5,6 +5,7 @@ import { createServices } from "../app/services.js";
 import { evaluateAlert, PriceAlerts } from "./alerts.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
 import { notificationText } from "./notify.js";
+import { describePayload } from "./text-summary.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const instrument: Instrument = { ticker: "VUSA_EQ", name: "VUSA ETF", shortName: "VUSA", currencyCode: "EUR", type: "ETF" };
@@ -106,6 +107,16 @@ describe("price alert scheduler", () => {
     const rearmed = await services.alerts.rearm(saved.id);
     expect(rearmed.triggeredAt).toBeUndefined();
     expect(rearmed.highWatermark).toBeUndefined();
+  });
+
+  it("checks account alerts on the same tick, shows them on the automation page and sends them to the webhook", async () => {
+    const services = setup({ NOTIFY_WEBHOOK_URL: "https://hooks.example/t" });
+    await services.accountAlerts.create({ environment: "demo", condition: "cash_above", amount: 900, note: "Invest it." });
+    expect((await services.runScheduled()).accountAlerts).toMatchObject([{ action: "triggered", message: "Free cash is 1000.00 EUR, at or above 900.00 EUR." }]);
+    expect(services.webhooks[0]!.body.text).toBe("[TradePilot DEMO] Account alert · Free cash is 1000.00 EUR, at or above 900.00 EUR. Invest it.");
+    const overview = await services.automationOverview("demo");
+    expect(overview).toMatchObject({ currency: "EUR", account: { value: 2000, cash: 1000 }, accountAlerts: [{ condition: "cash_above", amount: 900, currency: "EUR", triggeredValue: 1000 }] });
+    expect(describePayload(overview as unknown as Record<string, unknown>)).toContain("Account alerts (1):\n- free cash at or above 900 EUR (");
   });
 
   it("fires a day's move once a trading day and arms it again on the next", async () => {

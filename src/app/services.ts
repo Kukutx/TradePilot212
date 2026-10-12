@@ -1,4 +1,5 @@
 import { PriceAlerts } from "../core/alerts.js";
+import { AccountAlerts } from "../core/account-alerts.js";
 import { AutomationService } from "../core/automation.js";
 import { credentialStatus, type RuntimeConfig } from "../core/config.js";
 import type { AutomationOverview } from "../shared/automation.js";
@@ -91,13 +92,15 @@ export function createServices(input: ServiceDependencies) {
     closes,
     fills: (env, from) => insights.tradeHistory(env, { from, to: new Date() }, undefined, 200, DAY_ORDER_PAGES),
   }, environment, now);
+  /** Alerts on the account's value, cash and day's move; the day's move is the one get_portfolio_today adds up. */
+  const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
     // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
     dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
     ...(notify ? { notify } : {}),
   });
-  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price alerts, target drift and the daily digest. */
+  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price and account alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -113,6 +116,7 @@ export function createServices(input: ServiceDependencies) {
     values: await stage("value history", () => values.snapshot()),
     plans: await stage("plans", () => automation.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
+    accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run()),
   });
@@ -131,6 +135,7 @@ export function createServices(input: ServiceDependencies) {
   const automationOverview = async (environment: TradingEnvironment): Promise<AutomationOverview> => {
     const plans = await automation.listPlans(environment);
     const priceAlerts = await alerts.list(environment);
+    const onAccount = await accountAlerts.list(environment);
     const pairs = (await links.list()).filter((link) => link.environment === environment);
     const saved = await targets.get(environment);
     const instruments = await namedInstruments(environment, [
@@ -143,11 +148,16 @@ export function createServices(input: ServiceDependencies) {
       credentials: credentialStatus(deps.config),
       plans,
       alerts: priceAlerts,
+      ...(onAccount.length ? { accountAlerts: onAccount } : {}),
       links: pairs,
       ...(saved ? { targets: saved } : {}),
       ...(instruments.length ? { instruments } : {}),
       usageToday: await trading.usageToday(environment),
-      ...await trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {})),
+      // One summary read gives the currency and the starting amounts of an account alert.
+      ...await trading.accountSummary(environment).then(
+        (summary) => ({ ...(summary.currency ? { currency: summary.currency } : {}), account: { ...(summary.totalValue !== undefined ? { value: summary.totalValue } : {}), ...(summary.cash?.availableToTrade !== undefined ? { cash: summary.cash.availableToTrade } : {}) } }),
+        () => trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {}), () => ({})),
+      ),
       policy: deps.config.policy[environment],
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,
@@ -160,5 +170,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }
