@@ -294,7 +294,7 @@ describe("the target weights form", () => {
     expect(risk.leftOut).toEqual(["NEW", "LATE", "ODD"]);
     const html = summary({ risk, state: read, pending });
     expect(html).toContain("Reading the closes of NEW to count them…");
-    expect(html).toContain("The closes of LATE weren&#x27;t read in time; press Refresh to count them.");
+    expect(html).toContain("The closes of LATE weren&#x27;t read this time; press Refresh to count them.");
     expect(html).toContain("Not measured, so left out: ODD.");
     expect(html).toContain('aria-busy="true"');
     const zh = summary({ risk, state: read, pending }, "zh-CN");
@@ -306,7 +306,11 @@ describe("the target weights form", () => {
     const rows = (count: number, from = 0) => Array.from({ length: count }, (_, index) => ({ ticker: `X${index + from}`, target: 0.01, current: 0, drift: -0.01 }));
     // 18 holdings and five targets not held: equal weights leave three holdings without a target, and say so.
     const eighteen = Array.from({ length: 18 }, (_, index) => holding(`H${index}`, 400 - index * 5));
-    expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(5), sellUntargeted: false } })).toContain("A target list takes 20: the presets fill the 20 largest holdings (for equal weights, after the targets you don&#x27;t hold");
+    expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(5), sellUntargeted: false } })).toContain("A target list takes 20: equal weights fill the targets you don&#x27;t hold first, so the 3 smallest holdings get none and stay as they are.");
+    expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(5), sellUntargeted: true } })).toContain("so the 3 smallest holdings get none and a rebalance sells them.");
+    // More holdings than that: the presets' note, which says where the targets not held go.
+    const many = Array.from({ length: 22 }, (_, index) => holding(`H${index}`, 400 - index * 5));
+    expect(editor({ holdings: many, drift: { ...drift, rows: rows(1), sellUntargeted: false } })).toContain("A target list takes 20 holdings: the presets fill the 20 largest (for equal weights, after the targets you don&#x27;t hold;");
     expect(editor({ holdings: eighteen, drift: { ...drift, rows: rows(2), sellUntargeted: false } })).not.toContain("A target list takes 20");
     // Twenty not held: the search gives way to a note.
     const full = editor({ drift: { ...drift, rows: rows(20), sellUntargeted: false } });

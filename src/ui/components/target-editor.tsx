@@ -365,25 +365,40 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const measuredKey = measured ? covarianceKey(data) : "";
   const [covariance, setCovariance] = useState<CovarianceState | undefined>(measured ? { state: "reading" } : undefined);
   const readFor = useRef<string | undefined>(undefined);
-  const held = useRef(covariance);
-  held.current = covariance;
+  // The state as last shown, and the read on its way (what it asks for, and its number: only the latest is shown).
+  const shownState = useRef(covariance);
+  const onWay = useRef<{ key: string; asked: string[]; id: number } | undefined>(undefined);
+  const issued = useRef(0);
+  const mounted = useRef(true);
   const errorId = useId();
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { shownState.current = covariance; }, [covariance]);
   // Read as the form opens; the risk at the targets is then worked out as they are typed. Other holdings or weeks
   // measured read it afresh; an instrument not held added reads it again a moment later, the figures staying
   // meanwhile, and a read that then falls short keeps them, leaving the new ones to a Refresh. One taken out needs no
-  // read: the covariance in hand has it, and it no longer has a share.
+  // read: the covariance in hand, or the one on its way, has it, and it no longer has a share.
   useEffect(() => {
-    if (!measured || !onReadCovariance) { readFor.current = undefined; setCovariance(undefined); return undefined; }
+    if (!measured || !onReadCovariance) { readFor.current = undefined; issued.current += 1; onWay.current = undefined; setCovariance(undefined); return undefined; }
     const fresh = readFor.current !== measuredKey;
     readFor.current = measuredKey;
-    const current = held.current;
-    if (!fresh && current?.state === "read" && alongside.every((ticker) => current.asked.includes(ticker))) return undefined;
-    let open = true;
-    if (fresh) setCovariance({ state: "reading" });
+    const covers = (asked: readonly string[]) => alongside.every((ticker) => asked.includes(ticker));
+    const current = shownState.current;
+    const coming = onWay.current;
+    if (!fresh && ((current?.state === "read" && covers(current.asked)) || (coming?.key === measuredKey && covers(coming.asked)))) return undefined;
+    // Other holdings or weeks: no read on its way is shown any more. A wider read stops one only once it starts, so a
+    // row added and taken out again before then leaves the read on its way to be shown.
+    if (fresh) { issued.current += 1; onWay.current = undefined; setCovariance({ state: "reading" }); }
     const asked = alongside;
-    const timer = setTimeout(() => void loadCovariance(() => onReadCovariance(measured, asked), measured, asked, () => open,
-      (next) => setCovariance((now) => (fresh ? next : widenedState(now, next, asked)))), fresh ? 0 : WIDEN_WAIT_MS);
-    return () => { open = false; clearTimeout(timer); };
+    const timer = setTimeout(() => {
+      const id = ++issued.current;
+      onWay.current = { key: measuredKey, asked, id };
+      void loadCovariance(() => onReadCovariance(measured, asked), measured, asked, () => mounted.current && issued.current === id, (next) => {
+        onWay.current = undefined;
+        setCovariance((now) => (fresh ? next : widenedState(now, next, asked)));
+      });
+    }, fresh ? 0 : WIDEN_WAIT_MS);
+    // A read already on its way is not stopped: a later read, or the form closing, stops it being shown.
+    return () => clearTimeout(timer);
   }, [measuredKey, alongsideKey]);
   // Opened from a button, perhaps further down the page: brought into sight, with the focus on its heading.
   const panel = useRef<HTMLElement>(null);
@@ -402,14 +417,25 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const risk = covariance?.state === "read" ? riskOfForm(covariance.covariance, data.holdings, form, rows.map((row) => row.ticker)) : undefined;
   const pending = awayPending(covariance, alongside);
   const share = (value: number) => pct(value / 100, locale, 1);
-  // More rows than a target list takes: some holdings are left without a target by the presets.
-  const crowded = rows.length > MAX_TARGETS;
+  // More holdings than a target list takes: the presets leave some without a target. Fewer, but more rows with the
+  // targets not held: equal weights, which fill those first, leave some holdings without.
+  const heldCount = rows.filter((row) => row.held).length;
+  const crowded = heldCount > MAX_TARGETS ? fill(t(form.sell ? "targetsMoreSold" : "targetsMoreKept"), { count: String(MAX_TARGETS) })
+    : rows.length > MAX_TARGETS ? fill(t(form.sell ? "targetsMoreAwaySold" : "targetsMoreAwayKept"), { count: String(MAX_TARGETS), left: String(rows.length - MAX_TARGETS) })
+    : undefined;
   const problemKey = read.problem === "many" && form.sell ? "targetsProblemManySold" : read.problem && PROBLEM_KEYS[read.problem];
   const error = problemKey && fill(t(problemKey), { count: String(MAX_TARGETS), total: share(read.total + read.cash) });
   const shown = touched ? error : undefined;
   const apply = (preset: TargetPreset) => { setForm({ ...form, ...presetForm(preset, data, form.cash, away) }); setFilled(preset); setTouched(false); };
   const listed = new Set(rows.map((row) => row.ticker));
   const search = useRef<HTMLInputElement>(null);
+  // After a row not held is taken out, the focus goes to the search (shown again once below the cap), or the heading.
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (!refocus) return;
+    (search.current ?? heading.current)?.focus?.();
+    setRefocus(false);
+  }, [refocus]);
   const add = (item: Instrument) => {
     if (listed.has(item.ticker)) return false;
     setAway([...away, { ticker: item.ticker, ...(item.name || item.shortName ? { name: item.name || item.shortName } : {}) }]);
@@ -424,8 +450,8 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
     const { [ticker]: _removed, ...weights } = form.weights;
     setForm({ ...form, weights });
     setFilled(undefined);
-    // The button goes with its row: the focus goes back to the search, or the heading without one.
-    (search.current ?? heading.current)?.focus?.();
+    // The button goes with its row.
+    setRefocus(true);
   };
   const submit = async () => {
     setTouched(true);
@@ -451,7 +477,7 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
       </div>
       <p className="panelNote">{t("targetsEditorNote")}</p>
       {filled === "parity" && <p className="panelNote">{t("targetsParityNote")}</p>}
-      {crowded && <p className="panelNote">{fill(t(form.sell ? "targetsMoreSold" : "targetsMoreKept"), { count: String(MAX_TARGETS) })}</p>}
+      {crowded && <p className="panelNote">{crowded}</p>}
       <form noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <fieldset className="targetFieldset" disabled={busy}>
           <ul className="targetRows">

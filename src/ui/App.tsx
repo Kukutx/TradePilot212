@@ -100,6 +100,8 @@ const LOCALE_STORAGE_KEY = "tradepilot212.locale";
 const TODAY_FRESH_MS = 2 * 60_000;
 /** The holdings' covariance is read again after this long: the weekly closes it comes from change once a week. */
 const COVARIANCE_KEEP_MS = 30 * 60_000;
+/** Why a covariance read can leave out an instrument not held this time but not the next: read again rather than kept. */
+const PASSING_MISSES = new Set(["later", "data"]);
 
 function readSavedLocale(): SupportedLocale | null {
   try {
@@ -464,7 +466,8 @@ export default function App() {
    * The holdings' covariance, for the risk at the targets typed in: read for the holdings the risk on screen measured,
    * with the instruments not held in the form beside them, and kept a while for them and its weeks, as the closes it
    * is read from change once a week. A failed read, one that does not fit the risk on screen, and one that left out an
-   * instrument not held (its closes on their way, or not read this time), are not kept: a Refresh reads them again.
+   * instrument not held for a reason that can pass (its closes on their way, or not read this time), are not kept: a
+   * Refresh reads them again. One left out for good (no symbol, too few weeks) is kept like the rest.
    */
   function readCovariance(env: TradingEnvironment, measured: MeasuredRisk, alongside: string[]): Promise<HoldingCovariancePayload> {
     const tickers = measured.rows.map((row) => row.ticker);
@@ -475,7 +478,7 @@ export default function App() {
     covariances.current.set(key, { at: Date.now(), read });
     const forget = () => { if (covariances.current.get(key)?.read === read) covariances.current.delete(key); };
     read.then((payload) => {
-      if (!covarianceFits(payload, measured, alongside) || payload.covariance?.unmeasured?.length) forget();
+      if (!covarianceFits(payload, measured, alongside) || payload.covariance?.unmeasured?.some((item) => PASSING_MISSES.has(item.reason))) forget();
     }, forget);
     return read;
   }
