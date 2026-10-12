@@ -2,7 +2,7 @@
 
 ## 2.49.0
 
-- Target weights in the widget. The Allocation tab sets, edits and removes the saved targets, which until now only the assistant could: **Set targets** (or **Edit targets** beside their drift) opens a share for each holding, typed in or filled from today's weights, equal weights or the equal-risk weights, with the cash share, the notice threshold and whether a rebalance sells holdings without a target. It says what the targets and cash come to and what is wrong before saving, and the drift shows as soon as they are saved. **Use as targets** under the equal-risk weights opens it filled with them. Targets never trade; they work without order tools.
+- Target weights in the widget. The Allocation tab sets, edits and removes the saved targets, which until now only the assistant could: **Set targets** (or **Edit targets** beside their drift) opens a share for each holding, typed in or filled from today's weights, equal weights or the equal-risk weights, with the cash share, the notice threshold and whether a rebalance sells holdings without a target. It says what the targets and cash come to and what is wrong before saving, checking the shares as the server keeps them, and the drift shows as soon as they are saved. With more than 20 holdings, the presets fill the 20 largest and say what happens to the others. **Use as targets** under the equal-risk weights opens it filled with them. Targets never trade; they work without order tools.
 
 ## 2.48.0
 

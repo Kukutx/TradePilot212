@@ -1346,3 +1346,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
   .targetNow { grid-column: 1; grid-row: 2; }
   .targetField { grid-column: 2; grid-row: 1 / span 2; }
 }
+
+.targetFieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.targetEditor .panelTitle:focus { outline: none; }
+.targetEditor .panelTitle:focus-visible { outline: 2px solid var(--tp-focus, var(--tp-chart)); outline-offset: 3px; border-radius: 4px; }
+.targetEditor .alertFormActions { flex-wrap: wrap; }

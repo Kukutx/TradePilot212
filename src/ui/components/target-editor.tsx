@@ -2,8 +2,9 @@
 // filled from today's weights, equal weights or the equal-risk weights. Saved targets drive the drift panel, the
 // rebalance to targets and the scheduler's drift notices; they never trade.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { AllocationAnalysis } from "../../shared/history";
+import { equalRiskTargets } from "../../shared/holding-risk";
 import type { SupportedLocale } from "../i18n";
 import { parseAmount, pct } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -12,23 +13,23 @@ import { Field } from "./common";
 
 /** As many targets as the server keeps: a rebalance to them is one basket. */
 export const MAX_TARGETS = 20;
-/** Weights and cash may come to this much over 100%, in percent: the server's rounding. */
-const SLACK = 0.005;
 
 export interface TargetSave {
   targets: Array<{ instrument: string; weight: number }>;
-  cashWeight: number;
+  /** Left out, the server keeps in cash whatever the targets leave. */
+  cashWeight?: number;
   driftThreshold: number;
   sellUntargeted: boolean;
 }
 
 export type TargetPreset = "today" | "equal" | "parity";
 
-type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "totalValue" | "drift" | "risk">;
+type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk">;
 
 export interface TargetForm {
   /** Percent typed for each ticker; empty for no target. */
   weights: Record<string, string>;
+  /** Percent; empty for whatever the targets leave. */
   cash: string;
   threshold: string;
   sell: boolean;
@@ -36,10 +37,15 @@ export interface TargetForm {
 
 /** A share as the form shows it: percent with at most two decimals, "12.5". */
 const percentText = (share: number) => String(Math.round(share * 10_000) / 100);
+/** Rounded down to 0.01%, so a preset never comes to more than the account. */
+const downText = (share: number) => percentText(Math.max(0, Math.floor(share * 10_000 + 1e-9) / 10_000));
+/** A share as the server keeps it: four decimals (0.01%). */
+const serverShare = (share: number) => Math.round(share * 10_000) / 10_000;
 
 /** The rows: the holdings, largest first, then the saved targets not held. */
-export function targetRows(data: Data): Array<{ ticker: string; name?: string; current: number; held: boolean }> {
-  const held = data.holdings.filter((holding) => holding.value > 0).map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true }));
+export function targetRows(data: Pick<Data, "holdings" | "drift">): Array<{ ticker: string; name?: string; current: number; held: boolean }> {
+  const held = data.holdings.filter((holding) => holding.value > 0).sort((a, b) => b.value - a.value)
+    .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true }));
   const known = new Set(held.map((row) => row.ticker));
   const away = (data.drift?.rows ?? []).filter((row) => !known.has(row.ticker)).map((row) => ({ ticker: row.ticker, current: 0, held: false }));
   return [...held, ...away];
@@ -53,12 +59,13 @@ export function startingForm(data: Data): TargetForm {
   return {
     weights: Object.fromEntries(targetRows(data).map((row) => [row.ticker, saved.has(row.ticker) ? percentText(saved.get(row.ticker)!) : ""])),
     cash: percentText(drift.cash.target),
-    threshold: percentText(drift.threshold),
+    // A threshold to 0.0001 points, so a fine one does not read as 0.
+    threshold: String(Math.round(drift.threshold * 1_000_000) / 10_000),
     sell: !!drift.sellUntargeted,
   };
 }
 
-/** The weights the equal-risk weights give each holding measured, as shares of the account; the others' today's. */
+/** The equal-risk weights of the holdings measured, as shares of the account. */
 function parityShares(data: Data): Map<string, number> | undefined {
   const rows = data.risk?.rows ?? [];
   if (rows.length < 2 || !rows.every((row) => row.parity !== undefined) || !(data.totalValue > 0)) return undefined;
@@ -70,52 +77,70 @@ function parityShares(data: Data): Map<string, number> | undefined {
 export const canUseParity = (data: Data) => parityShares(data) !== undefined;
 
 /**
- * A preset's weights, rounded down to 0.01% so they never come to more than the account. Today's weights keep
- * today's cash; equal weights share what the cash typed leaves; the equal-risk weights move the holdings measured
- * among themselves and keep the others and the cash at today's.
+ * A preset's weights, rounded down to 0.01%. Today's weights keep today's cash; equal weights share what the cash
+ * typed leaves; the equal-risk weights move the holdings measured among themselves and keep the others and the cash
+ * at today's. With more holdings than a target list takes, only the MAX_TARGETS largest get one (for the equal-risk
+ * weights, the furthest from them, as the plan moves), and the others are left without, at their share today.
  */
 export function presetForm(preset: TargetPreset, data: Data, cashText: string): Pick<TargetForm, "weights" | "cash"> {
   const rows = targetRows(data);
-  const down = (share: number) => percentText(Math.floor(share * 10_000) / 10_000);
+  const held = rows.filter((row) => row.held);
+  const chosen = new Set(held.slice(0, MAX_TARGETS).map((row) => row.ticker));
+  const fillWith = (share: (row: (typeof rows)[number]) => number | undefined) =>
+    Object.fromEntries(rows.map((row) => { const value = chosen.has(row.ticker) ? share(row) : undefined; return [row.ticker, value === undefined ? "" : downText(value)]; }));
+  // What the holdings left without a target hold today: kept, they take that share.
+  const rest = held.filter((row) => !chosen.has(row.ticker)).reduce((sum, row) => sum + row.current, 0);
   if (preset === "equal") {
     const typed = parseAmount(cashText);
-    const cash = Number.isFinite(typed) && typed >= 0 && typed < 100 ? typed / 100 : data.cashWeight;
-    const held = rows.filter((row) => row.held);
-    return { weights: Object.fromEntries(rows.map((row) => [row.ticker, row.held ? down((1 - cash) / held.length) : ""])), cash: percentText(cash) };
+    const cash = Number.isFinite(typed) && typed >= 0 && typed <= 100 ? typed / 100 : data.cashWeight;
+    return { weights: fillWith(() => Math.max(0, 1 - cash - rest) / chosen.size), cash: percentText(cash) };
+  }
+  if (preset === "parity" && held.length > MAX_TARGETS) {
+    // The plan's targets: the furthest from their equal-risk weight move, keeping their value together.
+    const plan = equalRiskTargets(data);
+    if (plan) {
+      const planned = new Map(plan.targets.map((target) => [target.ticker, target.weight]));
+      return { weights: Object.fromEntries(rows.map((row) => [row.ticker, planned.has(row.ticker) ? downText(planned.get(row.ticker)!) : ""])), cash: downText(data.cashWeight) };
+    }
   }
   const parity = preset === "parity" ? parityShares(data) : undefined;
-  return {
-    weights: Object.fromEntries(rows.map((row) => [row.ticker, row.held ? down(parity?.get(row.ticker) ?? row.current) : ""])),
-    cash: down(data.cashWeight),
-  };
+  return { weights: fillWith((row) => parity?.get(row.ticker) ?? row.current), cash: downText(data.cashWeight) };
 }
 
 export type TargetProblem = "weight" | "cash" | "threshold" | "none" | "many" | "over";
 
-/** What is wrong with the form, if anything, and what it would save. */
-export function readForm(form: TargetForm): { problem?: TargetProblem; total: number; cash: number; save?: TargetSave } {
+/**
+ * What is wrong with the form, if anything, and what it would save: only the rows shown (`tickers`), checked as the
+ * server checks them, on weights rounded to 0.01%. `cash` is what the targets leave when none is typed.
+ */
+export function readForm(form: TargetForm, tickers: string[] = Object.keys(form.weights)):
+  { problem?: TargetProblem; invalid: string[]; total: number; cash: number; save?: TargetSave } {
   const targets: TargetSave["targets"] = [];
-  let bad = false;
-  for (const [ticker, text] of Object.entries(form.weights)) {
+  const invalid: string[] = [];
+  for (const ticker of tickers) {
+    const text = form.weights[ticker] ?? "";
     if (!text.trim()) continue;
     const value = parseAmount(text);
-    if (!Number.isFinite(value) || value < 0 || value > 100) bad = true;
+    // A weight the server would round to 0 is no weight it keeps.
+    if (!Number.isFinite(value) || value < 0 || value > 100 || (value > 0 && !(serverShare(value / 100) > 0))) invalid.push(ticker);
     else if (value > 0) targets.push({ instrument: ticker, weight: value / 100 });
   }
-  const total = targets.reduce((sum, target) => sum + target.weight * 100, 0);
-  const cash = form.cash.trim() ? parseAmount(form.cash) : 0;
+  const invested = serverShare(targets.reduce((sum, target) => sum + serverShare(target.weight), 0));
+  const typedCash = form.cash.trim() ? parseAmount(form.cash) : undefined;
+  const cash = typedCash === undefined ? Math.max(0, 1 - invested) : typedCash / 100;
   const threshold = parseAmount(form.threshold);
-  const problem: TargetProblem | undefined = bad ? "weight"
-    : !Number.isFinite(cash) || cash < 0 || cash > 100 ? "cash"
+  const problem: TargetProblem | undefined = invalid.length ? "weight"
+    : !Number.isFinite(cash) || cash < 0 || cash > 1 ? "cash"
     : !Number.isFinite(threshold) || threshold <= 0 || threshold >= 100 ? "threshold"
     : !targets.length ? "none"
     : targets.length > MAX_TARGETS ? "many"
-    : total + cash > 100 + SLACK ? "over"
+    : invested + serverShare(cash) > 1 + 1e-9 ? "over"
     : undefined;
   return {
-    total,
-    cash: Number.isFinite(cash) ? cash : 0,
-    ...(problem ? { problem } : { save: { targets, cashWeight: cash / 100, driftThreshold: threshold / 100, sellUntargeted: form.sell } }),
+    invalid,
+    total: invested * 100,
+    cash: Number.isFinite(cash) ? cash * 100 : 0,
+    ...(problem ? { problem } : { save: { targets, ...(typedCash === undefined ? {} : { cashWeight: cash }), driftThreshold: threshold / 100, sellUntargeted: form.sell } }),
   };
 }
 
@@ -142,75 +167,100 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
     const opening = startingForm(data);
     return start ? { ...opening, ...presetForm(start, data, opening.cash) } : opening;
   });
+  const [filled, setFilled] = useState<TargetPreset | undefined>(start);
   const [touched, setTouched] = useState(false);
-  // Opened from a button further down the page: brought into sight.
+  const [confirmClear, setConfirmClear] = useState(false);
+  const errorId = useId();
+  // Opened from a button, perhaps further down the page: brought into sight, with the focus on its heading.
   const panel = useRef<HTMLElement>(null);
-  useEffect(() => { panel.current?.scrollIntoView?.({ block: "start", behavior: "smooth" }); }, []);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus?.({ preventScroll: true });
+    const still = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    panel.current?.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
+  }, []);
   const rows = targetRows(data);
-  const read = readForm(form);
+  const read = readForm(form, rows.map((row) => row.ticker));
   const left = 100 - read.total - read.cash;
   const share = (value: number) => pct(value / 100, locale, 1);
-  const error = read.problem && fill(t(PROBLEM_KEYS[read.problem]), { count: String(MAX_TARGETS), total: share(read.total + read.cash) });
-  const apply = (preset: TargetPreset) => { setForm({ ...form, ...presetForm(preset, data, form.cash) }); setTouched(false); };
+  const crowded = rows.filter((row) => row.held).length > MAX_TARGETS;
+  const problemKey = read.problem === "many" && form.sell ? "targetsProblemManySold" : read.problem && PROBLEM_KEYS[read.problem];
+  const error = problemKey && fill(t(problemKey), { count: String(MAX_TARGETS), total: share(read.total + read.cash) });
+  const shown = touched ? error : undefined;
+  const apply = (preset: TargetPreset) => { setForm({ ...form, ...presetForm(preset, data, form.cash) }); setFilled(preset); setTouched(false); };
   const submit = async () => {
     setTouched(true);
     if (!read.save || busy) return;
     if (await onSave(read.save)) onClose();
   };
+  const clear = async () => {
+    if (!onClear) return;
+    // A second press removes them: one press alone could lose targets set with care.
+    if (!confirmClear) { setConfirmClear(true); return; }
+    if (await onClear()) onClose();
+  };
   return (
     <section ref={panel} className="dataPanel targetEditor" aria-label={t("targetsTitle")}>
       <div className="panelHeading">
-        <h2 className="panelTitle">{t("targetsTitle")}</h2>
+        <h2 ref={heading} tabIndex={-1} className="panelTitle">{t("targetsTitle")}</h2>
         <div className="panelActions targetPresets" role="group" aria-label={t("targetsFillFrom")}>
           <span>{t("targetsFillFrom")}</span>
-          <button type="button" className="secondaryButton compactButton" onClick={() => apply("today")}>{t("targetsPresetToday")}</button>
-          <button type="button" className="secondaryButton compactButton" onClick={() => apply("equal")}>{t("targetsPresetEqual")}</button>
-          {canUseParity(data) && <button type="button" className="secondaryButton compactButton" onClick={() => apply("parity")}>{t("targetsPresetParity")}</button>}
+          <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => apply("today")}>{t("targetsPresetToday")}</button>
+          <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => apply("equal")}>{t("targetsPresetEqual")}</button>
+          {canUseParity(data) && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => apply("parity")}>{t("targetsPresetParity")}</button>}
         </div>
       </div>
       <p className="panelNote">{t("targetsEditorNote")}</p>
+      {filled === "parity" && <p className="panelNote">{t("targetsParityNote")}</p>}
+      {crowded && <p className="panelNote">{fill(t(form.sell ? "targetsMoreSold" : "targetsMoreKept"), { count: String(MAX_TARGETS) })}</p>}
       <form noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <ul className="targetRows">
-          {rows.map((row) => {
-            const label = instrumentLabel(row.ticker, book, row.name ? { name: row.name } : undefined);
-            return (
-              <li key={row.ticker}>
-                <span className="barLabel"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
-                <span className="targetNow">{row.held ? fill(t("targetsNow"), { share: pct(row.current, locale, 1) }) : t("targetsNotHeld")}</span>
-                <span className="field targetField">
-                  <span className="fieldControl withUnit">
-                    <input aria-label={fill(t("targetsWeightLabel"), { name: label.detail ? `${label.name} (${label.detail})` : label.name })} inputMode="decimal" autoComplete="off" placeholder="0"
-                      value={form.weights[row.ticker] ?? ""} onChange={(event) => setForm({ ...form, weights: { ...form.weights, [row.ticker]: event.target.value } })} />
-                    <span className="fieldUnit" aria-hidden="true">%</span>
+        <fieldset className="targetFieldset" disabled={busy}>
+          <ul className="targetRows">
+            {rows.map((row) => {
+              const label = instrumentLabel(row.ticker, book, row.name ? { name: row.name } : undefined);
+              const wrong = touched && read.invalid.includes(row.ticker);
+              return (
+                <li key={row.ticker}>
+                  <span className="barLabel"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
+                  <span className="targetNow">{row.held ? fill(t("targetsNow"), { share: pct(row.current, locale, 1) }) : t("targetsNotHeld")}</span>
+                  <span className={`field targetField${wrong ? " invalid" : ""}`}>
+                    <span className="fieldControl withUnit">
+                      <input aria-label={fill(t("targetsWeightLabel"), { name: label.detail ? `${label.name} (${label.detail})` : label.name })} inputMode="decimal" autoComplete="off" placeholder="0"
+                        {...(wrong ? { "aria-invalid": true, "aria-describedby": errorId } : {})}
+                        value={form.weights[row.ticker] ?? ""} onChange={(event) => setForm({ ...form, weights: { ...form.weights, [row.ticker]: event.target.value } })} />
+                      <span className="fieldUnit" aria-hidden="true">%</span>
+                    </span>
                   </span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        <div className="formGrid targetSettings">
-          <Field label={t("targetsCash")} unit="%" hint={fill(t("targetsCashHint"), { share: pct(data.cashWeight, locale, 1) })}>
-            {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={form.cash} onChange={(event) => setForm({ ...form, cash: event.target.value })} />}
-          </Field>
-          <Field label={t("targetsThreshold")} unit={t("targetsPoints")} hint={t("targetsThresholdHint")}>
-            {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={form.threshold} onChange={(event) => setForm({ ...form, threshold: event.target.value })} />}
-          </Field>
-        </div>
-        <label className="toggleField targetToggle">
-          <input type="checkbox" checked={form.sell} onChange={(event) => setForm({ ...form, sell: event.target.checked })} />
-          <span className="toggleTrack"><span /></span>
-          <span>{t("targetsSellToggle")}</span>
-        </label>
-        <p className={`targetTotal${read.problem === "over" ? " over" : ""}`} aria-live="polite">
-          {fill(t("targetsTotal"), { targets: share(read.total), cash: share(read.cash), total: share(read.total + read.cash) })}
-          {left >= 0.05 && !read.problem && <> {fill(t("targetsLeft"), { share: share(left) })}</>}
-        </p>
-        {touched && error && <p className="fieldError targetError" role="alert">{error}</p>}
-        <div className="alertFormActions">
-          {onClear && <button type="button" className="secondaryButton targetClear" disabled={busy} onClick={() => void onClear().then((done) => { if (done) onClose(); })}>{t("targetsClear")}</button>}
-          <button type="button" className="secondaryButton" onClick={onClose}>{t("cancel")}</button>
-          <button type="submit" className="primaryButton" disabled={busy} aria-disabled={Boolean(touched && error) || undefined}>{busy ? t("saving") : t("targetsSave")}</button>
-        </div>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="formGrid targetSettings">
+            <Field label={t("targetsCash")} unit="%" hint={fill(t("targetsCashHint"), { share: pct(data.cashWeight, locale, 1) })}
+              {...(read.problem === "cash" && shown ? { error: shown } : {})}>
+              {(props) => <input {...props} inputMode="decimal" autoComplete="off" placeholder={share(Math.max(0, 100 - read.total)).replace(/\s?%$/, "")} value={form.cash} onChange={(event) => setForm({ ...form, cash: event.target.value })} />}
+            </Field>
+            <Field label={t("targetsThreshold")} unit={t("targetsPoints")} hint={t("targetsThresholdHint")}
+              {...(read.problem === "threshold" && shown ? { error: shown } : {})}>
+              {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={form.threshold} onChange={(event) => setForm({ ...form, threshold: event.target.value })} />}
+            </Field>
+          </div>
+          <label className="toggleField targetToggle">
+            <input type="checkbox" checked={form.sell} onChange={(event) => setForm({ ...form, sell: event.target.checked })} />
+            <span className="toggleTrack"><span /></span>
+            <span>{t("targetsSellToggle")}</span>
+          </label>
+          <p className={`targetTotal${read.problem === "over" ? " over" : ""}`}>
+            {fill(t("targetsTotal"), { targets: share(read.total), cash: share(read.cash), total: share(read.total + read.cash) })}
+            {left >= 0.05 && !read.problem && <> {fill(t(form.sell ? "targetsLeftSold" : "targetsLeftKept"), { share: share(left) })}</>}
+          </p>
+          {shown && read.problem !== "cash" && read.problem !== "threshold" && <p className="fieldError targetError" id={errorId} role="alert">{shown}</p>}
+          <div className="alertFormActions">
+            {onClear && <button type="button" className="secondaryButton targetClear" onClick={() => void clear()}>{t(confirmClear ? "targetsClearConfirm" : "targetsClear")}</button>}
+            <button type="button" className="secondaryButton" onClick={onClose}>{t("cancel")}</button>
+            <button type="submit" className="primaryButton" aria-disabled={Boolean(shown) || undefined}>{busy ? t("saving") : t("targetsSave")}</button>
+          </div>
+        </fieldset>
       </form>
     </section>
   );
