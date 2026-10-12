@@ -645,9 +645,10 @@ export class TradingService {
       if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
       positiveNumber("stopLossPrice", sizing.stopLossPrice);
       if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
-      const entry = referencePrice
-        ?? (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : undefined)
+      // The order's own price is where it buys, so it wins over a reference price; that is for Market orders.
+      const entry = (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : undefined)
         ?? (intent.type === "stop" ? intent.stopPrice : undefined)
+        ?? referencePrice
         ?? position?.currentPrice;
       positiveNumber("referencePrice", entry);
       if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
@@ -680,7 +681,8 @@ export class TradingService {
       quantity = floorQuantity(budget * rate / perShareQuote);
       // Never more than the cash can buy: the budget is what the stop may lose, not what the buy may cost.
       const cash = account.cash?.availableToTrade;
-      const affordable = typeof cash === "number" ? floorQuantity(Math.max(0, cash) * rate / entry) : Infinity;
+      if (typeof cash !== "number" || !Number.isFinite(cash)) throw new Error("The available cash is unknown, so a risk-sized buy cannot be capped; size it by quantity or amount instead");
+      const affordable = floorQuantity(Math.max(0, cash) * rate / entry);
       const cashCapped = quantity > affordable;
       if (cashCapped) quantity = affordable;
       if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
@@ -689,7 +691,7 @@ export class TradingService {
       risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...(cashCapped ? { cashCapped } : {}) };
       const loss = quantity * perShareQuote / rate;
       note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round(estimatedQuoteNotional, 2)} ${instrumentCurrency}.`
-        + (cashCapped ? ` That is all the available cash (${(cash as number).toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "")
+        + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "")
         + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");

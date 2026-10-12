@@ -1,4 +1,4 @@
-import type { OrderDraft, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
+import type { OrderDraft, OrderResolution, OrderSizing, PendingOrder, Position, TradingEnvironment } from "../../shared/contracts";
 import type { StopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { amount, money, pct, qty } from "./format";
@@ -93,4 +93,27 @@ export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | unde
   const loss = draft.quantity * (entry - stop) * (risk.perShare / (risk.entryPrice - stop));
   // A cent of rounding is not over the budget.
   return { ...base, loss, over: loss > risk.budget + 0.005 };
+}
+
+/** Sizing that reads the account (its cash, value or holding), so another account needs it worked out again. */
+const ACCOUNT_SIZING: ReadonlySet<OrderSizing["mode"]> = new Set(["cash_percent", "position_percent", "all_available", "risk"]);
+
+/**
+ * The intent to size a draft again for another account, or undefined when its quantity carries over (an exact
+ * quantity or an amount). The order's own fields come from the draft as edited; its reference price does not,
+ * since that account's last price or quote is read afresh.
+ */
+export function intentForAccount(draft: OrderDraft, resolution: OrderResolution | undefined, environment: TradingEnvironment): Record<string, unknown> | undefined {
+  if (!resolution || !ACCOUNT_SIZING.has(resolution.sizing.mode)) return undefined;
+  return {
+    environment,
+    instrument: draft.ticker,
+    side: draft.side,
+    type: draft.type,
+    sizing: resolution.sizing,
+    ...(draft.limitPrice === undefined ? {} : { limitPrice: draft.limitPrice }),
+    ...(draft.stopPrice === undefined ? {} : { stopPrice: draft.stopPrice }),
+    ...(draft.timeValidity === undefined ? {} : { timeValidity: draft.timeValidity }),
+    ...(draft.extendedHours === undefined ? {} : { extendedHours: draft.extendedHours }),
+  };
 }

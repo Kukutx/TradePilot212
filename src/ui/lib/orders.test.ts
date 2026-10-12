@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OrderDraft, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { createTranslator } from "../i18n";
-import { riskAtStop, stopCoverageText, summarizeOrder } from "./orders";
+import { intentForAccount, riskAtStop, stopCoverageText, summarizeOrder } from "./orders";
 
 const apple = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", type: "STOCK" };
 const positions = [{ instrument: apple, quantity: 10, averagePricePaid: 150, currentPrice: 200 }] as unknown as Position[];
@@ -53,5 +53,20 @@ describe("risk at the stop", () => {
   it("is only for risk-sized drafts", () => {
     expect(riskAtStop(draft, undefined)).toBeUndefined();
     expect(riskAtStop(draft, { sizing: { mode: "quantity", quantity: 2 }, resolvedQuantity: 2 })).toBeUndefined();
+  });
+});
+
+describe("switching accounts", () => {
+  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "limit", quantity: 7, limitPrice: 208, timeValidity: "DAY", referencePrice: 216 };
+  it("sizes again what depends on the account, with the draft's own prices", () => {
+    const risk: OrderResolution = { sizing: { mode: "risk", percent: 1, stopLossPrice: 200 }, resolvedQuantity: 2 };
+    expect(intentForAccount(draft, risk, "live")).toEqual({ environment: "live", instrument: "AAPL_US_EQ", side: "buy", type: "limit", sizing: risk.sizing, limitPrice: 208, timeValidity: "DAY" });
+    expect(intentForAccount(draft, { sizing: { mode: "cash_percent", percent: 10 }, resolvedQuantity: 2 }, "live")).toMatchObject({ sizing: { mode: "cash_percent" } });
+  });
+
+  it("keeps a quantity or an amount as it is", () => {
+    expect(intentForAccount(draft, { sizing: { mode: "quantity", quantity: 7 }, resolvedQuantity: 7 }, "live")).toBeUndefined();
+    expect(intentForAccount(draft, { sizing: { mode: "notional", amount: 100 }, resolvedQuantity: 0.5 }, "live")).toBeUndefined();
+    expect(intentForAccount(draft, undefined, "live")).toBeUndefined();
   });
 });

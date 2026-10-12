@@ -27,6 +27,7 @@ import { ErrorCard, Icon, SkeletonView } from "./components/common";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
+import { intentForAccount } from "./lib/orders";
 import { PortfolioView } from "./views/PortfolioView";
 import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
@@ -512,7 +513,13 @@ export default function App() {
     setInsightError(null);
     if (draft) setDraft({ ...draft, environment: next });
     if (base?.kind === "order_draft") {
-      setBase({ ...base, draft: { ...base.draft, environment: next } });
+      // A quantity sized from this account's cash, value or holding is worked out again for the other one.
+      const intent = intentForAccount(draft ?? base.draft, base.resolution, next);
+      if (intent && await run("errorTitleOrderCheck", async () => showPayload(await callTool<BasePayload>("review_trading212_order_intent", intent)))) return;
+      const moved = { ...base, draft: { ...base.draft, environment: next } };
+      // Without a fresh sizing the old one no longer applies, so the draft keeps only its quantity.
+      if (intent) delete moved.resolution;
+      setBase(moved);
       return;
     }
     await refresh(next);

@@ -35780,7 +35780,7 @@ var TradingService = class {
       if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
       positiveNumber("stopLossPrice", sizing.stopLossPrice);
       if (sizing.amount === void 0 === (sizing.percent === void 0)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
-      const entry = referencePrice ?? (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : void 0) ?? (intent.type === "stop" ? intent.stopPrice : void 0) ?? position?.currentPrice;
+      const entry = (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : void 0) ?? (intent.type === "stop" ? intent.stopPrice : void 0) ?? referencePrice ?? position?.currentPrice;
       positiveNumber("referencePrice", entry);
       if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
       referencePrice ??= entry;
@@ -35811,7 +35811,8 @@ var TradingService = class {
       const perShareQuote = entry - sizing.stopLossPrice;
       quantity = floorQuantity(budget * rate / perShareQuote);
       const cash = account.cash?.availableToTrade;
-      const affordable = typeof cash === "number" ? floorQuantity(Math.max(0, cash) * rate / entry) : Infinity;
+      if (typeof cash !== "number" || !Number.isFinite(cash)) throw new Error("The available cash is unknown, so a risk-sized buy cannot be capped; size it by quantity or amount instead");
+      const affordable = floorQuantity(Math.max(0, cash) * rate / entry);
       const cashCapped = quantity > affordable;
       if (cashCapped) quantity = affordable;
       if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");

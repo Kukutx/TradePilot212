@@ -342,6 +342,10 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const vusa = await service.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "limit", limitPrice: 8400, sizing: { mode: "risk", amount: 40, stopLossPrice: 8000 } });
     expect(vusa.draft.quantity).toBe(8.475);
     expect(vusa.risk?.entryPrice).toBe(8400);
+    // A reference price is for Market orders; a limit buys at its limit, so a lower reference does not inflate the size.
+    const referenced = await service.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "limit", limitPrice: 8400, referencePrice: 8200, sizing: { mode: "risk", amount: 40, stopLossPrice: 8000 } });
+    expect(referenced.draft.quantity).toBe(8.475);
+    expect(referenced.risk?.entryPrice).toBe(8400);
     // 300 EUR at 6 USD a share would be 54 shares, but 1000 EUR of cash buys 5.
     const capped = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", amount: 300, stopLossPrice: 210 } });
     expect(capped.draft.quantity).toBe(5);
@@ -357,6 +361,15 @@ describe("currencies, uncertain results and Live confirmations", () => {
     await expect(intent({ percent: 1, amount: 30 })).rejects.toThrow(/either amount .* or percent/);
     await expect(intent({})).rejects.toThrow(/either amount .* or percent/);
     await expect(intent({ percent: 1, stopLossPrice: 220 })).rejects.toThrow(/must be below the entry price \(216 USD\)/);
+    // Without the available cash there is nothing to cap the buy at, so it is refused rather than left unlimited.
+    const base = fxFetch();
+    const noCash = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/account/summary")) return new Response(JSON.stringify({ currency: "EUR", totalValue: 3000 }), { status: 200, headers: { "content-type": "application/json" } });
+      return base(input, init);
+    }) as typeof fetch;
+    const blind = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: noCash });
+    await expect(blind.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } })).rejects.toThrow(/available cash is unknown/);
   });
 
   it("carries a rate given for the account currency on the draft", async () => {
