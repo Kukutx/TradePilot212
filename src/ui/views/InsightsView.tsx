@@ -5,6 +5,7 @@ import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
 import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
+import { DividendCalendar } from "../components/dividend-calendar";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -413,6 +414,12 @@ export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
           <Metric label={t("interest")} value={m(data.interest)} />
         </div>
       </section>
+      {data.forwardAnnual?.calendar && data.forwardAnnual.upcoming && (
+        <section className="dataPanel">
+          <DividendCalendar calendar={data.forwardAnnual.calendar} upcoming={data.forwardAnnual.upcoming} total={data.forwardAnnual.total} today={data.timestamp}
+            currency={currency} book={book} locale={locale} t={t} />
+        </section>
+      )}
       <section className="dataPanel">
         {data.byMonth.length === 0 ? <div className="emptyState compact">{t("noData")}</div> : (
           <ColumnChart title={t("incomeByMonth")} nameHeader={t("monthColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)}

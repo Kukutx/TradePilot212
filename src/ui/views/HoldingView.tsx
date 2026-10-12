@@ -324,9 +324,10 @@ export function HoldingView({
             form={<JournalForm t={t} busy={busy} onCancel={() => setNoteForm(null)} onSave={saveNote} />} />
           <section className="dataPanel">
             <div className="pieHeader">
-              <h2>{t("holdingDividendsTitle")}</h2>
+              <h2>{fill(t("holdingDividendsTitle"), { date: dayLabel(data.history.dividendsFrom ?? data.history.from, locale) })}</h2>
               {data.history.dividendCount > 0 && <span className="panelTotal">{fill(t("holdingDividendsTotal"), { total: money(data.history.dividendTotal, currency, locale) })}</span>}
             </div>
+            {data.history.nextDividends && <NextDividends payments={data.history.nextDividends} frequency={data.history.dividendFrequency} today={data.timestamp} currency={currency} locale={locale} t={t} />}
             {data.history.dividends.length === 0 ? <div className="emptyState compact">{t("holdingNoDividends")}</div> : (
               <ul className="historyList">
                 {data.history.dividends.map((item, index) => (
@@ -419,5 +420,35 @@ function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, o
       )}
       {truncated && <p className="panelNote">{t("holdingHistoryTruncated")}</p>}
     </section>
+  );
+}
+
+const FREQUENCY: Record<52 | 26 | 12 | 4 | 2 | 1, MessageKey> = {
+  52: "dividendWeekly", 26: "dividendFortnightly", 12: "dividendMonthly", 4: "dividendQuarterly", 2: "dividendHalfYearly", 1: "dividendYearly",
+};
+
+/** The holding's expected payments over the next 12 months, the soonest four, apart from the ones it paid. */
+function NextDividends({ payments, frequency, today, currency, locale, t }: {
+  payments: Array<{ on: string; amount: number }>;
+  frequency: 52 | 26 | 12 | 4 | 2 | 1 | undefined;
+  today: string;
+  currency: string;
+  locale: SupportedLocale;
+  t: Translator;
+}) {
+  const day = today.slice(0, 10);
+  return (
+    <div className="nextDividends">
+      <h3>{t("holdingNextDividends")}{frequency && <small className="headingDetail"> · {t(FREQUENCY[frequency])}</small>}</h3>
+      <ul className="historyList">
+        {payments.slice(0, 4).map((payment) => (
+          <li key={payment.on}>
+            <div><strong>{fill(t(payment.on < day ? "dividendDue" : "dividendAbout"), { date: dayLabel(payment.on, locale, { year: payment.on.slice(0, 4) !== day.slice(0, 4) }) })}</strong></div>
+            <strong className="historyAmount expectedAmount">{fill(t("aboutAmount"), { amount: money(payment.amount, currency, locale) })}</strong>
+          </li>
+        ))}
+      </ul>
+      <p className="panelNote">{t("holdingNextNote")}</p>
+    </div>
   );
 }

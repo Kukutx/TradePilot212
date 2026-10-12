@@ -36931,6 +36931,119 @@ var TradingService = class {
   }
 };
 
+// src/core/dividends.ts
+var DAY = 864e5;
+var SAME_PAYDAY_DAYS = 10;
+var SAME_PAYDAY_DAYS_WEEKLY = 3;
+function addMonths(at, months) {
+  const date5 = new Date(at);
+  const month = date5.getUTCMonth() + months;
+  const last = new Date(Date.UTC(date5.getUTCFullYear(), month + 1, 0)).getUTCDate();
+  return Date.UTC(date5.getUTCFullYear(), month, Math.min(date5.getUTCDate(), last));
+}
+var monthStart = (at) => {
+  const date5 = new Date(at);
+  return Date.UTC(date5.getUTCFullYear(), date5.getUTCMonth(), 1);
+};
+var dayStart = (at) => Math.floor(at / DAY) * DAY;
+var monthEnd = (at) => {
+  const date5 = new Date(at);
+  return Date.UTC(date5.getUTCFullYear(), date5.getUTCMonth() + 1, 0);
+};
+var scheduleStart = (now) => addMonths(monthStart(now), -12);
+function paydayPerShare(entries) {
+  if (entries.length === 1) return entries[0].perShare;
+  const quantities = new Set(entries.map((entry) => entry.quantity));
+  if (quantities.size > 1 && entries.every((entry) => entry.amount !== void 0 && entry.quantity)) {
+    return entries.reduce((sum, entry) => sum + entry.amount, 0) / entries.reduce((sum, entry) => sum + entry.quantity, 0);
+  }
+  return entries.reduce((sum, entry) => sum + entry.perShare, 0);
+}
+function paydays(entries, days) {
+  const groups = [];
+  for (const item of entries) {
+    const group = groups[groups.length - 1];
+    if (group && item.at - group[0].at <= days * DAY) group.push(item);
+    else groups.push([item]);
+  }
+  const result2 = [];
+  for (const group of groups) {
+    const perShare = paydayPerShare(group);
+    if (perShare > 0) result2.push({ at: group[0].at, perShare });
+    else if (result2.length) result2[result2.length - 1].perShare += perShare;
+  }
+  return result2.filter((day2) => day2.perShare > 0);
+}
+var spacings = (payments) => payments.slice(1).map((item, index) => (item.at - payments[index].at) / DAY).sort((a, b) => a - b);
+function dividendSchedule(paid) {
+  const entries = [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at);
+  const close = paydays(entries, SAME_PAYDAY_DAYS_WEEKLY);
+  const closeGaps = spacings(close);
+  const weekly = close.length >= 6 && closeGaps.filter((gap2) => gap2 < 21).length >= closeGaps.length * 0.75;
+  const payments = weekly ? close : paydays(entries, SAME_PAYDAY_DAYS);
+  if (!payments.length) return void 0;
+  const gaps = weekly ? closeGaps : spacings(payments);
+  const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
+  const frequency = gap === void 0 ? void 0 : weekly ? gap < 10 ? 52 : 26 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+  const count = frequency ?? 1;
+  const recent = payments.slice(-count);
+  const sum = recent.reduce((total, item) => total + item.perShare, 0);
+  const ends = payments.filter((item) => monthEnd(dayStart(item.at)) === dayStart(item.at)).length;
+  return {
+    payments,
+    ...frequency ? { frequency } : {},
+    annualPerShare: recent.length < count ? sum * count / recent.length : sum,
+    ...ends >= 2 && ends >= payments.length * 0.75 ? { monthEnd: true } : {}
+  };
+}
+function stepper(last, frequency, atMonthEnd) {
+  const from = dayStart(last);
+  if (frequency >= 26) {
+    const days = 364 / frequency;
+    return { step: (k) => from + k * days * DAY, days, yearBefore: (at) => at - 364 * DAY };
+  }
+  const months = 12 / frequency;
+  return {
+    step: (k) => atMonthEnd ? monthEnd(addMonths(monthStart(from), k * months)) : addMonths(from, k * months),
+    days: months * 30.44,
+    yearBefore: (at) => addMonths(at, -12)
+  };
+}
+function splitCents(total, shares) {
+  const scale = shares.reduce((sum, share3) => sum + share3, 0);
+  let running = 0;
+  let previous = 0;
+  return shares.map((share3) => {
+    running += share3;
+    const cents = Math.round(running / scale * total * 100);
+    const amount2 = (cents - previous) / 100;
+    previous = cents;
+    return amount2;
+  });
+}
+function expectedPayments(schedule, quantity, from, until = Number.POSITIVE_INFINITY) {
+  const annual = Math.round(schedule.annualPerShare * quantity * 100) / 100;
+  if (!(annual > 0)) return [];
+  const count = schedule.frequency ?? 1;
+  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1].at, schedule.frequency ?? 1, schedule.monthEnd === true);
+  let first = 1;
+  while (step(first) < from) first++;
+  const dates = Array.from({ length: count }, (_, index) => step(first + index));
+  const average = schedule.payments.reduce((total2, item) => total2 + item.perShare, 0) / schedule.payments.length;
+  const weights = dates.map((at) => {
+    const before = yearBefore(at);
+    let match;
+    for (const item of schedule.payments) {
+      const distance = Math.abs(dayStart(item.at) - before);
+      if (distance <= days / 2 * DAY && (!match || distance < Math.abs(dayStart(match.at) - before))) match = item;
+    }
+    return match?.perShare ?? average;
+  });
+  const total = weights.reduce((sum, weight2) => sum + weight2, 0);
+  const amounts = splitCents(annual, weights.map((weight2) => annual * weight2 / total));
+  return dates.flatMap((at, index) => at < until && amounts[index] > 0 ? [{ at, amount: amounts[index] }] : []);
+}
+
 // src/core/analytics.ts
 var DEFAULT_ALLOCATION_LIMITS = {
   maxSingleWeight: 0.2,
@@ -37200,34 +37313,45 @@ function summarizePerformance(input2) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function forwardDividends(dividends, positions, to) {
-  const yearAgo = new Date(to.getTime() - 365 * 864e5);
+function forwardDividends(dividends, positions, to, now = to) {
+  const read = { from: new Date(scheduleStart(to.getTime())), to };
   const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
-    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
+    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
   }
-  const perShare = /* @__PURE__ */ new Map();
-  for (const [ticker, list2] of payments) {
-    const sum = list2.reduce((total2, item) => total2 + item.perShare, 0);
-    const times = list2.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
-    const gaps = times.slice(1).map((time3, index) => (time3 - times[index]) / 864e5).filter((days) => days > 10).sort((a, b) => a - b);
-    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
-    const frequency = gap === void 0 ? void 0 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
-    perShare.set(ticker, frequency && list2.length < frequency ? sum * frequency / list2.length : sum);
-  }
+  const start = monthStart(to.getTime());
+  const end = addMonths(start, 12);
+  const current = start === monthStart(now.getTime());
   const byTicker = [];
+  const upcoming = [];
   let value = 0;
   for (const position of positions) {
     const ticker = position.instrument?.ticker;
     value += positionValue(position);
-    const rate = ticker ? perShare.get(ticker) : void 0;
-    if (rate && position.quantity > 0) byTicker.push({ key: ticker, amount: round4(rate * position.quantity) });
+    const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : void 0;
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
+    byTicker.push({ key: ticker, amount: round4(schedule.annualPerShare * position.quantity) });
+    if (current) upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
   }
   byTicker.sort((a, b) => b.amount - a.amount);
+  upcoming.sort((a, b) => a.at - b.at || b.amount - a.amount);
   const total = round4(byTicker.reduce((sum, item) => sum + item.amount, 0));
-  return { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+  const forward = { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+  if (!current) return forward;
+  const monthKey2 = (at) => new Date(at).toISOString().slice(0, 7);
+  const paid = dividends.filter((item) => inWindow(item.paidOn, { from: new Date(start), to })).reduce((sum, item) => sum + (item.amount ?? 0), 0);
+  const calendar = Array.from({ length: 12 }, (_, index) => {
+    const month = monthKey2(addMonths(start, index));
+    const expected = upcoming.filter((payment) => monthKey2(payment.at) === month).reduce((sum, payment) => sum + payment.amount, 0);
+    return { month, paid: index === 0 ? round4(paid) : 0, expected: round4(expected) };
+  });
+  return {
+    ...forward,
+    calendar,
+    upcoming: upcoming.map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }))
+  };
 }
 function summarizeIncome(input2) {
   const events = [
@@ -37250,7 +37374,7 @@ function summarizeIncome(input2) {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round4(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
+    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to, input2.now ?? input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -37525,7 +37649,7 @@ var InsightsService = class {
   async income(environment, window, maxPages) {
     const client = this.client(environment);
     const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
-    const yearAgo = new Date(window.to.getTime() - 365 * 864e5);
+    const yearAgo = new Date(Math.min(window.to.getTime() - 365 * 864e5, scheduleStart(window.to.getTime())));
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
@@ -37536,7 +37660,8 @@ var InsightsService = class {
       dividends: dividends.items,
       transactions: transactions.items,
       positions,
-      truncated: dividends.truncated || transactions.truncated
+      truncated: dividends.truncated || transactions.truncated,
+      now: /* @__PURE__ */ new Date()
     });
   }
   /**
@@ -38421,7 +38546,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.37.0"
+  version: "2.38.0"
 };
 
 // src/shared/prices.ts
@@ -38766,7 +38891,8 @@ function holding(data) {
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...history ? [
       ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
-      `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`
+      `Dividends since ${(history.dividendsFrom ?? history.from).slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
+      ...history.nextDividends ? [`Expected next dividends${history.dividendFrequency ? ` (${FREQUENCY_TEXT[history.dividendFrequency]})` : ""}, at today's quantity, dates approximate: ${history.nextDividends.slice(0, 4).map((payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`} ${money2(payment.amount, c)}`).join("; ")}.`] : []
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
 }
@@ -38780,11 +38906,21 @@ function taxYear(data) {
     ...data.notes
   ];
 }
+var FREQUENCY_TEXT = { 52: "weekly", 26: "every two weeks", 12: "monthly", 4: "quarterly", 2: "twice a year", 1: "once a year" };
 function income(data) {
   const c = data.accountCurrency;
   return [
     `Period ${data.period.from ? day(data.period.from) : "all history"} to ${day(data.period.to)}: ${money2(data.total, c)} (dividends ${num2(data.dividends)}, interest ${num2(data.interest)}); trailing 12 months ${num2(data.trailing12Months)}.`,
     ...data.forwardAnnual ? [`Expected next 12 months from current holdings: ${num2(data.forwardAnnual.total)}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${pct(data.forwardAnnual.yieldOnValue, 2)} of their value)`}; net of withholding tax, from the last year's payments.`] : [],
+    ...data.forwardAnnual?.calendar ? section("Dividend calendar, this month and the next 11 (each holding's usual spacing from its last payment, at today's quantity)", rows(
+      data.forwardAnnual.calendar.filter((month) => month.paid || month.expected),
+      (month) => `${month.month}: ${month.paid ? `paid ${num2(month.paid)}, ` : ""}expected ${num2(month.expected)}`
+    )) : [],
+    ...data.forwardAnnual?.upcoming ? section(`Next payments (${data.forwardAnnual.upcoming.length}, dates approximate)`, rows(
+      data.forwardAnnual.upcoming,
+      (payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`}: ${payment.ticker} ${num2(payment.amount)}`,
+      10
+    )) : [],
     ...section("By instrument", rows(data.byTicker.slice(0, 12), (item) => `${item.key}: ${num2(item.amount)}`)),
     ...section("By month", rows(data.byMonth.slice(-12), (item) => `${item.key}: ${num2(item.amount)}`)),
     ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []
@@ -39489,9 +39625,10 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const total = dashboard.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS7) * DAY_MS7 - 365 * DAY_MS7), to: now };
+  const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
   const historyRead = Promise.all([
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
-    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
+    deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
   const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
   const subjectRead = listed ? Promise.resolve(listed) : deps.trading.instruments(environment).catch(() => []).then((list2) => ({ ...position.instrument, ...list2.find((item) => item.ticker === ticker) }));
@@ -39528,6 +39665,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
+  const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }] : [])) : void 0;
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS7) : [];
   const moved = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
     environment,
     now,
@@ -39564,6 +39703,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...Array.isArray(history) ? {
       history: {
         from: window.from.toISOString(),
+        dividendsFrom: dividendWindow.from.toISOString(),
         fills: listedFills.map((fill) => ({
           ...fill.orderId ? { orderId: fill.orderId } : {},
           ...fill.filledAt ? { filledAt: fill.filledAt } : {},
@@ -39589,7 +39729,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
         dividendTotal: history[1].totals.DIVIDEND ?? 0,
         dividendCount: history[1].count,
         fillsTruncated: history[0].truncated,
-        dividendsTruncated: history[1].truncated
+        dividendsTruncated: history[1].truncated,
+        ...nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {},
+        ...nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}
       }
     } : { historyProblem: history.message },
     ...prices && "prices" in prices ? { prices: prices.prices } : prices ? { pricesMissing: prices.missing, pricesProblem: prices.problem } : {},
@@ -40327,7 +40469,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_income_summary",
     {
       title: "Dividend and Interest Income",
-      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income. Read-only.",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -40335,7 +40477,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.` : ""}`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -40462,7 +40604,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_holding_detail",
     {
       title: "Trading 212 Holding Detail",
-      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
+      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills, the dividends since the first day of this month a year ago with the next ones expected, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }

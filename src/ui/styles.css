@@ -1143,3 +1143,31 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 @media (forced-colors: active) {
   .mapTile { border: 1px solid CanvasText; }
 }
+
+/* ---- Dividend calendar: paid so far solid, expected hatched ---- */
+.calendarStack { width: min(100%, 28px); display: flex; flex-direction: column; gap: 2px; }
+.calendarStack > span { min-height: 2px; flex-basis: 0; }
+.calendarPaid { background: var(--tp-chart); }
+.calendarExpected { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--tp-chart) 42%, var(--tp-bg)) 0 4px, color-mix(in srgb, var(--tp-chart) 20%, var(--tp-bg)) 4px 7px);
+  box-shadow: inset 0 0 0 1px var(--tp-chart); }
+.calendarStack > span:first-child { border-radius: 4px 4px 0 0; }
+.column:hover .calendarStack { filter: brightness(1.08); }
+.calendarLegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 30px 0 0; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.calendarLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.calendarLegend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+.dividendCalendar.chartFigure:has(.columnChart) { padding-bottom: 0; }
+.upcomingDividends { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--tp-border); }
+.upcomingDividends h3, .nextDividends h3 { margin: 0 0 4px; font-size: 14px; font-weight: 730; letter-spacing: -.01em; }
+.upcomingDividends .linkButton { margin-top: 6px; }
+.upcomingDividends .panelNote { margin-top: 10px; }
+.dividendCalendar .calendarShort { margin: 8px 0 0; font-size: 12px; }
+.expectedAmount { color: var(--tp-muted); font-weight: 650; white-space: nowrap; }
+.nextDividends { margin: 0 0 14px; padding: 10px 12px; border: 1px dashed var(--tp-border); border-radius: 12px; }
+.nextDividends .historyList li { padding: 7px 0; }
+.nextDividends .panelNote { margin: 6px 0 0; font-size: 12px; }
+@media (forced-colors: active) {
+  .calendarPaid { background: CanvasText; }
+  .calendarExpected { background: Canvas; border: 1px dashed CanvasText; }
+}
+.nextDividends h3 .headingDetail { color: var(--tp-muted); font-size: 12px; font-weight: 650; letter-spacing: 0; }
+.calendarLegend .calendarRange { color: var(--tp-text); font-weight: 650; }

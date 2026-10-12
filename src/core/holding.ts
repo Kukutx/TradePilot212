@@ -6,6 +6,7 @@ import type { HoldingDetail } from "../shared/holding.js";
 import type { JournalEntry } from "../shared/journal.js";
 import type { PriceAlerts } from "./alerts.js";
 import { marketStatus } from "./analytics.js";
+import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart } from "./dividends.js";
 import { asStructuredError } from "./errors.js";
 import { knownFxRates } from "./fx.js";
 import type { InsightsService } from "./insights-service.js";
@@ -50,7 +51,7 @@ export interface HoldingDeps {
 
 /**
  * One instrument: the position (if held), its share of the account and saved target, open orders,
- * price alerts, journal notes, market session, the last 12 months of fills and dividends, and of daily closes.
+ * price alerts, journal notes, market session, the last 12 months of fills and of daily closes, and the dividends since the first day of this month a year ago.
  * A failed history or price read leaves the rest in place and says why.
  */
 export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvironment, query: string, now = new Date()): Promise<HoldingDetail> {
@@ -74,9 +75,11 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const total = dashboard.account?.totalValue;
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
+  // Dividends from the first day of this month a year ago, so last year's payment due again this month is seen.
+  const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
   const historyRead = Promise.all([
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
-    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
+    deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
   ]).catch((error: unknown) => asStructuredError(error));
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
     ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
@@ -126,6 +129,14 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   // quoted price does not move before the open, so the day of one not held is the last session until it opens.
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
+  // A holding's next year of dividends from its spacing (the newest MAX_DIVIDENDS payments: a monthly payer's year),
+  // from the start of this month so one due and not paid yet still shows.
+  const schedule = position && position.quantity > 0 && Array.isArray(history)
+    ? dividendSchedule(history[1].items.flatMap((item) => (item.quantity && item.quantity > 0 && item.amount
+      ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]
+      : [])))
+    : undefined;
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS) : [];
   const moved = prices && "prices" in prices
     ? await dayMove({ priceHistory: async () => prices, ...(deps.closes ? { closes: deps.closes } : {}) }, {
         environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {},
@@ -164,6 +175,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
       ? {
           history: {
             from: window.from.toISOString(),
+            dividendsFrom: dividendWindow.from.toISOString(),
             fills: listedFills.map((fill) => ({
               ...(fill.orderId ? { orderId: fill.orderId } : {}),
               ...(fill.filledAt ? { filledAt: fill.filledAt } : {}),
@@ -192,6 +204,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             dividendCount: history[1].count,
             fillsTruncated: history[0].truncated,
             dividendsTruncated: history[1].truncated,
+            ...(nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {}),
+            ...(nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}),
           },
         }
       : { historyProblem: history.message }),

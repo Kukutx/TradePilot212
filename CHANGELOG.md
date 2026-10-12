@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.38.0
+
+- A dividend calendar. The Income tab shows this month and the next 11: what was paid so far this month and what each month is expected to bring, from each holding's payments over the last year at the quantity held now, then the payments themselves soonest first, with their approximate dates and amounts. A payment due this month that has not come yet says so.
+- Dates follow each holding's own spacing (monthly to yearly, or every week or two where its paydays bear that out), stepped on from its last payment, and keep to month ends for holdings that pay then; a payment is as large as the one a year before it, so a small interim and a large final dividend stay so, and the year's payments add up to its total to the cent.
+- A holding's page lists its next four expected dividends and how often it pays, and its dividends now run from the first day of this month a year ago (the title gives the date). `get_income_summary` returns the calendar and the payments (`forwardAnnual.calendar`, `forwardAnnual.upcoming`) while the period ends this month, `get_holding_detail` returns `nextDividends` and `dividendFrequency`, and both say them in their text.
+- The expected 12-month total reads payments from the first day of this month a year ago, so a yearly or half-yearly payment due this month and a few days late is no longer missing from it, and it takes only the newest year's paydays, so a year read with one payment twice no longer counts it twice. Entries within ten days of a payday count as part of it, and a correction counts against the payday before it.
+
 ## 2.37.0
 
 - A map of the holdings. The dashboard's Positions panel switches between the table and a map: one tile per holding, its area its value, coloured green or red by its move on the day or its return since bought, stronger the further it moved. Each tile shows the symbol, the move and the amount as far as it fits, gives its full description on hover and to screen readers, and opens the holding. The colour scale ends where most holdings' moves do, so one big mover does not wash out the rest; the text stays in the text colour with its sign, and a holding without a figure is hatched. On a phone the map is near square.

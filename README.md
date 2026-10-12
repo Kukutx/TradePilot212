@@ -40,7 +40,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans, rebalancing and the journal review
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
-- expected dividend income for the next 12 months from each holding's trailing payments
+- expected dividend income for the next 12 months from each holding's trailing payments, as a dividend calendar (paid this month and expected per month) with each payment's approximate date, and a holding's next payments on its page
 - an account value chart from TradePilot's own daily record (Trading 212's API has no value history)
 - your time-weighted return against an index fund's over the same days, the S&P 500 by default or any ETF you hold or watch, as a second line on the return chart with the gap in percentage points ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - an annualized money-weighted return (XIRR) and a tax-year summary with realised gains and losses kept apart, dividends, interest and costs ([docs/ANALYTICS.md](./docs/ANALYTICS.md))

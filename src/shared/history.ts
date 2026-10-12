@@ -286,11 +286,23 @@ export interface IncomeSummary {
   byTicker: MoneyBucket[];
   trailing12Months: number;
   /**
-   * Expected dividends over the next 12 months if each holding pays what it paid per share over the
-   * last 12 months. Per-share amounts come from the broker's net payments, so they are after
+   * Expected dividends over the next 12 months if each holding pays what it paid per share over its
+   * last year of paydays. Per-share amounts come from the broker's net payments, so they are after
    * withholding tax and already in the account currency.
    */
-  forwardAnnual?: { total: number; byTicker: MoneyBucket[]; yieldOnValue: number | null };
+  forwardAnnual?: {
+    total: number;
+    byTicker: MoneyBucket[];
+    yieldOnValue: number | null;
+    /**
+     * The dividend calendar: this month and the next 11 (keys YYYY-MM), each with what was paid so far and what is
+     * expected. Each holding's payments follow its usual spacing from its last payment, at the current quantity.
+     * Absent for a period that ends in another month (and from results before 2.38).
+     */
+    calendar?: Array<{ month: string; paid: number; expected: number }>;
+    /** The expected payments in the calendar, soonest first; `on` (YYYY-MM-DD) is about when, and may have passed this month. */
+    upcoming?: Array<{ ticker: string; on: string; amount: number }>;
+  };
   truncated: boolean;
   timestamp: string;
 }
