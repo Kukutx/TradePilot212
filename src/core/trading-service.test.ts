@@ -351,6 +351,7 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const low = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 210, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     expect(low.draft.quantity).toBe(2.025);
     expect(low.risk?.entryPrice).toBe(216);
+    expect(low.draft.referencePrice).toBe(216);
     // A Stop the price has already passed triggers at once, so it is sized from the last price too...
     const passed = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "stop", stopPrice: 210, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     expect(passed.risk?.entryPrice).toBe(216);
@@ -373,9 +374,12 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const market = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", referencePrice: 210, sizing: risk });
     expect(market.risk).toMatchObject({ entryPrice: 216, currentPrice: 216 });
     expect(market.draft.quantity).toBe(2.025);
+    // The draft carries the quote, so the review values the order at it rather than at 210.
+    expect(market.draft).toMatchObject({ referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" });
     // A Stop at 210 has been passed, so it fills near the quote too.
     const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 210, sizing: risk });
     expect(stop.risk?.entryPrice).toBe(216);
+    expect(stop.draft.referencePrice).toBe(216);
   });
 
   it("refuses risk sizing that cannot work", async () => {

@@ -581,10 +581,12 @@ export class TradingService {
     // near the quote, and when that is higher the loss at the stop is larger.
     const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
     let quotePrice: number | undefined;
+    let quoteAt: string | undefined;
     if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
       if (quote) {
         quotePrice = quote.price;
+        quoteAt = quote.asOf;
         if (needsPrice) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
       }
     }
@@ -665,8 +667,15 @@ export class TradingService {
         : intent.type === "stop" ? highest(intent.stopPrice, current)
         : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
-      referencePrice ??= entry;
+      if (intent.type === "limit" || intent.type === "stop_limit") {
+        if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
+        referencePrice ??= entry;
+      } else if (entry !== referencePrice) {
+        // The draft carries the entry, so the review values the order and checks the limits at it too, not at
+        // a lower price given or the trigger. Its time is the holding's or the quote's.
+        referencePriceAt = entry === position?.currentPrice ? fetchedAt : entry === quotePrice ? quoteAt : undefined;
+        referencePrice = entry;
+      }
       if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
       const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
       const instrumentCurrency = instrument.currencyCode.toUpperCase();

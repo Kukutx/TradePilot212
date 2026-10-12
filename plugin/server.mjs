@@ -35719,10 +35719,12 @@ var TradingService = class {
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
     const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
     let quotePrice;
+    let quoteAt;
     if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
       if (quote) {
         quotePrice = quote.price;
+        quoteAt = quote.asOf;
         if (needsPrice) {
           referencePrice = quote.price;
           referencePriceAt = quote.asOf;
@@ -35794,8 +35796,13 @@ var TradingService = class {
       };
       const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current) : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
-      referencePrice ??= entry;
+      if (intent.type === "limit" || intent.type === "stop_limit") {
+        if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
+        referencePrice ??= entry;
+      } else if (entry !== referencePrice) {
+        referencePriceAt = entry === position?.currentPrice ? fetchedAt : entry === quotePrice ? quoteAt : void 0;
+        referencePrice = entry;
+      }
       if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
       const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
       const instrumentCurrency = instrument.currencyCode.toUpperCase();
