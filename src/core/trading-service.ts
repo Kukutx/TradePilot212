@@ -717,6 +717,7 @@ export class TradingService {
         budget = sizing.amount!;
         budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
       }
+      if (!(budget >= 0.01)) throw new Error(`The risk budget must be at least 0.01 ${accountCurrency}`);
       let rate = 1;
       let converted = "";
       if (accountCurrency !== instrumentCurrency) {
@@ -819,6 +820,15 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
+    // A risk-sized Market or Stop buy of an instrument you do not hold is checked at the quote of the moment
+    // when that is above the price it was sized at, so its value and its loss at the stop are not understated.
+    if (draft.riskBudget && draft.side === "buy" && !position?.currentPrice && (draft.type === "market" || draft.type === "stop")) {
+      const quote = await this.externalQuote(instrument).catch(() => undefined);
+      if (quote && quote.price > (draft.referencePrice ?? 0)) {
+        draft.referencePrice = quote.price;
+        draft.referencePriceAt = quote.asOf;
+      }
+    }
     const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
     return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }

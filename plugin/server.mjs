@@ -35835,6 +35835,7 @@ var TradingService = class {
         budget = sizing.amount;
         budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
       }
+      if (!(budget >= 0.01)) throw new Error(`The risk budget must be at least 0.01 ${accountCurrency}`);
       let rate = 1;
       let converted = "";
       if (accountCurrency !== instrumentCurrency) {
@@ -35924,6 +35925,13 @@ var TradingService = class {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
+    if (draft.riskBudget && draft.side === "buy" && !position?.currentPrice && (draft.type === "market" || draft.type === "stop")) {
+      const quote = await this.externalQuote(instrument).catch(() => void 0);
+      if (quote && quote.price > (draft.referencePrice ?? 0)) {
+        draft.referencePrice = quote.price;
+        draft.referencePriceAt = quote.asOf;
+      }
+    }
     const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
     return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }

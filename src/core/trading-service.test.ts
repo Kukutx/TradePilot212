@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, OrderDraft } from "../shared/contracts.js";
 import { createConfig, type RuntimeConfig } from "./config.js";
+import type { QuoteProvider } from "./quotes.js";
 import { MemoryStateStore } from "./state-store.js";
 import { resolveInstrumentFromList, riskNotices, TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
 
@@ -366,7 +367,7 @@ describe("currencies, uncertain results and Live confirmations", () => {
   });
 
   it("sizes a risk buy of an instrument you do not hold from the quote when that is higher", async () => {
-    const quotes = { name: "stooq" as const, symbolFor: () => "msft.us", fxRate: async () => undefined,
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "msft.us", fxRate: async () => undefined,
       quote: async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price: 216, asOf: "2026-10-12T00:00:00.000Z", source: "stooq" as const }) };
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
     const risk = { mode: "risk", percent: 1, stopLossPrice: 200 } as const;
@@ -380,6 +381,12 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 210, sizing: risk });
     expect(stop.risk?.entryPrice).toBe(216);
     expect(stop.draft.referencePrice).toBe(216);
+    // When the quote rises after sizing, the review checks the order at the new quote.
+    quotes.quote = async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price: 230, asOf: new Date().toISOString(), source: "stooq" as const });
+    const later = await service.prepareOrder({ ...market.draft });
+    expect(later.draft.referencePrice).toBe(230);
+    expect(later.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.details).toMatchObject({ loss: 56.25, budget: 30 });
+    quotes.quote = async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price: 216, asOf: "2026-10-12T00:00:00.000Z", source: "stooq" as const });
     // A Limit is sized at its limit but keeps the quote as its reference, for when its type is changed to Market.
     const limit = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "limit", limitPrice: 212, sizing: risk });
     expect(limit.risk).toMatchObject({ entryPrice: 212, currentPrice: 216 });
@@ -418,6 +425,8 @@ describe("currencies, uncertain results and Live confirmations", () => {
     await expect(intent({ percent: 1, amount: 30 })).rejects.toThrow(/either amount .* or percent/);
     await expect(intent({})).rejects.toThrow(/either amount .* or percent/);
     await expect(intent({ percent: 1, stopLossPrice: 220 })).rejects.toThrow(/must be below the entry price \(216 USD\)/);
+    // A budget under a cent cannot be carried to the review.
+    await expect(intent({ amount: 0.004 })).rejects.toThrow(/at least 0\.01 EUR/);
     // Without the available cash there is nothing to cap the buy at, so it is refused rather than left unlimited.
     const base = fxFetch();
     const noCash = (async (input: URL | RequestInfo, init?: RequestInit) => {
