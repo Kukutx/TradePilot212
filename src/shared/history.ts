@@ -171,6 +171,18 @@ export interface ReturnPoint {
   return: number;
 }
 
+/** A calendar month's or year's time-weighted return, chained from the last recorded day before it to its last recorded day. */
+export interface CalendarReturn {
+  /** "2026-05" for a month, "2026" for a year. */
+  period: string;
+  return: number;
+  /** The recorded days it runs from and to. */
+  from: string;
+  to: string;
+  /** Only part of it was recorded: the record began inside it, or it ends before its last day. */
+  partial?: true;
+}
+
 /** The deepest fall of a return from a high, and how far below its high it ends (`src/shared/drawdown.ts`). */
 export interface Drawdown {
   /** The deepest fall from a high, as a negative fraction (-0.082 is 8.2% below it); 0 when it never fell by 0.05% or more. */
@@ -201,6 +213,9 @@ export interface TimeWeightedReturn {
   series: ReturnPoint[];
   /** Its deepest fall from a high over those days. */
   drawdown?: Drawdown;
+  /** Its return in each calendar month and year those days touch (UTC dates), oldest first. */
+  months?: CalendarReturn[];
+  years?: CalendarReturn[];
 }
 
 /** An instrument to compare the return with. */

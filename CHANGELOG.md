@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.42.0
+
+- Monthly returns. The Performance tab has a year-by-month grid of the time-weighted return, latest year first, with each year's return at the end of its row. Each cell is tinted green or red by its size, with the value written in it. Months only partly recorded are outlined and in italics. On a narrow screen each year is a grid of four months a row.
+- `get_portfolio_performance` gives the same as `timeWeighted.months` and `timeWeighted.years`, and lists them in its text. Each month runs from the last recorded day before it to its last recorded day, so deposits and withdrawals stay out of it.
+
 ## 2.41.0
 
 - Drawdown. The Performance tab's return chart has a third view, **Drawdown**: each recorded day's fall from the highest time-weighted return before it, with the benchmark's beside it. Below it: the deepest fall, from which high to which low, the day it was made up (or that it has not been yet), how far below its high the return is now, and the benchmark's deepest fall over the same days.

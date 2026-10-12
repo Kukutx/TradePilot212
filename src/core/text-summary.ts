@@ -7,7 +7,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -321,6 +321,7 @@ function performance(data: PerformanceSummary): string[] {
     ...valueHistoryLines(data.valueHistory),
     ...(data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : []),
     ...drawdownLines(data.timeWeighted?.drawdown),
+    ...calendarLines(data.timeWeighted),
     ...benchmarkLines(data),
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
@@ -340,6 +341,16 @@ function attributionLines(data: PerformanceSummary): string[] {
       : "Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends"})`,
       rows(attribution.holdings, (holding) => `${holding.ticker}: ${signed(holding.gain)}${holding.return === undefined ? "" : ` (${signed(holding.return * 100, 1)}%)`}, start ${num(holding.startValue)}${holding.startClose ? ` (${num(holding.startQuantity, 8)} at ${num(holding.startClose.price, 6)} on ${holding.startClose.date})` : ""}, now ${num(holding.value)}${holding.bought ? `, bought ${num(holding.bought)}` : ""}${holding.sold ? `, sold ${num(holding.sold)}` : ""}${holding.dividends ? `, dividends ${num(holding.dividends)}` : ""}`)),
     ...(attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []),
+  ];
+}
+
+/** The time-weighted return in each calendar month (the last 24) and year, with the ones only partly recorded marked. */
+function calendarLines(returns: PerformanceSummary["timeWeighted"]): string[] {
+  if (!returns?.months?.length) return [];
+  const item = (entry: CalendarReturn) => `${entry.period} ${signed(entry.return * 100, 1)}%${entry.partial ? ` (${entry.from} to ${entry.to} only)` : ""}`;
+  return [
+    `Time-weighted return by month: ${returns.months.slice(-24).map(item).join(", ")}.`,
+    ...(returns.years?.length ? [`By year: ${returns.years.map(item).join(", ")}.`] : []),
   ];
 }
 

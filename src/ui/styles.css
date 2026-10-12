@@ -1194,3 +1194,42 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
   .gainFill.down { background: Canvas; border: 1px dashed CanvasText; }
   .gainZero { background: CanvasText; }
 }
+
+/* ---- Monthly returns: a year-by-month grid, tinted as the holdings map ---- */
+.monthlyReturns .mapLegend { margin: 0 0 10px; }
+.monthlyPartialKey { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
+.monthlyPartialKey i { width: 14px; height: 10px; border: 1px dashed var(--tp-muted); border-radius: 3px; }
+.monthlyWrap { width: 100%; overflow-x: auto; }
+.monthlyTable { width: 100%; min-width: 620px; border-collapse: separate; border-spacing: 2px; font-size: 12px; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.monthlyTable thead th { padding: 0 0 4px; color: var(--tp-muted); font-size: 12px; font-weight: 650; text-align: center; }
+.monthlyTable thead th:first-child, .monthlyTable tbody th { width: 44px; }
+/* The year stays in view while the months scroll. */
+.monthlyTable tbody th { position: sticky; left: 0; z-index: 1; padding: 0 6px 0 0; background: var(--tp-bg); color: var(--tp-text); font-weight: 700; text-align: left; }
+.monthlyCell { height: 34px; padding: 0 2px; border-radius: 6px; background: var(--tp-bg-soft); color: var(--tp-text); font-weight: 650; text-align: center; white-space: nowrap; }
+.monthlyCell.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyCell.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyCell.empty { background: transparent; }
+.monthlyCell.partial { outline: 1px dashed var(--tp-muted); outline-offset: -3px; }
+.monthlyCell.partial > span[aria-hidden] { font-style: italic; }
+.monthlyTable .monthlyTotal { width: 58px; font-weight: 760; }
+.monthlyTable thead .monthlyTotal { color: var(--tp-text); }
+@media (forced-colors: active) {
+  .monthlyCell { border: 1px solid CanvasText; }
+  .monthlyCell.empty { border: 0; }
+}
+.monthlyCompact { display: none; }
+.monthlyYear + .monthlyYear { margin-top: 12px; }
+.monthlyYear h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 14px; font-weight: 730; }
+.monthlyYearTotal { padding: 2px 8px; border-radius: 6px; background: var(--tp-bg-soft); font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; }
+.monthlyYearTotal.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyYearTotal.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyYearTotal.partial { outline: 1px dashed var(--tp-muted); outline-offset: -3px; }
+.monthlyGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 0; padding: 0; list-style: none; }
+.monthlyGrid .monthlyCell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; height: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.monthlyGrid .monthlyCell small { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.monthlyGrid .monthlyCell.up small, .monthlyGrid .monthlyCell.down small { color: inherit; opacity: .8; }
+.monthlyGrid .monthlyCell.empty { background: transparent; border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); color: var(--tp-muted); }
+@container (max-width: 640px) {
+  .monthlyWrap { display: none; }
+  .monthlyCompact { display: block; }
+}

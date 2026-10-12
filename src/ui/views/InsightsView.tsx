@@ -8,6 +8,7 @@ import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabel
 import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
+import { MonthlyReturns } from "../components/monthly-returns";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -413,6 +414,12 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
       {data.valueHistory && data.valueHistory.length >= 2 && (
         <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} data={data} currency={currency} locale={locale} t={t} busy={busy}
           {...(onBenchmark ? { onBenchmark } : {})} />
+      )}
+
+      {data.timeWeighted?.months && data.timeWeighted.months.length >= 2 && (
+        <section className="dataPanel">
+          <MonthlyReturns months={data.timeWeighted.months} years={data.timeWeighted.years ?? []} locale={locale} t={t} />
+        </section>
       )}
 
       {data.attribution ? (
