@@ -237,10 +237,10 @@ export interface PerformanceSummary {
   timeWeighted?: TimeWeightedReturn;
   /** The benchmark's return over the same days, with the time-weighted return. */
   benchmark?: BenchmarkReturn;
-  /** The instrument compared with, or tried. */
-  benchmarkTicker?: string;
-  /** Why there is no benchmark beside the time-weighted return. */
-  benchmarkMissing?: PricesMissing;
+  /** The choice this read used: the instrument compared with or tried, the query that found none, or "none". */
+  benchmarkChoice?: string;
+  /** Why there is no benchmark beside the time-weighted return ("instrument": Trading 212 matched none, or several). */
+  benchmarkMissing?: PricesMissing | "instrument";
   benchmarkProblem?: string;
   /** The instruments it can be compared with: the default, then the ETFs held and on the watchlist. */
   benchmarkOptions?: BenchmarkOption[];

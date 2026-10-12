@@ -269,7 +269,7 @@ NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
 DIGEST_HOUR_UTC=7             # optional daily digest at 07:00 UTC
 ```
 
-The Performance tab compares the return with the S&P 500 (SPY) by default; `BENCHMARK=VWRL` picks another fund (map non-US listings in `QUOTE_SYMBOLS`) and `BENCHMARK=none` turns it off.
+The Performance tab compares the return with the S&P 500 (SPY) by default; `BENCHMARK=VWRLl_EQ` picks another fund (map non-US listings in `QUOTE_SYMBOLS`) and `BENCHMARK=none` turns it off.
 
 ## Local development
 

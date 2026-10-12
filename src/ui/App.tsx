@@ -319,6 +319,8 @@ export default function App() {
     setEnvironment(env);
     if (isInsight(payload)) {
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
+      // The fund the host's read compared with stays for the next period or refresh.
+      if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights({ [payload.kind]: payload });
       setTab(payload.kind);
       if (payload.kind !== "allocation" && payload.kind !== "watchlist") setPeriod(periodOf(payload.period));
@@ -445,6 +447,8 @@ export default function App() {
         };
       const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
+      // A choice holds once a read made with it came back.
+      if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights((current) => ({ ...current, [kind]: payload }));
     } catch (requestError) {
       const retry = () => void loadInsight(kind, env, range, tag, compareWith);
@@ -947,7 +951,7 @@ export default function App() {
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}
-                onBenchmark={(choice) => { setBenchmark(choice); void loadInsight("performance", environment, period, undefined, choice); }} />
+                onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)} />
             )}
             {portfolioLike && tab === "income" && insights.income && (
               <IncomeView data={insights.income} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />

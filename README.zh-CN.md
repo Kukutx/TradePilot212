@@ -278,7 +278,7 @@ NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
 DIGEST_HOUR_UTC=7             # 可选，每天 UTC 7 点推送账户摘要
 ```
 
-收益页默认拿时间加权收益和标普 500（SPY）对比；`BENCHMARK=VWRL` 换成别的基金（非美国上市的要在 `QUOTE_SYMBOLS` 里映射），`BENCHMARK=none` 关闭对比。
+收益页默认拿时间加权收益和标普 500（SPY）对比；`BENCHMARK=VWRLl_EQ` 换成别的基金（非美国上市的要在 `QUOTE_SYMBOLS` 里映射），`BENCHMARK=none` 关闭对比。
 
 ## 本地开发
 

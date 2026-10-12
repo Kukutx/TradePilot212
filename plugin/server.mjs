@@ -35720,6 +35720,11 @@ var TradingService = class {
     if (account.currency) this.currencies.set(environment, account.currency);
     return account;
   }
+  /** The instrument list when it was read in the last ten minutes, without asking Trading 212. */
+  cachedInstruments(environment) {
+    const cached2 = this.cache.get(environment);
+    return cached2 && cached2.expiresAt > Date.now() ? cached2.instruments : void 0;
+  }
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.instruments;
@@ -38636,8 +38641,10 @@ function benchmarkLines(data) {
   if (!benchmark2) return data.benchmarkProblem ? [`No benchmark comparison: ${data.benchmarkProblem}`] : [];
   const name = `${benchmark2.shortName ?? benchmark2.ticker}${benchmark2.name ? ` (${benchmark2.name})` : ""}`;
   const gap = (timeWeighted.return - benchmark2.return) * 100;
-  const currency = benchmark2.currencyCode && benchmark2.currencyCode !== data.accountCurrency ? ` It is in ${benchmark2.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
-  return [`Benchmark ${name} over the same days: ${signed(benchmark2.return * 100, 1)}% (${benchmark2.source === "sample" ? "simulated" : benchmark2.source} closes), so the time-weighted return is ${num2(Math.abs(gap), 1)} percentage points ${gap >= 0 ? "ahead of" : "behind"} it.${currency}`];
+  const major = (currency2) => currency2?.toUpperCase() === "GBX" ? "GBP" : currency2?.toUpperCase();
+  const currency = benchmark2.currencyCode && major(benchmark2.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark2.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
+  const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num2(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
+  return [`Benchmark ${name} over the same days: ${signed(benchmark2.return * 100, 1)}% (${benchmark2.source === "sample" ? "simulated" : benchmark2.source} closes), so the time-weighted return is ${standing}.${currency}`];
 }
 function valueHistoryLines(points2) {
   if (!points2 || points2.length < 2) return [];
@@ -39647,6 +39654,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
 // src/core/benchmark.ts
 var DAY_MS9 = 864e5;
 var START_SLACK_DAYS = 7;
+var LIST_WAIT_MS = 3e3;
 var MAX_OPTIONS = 8;
 var round8 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
@@ -39670,12 +39678,16 @@ function benchmarkReturns(series, points2) {
   return { return: out[out.length - 1].return, series: out };
 }
 function benchmarkInstrument(instruments, query) {
+  const wanted = query.trim().toUpperCase();
+  const us = /^[A-Z][A-Z.]{0,5}_US_EQ$/.test(wanted) ? wanted.replace(/_US_EQ$/, "") : void 0;
+  const synthetic = (symbol2) => ({ instrument: { ticker: `${symbol2}_US_EQ`, name: US_FUNDS[symbol2] ?? symbol2, shortName: symbol2, currencyCode: "USD", type: "ETF" } });
+  if (!instruments) return us ? synthetic(us) : { problem: `Trading 212's instrument list could not be read, so ${query} could not be looked up; try again.` };
   try {
-    return resolveInstrumentFromList(instruments, query);
+    return { instrument: resolveInstrumentFromList(instruments, query) };
   } catch (error62) {
-    const ticker = query.trim().toUpperCase().replace(/_US_EQ$/, "");
-    if (/^[A-Z][A-Z.]{0,5}$/.test(ticker)) return { ticker: `${ticker}_US_EQ`, name: US_FUNDS[ticker] ?? ticker, shortName: ticker, currencyCode: "USD", type: "ETF" };
-    throw error62;
+    const message = error62 instanceof Error ? error62.message : String(error62);
+    const symbol2 = us ?? (/^[A-Z]{1,5}$/.test(wanted) ? wanted : void 0);
+    return symbol2 && message.startsWith("No Trading 212 instrument matched") ? synthetic(symbol2) : { problem: message };
   }
 }
 var option = (instrument) => ({
@@ -39683,41 +39695,40 @@ var option = (instrument) => ({
   ...instrument.name && instrument.name !== instrument.shortName ? { name: instrument.name } : {},
   ...instrument.shortName ? { shortName: instrument.shortName } : {}
 });
-async function compareWithBenchmark(deps, environment, summary, choice) {
+async function compareWithBenchmark(deps, environment, summary, choice, now = /* @__PURE__ */ new Date()) {
   if (!summary.timeWeighted || !deps.priceHistory) return {};
   const wanted = choice?.trim() || deps.config.benchmark;
-  const instruments = await deps.trading.instruments(environment).catch(() => []);
-  const [positions, watched] = await Promise.all([
-    deps.trading.positions(environment).catch(() => []),
+  const none = !wanted || /^none$/i.test(wanted);
+  const [instruments, positions, watched] = await Promise.all([
+    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS),
+    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS),
     deps.watchlist?.list(environment).catch(() => []) ?? []
   ]);
-  const listed = new Map(instruments.map((instrument2) => [instrument2.ticker, instrument2]));
-  const funds = [...positions.map((position) => position.instrument?.ticker), ...watched.map((item) => item.ticker)].flatMap((ticker) => {
+  const listed = new Map((instruments ?? []).map((instrument2) => [instrument2.ticker, instrument2]));
+  const funds = [...(positions ?? []).map((position) => position.instrument?.ticker), ...watched.map((item) => item.ticker)].flatMap((ticker) => {
     const instrument2 = ticker ? listed.get(ticker) : void 0;
     return instrument2?.type === "ETF" ? [instrument2] : [];
   });
   const lookup = (query) => {
-    try {
-      return benchmarkInstrument(instruments, query);
-    } catch {
-      return void 0;
-    }
+    const found2 = benchmarkInstrument(instruments, query);
+    return "instrument" in found2 ? found2.instrument : void 0;
   };
   const fallback = deps.config.benchmark ? lookup(deps.config.benchmark) : void 0;
-  const none = !wanted || /^none$/i.test(wanted);
-  const instrument = none ? void 0 : lookup(wanted);
+  const found = none ? void 0 : benchmarkInstrument(instruments, wanted);
+  const instrument = found && "instrument" in found ? found.instrument : void 0;
   const seen = /* @__PURE__ */ new Set();
   const benchmarkOptions = [fallback, instrument, ...funds].filter((item) => !!item && !seen.has(item.ticker) && !!seen.add(item.ticker)).slice(0, MAX_OPTIONS).map(option);
   const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
-  if (none) return offered;
-  if (!instrument) return { ...offered, benchmarkMissing: "symbol", benchmarkProblem: `Trading 212 lists no instrument ${wanted}, and it is not a US symbol.` };
-  const from = new Date(Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS9);
+  if (none) return { ...offered, benchmarkChoice: "none" };
+  if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
+  const yearAgo = Math.floor(now.getTime() / DAY_MS9) * DAY_MS9 - 365 * DAY_MS9;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS9));
   const read = await deps.priceHistory({
     instrument,
     from,
     ...deps.config.sampleData ? { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) } : {}
   }).catch((error62) => ({ missing: "data", problem: error62 instanceof Error ? error62.message : String(error62) }));
-  const tried = { ...offered, benchmarkTicker: instrument.ticker };
+  const tried = { ...offered, benchmarkChoice: instrument.ticker };
   if (!("prices" in read)) return { ...tried, benchmarkMissing: read.missing, benchmarkProblem: read.problem };
   const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points);
   if (!compared) {

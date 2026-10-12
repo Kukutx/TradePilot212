@@ -348,6 +348,7 @@ export const en = {
   benchmarkReturn: "{name} {value} over the same days.",
   benchmarkCurrency: "{name} is priced in {currency}, so currency moves against {account} are not in it.",
   benchmarkSample: "Simulated closes for the sample account.",
+  benchmarkMissingInstrument: "No comparison with {name}: it could not be looked up on Trading 212 as one fund; try again, or pick it by its exact ticker.",
   benchmarkMissingProvider: "No comparison with {name}: no quote provider is set up.",
   benchmarkMissingPlan: "No comparison with {name}: this quote provider's free plan has no daily prices.",
   benchmarkMissingSymbol: "No comparison with {name}: the quote provider has no symbol for it; name one in QUOTE_SYMBOLS.",

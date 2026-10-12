@@ -350,6 +350,7 @@ export const zhCN: Record<MessageKey, string> = {
   benchmarkReturn: "同期 {name} {value}。",
   benchmarkCurrency: "{name} 以 {currency} 计价，不含相对 {account} 的汇率变动。",
   benchmarkSample: "样例账户的模拟价格。",
+  benchmarkMissingInstrument: "无法对比 {name}：没能在 Trading 212 上找到唯一对应的基金，请重试或用准确的代码。",
   benchmarkMissingProvider: "无法对比 {name}：没有设置行情源。",
   benchmarkMissingPlan: "无法对比 {name}：当前行情源的免费套餐没有日线。",
   benchmarkMissingSymbol: "无法对比 {name}：行情源没有它的代码，请在 QUOTE_SYMBOLS 里指定。",

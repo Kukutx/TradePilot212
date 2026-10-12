@@ -192,7 +192,8 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
   );
 }
 
-const BENCHMARK_MISSING: Record<PricesMissing, MessageKey> = {
+const BENCHMARK_MISSING: Record<PricesMissing | "instrument", MessageKey> = {
+  instrument: "benchmarkMissingInstrument",
   provider: "benchmarkMissingProvider",
   plan: "benchmarkMissingPlan",
   symbol: "benchmarkMissingSymbol",
@@ -202,6 +203,8 @@ const BENCHMARK_MISSING: Record<PricesMissing, MessageKey> = {
 };
 
 const benchmarkName = (option: BenchmarkOption) => option.shortName ?? option.ticker;
+/** Pence are pounds: a GBX fund is in the currency of a GBP account. */
+const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
 
 /** How the time-weighted return did against the benchmark over the same days, in words, and why there is none. */
 function BenchmarkNote({ data, locale, t }: { data: PerformanceSummary; locale: SupportedLocale; t: Translator }) {
@@ -209,8 +212,9 @@ function BenchmarkNote({ data, locale, t }: { data: PerformanceSummary; locale: 
   if (!timeWeighted) return null;
   if (!benchmark) {
     if (!data.benchmarkMissing) return null;
-    const wanted = data.benchmarkOptions?.find((option) => option.ticker === data.benchmarkTicker);
-    return <p className="panelNote benchmarkNote">{fill(t(BENCHMARK_MISSING[data.benchmarkMissing]), { name: wanted ? benchmarkName(wanted) : t("benchmarkFallbackName") })}</p>;
+    const wanted = data.benchmarkOptions?.find((option) => option.ticker === data.benchmarkChoice);
+    const name = wanted ? benchmarkName(wanted) : data.benchmarkChoice && data.benchmarkChoice !== "none" ? data.benchmarkChoice : t("benchmarkFallbackName");
+    return <p className="panelNote benchmarkNote">{fill(t(BENCHMARK_MISSING[data.benchmarkMissing]), { name })}</p>;
   }
   const gap = timeWeighted.return - benchmark.return;
   const name = benchmarkName(benchmark);
@@ -220,7 +224,7 @@ function BenchmarkNote({ data, locale, t }: { data: PerformanceSummary; locale: 
     <p className="panelNote benchmarkNote">
       <strong className={signedClass(Math.abs(gap) < 0.0005 ? 0 : gap)}>{fill(t(key), { gap: points, name })}</strong>
       {" · "}{fill(t("benchmarkReturn"), { name, value: pct(benchmark.return, locale, 1, { signed: true }) })}
-      {benchmark.currencyCode && benchmark.currencyCode !== data.accountCurrency && <>{" "}{fill(t("benchmarkCurrency"), { name, currency: benchmark.currencyCode, account: data.accountCurrency })}</>}
+      {benchmark.currencyCode && major(benchmark.currencyCode) !== major(data.accountCurrency) && <>{" "}{fill(t("benchmarkCurrency"), { name, currency: benchmark.currencyCode, account: data.accountCurrency })}</>}
       {benchmark.source === "sample" && <>{" "}{t("benchmarkSample")}</>}
     </p>
   );
@@ -230,7 +234,9 @@ function BenchmarkNote({ data, locale, t }: { data: PerformanceSummary; locale: 
 function BenchmarkPicker({ data, busy, t, onBenchmark }: { data: PerformanceSummary; busy: boolean; t: Translator; onBenchmark: (choice: string) => void }) {
   const options = data.benchmarkOptions ?? [];
   if (!data.timeWeighted || !options.length) return null;
-  const current = data.benchmark?.ticker ?? data.benchmarkTicker ?? "none";
+  // A query Trading 212 matched no fund for has no option of its own: there is no comparison.
+  const chosen = data.benchmark?.ticker ?? data.benchmarkChoice;
+  const current = chosen && options.some((option) => option.ticker === chosen) ? chosen : "none";
   return (
     <label className="benchmarkPicker">
       <span>{t("benchmarkLabel")}</span>

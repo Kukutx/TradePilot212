@@ -295,8 +295,11 @@ function benchmarkLines(data: PerformanceSummary): string[] {
   if (!benchmark) return data.benchmarkProblem ? [`No benchmark comparison: ${data.benchmarkProblem}`] : [];
   const name = `${benchmark.shortName ?? benchmark.ticker}${benchmark.name ? ` (${benchmark.name})` : ""}`;
   const gap = (timeWeighted.return - benchmark.return) * 100;
-  const currency = benchmark.currencyCode && benchmark.currencyCode !== data.accountCurrency ? ` It is in ${benchmark.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
-  return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${num(Math.abs(gap), 1)} percentage points ${gap >= 0 ? "ahead of" : "behind"} it.${currency}`];
+  // Pence are pounds: a GBX fund is in a GBP account's currency.
+  const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
+  const currency = benchmark.currencyCode && major(benchmark.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
+  const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
+  return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${standing}.${currency}`];
 }
 
 function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[] {
