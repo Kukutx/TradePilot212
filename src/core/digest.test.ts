@@ -119,6 +119,12 @@ describe("daily digest", () => {
     expect(expectedOn("2026-10-07")).toEqual(["MSFT 2026-10-08", "KO 2026-10-01 due"]);
     expect(expectedOn("2026-10-15")).toEqual(["MSFT 2026-10-08 due", "AAPL 2026-10-14 due"]);
     expect(expectedOn("2026-10-16")).toEqual(["AAPL 2026-10-14 due"]);
+    // A payment due late last month stays due into the next, for a week.
+    const late = quarterly("KO_US_EQ", 9.7, 20, ["2026-01-29", "2026-04-29", "2026-07-29"]);
+    const dueOn = (day: string) => digestDividends(late, positions, { since: Date.parse(`${day}T07:00:00Z`) }, new Date(`${day}T07:00:00Z`)).expected.map((payment) => `${payment.on}${payment.due ? " due" : ""}`);
+    expect(dueOn("2026-11-03")).toEqual(["2026-10-29 due"]);
+    expect(dueOn("2026-11-05")).toEqual(["2026-10-29 due"]);
+    expect(dueOn("2026-11-06")).toEqual([]);
     // A history cut short at the page limit may lack a payment of the year before: nothing expected rather than too little.
     expect(digestDividends(history, positions, { since: Date.parse("2026-10-09T07:00:00Z"), truncated: true }, now)).toEqual({ received: dividends.received, expected: [] });
   });
@@ -129,19 +135,18 @@ describe("daily digest", () => {
       .toBe("Total 10 EUR · cash 0 · dividends 28 in: A 7, B 6, C 5, D 4, E 3 +2");
   });
 
-  it("names each dividend once: after days without a digest, after a failed read, and when it reaches the history late", async () => {
+  it("names each dividend once: after a failed first digest, days without one, a webhook outage, a failed read, and when it reaches the history late", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const services = setup({ DIGEST_HOUR_UTC: "7" });
       const texts: string[] = [];
       const reads: string[] = [];
-      const history: Array<{ reference: string; ticker: string; amount: number; quantity: number; paidOn: string }> = [
-        { reference: "d0", ticker: "VUSA_EQ", amount: 3, quantity: 10, paidOn: "2026-07-10T20:00:00Z" },
-      ];
+      const history: Array<{ reference: string; ticker: string; amount: number; quantity: number; paidOn: string }> = [];
       let fail = false;
+      let hookDown = false;
       const digest = new DailyDigest({
         config: services.config, store: services.store, trading: services.trading,
-        notify: async (event) => { texts.push(event.outcome ?? ""); return true; },
+        notify: async (event) => { if (hookDown) return false; texts.push(event.outcome ?? ""); return true; },
         dividends: async (_environment, from) => {
           reads.push(from.toISOString());
           if (fail) throw new Error("rate limit");
@@ -151,40 +156,76 @@ describe("daily digest", () => {
       });
       const runAt = (time: string) => { vi.setSystemTime(new Date(time)); return digest.run(new Date()); };
       const paid = (reference: string, amount: number, paidOn: string) => history.push({ reference, ticker: "VUSA_EQ", amount, quantity: 10, paidOn });
+      const named = () => texts.at(-1)?.match(/dividends ([\d.]+) in/)?.[1];
 
+      // The first digest's read fails: the next names the dividends of the first one's day.
       paid("d1", 3.1, "2026-10-10T20:00:00Z");
+      fail = true;
       expect(await runAt("2026-10-11T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
+      fail = false;
+      expect(await runAt("2026-10-12T07:00:00Z")).toEqual(["demo"]);
       // Read from the first day of this month a year ago, for the expected payments.
-      expect(reads).toEqual(["2025-10-01T00:00:00.000Z"]);
-      expect(texts.at(-1)).toMatch(/· dividends 3\.1 in: VUSA 3\.1/);
-      expect(await runAt("2026-10-11T08:00:00Z")).toEqual([]);
+      expect(reads.at(-1)).toBe("2025-10-01T00:00:00.000Z");
+      expect(named()).toBe("3.1");
+      expect(await runAt("2026-10-12T08:00:00Z")).toEqual([]);
 
-      // No digest for two days: the next names what came in meanwhile.
-      paid("d2", 1, "2026-10-12T20:00:00Z");
-      expect(await runAt("2026-10-14T07:00:00Z")).toEqual(["demo"]);
-      expect(texts.at(-1)).toMatch(/· dividends 1 in: VUSA 1(?: ·|$)/);
+      // No digest for a day: the next names what came in meanwhile.
+      paid("d2", 1, "2026-10-13T20:00:00Z");
+      expect(await runAt("2026-10-15T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("1");
+
+      // The webhook refuses the digest: the retry names the same dividends.
+      paid("d3", 2, "2026-10-15T15:00:00Z");
+      hookDown = true;
+      expect(await runAt("2026-10-16T07:00:00Z")).toEqual([]);
+      hookDown = false;
+      expect(await runAt("2026-10-16T07:16:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("2");
 
       // A read that fails leaves dividends out, and the next digest names what it missed.
-      paid("d3", 2, "2026-10-14T15:00:00Z");
+      paid("d4", 4, "2026-10-16T15:00:00Z");
       fail = true;
-      expect(await runAt("2026-10-15T07:00:00Z")).toEqual(["demo"]);
-      expect(texts.at(-1)).not.toMatch(/dividends/);
+      expect(await runAt("2026-10-17T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
       fail = false;
-      expect(await runAt("2026-10-16T07:00:00Z")).toEqual(["demo"]);
-      expect(texts.at(-1)).toMatch(/· dividends 2 in: VUSA 2(?: ·|$)/);
+      expect(await runAt("2026-10-18T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("4");
 
       // One dated before the last digest that reached the history only after it.
-      paid("d4", 0.5, "2026-10-16T06:00:00Z");
-      expect(await runAt("2026-10-17T07:00:00Z")).toEqual(["demo"]);
-      expect(texts.at(-1)).toMatch(/· dividends 0\.5 in: VUSA 0\.5(?: ·|$)/);
-
+      paid("d5", 0.5, "2026-10-18T06:00:00Z");
+      expect(await runAt("2026-10-19T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("0.5");
       // Each is named once.
-      expect(await runAt("2026-10-18T07:00:00Z")).toEqual(["demo"]);
-      expect(texts.at(-1)).not.toMatch(/dividends [\d.]+ in/);
-      expect(texts).toHaveLength(6);
+      expect(await runAt("2026-10-20T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
+
+      // After six weeks without a digest, only the last 31 days are named.
+      paid("d6", 6, "2026-10-25T20:00:00Z");
+      paid("d7", 7, "2026-11-20T20:00:00Z");
+      expect(await runAt("2026-12-01T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("7");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("leaves expected dividends out when the history read stopped at its page limit", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    const texts: string[] = [];
+    let truncated = false;
+    // Quarterly, and due again on 10-20.
+    const items = ["2026-07-20", "2026-04-20", "2026-01-20", "2025-10-20"].map((day, index) => ({ reference: `q${index}`, ticker: "VUSA_EQ", amount: 2.5, quantity: 10, paidOn: `${day}T12:00:00Z` }));
+    const digest = new DailyDigest({
+      config: services.config, store: services.store, trading: services.trading,
+      notify: async (event) => { texts.push(event.outcome ?? ""); return true; },
+      dividends: async () => ({ items, truncated }),
+    });
+    expect(await digest.run(new Date("2026-10-15T07:00:00Z"))).toEqual(["demo"]);
+    expect(texts.at(-1)).toMatch(/· dividends expected this week: VUSA ~2\.5 10-20(?: ·|$)/);
+    truncated = true;
+    expect(await digest.run(new Date("2026-10-16T07:00:00Z"))).toEqual(["demo"]);
+    expect(texts.at(-1)).not.toMatch(/expected/);
   });
 
   it("names holdings a stop does not fully cover, once any stop is in place", async () => {

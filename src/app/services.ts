@@ -93,8 +93,7 @@ export function createServices(input: ServiceDependencies) {
   }, environment, now);
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
-    // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads, so
-    // the digest expects what its calendar does.
+    // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
     dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
     ...(notify ? { notify } : {}),
   });

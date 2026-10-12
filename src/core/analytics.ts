@@ -384,7 +384,8 @@ export function summarizePerformance(input: {
  * month, the calendar spreads them over this month and the next 11 by that spacing, beside what was paid so far
  * this month; for a period ending in another month there is no calendar.
  */
-export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date, now: Date = to): NonNullable<IncomeSummary["forwardAnnual"]> {
+/** Each instrument's payments per share since `scheduleStart(to)`, for its dividend schedule. */
+function paidPerShare(dividends: HistoryDividendItem[], to: Date): Map<string, PaidDividend[]> {
   const read = { from: new Date(scheduleStart(to.getTime())), to };
   const payments = new Map<string, PaidDividend[]>();
   for (const item of dividends) {
@@ -392,6 +393,27 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
     payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
   }
+  return payments;
+}
+
+/**
+ * The payments the holdings are expected to make from `from` until before `until`, soonest first, on the schedules the
+ * dividend calendar uses (read up to `to`): one due since `from` and not paid yet is still expected.
+ */
+export function expectedDividends(dividends: HistoryDividendItem[], positions: Position[], from: number, until: number, to: Date): Array<{ ticker: string; on: string; amount: number }> {
+  const payments = paidPerShare(dividends, to);
+  const expected: Array<{ ticker: string; at: number; amount: number }> = [];
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : undefined;
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
+    expected.push(...expectedPayments(schedule, position.quantity, from, until).map((payment) => ({ ticker, ...payment })));
+  }
+  return expected.sort((a, b) => a.at - b.at || b.amount - a.amount).map(({ ticker, at, amount }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount }));
+}
+
+export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date, now: Date = to): NonNullable<IncomeSummary["forwardAnnual"]> {
+  const payments = paidPerShare(dividends, to);
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
   const current = start === monthStart(now.getTime());
