@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.49.0
+
+- Target weights in the widget. The Allocation tab sets, edits and removes the saved targets, which until now only the assistant could: **Set targets** (or **Edit targets** beside their drift) opens a share for each holding, typed in or filled from today's weights, equal weights or the equal-risk weights, with the cash share, the notice threshold and whether a rebalance sells holdings without a target. It says what the targets and cash come to and what is wrong before saving, and the drift shows as soon as they are saved. **Use as targets** under the equal-risk weights opens it filled with them. Targets never trade; they work without order tools.
+
 ## 2.48.0
 
 - Equal-risk weights. Below today's mix, the Allocation tab gives the weights at which each holding measured would bring the same share of their risk (risk parity), beside today's, as a dumbbell per holding, furthest first, with a table view. The tiles give their volatility together beside today's, what moving to them sells and buys again, in the account currency, and the holding furthest from its equal-risk weight.

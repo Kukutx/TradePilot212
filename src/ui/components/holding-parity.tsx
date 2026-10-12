@@ -20,9 +20,11 @@ export type { EqualRiskPlan };
 
 type Parity = HoldingRiskRow & { parity: number };
 
-export function HoldingParityPanel({ data, book, locale, t, onPlan, busy }: {
+export function HoldingParityPanel({ data, book, locale, t, onPlan, onUseAsTargets, busy }: {
   data: Pick<AllocationAnalysis, "risk" | "holdings" | "totalValue" | "cash" | "availableCash" | "accountCurrency">;
-  book?: InstrumentBook; locale: SupportedLocale; t: Translator; onPlan?: (plan: EqualRiskPlan) => void; busy?: boolean;
+  book?: InstrumentBook; locale: SupportedLocale; t: Translator; onPlan?: (plan: EqualRiskPlan) => void;
+  /** Opens the target weights filled with these. */
+  onUseAsTargets?: () => void; busy?: boolean;
 }) {
   const [asTable, setAsTable] = useState(false);
   const { risk } = data;
@@ -91,10 +93,11 @@ export function HoldingParityPanel({ data, book, locale, t, onPlan, busy }: {
             {rows.length > shown.length && <p className="panelNote">{fill(t("holdingParityMore"), { count: String(rows.length - shown.length) })}</p>}
           </>
         )}
-        {onPlan && plan && (
+        {((onPlan && plan) || onUseAsTargets) && (
           <div className="parityPlan">
-            <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => onPlan(plan)}>{t("holdingParityPlan")}</button>
-            <span>{sentences(locale, [t("holdingParityPlanNote"), plan.partial && fill(t("holdingParityPartial"), { count: String(MAX_PARITY_TARGETS) })])}</span>
+            {onPlan && plan && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => onPlan(plan)}>{t("holdingParityPlan")}</button>}
+            {onUseAsTargets && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onUseAsTargets}>{t("targetsUseParity")}</button>}
+            {onPlan && plan && <span>{sentences(locale, [t("holdingParityPlanNote"), plan.partial && fill(t("holdingParityPartial"), { count: String(MAX_PARITY_TARGETS) })])}</span>}
           </div>
         )}
         <p className="panelNote">{fill(t("holdingParityNote"), { floor: pct(PARITY_MIN_VOLATILITY, locale, 0) })}</p>
