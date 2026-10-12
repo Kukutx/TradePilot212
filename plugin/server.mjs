@@ -36933,7 +36933,8 @@ var TradingService = class {
 
 // src/core/dividends.ts
 var DAY = 864e5;
-var SAME_PAYDAY_DAYS = 3;
+var SAME_PAYDAY_DAYS = 10;
+var SAME_PAYDAY_DAYS_WEEKLY = 3;
 function addMonths(at, months) {
   const date5 = new Date(at);
   const month = date5.getUTCMonth() + months;
@@ -36958,37 +36959,50 @@ function paydayPerShare(entries) {
   }
   return entries.reduce((sum, entry) => sum + entry.perShare, 0);
 }
-function dividendSchedule(paid) {
+function paydays(entries, days) {
   const groups = [];
-  for (const item of [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at)) {
+  for (const item of entries) {
     const group = groups[groups.length - 1];
-    if (group && item.at - group[group.length - 1].at <= SAME_PAYDAY_DAYS * DAY) group.push(item);
+    if (group && item.at - group[0].at <= days * DAY) group.push(item);
     else groups.push([item]);
   }
-  const days = [];
+  const result2 = [];
   for (const group of groups) {
     const perShare = paydayPerShare(group);
-    if (perShare > 0) days.push({ at: group[0].at, perShare });
-    else if (days.length) days[days.length - 1].perShare += perShare;
+    if (perShare > 0) result2.push({ at: group[0].at, perShare });
+    else if (result2.length) result2[result2.length - 1].perShare += perShare;
   }
-  const payments = days.filter((day2) => day2.perShare > 0);
+  return result2.filter((day2) => day2.perShare > 0);
+}
+var spacings = (payments) => payments.slice(1).map((item, index) => (item.at - payments[index].at) / DAY).sort((a, b) => a - b);
+function dividendSchedule(paid) {
+  const entries = [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at);
+  const close = paydays(entries, SAME_PAYDAY_DAYS_WEEKLY);
+  const closeGaps = spacings(close);
+  const weekly = close.length >= 6 && closeGaps.filter((gap2) => gap2 < 21).length >= closeGaps.length * 0.75;
+  const payments = weekly ? close : paydays(entries, SAME_PAYDAY_DAYS);
   if (!payments.length) return void 0;
-  const gaps = payments.slice(1).map((item, index) => (item.at - payments[index].at) / DAY).sort((a, b) => a - b);
+  const gaps = weekly ? closeGaps : spacings(payments);
   const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
-  const frequency = gap === void 0 ? void 0 : gap < 10 ? 52 : gap < 21 ? 26 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+  const frequency = gap === void 0 ? void 0 : weekly ? gap < 10 ? 52 : 26 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
   const count = frequency ?? 1;
   const recent = payments.slice(-count);
   const sum = recent.reduce((total, item) => total + item.perShare, 0);
-  return { payments, ...frequency ? { frequency } : {}, annualPerShare: recent.length < count ? sum * count / recent.length : sum };
+  const ends = payments.filter((item) => monthEnd(dayStart(item.at)) === dayStart(item.at)).length;
+  return {
+    payments,
+    ...frequency ? { frequency } : {},
+    annualPerShare: recent.length < count ? sum * count / recent.length : sum,
+    ...ends >= 2 && ends >= payments.length * 0.75 ? { monthEnd: true } : {}
+  };
 }
-function stepper(last, frequency) {
+function stepper(last, frequency, atMonthEnd) {
   const from = dayStart(last);
   if (frequency >= 26) {
     const days = 364 / frequency;
     return { step: (k) => from + k * days * DAY, days, yearBefore: (at) => at - 364 * DAY };
   }
   const months = 12 / frequency;
-  const atMonthEnd = monthEnd(from) === from;
   return {
     step: (k) => atMonthEnd ? monthEnd(addMonths(monthStart(from), k * months)) : addMonths(from, k * months),
     days: months * 30.44,
@@ -36996,21 +37010,22 @@ function stepper(last, frequency) {
   };
 }
 function splitCents(total, shares) {
-  const cents = shares.map((share3) => Math.floor(share3 * 100 + 1e-9));
-  let left = Math.round(total * 100) - cents.reduce((sum, value) => sum + value, 0);
-  const order = shares.map((share3, index) => ({ index, rest: share3 * 100 - cents[index] })).sort((a, b) => b.rest - a.rest);
-  for (const { index } of order) {
-    if (left <= 0) break;
-    cents[index] = cents[index] + 1;
-    left -= 1;
-  }
-  return cents.map((value) => value / 100);
+  const scale = shares.reduce((sum, share3) => sum + share3, 0);
+  let running = 0;
+  let previous = 0;
+  return shares.map((share3) => {
+    running += share3;
+    const cents = Math.round(running / scale * total * 100);
+    const amount2 = (cents - previous) / 100;
+    previous = cents;
+    return amount2;
+  });
 }
 function expectedPayments(schedule, quantity, from, until = Number.POSITIVE_INFINITY) {
   const annual = Math.round(schedule.annualPerShare * quantity * 100) / 100;
   if (!(annual > 0)) return [];
   const count = schedule.frequency ?? 1;
-  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1].at, schedule.frequency ?? 1);
+  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1].at, schedule.frequency ?? 1, schedule.monthEnd === true);
   let first = 1;
   while (step(first) < from) first++;
   const dates = Array.from({ length: count }, (_, index) => step(first + index));
@@ -40589,7 +40604,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_holding_detail",
     {
       title: "Trading 212 Holding Detail",
-      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
+      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills, the dividends since the first day of this month a year ago with the next ones expected, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }

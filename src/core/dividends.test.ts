@@ -78,6 +78,25 @@ describe("dividend schedule", () => {
     expect(dividendSchedule([paid("2026-05-01", 0.5), paid("2026-05-20", -0.5)])).toBeUndefined();
   });
 
+  it("calls a holding weekly only when its paydays bear it out, and otherwise keeps entries days apart in one payday", () => {
+    // Bought last month: a regular dividend and a special one a week later are one payday, not a weekly payer.
+    const pair = dividendSchedule([{ at: at("2026-09-01"), perShare: 0.5, amount: 5, quantity: 10 }, { at: at("2026-09-08"), perShare: 1, amount: 10, quantity: 10 }])!;
+    expect(pair.frequency).toBeUndefined();
+    expect(pair.annualPerShare * 10).toBeCloseTo(15, 9);
+    // A quarterly payer with a second, smaller entry five days after each payday.
+    const quarterly = dividendSchedule(["2025-11-03", "2026-02-02", "2026-05-04", "2026-08-03"].flatMap((day) => [
+      { at: at(day), perShare: 0.4, amount: 4, quantity: 10 }, { at: at(day) + 5 * 86_400_000, perShare: 0.1, amount: 1, quantity: 10 },
+    ]))!;
+    expect(quarterly.frequency).toBe(4);
+    expect(quarterly.annualPerShare * 10).toBeCloseTo(20, 9);
+    // A monthly payer with an adjustment six days after each payday.
+    const monthly = dividendSchedule(Array.from({ length: 12 }, (_, index) => addMonths(at("2025-10-15"), index)).flatMap((day) => [
+      { at: day, perShare: 0.1, amount: 1, quantity: 10 }, { at: day + 6 * 86_400_000, perShare: 0.01, amount: 0.1, quantity: 10 },
+    ]))!;
+    expect(monthly.frequency).toBe(12);
+    expect(monthly.annualPerShare * 10).toBeCloseTo(13.2, 9);
+  });
+
   it("takes only the newest year's paydays, where the year read holds one payment twice", () => {
     const schedule = dividendSchedule(["2025-10-02", "2026-01-02", "2026-04-01", "2026-07-01", "2026-10-01"].map((day) => paid(day, 0.5)))!;
     expect(schedule.frequency).toBe(4);
@@ -93,6 +112,9 @@ describe("dividend schedule", () => {
     expect(weeks.slice(0, 2).map((payment) => [iso(payment.at), payment.amount])).toEqual([["2026-10-02", 1], ["2026-10-09", 1]]);
     const monthEnd = dividendSchedule([paid("2026-07-31", 0.1), paid("2026-08-31", 0.1), paid("2026-09-30", 0.1)])!;
     expect(expectedPayments(monthEnd, 10, at("2026-10-01")).slice(0, 3).map((payment) => iso(payment.at))).toEqual(["2026-10-31", "2026-11-30", "2026-12-31"]);
+    // Paying on the 30th lands on some month ends, but is not a month-end payer.
+    const thirtieth = dividendSchedule([paid("2026-06-30", 0.1), paid("2026-07-30", 0.1), paid("2026-08-30", 0.1), paid("2026-09-30", 0.1)])!;
+    expect(expectedPayments(thirtieth, 10, at("2026-10-01")).slice(0, 2).map((payment) => iso(payment.at))).toEqual(["2026-10-30", "2026-11-30"]);
   });
 
   it("shares the year out to the cent", () => {
@@ -101,6 +123,11 @@ describe("dividend schedule", () => {
     expect(payments).toHaveLength(12);
     expect(Math.round(payments.reduce((sum, payment) => sum + payment.amount, 0) * 100)).toBe(4000);
     expect(new Set(payments.map((payment) => payment.amount))).toEqual(new Set([3.33, 3.34]));
+    // Cents too few for every payment spread over the year rather than bunching at its start.
+    const weekly = dividendSchedule(Array.from({ length: 8 }, (_, index) => ({ at: at("2026-08-07") + index * 7 * 86_400_000, perShare: 0.0005 })))!;
+    const small = expectedPayments(weekly, 10, at("2026-10-01"));
+    expect(small).toHaveLength(26);
+    expect(iso(small[small.length - 1]!.at) > "2027-09-01").toBe(true);
   });
 
   it("does not expect a yearly payment again within the year it was paid this month", () => {

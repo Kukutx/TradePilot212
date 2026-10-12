@@ -59,7 +59,7 @@ export interface HoldingDetail {
   /** All notes on this instrument, when more than `journal` lists. */
   journalTotal?: number;
   market?: MarketStatus;
-  /** The last 12 months of fills and dividends; absent when the history could not be read. */
+  /** The last 12 months of fills and the dividends since `dividendsFrom`; absent when the history could not be read. */
   history?: {
     from: string;
     /** Where the dividends are read from: the first day of this month a year ago, when earlier than `from`. */

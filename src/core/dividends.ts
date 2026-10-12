@@ -2,8 +2,10 @@
 // the payments that spacing implies at the current quantity. Pure functions; the clock is passed in.
 
 const DAY = 86_400_000;
-/** Entries this close together are one payday. */
-const SAME_PAYDAY_DAYS = 3;
+/** Entries this close to a payday's first are part of it. */
+const SAME_PAYDAY_DAYS = 10;
+/** The same for a holding that pays every week or two, whose paydays are closer than that. */
+const SAME_PAYDAY_DAYS_WEEKLY = 3;
 
 /** One payment, per share: net of withholding tax and in the account currency, as Trading 212 pays it. */
 export interface PaidDividend { at: number; perShare: number; amount?: number; quantity?: number }
@@ -18,6 +20,8 @@ export interface DividendSchedule {
   frequency?: DividendFrequency;
   /** A year's payments per share: the newest year's paydays, scaled up to the frequency when there are fewer. */
   annualPerShare: number;
+  /** Most paydays fall on a month's last day, so the next ones are expected on month ends too. */
+  monthEnd?: boolean;
 }
 
 /** An expected payment: when, about (midnight UTC), and how much at the current quantity, in the account currency. */
@@ -61,43 +65,60 @@ function paydayPerShare(entries: PaidDividend[]): number {
   return entries.reduce((sum, entry) => sum + entry.perShare, 0);
 }
 
-/** A holding's schedule from its payments since `scheduleStart`; none without a payday that paid. */
-export function dividendSchedule(paid: PaidDividend[]): DividendSchedule | undefined {
+/** Entries grouped into paydays (within `days` of a payday's first entry), a correction on its own day counted against the payday before it. */
+function paydays(entries: PaidDividend[], days: number): PaidDividend[] {
   const groups: PaidDividend[][] = [];
-  for (const item of [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at)) {
+  for (const item of entries) {
     const group = groups[groups.length - 1];
-    if (group && item.at - group[group.length - 1]!.at <= SAME_PAYDAY_DAYS * DAY) group.push(item);
+    if (group && item.at - group[0]!.at <= days * DAY) group.push(item);
     else groups.push([item]);
   }
-  // A correction on its own (zero or less) belongs to the payday before it, not a payday of its own.
-  const days: PaidDividend[] = [];
+  const result: PaidDividend[] = [];
   for (const group of groups) {
     const perShare = paydayPerShare(group);
-    if (perShare > 0) days.push({ at: group[0]!.at, perShare });
-    else if (days.length) days[days.length - 1]!.perShare += perShare;
+    if (perShare > 0) result.push({ at: group[0]!.at, perShare });
+    else if (result.length) result[result.length - 1]!.perShare += perShare;
   }
-  const payments = days.filter((day) => day.perShare > 0);
+  return result.filter((day) => day.perShare > 0);
+}
+
+const spacings = (payments: PaidDividend[]) => payments.slice(1).map((item, index) => (item.at - payments[index]!.at) / DAY).sort((a, b) => a - b);
+
+/** A holding's schedule from its payments since `scheduleStart`; none without a payday that paid. */
+export function dividendSchedule(paid: PaidDividend[]): DividendSchedule | undefined {
+  const entries = [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at);
+  // Every week or two only when the paydays bear it out: at least six, and three in four spaced under three weeks.
+  // Otherwise entries days apart (a special dividend after the regular one, an adjustment) belong to one payday.
+  const close = paydays(entries, SAME_PAYDAY_DAYS_WEEKLY);
+  const closeGaps = spacings(close);
+  const weekly = close.length >= 6 && closeGaps.filter((gap) => gap < 21).length >= closeGaps.length * 0.75;
+  const payments = weekly ? close : paydays(entries, SAME_PAYDAY_DAYS);
   if (!payments.length) return undefined;
-  const gaps = payments.slice(1).map((item, index) => (item.at - payments[index]!.at) / DAY).sort((a, b) => a - b);
+  const gaps = weekly ? closeGaps : spacings(payments);
   const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)]! : undefined;
   const frequency: DividendFrequency | undefined = gap === undefined ? undefined
-    : gap < 10 ? 52 : gap < 21 ? 26 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+    : weekly ? (gap < 10 ? 52 : 26) : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
   // The newest year's paydays: a schedule read over a little more than a year can hold one payment twice.
   const count = frequency ?? 1;
   const recent = payments.slice(-count);
   const sum = recent.reduce((total, item) => total + item.perShare, 0);
-  return { payments, ...(frequency ? { frequency } : {}), annualPerShare: recent.length < count ? (sum * count) / recent.length : sum };
+  const ends = payments.filter((item) => monthEnd(dayStart(item.at)) === dayStart(item.at)).length;
+  return {
+    payments,
+    ...(frequency ? { frequency } : {}),
+    annualPerShare: recent.length < count ? (sum * count) / recent.length : sum,
+    ...(ends >= 2 && ends >= payments.length * 0.75 ? { monthEnd: true } : {}),
+  };
 }
 
-/** The `k`th payday after `last` at the schedule's spacing; a holding that pays on a month's last day keeps to it. */
-function stepper(last: number, frequency: DividendFrequency): { step: (k: number) => number; days: number; yearBefore: (at: number) => number } {
+/** The `k`th payday after `last` at the schedule's spacing; a holding that pays on months' last days keeps to them. */
+function stepper(last: number, frequency: DividendFrequency, atMonthEnd: boolean): { step: (k: number) => number; days: number; yearBefore: (at: number) => number } {
   const from = dayStart(last);
   if (frequency >= 26) {
     const days = 364 / frequency;
     return { step: (k) => from + k * days * DAY, days, yearBefore: (at) => at - 364 * DAY };
   }
   const months = 12 / frequency;
-  const atMonthEnd = monthEnd(from) === from;
   return {
     step: (k) => (atMonthEnd ? monthEnd(addMonths(monthStart(from), k * months)) : addMonths(from, k * months)),
     days: months * 30.44,
@@ -105,17 +126,18 @@ function stepper(last: number, frequency: DividendFrequency): { step: (k: number
   };
 }
 
-/** Cents that add up to the total's cents: each share rounded down, the cents left to the largest remainders. */
+/** Cents that add up to the total's cents: each payment the step in the rounded running total, so cents spread evenly. */
 function splitCents(total: number, shares: number[]): number[] {
-  const cents = shares.map((share) => Math.floor(share * 100 + 1e-9));
-  let left = Math.round(total * 100) - cents.reduce((sum, value) => sum + value, 0);
-  const order = shares.map((share, index) => ({ index, rest: share * 100 - cents[index]! })).sort((a, b) => b.rest - a.rest);
-  for (const { index } of order) {
-    if (left <= 0) break;
-    cents[index] = cents[index]! + 1;
-    left -= 1;
-  }
-  return cents.map((value) => value / 100);
+  const scale = shares.reduce((sum, share) => sum + share, 0);
+  let running = 0;
+  let previous = 0;
+  return shares.map((share) => {
+    running += share;
+    const cents = Math.round((running / scale) * total * 100);
+    const amount = (cents - previous) / 100;
+    previous = cents;
+    return amount;
+  });
 }
 
 /**
@@ -128,7 +150,7 @@ export function expectedPayments(schedule: DividendSchedule, quantity: number, f
   const annual = Math.round(schedule.annualPerShare * quantity * 100) / 100;
   if (!(annual > 0)) return [];
   const count = schedule.frequency ?? 1;
-  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1]!.at, schedule.frequency ?? 1);
+  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1]!.at, schedule.frequency ?? 1, schedule.monthEnd === true);
   let first = 1;
   while (step(first) < from) first++;
   const dates = Array.from({ length: count }, (_, index) => step(first + index));

@@ -51,7 +51,7 @@ export interface HoldingDeps {
 
 /**
  * One instrument: the position (if held), its share of the account and saved target, open orders,
- * price alerts, journal notes, market session, the last 12 months of fills and dividends, and of daily closes.
+ * price alerts, journal notes, market session, the last 12 months of fills and of daily closes, and the dividends since the first day of this month a year ago.
  * A failed history or price read leaves the rest in place and says why.
  */
 export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvironment, query: string, now = new Date()): Promise<HoldingDetail> {
