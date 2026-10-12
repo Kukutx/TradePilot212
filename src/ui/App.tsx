@@ -502,6 +502,11 @@ export default function App() {
 
   async function switchEnvironment(next: TradingEnvironment): Promise<void> {
     if (next === environment) return;
+    // A quantity sized from this account's cash, value or holding is worked out again for the other one. The
+    // draft moves only once that works; otherwise it stays on the account it was sized for and the error says why.
+    const intent = base?.kind === "order_draft" ? intentForAccount(draft ?? base.draft, base.resolution, next) : undefined;
+    const resized: { payload?: BasePayload } = {};
+    if (intent && !await run("errorTitleOrderCheck", async () => { resized.payload = await callTool<BasePayload>("review_trading212_order_intent", intent); })) return;
     setEnvironment(next);
     setExecution(null);
     setVerification(null);
@@ -511,15 +516,13 @@ export default function App() {
     setBasketResult(null);
     setInsights({});
     setInsightError(null);
+    if (resized.payload) {
+      showPayload(resized.payload);
+      return;
+    }
     if (draft) setDraft({ ...draft, environment: next });
     if (base?.kind === "order_draft") {
-      // A quantity sized from this account's cash, value or holding is worked out again for the other one.
-      const intent = intentForAccount(draft ?? base.draft, base.resolution, next);
-      if (intent && await run("errorTitleOrderCheck", async () => showPayload(await callTool<BasePayload>("review_trading212_order_intent", intent)))) return;
-      const moved = { ...base, draft: { ...base.draft, environment: next } };
-      // Without a fresh sizing the old one no longer applies, so the draft keeps only its quantity.
-      if (intent) delete moved.resolution;
-      setBase(moved);
+      setBase({ ...base, draft: { ...base.draft, environment: next } });
       return;
     }
     await refresh(next);

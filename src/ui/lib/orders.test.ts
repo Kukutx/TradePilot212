@@ -64,6 +64,12 @@ describe("switching accounts", () => {
     expect(intentForAccount(draft, { sizing: { mode: "cash_percent", percent: 10 }, resolvedQuantity: 2 }, "live")).toMatchObject({ sizing: { mode: "cash_percent" } });
   });
 
+  it("leaves out an exchange rate given for the first account's currency", () => {
+    const risk: OrderResolution = { sizing: { mode: "risk", amount: 50, stopLossPrice: 200, fxRateToInstrumentCurrency: 1.08 }, resolvedQuantity: 2 };
+    expect(intentForAccount(draft, risk, "live")?.sizing).toEqual({ mode: "risk", amount: 50, stopLossPrice: 200 });
+    expect(risk.sizing).toHaveProperty("fxRateToInstrumentCurrency", 1.08);
+  });
+
   it("keeps a quantity or an amount as it is", () => {
     expect(intentForAccount(draft, { sizing: { mode: "quantity", quantity: 7 }, resolvedQuantity: 7 }, "live")).toBeUndefined();
     expect(intentForAccount(draft, { sizing: { mode: "notional", amount: 100 }, resolvedQuantity: 0.5 }, "live")).toBeUndefined();

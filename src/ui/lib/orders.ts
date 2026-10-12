@@ -101,16 +101,19 @@ const ACCOUNT_SIZING: ReadonlySet<OrderSizing["mode"]> = new Set(["cash_percent"
 /**
  * The intent to size a draft again for another account, or undefined when its quantity carries over (an exact
  * quantity or an amount). The order's own fields come from the draft as edited; its reference price does not,
- * since that account's last price or quote is read afresh.
+ * since that account's last price or quote is read afresh. Neither does an exchange rate: it is per unit of the
+ * first account's currency, which the other account may not share.
  */
 export function intentForAccount(draft: OrderDraft, resolution: OrderResolution | undefined, environment: TradingEnvironment): Record<string, unknown> | undefined {
   if (!resolution || !ACCOUNT_SIZING.has(resolution.sizing.mode)) return undefined;
+  const sizing: Record<string, unknown> = { ...resolution.sizing };
+  delete sizing.fxRateToInstrumentCurrency;
   return {
     environment,
     instrument: draft.ticker,
     side: draft.side,
     type: draft.type,
-    sizing: resolution.sizing,
+    sizing,
     ...(draft.limitPrice === undefined ? {} : { limitPrice: draft.limitPrice }),
     ...(draft.stopPrice === undefined ? {} : { stopPrice: draft.stopPrice }),
     ...(draft.timeValidity === undefined ? {} : { timeValidity: draft.timeValidity }),
