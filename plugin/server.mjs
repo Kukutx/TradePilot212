@@ -34905,6 +34905,70 @@ function fail(code, message, details) {
   throw new TradePilotError(code, message, details);
 }
 
+// src/shared/trade-cost.ts
+var DEFAULT_FX_FEE_RATE = 15e-4;
+var MAX_FX_FEE_RATE = 0.05;
+var cents = (value) => Math.round(value * 100) / 100;
+var currencyOfAccount = (code) => {
+  const upper = code.toUpperCase();
+  return upper === "GBX" ? "GBP" : upper;
+};
+var knownCurrency = (code) => code && code !== "?" ? code : void 0;
+var converts = (currency, accountCurrency) => !knownCurrency(currency) || currencyOfAccount(currency) !== currencyOfAccount(accountCurrency);
+function tradeTotals(trades, accountCurrency, fxFeeRate2 = DEFAULT_FX_FEE_RATE) {
+  const account = currencyOfAccount(accountCurrency);
+  let bought = 0;
+  let sold = 0;
+  let converted = 0;
+  let unknown2 = 0;
+  for (const trade of trades) {
+    const value = Math.abs(trade.value);
+    if (!(value > 0)) continue;
+    if (trade.side === "buy") bought += value;
+    else sold += value;
+    if (!knownCurrency(trade.currency)) unknown2 += 1;
+    if (converts(trade.currency, account)) converted += value;
+  }
+  return {
+    currency: accountCurrency,
+    bought: cents(bought),
+    sold: cents(sold),
+    converted: cents(converted),
+    fxFee: cents(converted * fxFeeRate2),
+    fxFeeRate: fxFeeRate2,
+    ...unknown2 ? { unknownCurrency: unknown2 } : {}
+  };
+}
+var ROUNDING_SHARE = 5e-5;
+function weightTrades(moves, totalValue, minTradeValue = 1) {
+  if (!(totalValue > 0)) return [];
+  const trades = [];
+  for (const move of moves) {
+    const change = (move.target - move.current) * totalValue;
+    if (Math.abs(change) < minTradeValue || Math.abs(move.target - move.current) <= ROUNDING_SHARE + 1e-12) continue;
+    trades.push({ ticker: move.ticker, side: change > 0 ? "buy" : "sell", value: Math.abs(change), ...move.currency ? { currency: move.currency } : {} });
+  }
+  return trades;
+}
+function fundBuys(trades, spareCash, accountCurrency, fxFeeRate2 = DEFAULT_FX_FEE_RATE, minTradeValue = 1) {
+  const feeOf = (trade) => converts(trade.currency, accountCurrency) ? fxFeeRate2 : 0;
+  const sells = trades.filter((trade) => trade.side === "sell");
+  const buys = trades.filter((trade) => trade.side === "buy");
+  const budget = Math.max(0, spareCash + sells.reduce((sum, trade) => sum + trade.value * (1 - feeOf(trade)), 0));
+  const wanted = buys.reduce((sum, trade) => sum + trade.value, 0);
+  const cost = buys.reduce((sum, trade) => sum + trade.value * (1 + feeOf(trade)), 0);
+  if (!(cost > budget)) return { trades: [...trades], scale: 1 };
+  const scale = budget / cost;
+  const scaled = buys.map((trade) => ({ ...trade, value: trade.value * scale })).filter((trade) => trade.value >= minTradeValue);
+  return { trades: [...sells, ...scaled], scale: budget + 5e-3 < wanted ? scale : 1 };
+}
+function rebalanceEstimate(moves, totalValue, accountCurrency, fxFeeRate2 = DEFAULT_FX_FEE_RATE, spareCash) {
+  const wanted = weightTrades(moves, totalValue);
+  const funded = spareCash === void 0 ? { trades: wanted, scale: 1 } : fundBuys(wanted, spareCash, accountCurrency, fxFeeRate2);
+  const totals = tradeTotals(funded.trades, accountCurrency, fxFeeRate2);
+  return funded.scale < 1 ? { ...totals, buysScaled: Math.floor(funded.scale * 1e4) / 1e4 } : totals;
+}
+
 // src/core/config.ts
 function isLoopbackHost(hostname3) {
   return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
@@ -34926,6 +34990,11 @@ function nonNegative(env2, name, fallback) {
   if (raw === void 0 || raw === "") return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
+  return value;
+}
+function fxFeeRate(env2) {
+  const value = nonNegative(env2, "FX_FEE_RATE", DEFAULT_FX_FEE_RATE);
+  if (value > MAX_FX_FEE_RATE) throw new Error(`FX_FEE_RATE must be a fraction from 0 to ${MAX_FX_FEE_RATE}, such as 0.0015 for 0.15%`);
   return value;
 }
 function tradingEnvironment(env2) {
@@ -35010,6 +35079,7 @@ function createConfig(env2, requestOrigin) {
     ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
     sampleData,
     oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
+    fxFeeRate: fxFeeRate(env2),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData ? {
       demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
@@ -35244,6 +35314,7 @@ var floorTo = (value, digits) => {
 };
 var money = (value) => Math.round(value * 100) / 100;
 var share = (value) => Math.round(value * 1e4) / 1e4;
+var feePercent = (rate) => `${Number((rate * 100).toFixed(3))}%`;
 function planRebalance(environment, account, positions, targets, options = {}, instrumentCurrency = () => void 0) {
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const totalValue = account.totalValue ?? 0;
@@ -35319,6 +35390,8 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const trades = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
   let cash = cashBefore;
+  const feeRate = options.fxFeeRate ?? DEFAULT_FX_FEE_RATE;
+  const feeOf = (line) => currencyOfAccount(line.currency) === currencyOfAccount(accountCurrency) ? 0 : feeRate;
   for (const line of buyOnly ? [] : lines) {
     const excess = line.currentValue - line.targetWeight * totalValue;
     if (excess < minTradeValue) continue;
@@ -35327,19 +35400,20 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (quantity < wantedQuantity) note("sell_limited", `${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`, { ticker: line.ticker, sellable: line.sellable });
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) continue;
-    cash += value;
+    cash += value * (1 - feeOf(line));
     valueAfter.set(line.ticker, line.currentValue - value);
     trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   const reserve = cashWeight * totalValue;
   const shortfalls = lines.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
-  const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap * (1 + feeOf(item.line)), 0);
   const available = Math.max(0, cash - reserve);
   const budget = options.investAmount === void 0 ? available : Math.min(options.investAmount, available);
   if (buyOnly) note("buy_only", `Nothing is sold: up to ${money(budget)} ${accountCurrency} of the cash above the reserve goes to the targets below their weight, most to the furthest below.`, { budget: money(budget), currency: accountCurrency });
   if (options.investAmount !== void 0 && options.investAmount > available + 5e-3) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  if (!buyOnly && wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  const shortOfBuys = budget + 5e-3 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
@@ -35347,7 +35421,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
       continue;
     }
-    cash -= value;
+    cash -= value * (1 + feeOf(line));
     valueAfter.set(line.ticker, line.currentValue + value);
     trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
@@ -35359,6 +35433,14 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     const source = sources[0]?.source ?? "";
     const asOf = sources.map((rate) => rate.asOf).sort()[0] ?? "";
     note("quoted_rates", `Exchange rates for ${currencies} come from ${source} (as of ${asOf}); Trading 212 converts at its own rate and fee.`, { currencies, source, asOf });
+  }
+  const totals = tradeTotals(trades, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE);
+  if (totals.converted > 0 && totals.fxFeeRate > 0) {
+    note(
+      "fx_fee",
+      `Trades in other currencies come to ${totals.converted} ${accountCurrency}; Trading 212's ${feePercent(totals.fxFeeRate)} conversion fee on them is about ${totals.fxFee} ${accountCurrency}, none on a trade paid from or into a balance in that currency. ${totals.bought > 0 ? "The buys leave room for it and the cash after is net of it." : "The cash after is net of it."}`,
+      { converted: totals.converted, fee: totals.fxFee, rate: totals.fxFeeRate, currency: accountCurrency }
+    );
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
@@ -35375,6 +35457,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     cashAfter: money(cash),
     ...buyOnly ? { buyOnly: true } : {},
     trades,
+    totals,
     skipped,
     notes,
     noteDetails
@@ -36401,7 +36484,7 @@ var TradingService = class {
     const missing = resolved.map((target) => currency.get(target.ticker.toUpperCase()) ?? "").filter((code) => code && !options.fxRates?.[code.toUpperCase()]);
     const { quoted: quoted2 } = await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", missing);
     const quotedFxRates = Object.fromEntries(quoted2);
-    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { ...options, ...quoted2.size ? { quotedFxRates } : {} }, (ticker) => currency.get(ticker.toUpperCase()));
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { fxFeeRate: this.deps.config.fxFeeRate, ...options, ...quoted2.size ? { quotedFxRates } : {} }, (ticker) => currency.get(ticker.toUpperCase()));
   }
   /** Attach each leg's instrument so a review can show names; legs that do not resolve stay as they are. */
   async withInstruments(basket) {
@@ -37240,9 +37323,9 @@ function splitCents(total, shares) {
   let previous = 0;
   return shares.map((share3) => {
     running += share3;
-    const cents = Math.round(running / scale * total * 100);
-    const amount2 = (cents - previous) / 100;
-    previous = cents;
+    const cents2 = Math.round(running / scale * total * 100);
+    const amount2 = (cents2 - previous) / 100;
+    previous = cents2;
     return amount2;
   });
 }
@@ -38112,16 +38195,25 @@ var DAY_MS3 = 864e5;
 var targetKey = (environment) => `targets:${environment}`;
 var share2 = (value) => Math.round(value * 1e4) / 1e4;
 var exact = (value) => Math.round(value * 1e6) / 1e6;
-function allocationDrift(saved, analysis) {
+function allocationDrift(saved, analysis, options = {}) {
   const current = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.weight]));
+  const currencies = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.currency]));
+  const currencyOf = (ticker) => knownCurrency(currencies.get(ticker)) ?? knownCurrency(options.currencyOf?.(ticker));
   const rows2 = saved.targets.map((target) => {
     const weight2 = current.get(target.ticker) ?? 0;
-    return { ticker: target.ticker, target: target.weight, current: exact(weight2), drift: exact(weight2 - target.weight) };
+    const currency = currencyOf(target.ticker);
+    return { ticker: target.ticker, target: target.weight, current: exact(weight2), drift: exact(weight2 - target.weight), ...currency ? { currency } : {} };
   }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const targeted = new Set(saved.targets.map((target) => target.ticker));
   const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
   const untargeted = analysis.holdings.filter((holding2) => !targeted.has(holding2.ticker)).map((holding2) => ({ ticker: holding2.ticker, current: exact(holding2.weight) }));
   const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)), ...saved.sellUntargeted ? untargeted.map((item) => item.current) : []);
+  const { totalValue, accountCurrency } = analysis;
+  const freeCash = analysis.availableCash ?? analysis.cash;
+  const rebalance = totalValue && totalValue > 0 && accountCurrency ? rebalanceEstimate([
+    ...rows2,
+    ...saved.sellUntargeted ? untargeted.map((item) => ({ ...item, target: 0, ...currencyOf(item.ticker) ? { currency: currencyOf(item.ticker) } : {} })) : []
+  ], totalValue, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash === void 0 ? void 0 : freeCash - saved.cashWeight * totalValue) : void 0;
   return {
     threshold: saved.driftThreshold,
     maxDrift: exact(maxDrift),
@@ -38130,7 +38222,8 @@ function allocationDrift(saved, analysis) {
     cash,
     untargeted,
     ...saved.sellUntargeted ? { sellUntargeted: true } : {},
-    savedAt: saved.updatedAt
+    savedAt: saved.updatedAt,
+    ...rebalance ? { rebalance } : {}
   };
 }
 function contributionSplit(targets, values, amount2) {
@@ -38187,7 +38280,10 @@ var TargetAllocations = class {
   async withDrift(analysis) {
     const saved = await this.get(analysis.environment);
     if (!saved) return analysis;
-    const drift = allocationDrift(saved, analysis);
+    const held = new Set(analysis.holdings.map((holding2) => holding2.ticker));
+    const instruments = saved.targets.some((target) => !held.has(target.ticker)) ? await this.deps.trading.instruments(analysis.environment).catch(() => void 0) : void 0;
+    const currencies = new Map((instruments ?? []).map((item) => [item.ticker, item.currencyCode]));
+    const drift = allocationDrift(saved, analysis, { currencyOf: (ticker) => currencies.get(ticker), fxFeeRate: this.deps.config.fxFeeRate });
     return {
       ...analysis,
       drift,
@@ -38976,7 +39072,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.51.0"
+  version: "2.52.0"
 };
 
 // src/shared/holding-risk.ts
@@ -39654,8 +39750,22 @@ function driftLines(drift) {
     ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
     ...drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : [],
-    ...drift.volatility ? [targetVolatilityLine(drift.volatility)] : []
+    ...drift.volatility ? [targetVolatilityLine(drift.volatility)] : [],
+    ...drift.rebalance ? [driftTradesLine(drift.rebalance)] : []
   ]);
+}
+function fxFeeClause(totals) {
+  if (!(totals.converted > 0)) return "; none of it in another currency";
+  const unknown2 = totals.unknownCurrency ? ` (${totals.unknownCurrency} in a currency not known, counted as converted)` : "";
+  return totals.fxFeeRate > 0 ? `; ${money3(totals.converted, totals.currency)} of it in other currencies${unknown2}, about ${money3(totals.fxFee, totals.currency)} in Trading 212's ${num2(totals.fxFeeRate * 100, 3)}% conversion fee, none on a trade paid from or into a balance in that currency` : `; ${money3(totals.converted, totals.currency)} of it in other currencies${unknown2}, no conversion fee counted (FX_FEE_RATE is 0)`;
+}
+function driftTradesLine(totals) {
+  if (!(totals.bought > 0) && !(totals.sold > 0)) {
+    return totals.buysScaled !== void 0 ? "- A rebalance to the targets would buy nothing: no cash is free above the cash target, and nothing is to be sold to pay for the buys." : "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency or within the rounding of a target.";
+  }
+  const trades = [totals.bought > 0 ? `buy about ${money3(totals.bought, totals.currency)}` : "", totals.sold > 0 ? `sell about ${money3(totals.sold, totals.currency)}` : ""].filter(Boolean).join(" and ");
+  const scaled = totals.buysScaled === void 0 ? "" : totals.bought > 0 ? ` The cash to spare, with what the sells raise, pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys.` : " The cash to spare, with what the sells raise, pays for none of the buys.";
+  return `- A rebalance to the targets would ${trades}${fxFeeClause(totals)}.${scaled} By weight; whole shares can trade a little less.`;
 }
 function targetVolatilityLine(volatility) {
   const { account, leftOut } = volatility;
@@ -39877,6 +39987,11 @@ function cashHistory(data) {
     ...data.truncated ? ["History was truncated at the page limit; raise maxPages for older entries."] : []
   ];
 }
+function basketTotalsLine(totals) {
+  const bought = `${money3(totals.bought, totals.currency)}`;
+  const sold = `${money3(totals.sold, totals.currency)}`;
+  return totals.bought > 0 && totals.sold > 0 ? `Buys ${bought}, sells ${sold}.` : totals.bought > 0 ? `Buys ${bought}.` : `Sells ${sold}.`;
+}
 function basketDraft(data) {
   const plan = data.rebalance;
   const skipped = plan?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
@@ -39886,6 +40001,7 @@ function basketDraft(data) {
     `${data.title} (${data.purpose}, ${env(data.environment)}):`,
     ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num2(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === void 0 ? "" : ` \u2248 ${money3(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
     ...plan ? [`Total value ${money3(plan.totalValue, plan.accountCurrency)}; cash ${num2(plan.cashBefore)} before, ${num2(plan.cashAfter)} after.`] : [],
+    ...plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [basketTotalsLine(plan.totals)] : [],
     ...section("Skipped", rows(skipped, (line) => line)),
     ...section("Notes", rows(notes, (line) => line))
   ];
@@ -41485,6 +41601,11 @@ function badWeekText(mix) {
   if (!mix) return "";
   return mix.badWeek < 0 ? `, a bad week one in 20 ${(mix.badWeek * 100).toFixed(mix.badWeek > -5e-4 ? 2 : 1)}%` : ", today's mix fell in fewer than one week in 20";
 }
+function driftTradeText(drift) {
+  const totals = drift.rebalance;
+  if (!totals || !(totals.bought > 0 || totals.sold > 0)) return "";
+  return `, a rebalance to them about ${Math.round(totals.bought + totals.sold)} ${totals.currency} traded${totals.fxFee > 0 ? ` and at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""}${totals.buysScaled === void 0 ? "" : ` (the cash pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys)`}`;
+}
 var COVARIANCE_BUDGET_MS = 12e3;
 function result(data, text) {
   const detail = describePayload(data);
@@ -41593,7 +41714,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     const quoteOf = config3.sampleData ? (instrument) => trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) : void 0;
     const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {} };
     const risk = read ? await readHoldingRisk(deps, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
-    return { ...analysis, ...risk };
+    return { ...analysis, ...risk, fxFeeRate: config3.fxFeeRate };
   };
   const targetTickers = async (environment) => ((await targetAllocations.get(environment).catch(() => void 0))?.targets ?? []).map((target) => target.ticker);
   G(
@@ -41686,7 +41807,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, drift.rebalance: what a rebalance to them would buy and sell (by weight, in the account currency, the buys fitted to the cash above the cash target and what the sells raise, with buysScaled the share paid for when that falls short) and the currency conversion fee on the part in other currencies (FX_FEE_RATE, 0.15% by default; at most that, as a trade paid from a balance in the instrument's currency converts nothing), and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -41704,7 +41825,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           covariance = found;
         }, alongside: await targetTickers(environment) });
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points${driftTradeText(data.drift)}` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42080,7 +42201,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint. totals gives what the buys and sells come to and the currency conversion fee on the trades in other currencies (FX_FEE_RATE, 0.15% by default; none on a trade paid from or into a balance in that currency); the buys leave room for that fee, and cashAfter is net of it.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -42093,7 +42214,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         minTradeValue: external_exports.number().min(0).default(1).describe("Skip trades smaller than this, in the account currency"),
         sellUntargeted: external_exports.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used. Ignored with buyOnly"),
         buyOnly: external_exports.boolean().optional().describe("Sell nothing: invest only the cash above the cash weight, in the targets below their weight, most to the furthest below"),
-        investAmount: external_exports.number().positive().optional().describe("Invest at most this amount, in the account currency; implies buyOnly"),
+        investAmount: external_exports.number().positive().optional().describe("Invest at most this amount, in the account currency, conversion fees included; implies buyOnly"),
         wholeSharesOnly: external_exports.boolean().default(false),
         fxRates: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Instrument-currency units per 1 account-currency unit, e.g. {"USD": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency`)
       }),
@@ -42114,7 +42235,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           ...investAmount === void 0 ? {} : { investAmount }
         });
         const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan)), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}: ${plan.trades.length} trade(s)${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
+        const totals = plan.totals;
+        const traded = totals && plan.trades.length ? ` (${[totals.bought > 0 ? `buys ${totals.bought} ${totals.currency}` : "", totals.sold > 0 ? `sells ${totals.sold} ${totals.currency}` : "", totals.fxFee > 0 ? `at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""].filter(Boolean).join(", ")})` : "";
+        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}: ${plan.trades.length} trade(s)${traded}${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

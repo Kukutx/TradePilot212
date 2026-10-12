@@ -6,6 +6,7 @@ import type { RebalanceNote, RebalancePlan, RebalanceTarget, RebalanceTrade } fr
 import { fail } from "./errors.js";
 import { knownFxRates } from "./fx.js";
 import type { ExternalFxRate } from "./quotes.js";
+import { currencyOfAccount, DEFAULT_FX_FEE_RATE, tradeTotals } from "../shared/trade-cost.js";
 
 export interface RebalanceOptions {
   /** Share of total value to keep as cash after rebalancing (0 to 1). */
@@ -24,6 +25,8 @@ export interface RebalanceOptions {
   fxRates?: Record<string, number>;
   /** Rates from the quote provider for currencies no holding is priced in; holdings and fxRates win. */
   quotedFxRates?: Record<string, ExternalFxRate>;
+  /** Trading 212's currency conversion fee, for the estimate of what the trades in other currencies cost (default 0.15%). */
+  fxFeeRate?: number;
 }
 
 const floorTo = (value: number, digits: number) => {
@@ -32,6 +35,8 @@ const floorTo = (value: number, digits: number) => {
 };
 const money = (value: number) => Math.round(value * 100) / 100;
 const share = (value: number) => Math.round(value * 10_000) / 10_000;
+/** A fee rate as a percent with no trailing zeros, to three decimals as the widget shows it: 0.0015 is "0.15%". */
+const feePercent = (rate: number) => `${Number((rate * 100).toFixed(3))}%`;
 
 interface Line {
   ticker: string;
@@ -135,6 +140,10 @@ export function planRebalance(
   const trades: RebalanceTrade[] = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
   let cash = cashBefore;
+  // Trading 212's conversion fee on a trade in another currency: it comes off a sell's proceeds and on top of a buy,
+  // so the buys leave room for it and the cash after is net of it (at most, as a balance in that currency pays none).
+  const feeRate = options.fxFeeRate ?? DEFAULT_FX_FEE_RATE;
+  const feeOf = (line: Line) => (currencyOfAccount(line.currency) === currencyOfAccount(accountCurrency) ? 0 : feeRate);
 
   // Sells first: they fund the buys.
   for (const line of buyOnly ? [] : lines) {
@@ -145,7 +154,7 @@ export function planRebalance(
     if (quantity < wantedQuantity) note("sell_limited", `${line.ticker}: only ${line.sellable} share(s) are tradable, so the sell is smaller than the target needs.`, { ticker: line.ticker, sellable: line.sellable });
     const value = quantity * line.price / line.fx;
     if (quantity <= 0 || value < minTradeValue) continue;
-    cash += value;
+    cash += value * (1 - feeOf(line));
     valueAfter.set(line.ticker, line.currentValue - value);
     trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
@@ -155,14 +164,16 @@ export function planRebalance(
   const shortfalls = lines
     .map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue }))
     .filter((item) => item.gap >= minTradeValue);
-  const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap * (1 + feeOf(item.line)), 0);
   const available = Math.max(0, cash - reserve);
   const budget = options.investAmount === undefined ? available : Math.min(options.investAmount, available);
   if (buyOnly) note("buy_only", `Nothing is sold: up to ${money(budget)} ${accountCurrency} of the cash above the reserve goes to the targets below their weight, most to the furthest below.`, { budget: money(budget), currency: accountCurrency });
   if (options.investAmount !== undefined && options.investAmount > available + 0.005) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  // In buy-only mode the buy_only note already gives the amount being invested.
-  if (!buyOnly && wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  // In buy-only mode the buy_only note already gives the amount being invested. Short of only the conversion fee, the
+  // buys are a hair smaller (the fee note says so), not scaled down.
+  const shortOfBuys = budget + 0.005 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
@@ -170,7 +181,7 @@ export function planRebalance(
       if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
       continue;
     }
-    cash -= value;
+    cash -= value * (1 + feeOf(line));
     valueAfter.set(line.ticker, line.currentValue + value);
     trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
@@ -183,6 +194,11 @@ export function planRebalance(
     const source = sources[0]?.source ?? "";
     const asOf = sources.map((rate) => rate.asOf).sort()[0] ?? "";
     note("quoted_rates", `Exchange rates for ${currencies} come from ${source} (as of ${asOf}); Trading 212 converts at its own rate and fee.`, { currencies, source, asOf });
+  }
+  const totals = tradeTotals(trades, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE);
+  if (totals.converted > 0 && totals.fxFeeRate > 0) {
+    note("fx_fee", `Trades in other currencies come to ${totals.converted} ${accountCurrency}; Trading 212's ${feePercent(totals.fxFeeRate)} conversion fee on them is about ${totals.fxFee} ${accountCurrency}, none on a trade paid from or into a balance in that currency. ${totals.bought > 0 ? "The buys leave room for it and the cash after is net of it." : "The cash after is net of it."}`,
+      { converted: totals.converted, fee: totals.fxFee, rate: totals.fxFeeRate, currency: accountCurrency });
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
@@ -200,6 +216,7 @@ export function planRebalance(
     cashAfter: money(cash),
     ...(buyOnly ? { buyOnly: true } : {}),
     trades,
+    totals,
     skipped,
     notes,
     noteDetails,

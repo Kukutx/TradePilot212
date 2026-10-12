@@ -10,6 +10,7 @@ import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPa
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -376,7 +377,30 @@ function driftLines(drift: AllocationDrift): string[] {
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
     ...(drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
     ...(drift.volatility ? [targetVolatilityLine(drift.volatility)] : []),
+    ...(drift.rebalance ? [driftTradesLine(drift.rebalance)] : []),
   ]);
+}
+
+/** What converting the part in other currencies costs, as a clause starting "; ", or that none of it is converted. */
+function fxFeeClause(totals: TradeTotals): string {
+  if (!(totals.converted > 0)) return "; none of it in another currency";
+  const unknown = totals.unknownCurrency ? ` (${totals.unknownCurrency} in a currency not known, counted as converted)` : "";
+  return totals.fxFeeRate > 0
+    ? `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, about ${money(totals.fxFee, totals.currency)} in Trading 212's ${num(totals.fxFeeRate * 100, 3)}% conversion fee, none on a trade paid from or into a balance in that currency`
+    : `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, no conversion fee counted (FX_FEE_RATE is 0)`;
+}
+
+function driftTradesLine(totals: TradeTotals): string {
+  if (!(totals.bought > 0) && !(totals.sold > 0)) {
+    return totals.buysScaled !== undefined
+      ? "- A rebalance to the targets would buy nothing: no cash is free above the cash target, and nothing is to be sold to pay for the buys."
+      : "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency or within the rounding of a target.";
+  }
+  const trades = [totals.bought > 0 ? `buy about ${money(totals.bought, totals.currency)}` : "", totals.sold > 0 ? `sell about ${money(totals.sold, totals.currency)}` : ""].filter(Boolean).join(" and ");
+  const scaled = totals.buysScaled === undefined ? "" : totals.bought > 0
+    ? ` The cash to spare, with what the sells raise, pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys.`
+    : " The cash to spare, with what the sells raise, pays for none of the buys.";
+  return `- A rebalance to the targets would ${trades}${fxFeeClause(totals)}.${scaled} By weight; whole shares can trade a little less.`;
 }
 
 function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {
@@ -662,6 +686,12 @@ function cashHistory(data: { items: Array<{ date: string; type: string; amount: 
   ];
 }
 
+function basketTotalsLine(totals: TradeTotals): string {
+  const bought = `${money(totals.bought, totals.currency)}`;
+  const sold = `${money(totals.sold, totals.currency)}`;
+  return totals.bought > 0 && totals.sold > 0 ? `Buys ${bought}, sells ${sold}.` : totals.bought > 0 ? `Buys ${bought}.` : `Sells ${sold}.`;
+}
+
 function basketDraft(data: BasketDraftPayload & { rebalance?: RebalancePlan }): string[] {
   const plan = data.rebalance;
   const skipped = plan?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
@@ -671,6 +701,7 @@ function basketDraft(data: BasketDraftPayload & { rebalance?: RebalancePlan }): 
     `${data.title} (${data.purpose}, ${env(data.environment)}):`,
     ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === undefined ? "" : ` ≈ ${money(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
     ...(plan ? [`Total value ${money(plan.totalValue, plan.accountCurrency)}; cash ${num(plan.cashBefore)} before, ${num(plan.cashAfter)} after.`] : []),
+    ...(plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [basketTotalsLine(plan.totals)] : []),
     ...section("Skipped", rows(skipped, (line) => line)),
     ...section("Notes", rows(notes, (line) => line)),
   ];

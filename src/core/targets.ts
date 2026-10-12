@@ -5,6 +5,7 @@
 import type { TradingEnvironment } from "../shared/contracts.js";
 import type { TargetAllocation } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift } from "../shared/history.js";
+import { DEFAULT_FX_FEE_RATE, knownCurrency, rebalanceEstimate } from "../shared/trade-cost.js";
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
@@ -25,13 +26,26 @@ export interface TargetInput {
   sellUntargeted?: boolean;
 }
 
-/** Current weights against the saved targets. Drift is in weight points of total account value. */
-export function allocationDrift(saved: TargetAllocation, analysis: Pick<AllocationAnalysis, "holdings" | "cashWeight">): AllocationDrift {
+export interface DriftOptions {
+  /** An instrument's quote currency, for the targets not held; the holdings carry theirs. */
+  currencyOf?: (ticker: string) => string | undefined;
+  /** Trading 212's currency conversion fee, for the estimate of what a rebalance converts (default 0.15%). */
+  fxFeeRate?: number;
+}
+
+/**
+ * Current weights against the saved targets. Drift is in weight points of total account value. With the account's
+ * value and currency, also what a rebalance to the targets would trade, its buys fitted to the cash.
+ */
+export function allocationDrift(saved: TargetAllocation, analysis: Pick<AllocationAnalysis, "holdings" | "cashWeight"> & Partial<Pick<AllocationAnalysis, "totalValue" | "accountCurrency" | "cash" | "availableCash">>, options: DriftOptions = {}): AllocationDrift {
   const current = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.weight]));
+  const currencies = new Map(analysis.holdings.map((holding) => [holding.ticker, holding.currency]));
+  const currencyOf = (ticker: string) => knownCurrency(currencies.get(ticker)) ?? knownCurrency(options.currencyOf?.(ticker));
   const rows = saved.targets
     .map((target) => {
       const weight = current.get(target.ticker) ?? 0;
-      return { ticker: target.ticker, target: target.weight, current: exact(weight), drift: exact(weight - target.weight) };
+      const currency = currencyOf(target.ticker);
+      return { ticker: target.ticker, target: target.weight, current: exact(weight), drift: exact(weight - target.weight), ...(currency ? { currency } : {}) };
     })
     .sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const targeted = new Set(saved.targets.map((target) => target.ticker));
@@ -39,6 +53,15 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
   const untargeted = analysis.holdings.filter((holding) => !targeted.has(holding.ticker)).map((holding) => ({ ticker: holding.ticker, current: exact(holding.weight) }));
   // Holdings without a target only count when the targets say to sell them; otherwise they are kept as they are.
   const maxDrift = Math.max(Math.abs(cash.drift), ...rows.map((row) => Math.abs(row.drift)), ...(saved.sellUntargeted ? untargeted.map((item) => item.current) : []));
+  const { totalValue, accountCurrency } = analysis;
+  // The buys a rebalance can pay for: the cash free to trade above the cash target, and what the sells raise.
+  const freeCash = analysis.availableCash ?? analysis.cash;
+  const rebalance = totalValue && totalValue > 0 && accountCurrency
+    ? rebalanceEstimate([
+        ...rows,
+        ...(saved.sellUntargeted ? untargeted.map((item) => ({ ...item, target: 0, ...(currencyOf(item.ticker) ? { currency: currencyOf(item.ticker)! } : {}) })) : []),
+      ], totalValue, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash === undefined ? undefined : freeCash - saved.cashWeight * totalValue)
+    : undefined;
   return {
     threshold: saved.driftThreshold,
     maxDrift: exact(maxDrift),
@@ -48,6 +71,7 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
     untargeted,
     ...(saved.sellUntargeted ? { sellUntargeted: true } : {}),
     savedAt: saved.updatedAt,
+    ...(rebalance ? { rebalance } : {}),
   };
 }
 
@@ -128,7 +152,11 @@ export class TargetAllocations {
   async withDrift(analysis: AllocationAnalysis): Promise<AllocationAnalysis> {
     const saved = await this.get(analysis.environment);
     if (!saved) return analysis;
-    const drift = allocationDrift(saved, analysis);
+    // The currencies of the targets not held, for what converting them costs; without the list they count as converted.
+    const held = new Set(analysis.holdings.map((holding) => holding.ticker));
+    const instruments = saved.targets.some((target) => !held.has(target.ticker)) ? await this.deps.trading.instruments(analysis.environment).catch(() => undefined) : undefined;
+    const currencies = new Map((instruments ?? []).map((item) => [item.ticker, item.currencyCode]));
+    const drift = allocationDrift(saved, analysis, { currencyOf: (ticker) => currencies.get(ticker), fxFeeRate: this.deps.config.fxFeeRate });
     return {
       ...analysis,
       drift,

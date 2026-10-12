@@ -3,6 +3,7 @@
 
 import type { TradingEnvironment } from "./contracts.js";
 import type { PricesMissing } from "./prices.js";
+import type { TradeTotals } from "./trade-cost.js";
 
 export interface BrokerTax {
   name?: string;
@@ -132,6 +133,8 @@ export interface AllocationAnalysis {
   risk?: HoldingRisk;
   /** Why there is no risk by holding, when there is none. */
   riskProblem?: string;
+  /** Trading 212's currency conversion fee (FX_FEE_RATE), for estimates of what a rebalance converts: from 2.52. */
+  fxFeeRate?: number;
   /** Holdings whose closes could not be read: the reason as for the price chart, or "later" when the read ran out of time. */
   riskMissing?: Array<{ ticker: string; reason: PricesMissing | "later"; problem: string }>;
   timestamp: string;
@@ -210,7 +213,14 @@ export interface HoldingMix {
 }
 
 /** Current against target weight, as shares of total account value; drift is current minus target. */
-export interface AllocationDriftRow { ticker: string; target: number; current: number; drift: number }
+export interface AllocationDriftRow {
+  ticker: string;
+  target: number;
+  current: number;
+  drift: number;
+  /** The instrument's quote currency, when known: from 2.52. */
+  currency?: string;
+}
 
 export interface AllocationDrift {
   /** Drift in weight points above which the scheduler notifies. */
@@ -229,6 +239,12 @@ export interface AllocationDrift {
   savedAt: string;
   /** The holdings measured for risk by holding, at these targets: present with risk by holding, from 2.50. */
   volatility?: TargetVolatility;
+  /**
+   * What a rebalance to these targets would buy and sell, by the change in each weight times the account's value with
+   * the buys fitted to the cash as the planner fits them, and the conversion fee on the part in other currencies: from
+   * 2.52. Holdings without a target count only when the targets sell them.
+   */
+  rebalance?: TradeTotals;
 }
 
 /**

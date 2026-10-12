@@ -127,6 +127,16 @@ describe("text summaries for hosts that only show text", () => {
       .toContain("- At the targets, the holdings and targets measured would move 15.1% a year together (18.2% now); the account, cash counted as not moving, 14.3% (16.4% now). From the weeks of risk by holding; past volatility, not a forecast.");
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, volatility: { now: 0.182, atTargets: 0.151, leftOut: ["EIMI_EQ"] } } }))
       .toContain("(18.2% now); not measured, so left out: EIMI_EQ. From");
+
+    // What a rebalance to them would trade: AAPL and KO are in dollars, the account in euros.
+    expect(text).toMatch(/- A rebalance to the targets would (buy about [\d.,]+ EUR and sell about [\d.,]+ EUR|buy about [\d.,]+ EUR|sell about [\d.,]+ EUR); [\d.,]+ EUR of it in other currencies, about [\d.,]+ EUR in Trading 212's 0\.15% conversion fee, none on a trade paid from or into a balance in that currency\.( The cash to spare, with what the sells raise, pays for about \d+% of the buys\.)? By weight;/);
+    const rebalance = { currency: "EUR", bought: 1200, sold: 0, converted: 0, fxFee: 0, fxFeeRate: 0.0015 };
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance } })).toContain("- A rebalance to the targets would buy about 1200 EUR; none of it in another currency. By weight;");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, converted: 1200, unknownCurrency: 1, fxFeeRate: 0 } } }))
+      .toContain("1200 EUR of it in other currencies (1 in a currency not known, counted as converted), no conversion fee counted (FX_FEE_RATE is 0).");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, bought: 0 } } })).toContain("- A rebalance to the targets would trade nothing");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, bought: 0, buysScaled: 0 } } })).toContain("- A rebalance to the targets would buy nothing: no cash is free above the cash target");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, buysScaled: 0.4567 } } })).toContain("none of it in another currency. The cash to spare, with what the sells raise, pays for about 45% of the buys. By weight;");
   });
 
   it("gives a day's-move alert's change since the previous close", async () => {

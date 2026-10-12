@@ -22,7 +22,7 @@ function sample() {
   }) as typeof fetch;
   const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true", NOTIFY_WEBHOOK_URL: "https://hooks.example/t" });
   const store = new MemoryStateStore();
-  return { ...createServices({ config, store, fetcher: passthrough }), store, webhooks };
+  return { ...createServices({ config, store, fetcher: passthrough }), config, store, webhooks };
 }
 
 describe("allocation drift", () => {
@@ -36,9 +36,11 @@ describe("allocation drift", () => {
       ],
     });
     expect(drift.rows).toEqual([
-      { ticker: "AAPL_US_EQ", target: 0.5, current: 0.62, drift: 0.12 },
-      { ticker: "VUSAl_EQ", target: 0.4, current: 0.33, drift: -0.07 },
+      { ticker: "AAPL_US_EQ", target: 0.5, current: 0.62, drift: 0.12, currency: "USD" },
+      { ticker: "VUSAl_EQ", target: 0.4, current: 0.33, drift: -0.07, currency: "GBX" },
     ]);
+    // Without the account's value there is no estimate of the trades.
+    expect(drift.rebalance).toBeUndefined();
     expect(drift.cash).toEqual({ target: 0.1, current: 0.02, drift: -0.08 });
     expect(drift.untargeted).toEqual([{ ticker: "KO_US_EQ", current: 0.03 }]);
     expect(drift.maxDrift).toBe(0.12);
@@ -57,6 +59,47 @@ describe("allocation drift", () => {
     // Sold: Coca-Cola's 20% is all drift.
     expect(allocationDrift(saved({ sellUntargeted: true, driftThreshold: 0.1 }), { cashWeight: 0.02, holdings })).toMatchObject({ sellUntargeted: true, maxDrift: 0.2, over: true });
     expect(allocationDrift(saved({ driftThreshold: 0.1 }), { cashWeight: 0.02, holdings }).over).toBe(false);
+  });
+
+  it("estimates what a rebalance to the targets trades, and the fee on the part in other currencies", () => {
+    // A GBP account of 10,000: Apple in dollars, the S&P 500 fund in pence, Coca-Cola without a target.
+    const holdings = [
+      { ticker: "AAPL_US_EQ", name: "Apple", currency: "USD", value: 6200, weight: 0.62 },
+      { ticker: "VUSAl_EQ", name: "S&P 500", currency: "GBX", value: 3300, weight: 0.33 },
+      { ticker: "KO_US_EQ", name: "Coca-Cola", currency: "USD", value: 300, weight: 0.03 },
+    ];
+    const analysis = { cashWeight: 0.02, holdings, totalValue: 10_000, accountCurrency: "GBP" };
+    // Sell 1200 of Apple (dollars), buy 700 of the fund (pence are pounds); Coca-Cola is kept.
+    expect(allocationDrift(saved(), analysis).rebalance).toEqual({ currency: "GBP", bought: 700, sold: 1200, converted: 1200, fxFee: 1.8, fxFeeRate: 0.0015 });
+    // Sold with the targets, Coca-Cola's 300 adds to the sells, in dollars too.
+    expect(allocationDrift(saved({ sellUntargeted: true }), analysis, { fxFeeRate: 0.001 }).rebalance).toEqual({ currency: "GBP", bought: 700, sold: 1500, converted: 1500, fxFee: 1.5, fxFeeRate: 0.001 });
+    // A target not held takes its currency from the instrument list; without one it counts as converted.
+    const away = saved({ targets: [{ ticker: "AAPL_US_EQ", weight: 0.5 }, { ticker: "VUSAl_EQ", weight: 0.33 }, { ticker: "SAPd_EQ", weight: 0.1 }] });
+    const listed = allocationDrift(away, analysis, { currencyOf: (ticker) => (ticker === "SAPd_EQ" ? "EUR" : undefined) });
+    expect(listed.rows.find((row) => row.ticker === "SAPd_EQ")).toMatchObject({ currency: "EUR", current: 0, target: 0.1 });
+    expect(listed.rebalance).toEqual({ currency: "GBP", bought: 1000, sold: 1200, converted: 2200, fxFee: 3.3, fxFeeRate: 0.0015 });
+    expect(allocationDrift(away, analysis).rebalance).toMatchObject({ converted: 2200, unknownCurrency: 1 });
+  });
+
+  it("fits the buys to the cash, as the planner does, and takes an unknown currency for none", () => {
+    // 10,000 GBP: A and B, 35% each, under their 50% targets; C, 30% with no target, is kept; no cash.
+    const holdings = [
+      { ticker: "A", name: "A", currency: "USD", value: 3500, weight: 0.35 },
+      { ticker: "B", name: "B", currency: "GBP", value: 3500, weight: 0.35 },
+      { ticker: "C", name: "C", currency: "?", value: 3000, weight: 0.3 },
+    ];
+    const targets = saved({ targets: [{ ticker: "A", weight: 0.5 }, { ticker: "B", weight: 0.5 }], cashWeight: 0 });
+    const broke = allocationDrift(targets, { cashWeight: 0, cash: 0, holdings, totalValue: 10_000, accountCurrency: "GBP" });
+    // Nothing to sell and no cash: a rebalance buys nothing, and the estimate says so.
+    expect(broke.rebalance).toEqual({ currency: "GBP", bought: 0, sold: 0, converted: 0, fxFee: 0, fxFeeRate: 0.0015, buysScaled: 0 });
+    // 1,500 free: half the buys, the fee on the dollar half included.
+    const half = allocationDrift(targets, { cashWeight: 0.13, cash: 1500, availableCash: 1500, holdings, totalValue: 11_500, accountCurrency: "GBP" });
+    expect(half.rebalance!.bought + half.rebalance!.fxFee).toBeCloseTo(1500, 1);
+    expect(half.rebalance!.buysScaled).toBeLessThan(0.5);
+    // Sold with the targets, C's currency is not known: it counts as converted and is named as such.
+    const sold = allocationDrift({ ...targets, sellUntargeted: true }, { cashWeight: 0, cash: 0, holdings, totalValue: 10_000, accountCurrency: "GBP" });
+    expect(sold.rebalance).toMatchObject({ sold: 3000, unknownCurrency: 1 });
+    expect(sold.rebalance!.buysScaled).toBeGreaterThan(0.99);
   });
 
   it("counts a target that is not held as fully under weight", () => {
@@ -108,6 +151,62 @@ describe("saved targets", () => {
     expect(analysis.drift?.over).toBe(true);
     expect(analysis.flags.map((flag) => flag.code)).toContain("DRIFT_OVER_THRESHOLD");
     expect(analysis.drift?.untargeted.map((item) => item.ticker)).toContain("AAPL_US_EQ");
+  });
+
+  it("prices a rebalance to the targets, with the currency of a target not held from the instrument list", async () => {
+    const services = sample();
+    const read = await services.insights.allocation("demo");
+    // A euro listing the sample account does not hold.
+    const away = ["ASMLa_EQ", "EUNLd_EQ"].find((ticker) => !read.holdings.some((holding) => holding.ticker === ticker))!;
+    await services.targets.set("demo", { targets: [{ instrument: "KO_US_EQ", weight: 0.5 }, { instrument: away, weight: 0.2 }], cashWeight: 0.1 });
+    const { drift } = await services.targets.withDrift(read);
+    expect(drift?.rows.find((row) => row.ticker === away)).toMatchObject({ currency: "EUR", current: 0 });
+    expect(drift?.rows.find((row) => row.ticker === "KO_US_EQ")?.currency).toBe("USD");
+    // The euro buy converts nothing in a euro account; the dollar trades do.
+    const rebalance = drift!.rebalance!;
+    expect(rebalance).toMatchObject({ currency: "EUR", fxFeeRate: 0.0015 });
+    // Nothing is sold, so the buys and their fee take the cash free above the 10% cash target, shared by how far
+    // each target is below: Coca-Cola's dollar buy is converted, the euro one is not.
+    const ko = read.holdings.find((holding) => holding.ticker === "KO_US_EQ")!.weight;
+    const spare = (read.availableCash ?? read.cash) - 0.1 * read.totalValue;
+    expect(rebalance.sold).toBe(0);
+    expect(rebalance.bought + rebalance.fxFee).toBeCloseTo(spare, 0);
+    expect(rebalance.buysScaled).toBeLessThan(1);
+    expect(rebalance.converted / rebalance.bought).toBeCloseTo((0.5 - ko) / (0.5 - ko + 0.2), 2);
+    expect(rebalance.unknownCurrency).toBeUndefined();
+    expect(rebalance.fxFee).toBeCloseTo(rebalance.converted * 0.0015, 2);
+  });
+
+  it("counts a target not held as converted when the instrument list can't be read", async () => {
+    const services = sample();
+    await services.targets.set("demo", { targets: [{ instrument: "KO_US_EQ", weight: 0.5 }, { instrument: "ASMLa_EQ", weight: 0.2 }], cashWeight: 0.1 });
+    const read = await services.insights.allocation("demo");
+    services.trading.instruments = async () => { throw new Error("down"); };
+    const { drift } = await services.targets.withDrift(read);
+    expect(drift?.rows.find((row) => row.ticker === "ASMLa_EQ")?.currency).toBeUndefined();
+    expect(drift?.rebalance?.unknownCurrency).toBe(1);
+  });
+
+  it("says in the tools' text what a rebalance trades and what converting costs", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const services = sample();
+    const server = createMcpServer(services, services.config, async () => "<html></html>", new Set(["trade:read"]));
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    await services.targets.set("demo", { targets: [{ instrument: "KO_US_EQ", weight: 0.3 }, { instrument: "VUSAl_EQ", weight: 0.2 }], cashWeight: 0.1, sellUntargeted: true });
+    const analysis = await client.callTool({ name: "analyze_portfolio_allocation", arguments: { environment: "demo" } });
+    expect(JSON.stringify(analysis.content)).toMatch(/a rebalance to them about \d+ EUR traded and at most [\d.]+ EUR in conversion fees/);
+    expect((analysis.structuredContent as { fxFeeRate?: number }).fxFeeRate).toBe(0.0015);
+    const plan = await client.callTool({ name: "plan_portfolio_rebalance", arguments: { environment: "demo" } });
+    const lead = (plan.content as Array<{ text: string }>)[0]!.text.split("\n")[0]!;
+    expect(lead).toMatch(/^Rebalance plan: \d+ trade\(s\) \(buys [\d.]+ EUR, sells [\d.]+ EUR, at most [\d.]+ EUR in conversion fees\)/);
+    // A plan that only buys, in euros, names neither sells nor a fee.
+    const euros = await client.callTool({ name: "plan_portfolio_rebalance", arguments: { environment: "demo", targets: [{ ticker: "EUNLd_EQ", weight: 0.05 }] } });
+    expect((euros.content as Array<{ text: string }>)[0]!.text).toMatch(/^Rebalance plan: 1 trade\(s\) \(buys [\d.]+ EUR\)\./);
+    await client.close();
   });
 
   it("checks about once an hour and notifies at most once a day while the drift lasts", async () => {

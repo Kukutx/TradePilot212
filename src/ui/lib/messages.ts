@@ -5,6 +5,7 @@ import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { amount, dateTime, money, num, pct, qty } from "./format";
 import { instrumentLabel, type InstrumentBook } from "./instruments";
 import { STOPS_BASKET_TITLE } from "../../shared/protection";
+import type { TradeTotals } from "../../shared/trade-cost";
 
 export type Translator = (key: MessageKey) => string;
 
@@ -382,7 +383,8 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
     case "buys_scaled": {
       const currency = String(value("currency") ?? "");
       const budget = Number(value("budget"));
-      return fill(t("rebalanceNoteScaled"), { percent: pct(Number(value("scale")), locale, 0), budget: amount(budget, currency || undefined, locale) });
+      // Down to a whole percent, so a scale just short of 1 never reads as 100%.
+      return fill(t("rebalanceNoteScaled"), { percent: pct(Math.floor(Number(value("scale")) * 100) / 100, locale, 0), budget: amount(budget, currency || undefined, locale) });
     }
     case "implied_rates": return fill(t("rebalanceNoteImplied"), { currencies: String(value("currencies") ?? "") });
     case "quoted_rates": return fill(t("rebalanceNoteQuoted"), { currencies: String(value("currencies") ?? ""), source: String(value("source") ?? ""), asOf: dateTime(String(value("asOf") ?? ""), locale) });
@@ -398,8 +400,38 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
     case "nothing_possible": return t("rebalanceNoteNothing");
     case "within_threshold": return t("rebalanceNoteWithin");
     case "price_source": return t("rebalanceNotePrices");
+    case "fx_fee": {
+      const currency = String(value("currency") ?? "") || undefined;
+      return fill(t("rebalanceNoteFxFee"), { converted: amount(Number(value("converted")), currency, locale), fee: amount(Number(value("fee")), currency, locale), rate: feeRateText(Number(value("rate")), locale) });
+    }
     default: return note.message;
   }
+}
+
+/** A fee rate as a percent, to as many as three decimals: 0.0015 is "0.15%", 0.00125 "0.125%". */
+export function feeRateText(rate: number, locale: SupportedLocale): string {
+  return new Intl.NumberFormat(localeTag(locale), { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(rate);
+}
+
+const TRADE_KEYS = {
+  drift: { both: "driftTrades", buy: "driftTradesBuy", sell: "driftTradesSell", none: undefined, noCash: "driftTradesNoCash" },
+  targets: { both: "targetsTrades", buy: "targetsTradesBuy", sell: "targetsTradesSell", none: "targetsTradesNone", noCash: "targetsTradesNoCash" },
+} as const;
+
+/**
+ * What a rebalance would buy and sell, then how far the cash goes when it falls short and the conversion fee on the
+ * part in other currencies: for the drift panel (`drift`, the saved targets) or the target form (`targets`, the
+ * weights typed). Nothing to trade says so in the form and nothing in the panel; buys with no cash to pay for them say
+ * so in both.
+ */
+export function tradeEstimateText(totals: TradeTotals, lead: keyof typeof TRADE_KEYS, t: Translator, locale: SupportedLocale): string | undefined {
+  const currency = totals.currency || undefined;
+  const keys = TRADE_KEYS[lead];
+  if (!(totals.bought > 0) && !(totals.sold > 0)) return totals.buysScaled !== undefined ? t(keys.noCash) : keys.none && t(keys.none);
+  const parts = [fill(t(totals.bought > 0 && totals.sold > 0 ? keys.both : totals.bought > 0 ? keys.buy : keys.sell), { bought: amount(totals.bought, currency, locale), sold: amount(totals.sold, currency, locale) })];
+  if (totals.buysScaled !== undefined) parts.push(totals.bought > 0 ? fill(t("tradesScaled"), { percent: pct(Math.floor(totals.buysScaled * 100) / 100, locale, 0) }) : t("tradesNoBuys"));
+  if (totals.converted > 0 && totals.fxFeeRate > 0) parts.push(fill(t("tradesFxFee"), { converted: amount(totals.converted, currency, locale), fee: amount(totals.fxFee, currency, locale), rate: feeRateText(totals.fxFeeRate, locale) }));
+  return parts.join(locale === "zh-CN" ? "" : " ");
 }
 
 export function rebalanceSkipText(item: RebalancePlan["skipped"][number], t: Translator): string {

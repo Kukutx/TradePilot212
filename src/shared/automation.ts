@@ -1,6 +1,7 @@
 // Contracts for the policy engine, multi-order baskets, rebalancing and standing (DCA) plans.
 
 import type { CredentialStatus, Instrument, OrderDraft, OrderExecutionResult, OrderNotice, TradingEnvironment } from "./contracts.js";
+import type { TradeTotals } from "./trade-cost.js";
 
 /** The note every basket preview carries for text-only hosts; the widget shows its own translation. */
 export const BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
@@ -117,7 +118,7 @@ export interface RebalanceTrade {
 }
 
 export type RebalanceSkipCode = "no_fx_rate" | "no_price" | "below_one_share" | "below_minimum";
-export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "buy_only" | "amount_capped" | "no_cash" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source";
+export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "buy_only" | "amount_capped" | "no_cash" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source" | "fx_fee";
 
 /** A plan note with the facts behind it, so the widget can say it in its own language. */
 export interface RebalanceNote {
@@ -136,6 +137,8 @@ export interface RebalancePlan {
   /** Only buys, from cash above the reserve; nothing is sold. */
   buyOnly?: boolean;
   trades: RebalanceTrade[];
+  /** What the trades buy and sell, and the conversion fee on the part in other currencies: from 2.52. */
+  totals?: TradeTotals;
   skipped: Array<{ ticker: string; reason: string; code?: RebalanceSkipCode; currency?: string }>;
   notes: string[];
   /** The same notes as `notes`, in order, with their codes and values. */

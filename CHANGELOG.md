@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.52.0
+
+- What a rebalance trades, and what converting costs. A rebalance plan now gives what its buys and sells come to and, for the trades in another currency than the account's, Trading 212's 0.15% currency conversion fee on them: the basket's summary shows **Buys**, **Sells** and **FX fee, at most**, a note says it, and `plan_portfolio_rebalance` returns it as `totals`. Pence count as pounds. The buys now leave room for the fee, and the cash after is net of it, so a plan that spends all the free cash doesn't run short at its last order; an `investAmount` includes it. A plan short only of the fee doesn't say its buys are scaled, and a scaled one never says 100%. It is at most that, as a trade paid from or into a balance held in the instrument's own currency converts nothing.
+- Saved targets say it before any plan: under the drift, the Allocation tab gives what a rebalance to them would buy and sell and the fee on the part in other currencies, with the buys fitted to the cash as the planner fits them (and how far the cash goes when it falls short), and `analyze_portfolio_allocation` and `manage_target_allocation` return it as `drift.rebalance` (with each drift row's `currency`) and say it in their text. The target form says the same for the weights typed, as you type; **Today's weights** now fill each share to the nearest 0.01% rather than down, so they trade nothing.
+- After a trade is taken out of a rebalance basket, its summary adds up the trades left and the cash after them.
+- `FX_FEE_RATE` sets the fee (a fraction, default `0.0015`; 0 if you trade from balances in each currency). The self-host deploy script now also syncs `FX_FEE_RATE`, `BENCHMARK` and `ORDER_WATCH`.
+
 ## 2.51.0
 
 - Targets you don't hold yet. The target form on the Allocation tab searches Trading 212's instruments and adds one as a target, beside the holdings; a target not held, saved or added, can be removed from the form with its own button. Enter in the search never saves the form. Equal weights share what the cash leaves among them too (they come first when there are more than 20).
