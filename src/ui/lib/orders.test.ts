@@ -66,6 +66,7 @@ describe("risk at the stop", () => {
 
   it("is only for risk-sized drafts", () => {
     expect(riskAtStop(draft, undefined)).toBeUndefined();
+    expect(riskAtStop({ ...draft, side: "sell" }, resolution)).toBeUndefined();
     expect(riskAtStop(draft, { sizing: { mode: "quantity", quantity: 2 }, resolvedQuantity: 2 })).toBeUndefined();
   });
 });

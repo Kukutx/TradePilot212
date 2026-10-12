@@ -85,7 +85,8 @@ export interface RiskAtStop {
  */
 export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | undefined): RiskAtStop | undefined {
   const risk = resolution?.risk;
-  if (!risk || resolution.sizing.mode !== "risk") return undefined;
+  // Risk sizing is for buys; a draft switched to a sell no longer has a loss at the stop to show.
+  if (!risk || resolution.sizing.mode !== "risk" || draft.side !== "buy") return undefined;
   const stop = resolution.sizing.stopLossPrice;
   // As the server sizes it: the limit, or the higher of the trigger or reference price and the last price.
   const given = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : draft.referencePrice;
