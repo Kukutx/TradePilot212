@@ -147,6 +147,7 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     }
     case "RISK_CHECK_UNAVAILABLE":
       if (details.missing === "fx_rate") return fill(t("errorRiskRateUnavailable"), { from: String(details.from ?? ""), to: String(details.to ?? "") });
+      if (details.missing === "account_currency") return t("errorRiskCurrencyUnavailable");
       return details.missing === "quote" ? t("errorRiskQuoteUnavailable") : problem.message;
     case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");

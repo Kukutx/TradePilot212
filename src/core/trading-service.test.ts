@@ -555,6 +555,19 @@ describe("currencies, uncertain results and Live confirmations", () => {
     }) as typeof fetch;
     const blind = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: noCash });
     await expect(blind.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } })).rejects.toThrow(/available cash is unknown/);
+    // Without the account currency, the budget and the cash would be taken 1:1 in dollars, so it is refused too...
+    let currency: string | undefined = "EUR";
+    const noCurrency = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/account/summary")) return new Response(JSON.stringify({ ...(currency ? { currency } : {}), totalValue: 3000, cash: { availableToTrade: 1000 } }), { status: 200, headers: { "content-type": "application/json" } });
+      return base(input, init);
+    }) as typeof fetch;
+    const unnamed = new TradingService({ config: { ...config(), maxOrderNotional: 0 }, store: new MemoryStateStore(), fetcher: noCurrency });
+    const sized = await unnamed.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    currency = undefined;
+    await expect(unnamed.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } })).rejects.toThrow(/account currency is unknown/);
+    // ...and a review that no longer gets it can't check the loss in it.
+    await expect(unnamed.prepareOrder({ ...sized.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "account_currency" } });
   });
 
   it("carries a rate given for the account currency on the draft", async () => {

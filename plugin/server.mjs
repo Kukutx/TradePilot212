@@ -35837,7 +35837,8 @@ var TradingService = class {
         referencePrice = reference;
       }
       if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
-      const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
+      if (!account.currency) throw new Error("The account currency is unknown, so a risk-sized buy cannot convert its budget or cap it by the cash; pass an amount or a quantity instead");
+      const accountCurrency = account.currency.toUpperCase();
       const instrumentCurrency = instrument.currencyCode.toUpperCase();
       let budget;
       let budgetText;
@@ -35968,7 +35969,9 @@ var TradingService = class {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
     const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
-    if (risky && accountCode && checked.estimatedNotional !== void 0 && checked.accountNotional === void 0)
+    if (risky && !accountCode)
+      fail("RISK_CHECK_UNAVAILABLE", "The account currency is unknown just now, so the loss at the stop-loss of this risk-sized buy can't be checked against its budget. Nothing was sent.", { missing: "account_currency" });
+    if (risky && checked.estimatedNotional !== void 0 && checked.accountNotional === void 0)
       fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...checked };
   }

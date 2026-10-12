@@ -103,6 +103,7 @@ describe("structured server codes", () => {
       .toBe("The quote source has no EUR to CHF exchange rate just now, so the loss at the stop-loss can't be checked. Nothing was sent; try again in a moment.");
     expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "quote", ticker: "MSFT_US_EQ" } }, zh, "zh-CN"))
       .toBe("行情源暂时没有这只标的的价格，无法核对到止损价的亏损。订单没有发出，请稍后再试。");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "account_currency" } }, en, "en")).toMatch(/^Trading 212 did not give the account currency just now/);
   });
 
   it("words the new order notices from their values", () => {

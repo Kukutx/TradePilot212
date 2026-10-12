@@ -605,6 +605,7 @@ export const en = {
   errorRiskChangedLoss: "The price moved after the review: at the stop-loss this order would now lose about {loss}, more than the review showed. Nothing was sent; review the order again.",
   errorRiskChangedStop: "The price moved after the review and is now at or below the stop-loss of {stop}. Nothing was sent; review the order again.",
   errorRiskRateUnavailable: "The quote source has no {from} to {to} exchange rate just now, so the loss at the stop-loss can't be checked. Nothing was sent; try again in a moment.",
+  errorRiskCurrencyUnavailable: "Trading 212 did not give the account currency just now, so the loss at the stop-loss can't be checked against the budget. Nothing was sent; try again in a moment.",
   errorRiskQuoteUnavailable: "The quote source has no price for this instrument just now, so the loss at the stop-loss can't be checked. Nothing was sent; try again in a moment.",
   noticeFarAbove: "The order price is {percent} above the last price {last}.",
   noticeFarBelow: "The order price is {percent} below the last price {last}.",
