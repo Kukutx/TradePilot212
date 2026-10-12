@@ -5,7 +5,7 @@
 import type { Position, TradingEnvironment } from "../shared/contracts.js";
 import type { HistoryDividendItem } from "../shared/history.js";
 import { stopProtection } from "../shared/protection.js";
-import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
+import type { AccountAlert, DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import type { PortfolioToday } from "../shared/today.js";
 import { analyzeAllocation, expectedDividends, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
@@ -221,8 +221,10 @@ export class DailyDigest {
         const previous = await this.deps.store.get<number>(`digest-value:${environment}`);
         const plans = (await this.deps.store.list<DcaPlan>("plan:")).map((entry) => entry.value)
           .filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list<PriceAlert>("alert:")).map((entry) => entry.value)
-          .filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS);
+        // Price and account alerts that fired in the last day, armed again since or not.
+        const recent = (time?: string) => time !== undefined && Date.parse(time) > now.getTime() - DAY_MS;
+        const alerts = [...await this.deps.store.list<PriceAlert>("alert:"), ...await this.deps.store.list<AccountAlert>("account-alert:")].map((entry) => entry.value)
+          .filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         // Drift from the same account read, so the digest costs no extra request.

@@ -1,5 +1,7 @@
 import { useState } from "react";
-import type { AlertCondition, PriceAlert } from "../../shared/automation";
+import type { AccountAlert, AlertCondition, PriceAlert } from "../../shared/automation";
+import type { SupportedLocale } from "../i18n";
+import { num, parseAmount } from "../lib/format";
 import { alertConditionLabel, fill, type Translator } from "../lib/messages";
 import { Field } from "./common";
 
@@ -13,6 +15,12 @@ export interface AlertRequest {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
+/** What a typed number was read as, under its field, once it has a separator in it: "10,000" is not 10. */
+export function readAsHint(text: string, display: (value: number) => string, t: Translator): string | undefined {
+  const value = parseAmount(text);
+  return /[.,\s'\u2019]/.test(text.trim()) && Number.isFinite(value) && value > 0 ? fill(t("amountReadAs"), { value: display(value) }) : undefined;
+}
+
 /** The highest percent the server accepts: a gain can exceed 100%, a drop or a loss cannot. */
 export function alertPercentLimit(condition: AlertCondition): number | undefined {
   if (condition === "above" || condition === "below") return undefined;
@@ -21,7 +29,7 @@ export function alertPercentLimit(condition: AlertCondition): number | undefined
 
 /** The same limits the server applies: a positive number, and a percent below its limit. */
 export function alertValueProblem(condition: AlertCondition, text: string): "required" | "range" | undefined {
-  const value = Number(text.trim().replace(",", "."));
+  const value = parseAmount(text);
   if (!text.trim() || !Number.isFinite(value) || value <= 0) return "required";
   const limit = alertPercentLimit(condition);
   return limit !== undefined && value >= limit ? "range" : undefined;
@@ -40,9 +48,11 @@ export function defaultAlertValue(condition: AlertCondition, last: number | unde
  * price), so they are offered only when the instrument is held; the day's move, against the previous
  * close, is offered for any. Alerts notify; they never trade.
  */
-export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
+export function AlertForm({ held, last, currency, locale, t, busy, onSave, onCancel }: {
   held: boolean;
   last?: number;
+  /** For saying what a typed number was read as. */
+  locale?: SupportedLocale;
   currency?: string;
   t: Translator;
   busy: boolean;
@@ -55,9 +65,10 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
   const [note, setNote] = useState("");
   const [touched, setTouched] = useState(false);
   const byPrice = condition === "above" || condition === "below";
-  const value = Number(valueText.trim().replace(",", "."));
+  const value = parseAmount(valueText);
   const problem = alertValueProblem(condition, valueText);
   const error = problem === "required" ? t("alertValueRequired") : problem === "range" ? fill(t("alertPercentRange"), { limit: String(alertPercentLimit(condition)) }) : undefined;
+  const readAs = locale ? readAsHint(valueText, (read) => (byPrice ? `${num(read, locale, 6)}${currency ? ` ${currency}` : ""}` : `${num(read, locale, 2)}%`), t) : undefined;
   const submit = () => {
     setTouched(true);
     if (error || busy) return;
@@ -78,7 +89,8 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
             </select>
           )}
         </Field>
-        <Field label={byPrice ? t("alertPrice") : t("alertPercent")} unit={byPrice ? currency : "%"} error={touched ? error : undefined}>
+        <Field label={byPrice ? t("alertPrice") : t("alertPercent")} unit={byPrice ? currency : "%"} error={touched ? error : undefined}
+          {...(readAs ? { hint: readAs } : {})}>
           {(props) => <input {...props} data-focus-id="alert-value" inputMode="decimal" autoComplete="off" value={valueText} onChange={(event) => setValueText(event.target.value)} />}
         </Field>
         <Field label={t("alertNote")} hint={t("alertNoteHint")}>
@@ -95,7 +107,7 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
 }
 
 /** Re-arm (once triggered; a day's move arms itself on the next trading day) and delete for one alert; delete asks once more in place. */
-export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: PriceAlert; t: Translator; busy: boolean; onRearm: (id: string) => void; onDelete: (id: string) => void }) {
+export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: PriceAlert | AccountAlert; t: Translator; busy: boolean; onRearm: (id: string) => void; onDelete: (id: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   if (confirming) {
     return (

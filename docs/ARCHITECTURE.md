@@ -108,11 +108,13 @@ Owns application rules.
 
 `AutomationService` stores investment plans and runs the due-plan tick. The tick is called from the Worker's Cron Trigger and from an interval in the Node and stdio servers. Due plans are announced for confirmation. Demo plans marked `autoExecute` run through `prepareBasket` and `executeBasket` when `AUTOMATION_DEMO_ENABLED=true`. `policy.ts` and `rebalance.ts` are pure functions with unit tests. See [AUTOMATION.md](./AUTOMATION.md).
 
-### `PiesService`, `PriceAlerts` and notifications
+### `PiesService`, `PriceAlerts`, `AccountAlerts` and notifications
 
 `PiesService` (`pies.ts`) reads pies with short caches, because Trading 212 allows one list read every 30 seconds and one detail read every 5 seconds, and adds drift and totals. Pie changes follow the order pattern: `preparePieChange` resolves tickers, normalises shares and issues a one-time token; `executePieChange` consumes it, needs `liveAcknowledged` on Live, and sends the write once.
 
 `PriceAlerts` (`alerts.ts`) is checked on every scheduler tick after protective links and plans. It reads positions once per environment, evaluates each armed alert with the pure `evaluateAlert`, and writes one `price_alert_triggered` event. It never writes to the broker.
+
+`AccountAlerts` (`account-alerts.ts`) follows it on the same tick. Value and cash alerts take the account summary once per environment (`TradingService.accountSummary` with a 30-second reuse, so a summary the tick or a dashboard just read is not asked again); day's-move alerts read `portfolioToday` together per environment at most every ten minutes, count only the holdings on its latest trading day, and use `ended` (when that day's sessions closed) to skip a session that was over before the alert was set. A fired alert writes one `account_alert_triggered` event. It never writes to the broker.
 
 `TargetAllocations` (`targets.ts`) keeps saved target weights per environment. It runs on the tick after alerts but reads the account at most once an hour per environment, compares weights with the pure `allocationDrift`, and writes an `allocation_drift` event at most once a day while the drift is over its threshold. The same drift is attached to `analyze_portfolio_allocation`. It never writes to the broker.
 

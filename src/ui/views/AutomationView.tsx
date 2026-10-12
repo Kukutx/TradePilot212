@@ -1,5 +1,6 @@
 import type { AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
 import { localeTag, type SupportedLocale } from "../i18n";
+import { AccountAlertList, type AccountAlertRequest } from "../components/account-alerts";
 import { AlertActions } from "../components/alerts";
 import { DetailRow, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
@@ -27,7 +28,7 @@ export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined,
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert }: {
+export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert }: {
   data: AutomationOverview;
   book?: InstrumentBook;
   locale: SupportedLocale;
@@ -35,6 +36,9 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
   busy?: boolean;
   onDeleteAlert?: (alertId: string) => void;
   onRearmAlert?: (alertId: string) => void;
+  onSaveAccountAlert?: (request: AccountAlertRequest) => Promise<boolean>;
+  onDeleteAccountAlert?: (alertId: string) => void;
+  onRearmAccountAlert?: (alertId: string) => void;
 }) {
   const on = (value: boolean) => (value ? t("settingOn") : t("settingOff"));
   const sum = (value: number | undefined) => amount(value, data.currency, locale);
@@ -95,6 +99,9 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
           </ul>
         )}
       </section>
+
+      <AccountAlertList alerts={data.accountAlerts ?? []} {...(data.currency ? { currency: data.currency } : {})} now={data.account ?? {}} locale={locale} t={t} busy={busy}
+        {...(onSaveAccountAlert ? { onSave: onSaveAccountAlert } : {})} {...(onDeleteAccountAlert ? { onDelete: onDeleteAccountAlert } : {})} {...(onRearmAccountAlert ? { onRearm: onRearmAccountAlert } : {})} />
 
       {data.targets && (
         <section className="dataPanel" aria-label={t("targetsTitle")}>

@@ -10,6 +10,7 @@ import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js
 import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
 import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
+import { MAX_ACCOUNT_ALERTS } from "./account-alerts.js";
 import type { PieChangeDraft } from "../shared/pies.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
@@ -131,7 +132,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview }: Services,
+  { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -790,7 +791,7 @@ export function createMcpServer(
     "get_automation_overview",
     {
       title: "Automation Overview",
-      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
+      description: "Show everything TradePilot runs on its own for an environment, in the widget: investment plans with their next due time and last outcome, price alerts with the last price seen, account alerts (value, cash, day's move) with the last value read, linked stop-loss / take-profit pairs, today's order and value usage against the policy, and which automation settings are on (Demo automation, linking, webhook, daily digest, quote source). Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -798,7 +799,7 @@ export function createMcpServer(
     async ({ environment }) => {
       try {
         const data = { ...(await automationOverview(environment)), writeEnabled: canWrite };
-        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
+        return result(data, `${environment.toUpperCase()}: ${data.plans.length} plan(s), ${data.alerts.length} price alert(s), ${data.accountAlerts?.length ?? 0} account alert(s), ${data.links.length} linked pair(s); ${data.usageToday.orders} order(s) sent today.`);
       } catch (error) {
         return toolError(error);
       }
@@ -883,7 +884,7 @@ export function createMcpServer(
     "list_price_alerts",
     {
       title: "Price Alerts",
-      description: "List price alerts on holdings: the condition, the last price seen, and whether and when each one triggered. Read-only.",
+      description: "List price alerts on instruments (the condition, the last price seen, and whether and when each one triggered) and account alerts on the account's value, cash and day's move (the last value read). Read-only.",
       inputSchema: z.object({ environment: environmentEnum.optional() }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       _meta: {},
@@ -891,7 +892,9 @@ export function createMcpServer(
     async ({ environment }) => {
       try {
         const list = await alerts.list(environment);
-        return result({ kind: "price_alerts", alerts: list, webhook: !!config.notifyWebhookUrl }, `${list.length} alert(s), ${list.filter((alert) => alert.triggeredAt).length} triggered.`);
+        const onAccount = await accountAlerts.list(environment);
+        return result({ kind: "price_alerts", alerts: list, accountAlerts: onAccount, webhook: !!config.notifyWebhookUrl },
+          `${list.length} price alert(s), ${list.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`);
       } catch (error) {
         return toolError(error);
       }
@@ -963,6 +966,50 @@ export function createMcpServer(
         }
         const alert = await alerts.rearm(input.alertId);
         return result({ kind: "price_alert", alert }, `Re-armed alert ${alert.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "manage_account_alerts",
+    {
+      title: "Manage Account Alerts",
+      description: `Create, delete or re-arm an alert on the account as a whole. Conditions: value_above or value_below (the account's total value at or above, or at or below, amount in the account currency); cash_above or cash_below (the free cash, available to trade, likewise: for example to be told when dividends have built up to invest, or when cash runs low before a plan is due); day_move (the holdings' move on their latest trading day is percent or more either way: the moves get_portfolio_today reads for that day, against the holdings' value before them; a holding still on the session before does not count; it fires once per trading day and arms itself again on the next, so it needs no rearm, and a rearm does not make it fire again for the same day; a session that closed before the alert was set does not count). The scheduler checks value and cash every minute from the account summary, and the day's move every ten minutes (it reads every holding's closes and the day's fills); a triggered alert is logged once and sent to the notification webhook when one is configured, and stays triggered until re-armed. At most ${MAX_ACCOUNT_ALERTS}. Alerts never place orders.`,
+      inputSchema: z.object({
+        action: z.enum(["create", "delete", "rearm"]),
+        alertId: z.string().optional().describe("Required for delete and rearm"),
+        environment: environmentWithDefault,
+        condition: z.enum(["value_above", "value_below", "cash_above", "cash_below", "day_move"]).optional(),
+        amount: z.number().positive().optional().describe("In the account currency, for the value and cash conditions"),
+        percent: z.number().positive().lt(100).optional().describe("Either way, for day_move"),
+        note: z.string().max(200).optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      _meta: {},
+    },
+    async (input) => {
+      try {
+        if (input.action === "create") {
+          if (!input.condition) return toolError(new Error("condition is required to create an account alert"));
+          const alert = await accountAlerts.create({
+            environment: input.environment,
+            condition: input.condition,
+            ...(input.amount === undefined ? {} : { amount: input.amount }),
+            ...(input.percent === undefined ? {} : { percent: input.percent }),
+            ...(input.note ? { note: input.note } : {}),
+          });
+          return result({ kind: "account_alert", alert }, `Saved account alert ${alert.id}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+        }
+        if (!input.alertId) return toolError(new Error("alertId is required"));
+        if (input.action === "delete") {
+          await accountAlerts.delete(input.alertId);
+          return result({ kind: "account_alert", deleted: input.alertId }, `Deleted account alert ${input.alertId}.`);
+        }
+        const alert = await accountAlerts.rearm(input.alertId);
+        return result({ kind: "account_alert", alert }, `Re-armed account alert ${alert.id}.`);
       } catch (error) {
         return toolError(error);
       }

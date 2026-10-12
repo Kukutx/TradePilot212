@@ -285,7 +285,7 @@ export function HoldingView({
           {!addingAlert && <button type="button" className="secondaryButton compactButton" onClick={() => setAddingAlert(true)}>{t("addAlert")}</button>}
         </div>
         {addingAlert && (
-          <AlertForm held={Boolean(position)} {...(lastPrice ? { last: lastPrice } : {})} {...(quote ? { currency: quote } : {})} t={t} busy={busy}
+          <AlertForm held={Boolean(position)} {...(lastPrice ? { last: lastPrice } : {})} {...(quote ? { currency: quote } : {})} locale={locale} t={t} busy={busy}
             onCancel={() => setAddingAlert(false)}
             onSave={(request) => void onSaveAlert(request).then((saved) => { if (saved) setAddingAlert(false); })} />
         )}

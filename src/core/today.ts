@@ -44,6 +44,8 @@ export interface Session {
   previousClose?: number;
   /** When the session itself closed (ms), after-hours included for an instrument traded then; absent while it is on. */
   ended?: number;
+  /** Taken to be today (UTC), or Friday at a weekend, for want of the exchange's schedule. */
+  guessed?: true;
 }
 
 /**
@@ -144,7 +146,7 @@ export function sessionFinder(exchanges: Exchange[], now: Date) {
   const byId = new Map(exchanges.flatMap((exchange) => (exchange.workingSchedules ?? []).map((schedule) => [schedule.id, schedule.timeEvents] as const)));
   return (instrument: Pick<Instrument, "workingScheduleId" | "extendedHours"> | undefined): Session => {
     const events = instrument?.workingScheduleId === undefined ? undefined : byId.get(instrument.workingScheduleId);
-    return sessionOf(events, now, instrument?.extendedHours === true) ?? { day: fallbackDay(now) };
+    return sessionOf(events, now, instrument?.extendedHours === true) ?? { day: fallbackDay(now), guessed: true };
   };
 }
 
@@ -188,6 +190,7 @@ export function dayIdentity(input: DayInput) {
     quantity: position?.quantity ?? 0,
     ...(price ? { price } : {}),
     day: session.day,
+    ...(session.guessed ? { guessed: true as const } : {}),
   };
 }
 
@@ -235,12 +238,15 @@ export async function dayMove(deps: Pick<TodayDeps, "priceHistory" | "closes">, 
   const inAccount = (amount: number) => (accountCurrency && currency ? toAccountCurrency(amount, currency, accountCurrency, rates) : undefined);
   const profitLoss = !owned || figures.profitLoss === undefined ? undefined : inAccount(figures.profitLoss);
   const base = owned ? inAccount(figures.base) : undefined;
+  // The shares held now at the price now: none for an instrument sold out on the day.
+  const value = !owned ? undefined : identity.quantity === 0 ? 0 : price ? inAccount(identity.quantity * price) : undefined;
   return {
     ...identity,
     previousClose,
     ...(figures.change !== undefined ? { change: figures.change } : {}),
     ...(profitLoss !== undefined ? { profitLoss: round(profitLoss, 2) } : {}),
     ...(base !== undefined ? { base: round(base, 2) } : {}),
+    ...(value !== undefined ? { value: round(value, 2) } : {}),
     ...(figures.bought ? { bought: figures.bought } : {}),
     ...(figures.sold ? { sold: figures.sold } : {}),
     ...(owned && figures.profitLoss !== undefined && profitLoss === undefined
@@ -366,6 +372,15 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
   const counted = moves.filter((item) => item.profitLoss !== undefined);
   const profitLoss = counted.reduce((sum, item) => sum + item.profitLoss!, 0);
   const base = counted.reduce((sum, item) => sum + (item.base ?? 0), 0);
+  // When each day's sessions all closed; a day with one still on (or unknown) is left out.
+  const closings = new Map<string, number | null>();
+  for (const { ticker } of items) {
+    const { day, ended } = session(ticker);
+    const before = closings.get(day);
+    closings.set(day, before === null || ended === undefined ? null : Math.max(before ?? 0, ended));
+  }
+  const ended = Object.fromEntries([...closings].filter((entry): entry is [string, number] => entry[1] !== null));
+  const invested = dashboard.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
     environment,
@@ -373,6 +388,8 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
     moves: moves.sort((a, b) => Math.abs(b.profitLoss ?? 0) - Math.abs(a.profitLoss ?? 0)),
     ...(counted.length ? { total: { profitLoss: round(profitLoss, 2), ...(base > 0 ? { change: round(profitLoss / base) } : {}), counted: counted.length, of: moves.length } } : {}),
     ...(fillsProblem ? { fillsProblem } : {}),
+    ...(invested !== undefined && Number.isFinite(invested) ? { invested } : {}),
+    ...(Object.keys(ended).length ? { ended } : {}),
     timestamp: now.toISOString(),
   };
 }

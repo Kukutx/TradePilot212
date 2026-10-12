@@ -193,6 +193,13 @@ async function seedSample(): Promise<void> {
   await services.alerts.create({ environment: "demo", instrument: "AAPL", condition: "day_move", percent: 3, note: "Big day" }, lastWeek);
   await services.alerts.create({ environment: "demo", instrument: "NVDA", condition: "day_move", percent: 5 }, lastWeek);
   await services.alerts.check().catch((error: unknown) => console.warn("Could not check the alerts:", error));
+  // Account alerts: a fall in value well below today's, cash building up, and the day's move, checked once.
+  const summary = await services.trading.accountSummary("demo");
+  const total = summary.totalValue ?? 0, cash = summary.cash?.availableToTrade ?? 0;
+  if (total > 0) await services.accountAlerts.create({ environment: "demo", condition: "value_below", amount: Math.round((total * 0.9) / 100) * 100, note: "Review the stops" }, lastWeek);
+  await services.accountAlerts.create({ environment: "demo", condition: "cash_above", amount: Math.max(100, Math.floor(cash / 2 / 100) * 100), note: "Invest the cash" }, lastWeek);
+  await services.accountAlerts.create({ environment: "demo", condition: "day_move", percent: 2 }, lastWeek);
+  await services.accountAlerts.check().catch((error: unknown) => console.warn("Could not check the account alerts:", error));
 }
 
 /** Journal notes on the two newest sample Apple buys and one without an order, so the holding page shows the journal. */

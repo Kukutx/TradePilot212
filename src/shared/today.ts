@@ -21,6 +21,8 @@ export interface DayMove {
   price?: number;
   /** The trading day the price is from (YYYY-MM-DD): the session in progress, else the last one. */
   day: string;
+  /** The day is taken to be today (UTC), or Friday at a weekend, for want of the exchange's schedule. */
+  guessed?: true;
   /** The last close before that day, and who it is from. */
   previousClose?: PricePoint & { source: string };
   /** The price now against the previous close. */
@@ -32,6 +34,8 @@ export interface DayMove {
   profitLoss?: number;
   /** What the day's profit or loss is measured against: the shares held at the previous close at it, plus the day's buys. */
   base?: number;
+  /** The shares held now at the price now, in the account currency: 0 for an instrument sold out on the day. */
+  value?: number;
   /** Shares bought and sold on the day. */
   bought?: number;
   sold?: number;
@@ -49,5 +53,9 @@ export interface PortfolioToday {
   total?: { profitLoss: number; change?: number; counted: number; of: number };
   /** Why the day's fills could not be read: shares traded on the day then count from the previous close. */
   fillsProblem?: string;
+  /** Trading 212's value of the holdings now (the account summary's investments), when it reports it. */
+  invested?: number;
+  /** For each day whose sessions have all closed, when the last of them closed (ms). */
+  ended?: Record<string, number>;
   timestamp: string;
 }

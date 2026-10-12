@@ -45,7 +45,7 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "get_portfolio_today"])
+for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_account_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "get_portfolio_today"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
@@ -81,8 +81,13 @@ const watch = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["manage_watchlist", { action: "note", instrument: "TSLA", note: "After the call" }],
   ["manage_watchlist", { action: "remove", instrument: "TSLA_US_EQ" }],
   ["get_watchlist", {}],
+  ["manage_account_alerts", { action: "create", condition: "cash_above", amount: 1 }],
+  ["list_price_alerts", {}],
 ]);
-const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied] = watch.results;
+const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied, accountAlert, alertList] = watch.results;
+// An account alert is saved in the account currency and listed beside the price alert.
+if (accountAlert.isError || accountAlert.structuredContent?.alert?.condition !== "cash_above" || !accountAlert.structuredContent.alert.currency
+  || alertList.structuredContent?.accountAlerts?.length !== 1 || alertList.structuredContent.alerts?.length !== 1) throw new Error(`Account alert failed: ${JSON.stringify([accountAlert, alertList]).slice(0, 400)}`);
 const watchRow = watchlist.structuredContent?.items?.[0];
 if (watchAdded.isError || watchAdded.structuredContent?.item?.ticker !== "TSLA_US_EQ") throw new Error(`Adding to the watchlist failed: ${JSON.stringify(watchAdded).slice(0, 300)}`);
 if (watchlist.isError || watchRow?.ticker !== "TSLA_US_EQ" || !(watchRow.price > 0) || watchRow.priceSource !== "sample" || !(watchRow.spark?.closes?.length > 30) || watchRow.levels?.[0]?.kind !== "alert" || watchRow.note !== "Wait for delivery numbers")

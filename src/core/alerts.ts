@@ -65,8 +65,8 @@ export function evaluateAlert(
 
 /** The fields a scheduler tick owns; everything else stays as the user last saved it. */
 function pickTickFields(alert: PriceAlert): Partial<PriceAlert> {
-  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate } = alert;
-  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate }).filter(([, value]) => value !== undefined));
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate, lastTriggeredAt } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate, lastTriggeredAt }).filter(([, value]) => value !== undefined));
 }
 
 /**
@@ -74,8 +74,9 @@ function pickTickFields(alert: PriceAlert): Partial<PriceAlert> {
  * only from the day after it, whatever a later read takes the day to be.
  */
 function untriggered(alert: PriceAlert): PriceAlert {
-  const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
-  return rest;
+  const { triggeredAt, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
+  const last = triggeredAt ?? alert.lastTriggeredAt;
+  return { ...rest, ...(last ? { lastTriggeredAt: last } : {}) };
 }
 
 /** Whether a day's-move alert has fired for `day` or a later one: only a day after the last it fired for counts. */

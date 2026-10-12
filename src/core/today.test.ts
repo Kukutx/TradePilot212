@@ -106,6 +106,11 @@ describe("the portfolio on the day", () => {
     expect(today.total).toMatchObject({ counted: 5, of: 5 });
     expect(today.total!.profitLoss).toBeCloseTo(today.moves.reduce((sum, move) => sum + move.profitLoss!, 0), 2);
     expect(today.total!.change).toBeCloseTo(0.02, 3);
+    // Trading 212's value of the holdings comes along; without the schedules, the day is guessed and when it closed is not known.
+    expect(today.invested).toBeGreaterThan(0);
+    expect(today).not.toHaveProperty("ended");
+    expect(today.moves.every((move) => move.guessed)).toBe(true);
+    expect(apple.value).toBeCloseTo(12 * 231.55 * 0.92, 1);
     const text = describePayload(today);
     expect(text).toMatch(/^Holdings on the day \(2026-10-09\), against each one's last close before it: \+[\d.]+ EUR \(\+2(\.0)?%\), 5 of 5 instrument\(s\) with a move\.$/m);
     expect(text).toMatch(/^- Apple \(AAPL\): \+2(\.0)?% since the close on 2026-10-08 \(227\.0098\d* USD\), \+[\d.]+ EUR$/m);
@@ -167,6 +172,17 @@ describe("the portfolio on the day", () => {
     expect(today.moves.find((move) => move.ticker === "AAPL_US_EQ")?.bought).toBe(2);
     expect(today.moves.find((move) => move.ticker === "KO_US_EQ")?.bought).toBeUndefined();
     expect(today.fillsProblem).toBe("The day has more orders than one read covers (100); the oldest of them are left out.");
+    // Friday's sessions had all closed by Saturday: the last of them at the after-hours close.
+    expect(today.ended).toEqual({ "2026-10-09": closedAt("2026-10-10T00:00:00Z") });
+    expect(today.moves.some((move) => move.guessed)).toBe(false);
+  });
+
+  it("leaves a day out of when the sessions closed while one of them is still on", async () => {
+    // Friday 15:00 UTC: the US session is on.
+    const schedules = async (): Promise<Exchange[]> => [1, 2].map((id) => ({ id, name: `Exchange ${id}`, workingSchedules: [{ id, timeEvents: usWeek() as never }] }));
+    const today = await portfolioToday({ ...base, schedules }, "demo", new Date("2026-10-09T15:00:00Z"));
+    expect(today.moves.every((move) => move.day === "2026-10-09")).toBe(true);
+    expect(today).not.toHaveProperty("ended");
   });
 
   it("keeps a previous close that will not change for the day's later reads", async () => {
@@ -231,7 +247,7 @@ describe("the previous close of an alert's price", () => {
     expect(await daySessionOf({ schedules: async () => { throw new Error("Too many requests"); } }, "demo", { workingScheduleId: 7 }, false, now)).toBeUndefined();
     expect(await daySessionOf({ schedules: async () => exchanges }, "demo", { workingScheduleId: 9 }, false, now)).toBeUndefined();
     // An instrument that names no schedule takes the date.
-    expect(await daySessionOf({}, "demo", {}, false, now)).toEqual({ day: "2026-10-14" });
+    expect(await daySessionOf({}, "demo", {}, false, now)).toEqual({ day: "2026-10-14", guessed: true });
     const read = await dayCloseOf({ schedules: async () => [], priceHistory: async () => { throw new Error("not read"); } }, "demo", { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", workingScheduleId: 7 }, 103, false, now);
     expect(read).toEqual({ missing: "data", problem: "Trading 212's exchange schedules could not be read, so the trading day of AAPL_US_EQ's price is not known." });
   });
