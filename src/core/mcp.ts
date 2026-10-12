@@ -14,7 +14,7 @@ import { MAX_ACCOUNT_ALERTS } from "./account-alerts.js";
 import type { PieChangeDraft } from "../shared/pies.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
-import type { CancelDraftPayload, OrderDraft, OrderIntent, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
+import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
@@ -22,6 +22,7 @@ import { holdingDetail } from "./holding.js";
 import { journalReview } from "./journal-review.js";
 import { watchlistView } from "./watchlist.js";
 import { readAttribution, type AttributionDeps } from "./attribution.js";
+import { readHoldingRisk } from "./holding-risk.js";
 import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
 
@@ -259,7 +260,7 @@ export function createMcpServer(
     {
       title: "Portfolio Allocation Analysis",
       description:
-        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. Use this instead of estimating weights yourself. Read-only.",
+        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         maxSingleWeight: z.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -272,8 +273,14 @@ export function createMcpServer(
     },
     async ({ environment, ...limits }) => {
       try {
-        const data = { ...(await targetAllocations.withDrift(await insights.allocation(environment, limits))), credentials: credentialStatus(config), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}.`);
+        let read: { positions: Position[]; instruments: Instrument[] } | undefined;
+        const analysis = await insights.allocation(environment, limits, (positions) => { read = positions; });
+        // Risk by holding: a year of each holding's closes, read for a few seconds at most; the allocation stands without it.
+        const risk = read
+          ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error: unknown) => ({ riskProblem: asStructuredError(error).message }))
+          : {};
+        const data = { ...(await targetAllocations.withDrift({ ...analysis, ...risk })), credentials: credentialStatus(config), writeEnabled: canWrite };
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0]!.ticker} the largest share of it (${(data.risk.rows[0]!.risk * 100).toFixed(0)}%)` : ""}.`);
       } catch (error) {
         return toolError(error);
       }

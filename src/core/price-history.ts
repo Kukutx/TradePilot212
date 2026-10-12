@@ -27,9 +27,12 @@ export interface PriceHistoryRequest {
   levels?: Promise<number[]>;
   /** The account's fills of the instrument: the unit check's last resort, and the sample path's anchors. */
   fills?: Promise<PriceAnchor[]>;
+  /** The days back the closes must reach to be of use; a provider whose plan reaches fewer is not asked. */
+  minDays?: number;
 }
 
-export type PriceHistoryResult = { prices: PriceHistory } | { missing: PricesMissing; problem: string };
+/** `late`: the provider had not answered in time; its answer is cached for the next read. */
+export type PriceHistoryResult = { prices: PriceHistory } | { missing: PricesMissing; problem: string; late?: true };
 
 /**
  * A provider's close this many times Trading 212's price, either way, is taken to be in another unit (a fund
@@ -119,6 +122,9 @@ export function createPriceHistory(deps: {
     const quotes = deps.quotes;
     if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };
     if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
+    if (request.minDays && quotes.historyDays !== undefined && quotes.historyDays < request.minDays) {
+      return { missing: "plan", problem: `The ${quotes.name} free plan's daily prices reach about ${quotes.historyDays} days back, and this needs ${request.minDays}; QUOTE_PROVIDER=stooq or twelvedata reaches a year.` };
+    }
     const symbol = quotes.symbolFor(instrument);
     if (!symbol) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -131,7 +137,7 @@ export function createPriceHistory(deps: {
     } finally {
       clearTimeout(timer);
     }
-    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
+    if (prices === "late") return { missing: "data", late: true, problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol}.` };
     // The unit is checked against the last price, else the open orders and alerts, else the newest fill.
     const check = unitReference(request.last, await request.levels ?? [], await request.fills ?? []);
@@ -147,6 +153,8 @@ export function createPriceHistory(deps: {
 
 /** Daily volatility of the simulated walk. */
 const SAMPLE_DAILY_MOVE = 0.015;
+/** Every sample instrument's daily move is partly the market's, drawn from this seed, so they move together as shares do. */
+const MARKET_SEED = 0x5eed_0f;
 
 /** FNV-1a, so each ticker seeds its own path. */
 function seedOf(text: string): number {
@@ -177,9 +185,12 @@ const weekday = (day: number) => { const weekdayIndex = new Date(day * DAY_MS).g
 export function samplePriceHistory(ticker: string, input: { from: Date; to: Date; last: number; anchors: PriceAnchor[] }): PriceHistory {
   const days: number[] = [];
   for (let day = dayOf(input.from.getTime()); day <= dayOf(input.to.getTime()); day++) if (weekday(day)) days.push(day);
-  // Each day's move is drawn from the ticker and the day alone, so a later start leaves the days after it the same.
+  // Each day's move is drawn from the ticker and the day alone, so a later start leaves the days after it the same. Part
+  // of it (a share drawn from the ticker, 0.35 to 0.85) is the market's move that day, the same for every instrument.
   const seed = seedOf(ticker);
-  const normal = (day: number) => { const random = seeded(seed ^ Math.imul(day, 0x9e3779b1)); return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); };
+  const draw = (from: number, day: number) => { const random = seeded(from ^ Math.imul(day, 0x9e3779b1)); return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); };
+  const loading = 0.35 + 0.5 * seeded(seed)();
+  const normal = (day: number) => loading * draw(MARKET_SEED, day) + Math.sqrt(1 - loading ** 2) * draw(seed, day);
   const walk = [0];
   for (let index = 1; index < days.length; index++) walk.push(walk[index - 1]! + SAMPLE_DAILY_MOVE * normal(days[index]!));
   // Fixed log prices by day index; a later anchor on the same day wins, and the last price fixes the last day.

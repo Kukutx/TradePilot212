@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.46.0
+
+- Risk by holding. The Allocation tab shows each holding's share of the holdings' risk beside its share of their value, as two bars, from a year of weekly closes: a holding with a longer risk bar swings more than its weight says, or moves more with the rest. Above them, their volatility together, a diversification ratio (1 when they all move as one) and the holding with most of the risk; below them, how the ten largest move with each other, a grid tinted amber for together and blue for apart with each value written in it. Both have a table view or hover text.
+- `analyze_portfolio_allocation` returns it as `risk` (with `riskMissing` and `riskProblem`) and says it in its text, with the most and least alike pairs. Closes are read largest holdings first, four at a time, waiting five seconds at most; the rest are named, read on in the background and measured on the next **Refresh**. Weekly returns keep markets with different closing hours and holidays in step, and each holding is in its own currency. A holding bought late in the year, or whose weeks do not line up with the rest's, is left out rather than shorten the window for all, and one whose closes jump as across a change of unit is left out too.
+- Alpha Vantage's free plan, whose closes reach only about 100 trading days back, is not asked for them, so its daily requests are kept for the rest.
+- The sample account's closes now share a market factor, so its holdings move together, as real ones do.
+
 ## 2.45.0
 
 - Account alerts. `manage_account_alerts` sets an alert on the account as a whole: its total value or its free cash at or above, or at or below, an amount in the account currency, or its day's move a percent or more either way, once per trading day. Value and cash are checked every minute from one account summary read, shared with a dashboard read seconds before. A triggered alert is logged as `account_alert_triggered`, goes to the webhook and is counted in the daily digest.

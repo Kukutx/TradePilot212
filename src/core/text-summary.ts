@@ -289,6 +289,50 @@ function allocation(data: AllocationAnalysis): string[] {
     `Concentration (of invested value): largest ${pct(data.concentration.largestWeight)}, top 5 ${pct(data.concentration.top5Weight)}, effective holdings ${num(data.concentration.effectiveHoldings, 1)}.`,
     ...section("Flags", rows(data.flags, (flag) => flag.message)),
     ...(data.drift ? driftLines(data.drift) : []),
+    ...holdingRiskLines(data),
+  ];
+}
+
+/** Why a holding's closes were not read, for several at once. */
+const RISK_MISSING: Record<NonNullable<AllocationAnalysis["riskMissing"]>[number]["reason"], string> = {
+  later: "not read in time; they are being read for the next read",
+  symbol: "no quote provider symbol (QUOTE_SYMBOLS)",
+  unit: "closes in another unit than Trading 212's (QUOTE_SYMBOLS)",
+  data: "no daily closes from the quote provider",
+  provider: "no quote provider",
+  plan: "no year of closes on the quote provider's plan",
+  sample: "no sample closes",
+};
+/** At most this many tickers are named for one reason. */
+const MAX_NAMED = 10;
+
+/** The holdings left out of risk by holding, by reason: one with its own words, several with the reason's. */
+function riskMissingLine(missing: NonNullable<AllocationAnalysis["riskMissing"]>): string {
+  const groups = new Map<string, typeof missing>();
+  for (const item of missing) groups.set(item.reason, [...(groups.get(item.reason) ?? []), item]);
+  return `Risk by holding leaves out ${[...groups].map(([reason, items]) => {
+    if (items.length === 1) return `${items[0]!.ticker} (${items[0]!.problem.replace(/\.$/, "")})`;
+    const named = items.slice(0, MAX_NAMED).map((item) => item.ticker).join(", ");
+    return `${named}${items.length > MAX_NAMED ? ` and ${items.length - MAX_NAMED} more` : ""} (${RISK_MISSING[reason as keyof typeof RISK_MISSING]})`;
+  }).join("; ")}.`;
+}
+
+/** Each holding's share of the holdings' risk beside its share of their value, and what was left out. */
+function holdingRiskLines(data: AllocationAnalysis): string[] {
+  const missing = data.riskMissing?.length ? [riskMissingLine(data.riskMissing)] : [];
+  const { risk } = data;
+  if (!risk) return [...(data.riskProblem ? [`No risk by holding: ${data.riskProblem}`] : []), ...missing];
+  const pairs = risk.correlations.tickers.flatMap((a, i) => risk.correlations.tickers.slice(i + 1).map((b, k) => ({ a, b, value: risk.correlations.matrix[i]![i + 1 + k]! })))
+    .sort((x, y) => y.value - x.value);
+  const pair = (item: { a: string; b: string; value: number }) => `${item.a}–${item.b} ${num(item.value, 2)}`;
+  return [
+    ...section(`Risk by holding (weekly closes ${risk.from} to ${risk.to}, ${risk.weeks} weeks, each in its own currency; ${pct(risk.covered, 0)} of the holdings' value): together ${pct(risk.volatility)} a year, diversification ratio ${num(risk.diversification, 2)} (their own volatilities, weighted, over that)`,
+      rows(risk.rows, (row) => `${row.ticker}: ${pct(row.risk, 0)} of the risk, ${pct(row.weight, 0)} of the value; volatility ${pct(row.volatility, 0)} a year, correlation with them together ${num(row.correlation, 2)}`)),
+    ...(pairs.length >= 6 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`]
+      : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : []),
+    ...(risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : []),
+    ...(risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : []),
+    ...missing,
   ];
 }
 

@@ -1258,3 +1258,48 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 @container (max-width: 640px) {
   .riskGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---- Risk by holding: each one's share of the risk over its share of the value, then the correlations ---- */
+.appShell { --corr-max: 75%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --corr-max: 45%; } }
+:root[data-theme="dark"] .appShell { --corr-max: 45%; }
+.riskShareLegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; color: var(--tp-muted); font-size: 12px; }
+.riskShareLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.riskSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.riskSwatch.risk, .riskShareFill.risk { background: var(--tp-chart); }
+.riskShareFill.risk.offset { background: repeating-linear-gradient(135deg, var(--tp-chart) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--tp-chart); }
+.riskSwatch.value, .riskShareFill.value { background: color-mix(in srgb, var(--tp-muted) 50%, var(--tp-bg-soft)); }
+.riskShareList { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.riskShareList li { display: grid; grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.riskShareBars { display: grid; gap: 3px; }
+.riskShareTrack { height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--tp-border) 45%, transparent); overflow: hidden; }
+.riskShareTrack.thin { height: 5px; }
+.riskShareFill { display: block; height: 100%; border-radius: 4px; }
+.riskShareValues { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.riskShareValues strong { display: block; font-size: 13px; font-weight: 700; }
+.riskShareValues small { display: block; color: var(--tp-muted); font-size: 12px; }
+.corrBlock { margin-top: 18px; }
+.corrBlock h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
+.corrScroll { overflow-x: auto; }
+.corrTable { width: 100%; min-width: 300px; border-collapse: separate; border-spacing: 2px; table-layout: fixed; font-size: 12px; font-variant-numeric: tabular-nums; }
+.corrTable thead td:first-child, .corrTable tbody th { width: 64px; }
+.corrTable th { overflow: hidden; padding: 2px; color: var(--tp-muted); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.corrTable thead th { text-align: center; }
+.corrTable tbody th { text-align: left; }
+.corrTable td { height: 28px; padding: 0; border-radius: 5px; color: var(--tp-text); text-align: center; }
+.corrTable td.together { background: color-mix(in srgb, var(--tp-amber) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
+.corrTable td.apart { background: color-mix(in srgb, var(--tp-blue) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
+.corrTable td.corrSelf { color: var(--tp-muted); }
+.corrLegend { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.corrScale { flex: 0 1 160px; height: 8px; border: 1px solid var(--tp-border); border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--tp-blue) var(--corr-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-amber) var(--corr-max), var(--tp-bg-soft))); }
+@media (forced-colors: active) {
+  .riskShareFill.risk, .riskSwatch.risk { background: CanvasText !important; }
+  .riskShareFill.risk.offset { background: repeating-linear-gradient(135deg, CanvasText 0 2px, Canvas 2px 5px) !important; }
+  .riskShareFill.value, .riskSwatch.value { background: GrayText !important; }
+}
+@container (max-width: 640px) {
+  .holdingRisk .riskTile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .riskShareList li { grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) auto; gap: 7px; }
+  .corrTable thead td:first-child, .corrTable tbody th { width: 44px; }
+  .corrTable td { height: 24px; }
+}

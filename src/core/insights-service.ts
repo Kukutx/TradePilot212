@@ -1,7 +1,7 @@
 // Read-only portfolio insights built from Trading 212 history endpoints.
 // Nothing in this file can place, change, or cancel an order.
 
-import type { AccountSummary, Instrument, TradingEnvironment } from "../shared/contracts.js";
+import type { AccountSummary, Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
 import type {
   AllocationAnalysis,
   Exchange,
@@ -154,9 +154,11 @@ export class InsightsService {
     return value;
   }
 
-  async allocation(environment: TradingEnvironment, limits?: Partial<AllocationLimits>): Promise<AllocationAnalysis> {
+  /** `onRead` is handed the positions and instruments read, for a caller that needs them too (risk by holding). */
+  async allocation(environment: TradingEnvironment, limits?: Partial<AllocationLimits>, onRead?: (read: { positions: Position[]; instruments: Instrument[] }) => void): Promise<AllocationAnalysis> {
     const client = this.client(environment);
     const [account, positions, instruments] = await Promise.all([client.getAccountSummary(), client.getPositions(), this.deps.instruments(environment).catch(() => [])]);
+    onRead?.({ positions, instruments });
     return analyzeAllocation(environment, account, positions, instruments, { ...DEFAULT_ALLOCATION_LIMITS, ...Object.fromEntries(Object.entries(limits ?? {}).filter(([, value]) => value !== undefined)) });
   }
 

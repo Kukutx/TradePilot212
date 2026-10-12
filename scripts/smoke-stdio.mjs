@@ -105,6 +105,8 @@ const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
 const [saved, allocation, rebalance, buyOnly] = targets.results;
 if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
 if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
+// Risk by holding, from the sample closes: every holding measured.
+if (!(allocation.structuredContent?.risk?.rows?.length >= 2) || allocation.structuredContent.risk.covered !== 1) throw new Error(`Allocation lacks the risk by holding: ${JSON.stringify(allocation.structuredContent?.riskProblem ?? allocation.structuredContent?.riskMissing ?? allocation).slice(0, 300)}`);
 if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
 const buyOnlyPlan = buyOnly.structuredContent?.rebalance;
 if (buyOnly.isError || !buyOnlyPlan?.buyOnly || buyOnlyPlan.trades.some((trade) => trade.side !== "buy")) throw new Error(`Buy-only rebalance failed: ${JSON.stringify(buyOnly).slice(0, 300)}`);
