@@ -129,6 +129,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   // quoted price does not move before the open, so the day of one not held is the last session until it opens.
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
+  const rates = accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {};
+  const accountRate = full.currencyCode ? rates[full.currencyCode.toUpperCase()] : undefined;
   // A holding's next year of dividends from its spacing (the newest MAX_DIVIDENDS payments: a monthly payer's year),
   // from the start of this month so one due and not paid yet still shows.
   const schedule = position && position.quantity > 0 && Array.isArray(history)
@@ -139,7 +141,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS) : [];
   const moved = prices && "prices" in prices
     ? await dayMove({ priceHistory: async () => prices, ...(deps.closes ? { closes: deps.closes } : {}) }, {
-        environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {},
+        environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates,
       }, {
         ticker,
         instrument: full,
@@ -161,6 +163,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ticker,
     instrument,
     ...(dashboard.account?.currency ? { accountCurrency: dashboard.account.currency } : {}),
+    ...(accountRate ? { accountRate } : {}),
     ...(position ? { position } : {}),
     ...(quote ? { quote: { price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol } } : {}),
     ...(watched ? { watching: { addedAt: watched.addedAt, ...(watched.note ? { note: watched.note } : {}) } } : {}),
@@ -203,6 +206,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             dividendTotal: history[1].totals.DIVIDEND ?? 0,
             dividendCount: history[1].count,
             fillsTruncated: history[0].truncated,
+            ...(history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price)) ? { fillsUnpriced: true as const } : {}),
+            ...(history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE") ? { fillsNotTrades: true as const } : {}),
             dividendsTruncated: history[1].truncated,
             ...(nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {}),
             ...(nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}),

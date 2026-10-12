@@ -3,6 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
+import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
@@ -416,6 +417,26 @@ function priceLine(data: HoldingDetail): string[] {
   return [`Daily closes (${source}) ${year.first.date} to ${year.last.date}: ${num(year.first.close, 6)} to ${num(year.last.close, 6)}${unit} (${signedPct(year.change)})${shorter.length ? `; ${shorter.join(", ")}` : ""}; high ${num(year.high.close, 6)} on ${year.high.date}, low ${num(year.low.close, 6)} on ${year.low.date}.`];
 }
 
+/** What the price did for the position over the closes, against the start at the first close plus the trading since. */
+function positionHistoryLine(data: HoldingDetail): string[] {
+  const history = holdingPositionHistory(data);
+  if (history === "quantity") return ["No position history: going back through the year's fills leaves fewer than no shares on some day (a split, or shares moved out without a fill)."];
+  if (history === "split") return ["No position history: the closes or the fill prices jump as across a split, so the shares before it cannot be matched to the closes."];
+  if (history === "fills") return ["No position history: some fills were read without a price or date."];
+  if (!history) return [];
+  const first = history.days[0]!, last = history.days[history.days.length - 1]!;
+  const c = data.accountCurrency ? ` ${data.accountCurrency}` : "";
+  const rate = !foreign(data) ? "" : history.fillRates ? ", at its fills' exchange rates (today's is not known: nothing in its currency is held)" : ", at today's exchange rate";
+  const since = history.shortened ? ` Older fills were not read, so it starts on ${first.date}.` : "";
+  return [`Position from ${first.date} to ${last.date} at the closes${rate}: value ${num(last.value)}${c} against ${num(last.base)}${c} net put in (${num(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num(Math.abs(history.gain))}${c}.${since}`];
+}
+
+/** Whether the instrument is priced in another currency than the account's (pence and pounds are one). */
+function foreign(data: HoldingDetail): boolean {
+  const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
+  return !!data.instrument.currencyCode && !!data.accountCurrency && major(data.instrument.currencyCode) !== major(data.accountCurrency);
+}
+
 function holding(data: HoldingDetail): string[] {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -429,6 +450,7 @@ function holding(data: HoldingDetail): string[] {
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
     ...(data.day ? [`On the day (${data.day.day}): ${dayMoveText(data.day, c).replace(/\.$/, "")}.`] : []),
     ...priceLine(data),
+    ...positionHistoryLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),

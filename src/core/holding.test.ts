@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
 import { createConfig } from "./config.js";
+import { holdingPositionHistory } from "../shared/position-history.js";
 import { holdingDetail } from "./holding.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
@@ -131,6 +132,21 @@ describe("holding detail", () => {
       expect(day?.close).toBeCloseTo(fill.price!, 2);
     }
     expect(describePayload(detail)).toMatch(/^Daily closes \(simulated for the sample account\) \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: [\d.]+ to 128\.75 USD \([+-][\d.]+%\); 1M [+-][\d.]+%, 3M [+-][\d.]+%, 6M [+-][\d.]+%; high [\d.]+ on \d{4}-\d{2}-\d{2}, low [\d.]+ on \d{4}-\d{2}-\d{2}\.$/m);
+  });
+
+  it("draws the position over the closes beside the net put in, and says it in the text", async () => {
+    const detail = await holdingDetail(sample(), "demo", "NVDA_US_EQ");
+    const history = holdingPositionHistory(detail);
+    if (!history || typeof history !== "object") throw new Error(`no position history: ${history}`);
+    // Today's 20 shares at the last close, at Trading 212's own valuation's rate.
+    const last = history.days.at(-1)!;
+    expect(last.shares).toBe(20);
+    expect(last.value).toBeCloseTo((detail.position!.walletImpact as { currentValue: number }).currentValue, 0);
+    // The sample's NVDA fills are buys and sells of 2 or 3 shares, so the shares at the first close are fewer or more.
+    expect(history.days[0]!.shares).toBe(history.startShares);
+    expect(history.startShares).not.toBe(20);
+    expect(history.gain).toBeCloseTo(last.value - last.base, 2);
+    expect(describePayload(detail)).toMatch(/^Position from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2} at the closes, at today's exchange rate: value [\d.]+ EUR against [\d.]+ EUR net put in \([\d.]+ shares at the first close, plus buys less sells at their prices\), so the price (added|took) [\d.]+ EUR\.$/m);
   });
 
   it("lists the newest 20 fills and gives the chart the older ones with only what a mark needs", async () => {

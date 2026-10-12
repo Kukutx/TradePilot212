@@ -59,6 +59,11 @@ export interface HoldingDetail {
   /** All notes on this instrument, when more than `journal` lists. */
   journalTotal?: number;
   market?: MarketStatus;
+  /**
+   * Units of the instrument's currency per account unit today, from Trading 212's valuation of the holdings in it (or
+   * fixed, for the account's own currency and pence); absent when none is known.
+   */
+  accountRate?: number;
   /** The last 12 months of fills and the dividends since `dividendsFrom`; absent when the history could not be read. */
   history?: {
     from: string;
@@ -73,6 +78,10 @@ export interface HoldingDetail {
     dividendCount: number;
     /** The page budget ended before the window start, so older fills are missing. */
     fillsTruncated: boolean;
+    /** A fill read had shares but no price or date. */
+    fillsUnpriced?: true;
+    /** A fill read was not a trade (a split or a distribution): shares with no price paid. */
+    fillsNotTrades?: true;
     /** The same for dividends; dividendTotal and dividendCount then cover only the newer part of the window. */
     dividendsTruncated: boolean;
     /**

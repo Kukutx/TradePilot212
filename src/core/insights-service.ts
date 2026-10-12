@@ -340,6 +340,7 @@ export class InsightsService {
         status: item.order?.status,
         initiatedFrom: item.order?.initiatedFrom,
         filledAt: item.fill?.filledAt,
+        ...(item.fill?.type ? { fillType: item.fill.type } : {}),
         quantity: item.fill?.quantity,
         price: item.fill?.price,
         priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,

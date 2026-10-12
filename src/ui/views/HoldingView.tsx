@@ -9,7 +9,9 @@ import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts
 import { Metric, SectionHeader } from "../components/common";
 import { DayLine } from "../components/day";
 import { JournalForm, JournalNote, type JournalRequest } from "../components/journal";
+import { PositionChart } from "../components/position-chart";
 import { PriceChart, type ChartLevel, type ChartTrade } from "../components/price-chart";
+import { holdingPositionHistory } from "../../shared/position-history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey } from "../i18n";
 import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
@@ -165,6 +167,7 @@ export function HoldingView({
   const addingNote = noteForm !== null && !noteForm.entryId && !noteForm.orderId;
   const position = data.position;
   const currency = data.accountCurrency ?? "EUR";
+  const positionHistory = holdingPositionHistory(data);
   const quote = data.instrument.currencyCode;
   const label = instrumentLabel(data.ticker, book, data.instrument);
   const value = position ? walletNumber(position, "currentValue") : undefined;
@@ -258,6 +261,15 @@ export function HoldingView({
           {(data.pricesMissing === "data" || data.pricesMissing === "unit") && data.pricesProblem && <p className="panelNote">{data.pricesProblem}</p>}
         </section>
       )}
+
+      {positionHistory && (typeof positionHistory === "object" ? (
+        <section className="dataPanel"><PositionChart history={positionHistory} currency={currency} {...(quote ? { quoteCurrency: quote } : {})} locale={locale} t={t} /></section>
+      ) : (
+        <section className="dataPanel">
+          <div className="pieHeader"><h2>{t("positionTitle")}</h2></div>
+          <p className="panelNote">{t(positionHistory === "quantity" ? "positionQuantity" : positionHistory === "split" ? "positionSplit" : "positionFills")}</p>
+        </section>
+      ))}
 
       {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
       {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} {...(lastPrice ? { last: lastPrice } : {})} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} {...(guardDetail ? { guardDetail } : {})} {...(protect ? { action: protect } : {})} />}
