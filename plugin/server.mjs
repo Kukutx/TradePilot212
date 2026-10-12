@@ -38546,7 +38546,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.38.0"
+  version: "2.39.0"
 };
 
 // src/shared/prices.ts
@@ -42193,6 +42193,25 @@ var round10 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round10(value)}`;
 var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round10(value * 100)}%`;
 var MOVERS = 3;
+var EXPECTED_DIVIDENDS = 3;
+var WEEK_MS = 7 * DAY_MS12;
+function digestDividends(dividends, positions, since, now) {
+  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
+  const received = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const at = Date.parse(item.paidOn ?? "");
+    const ticker = item.ticker ?? item.instrument?.ticker;
+    if (!ticker || !item.amount || !(at > since.getTime() && at <= now.getTime())) continue;
+    received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
+  }
+  const today = now.toISOString().slice(0, 10);
+  const weekOn = new Date(now.getTime() + WEEK_MS).toISOString().slice(0, 10);
+  const upcoming = forwardDividends(dividends, positions, now, now).upcoming ?? [];
+  return {
+    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round10(amount2) })),
+    expected: upcoming.filter((payment) => payment.on <= weekOn).map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < today }))
+  };
+}
 function digestDay(today) {
   const total = today?.total;
   if (!today || !total) return void 0;
@@ -42223,6 +42242,8 @@ function digestText(input2) {
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
     input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
+    input2.dividends?.received.length ? `dividends ${round10(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.map((item) => `${item.name} ${round10(item.amount)}`).join(", ")}` : void 0,
+    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round10(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
     input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
     input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
   ].filter(Boolean).join(" \xB7 ");
@@ -42264,6 +42285,10 @@ var DailyDigest = class {
         const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         const day3 = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => void 0)) : void 0;
+        const lastSent = await this.deps.store.get(`digest-at:${environment}`);
+        const since = new Date(lastSent && Date.parse(lastSent) < now.getTime() ? Date.parse(lastSent) : now.getTime() - DAY_MS12);
+        const history = await this.deps.dividends?.(environment, new Date(Math.min(since.getTime(), scheduleStart(now.getTime()))), now).catch(() => void 0);
+        const dividends = history ? digestDividends(history, dashboard.positions, since, now) : void 0;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -42281,7 +42306,8 @@ var DailyDigest = class {
           filledOrders,
           ...maxDrift === void 0 ? {} : { maxDrift },
           ...uncovered.length ? { uncovered } : {},
-          ...day3 ? { day: day3 } : {}
+          ...day3 ? { day: day3 } : {},
+          ...dividends ? { dividends } : {}
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {
@@ -42289,6 +42315,7 @@ var DailyDigest = class {
           continue;
         }
         await this.deps.store.put(`digest-value:${environment}`, totalValue);
+        await this.deps.store.put(`digest-at:${environment}`, now.toISOString());
         await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
       } catch (error62) {
@@ -42537,6 +42564,7 @@ var ValueHistory = class {
 };
 
 // src/app/services.ts
+var DIGEST_DIVIDEND_PAGES = 4;
 var processSampleBroker;
 function createServices(input2) {
   const sampleFetcher = () => input2.fetcher ? createSampleBroker(input2.fetcher) : processSampleBroker ??= createSampleBroker();
@@ -42588,7 +42616,16 @@ function createServices(input2) {
     closes: closes2,
     fills: (env2, from) => insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, DAY_ORDER_PAGES)
   }, environment, now);
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today, ...notify ? { notify } : {} });
+  const digest = new DailyDigest({
+    config: deps.config,
+    store: deps.store,
+    trading,
+    targets: (environment) => targets.get(environment),
+    today,
+    // A year of dividends is a page or two of Trading 212's history, once a day.
+    dividends: async (environment, from, now) => (await insights.collect(environment, "dividends", { from, to: now }, DIGEST_DIVIDEND_PAGES)).items,
+    ...notify ? { notify } : {}
+  });
   const stage = async (name, run) => {
     try {
       return await run();

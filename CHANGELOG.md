@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.39.0
+
+- The daily digest names the dividends paid since the previous digest ("dividends 10.95 in: KO 9.7, VUSA 1.25") and those expected in the coming week, a payment due and not paid yet marked as due ("dividends expected this week: MSFT ~4.15 due 10-08, AAPL ~2.4 10-14"). The expected ones come from the Income tab's dividend calendar.
+- It reads Trading 212's dividend history once a day for this, from the first day of this month a year ago (at most four pages); a digest whose dividends cannot be read goes out without them.
+
 ## 2.38.0
 
 - A dividend calendar. The Income tab shows this month and the next 11: what was paid so far this month and what each month is expected to bring, from each holding's payments over the last year at the quantity held now, then the payments themselves soonest first, with their approximate dates and amounts. A payment due this month that has not come yet says so.
