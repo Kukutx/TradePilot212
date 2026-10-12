@@ -12,7 +12,10 @@ import type {
   MarketStatus,
   MoneyBucket,
   PerformanceSummary,
+  ReturnPoint,
   TaxYearSummary,
+  TimeWeightedReturn,
+  ValuePoint,
 } from "../shared/history.js";
 
 export interface AllocationLimits {
@@ -173,6 +176,59 @@ export function moneyWeightedReturn(flows: Array<{ at: number; amount: number }>
   return (low + high) / 2;
 }
 
+/** Below this much in the account currency, a stretch has nothing invested to measure a return on. */
+const MIN_INVESTED = 1;
+/** An account holding less than this share of the money moved in or out in a stretch counts as empty. */
+const EMPTY_SHARE = 0.01;
+
+/**
+ * Time-weighted return over recorded account values. Each stretch between two readings is measured by the
+ * Modified Dietz method: the change in value less the deposits and withdrawals in it, over the starting
+ * value plus each of those flows weighted by the share of the stretch it was invested for. The stretches are
+ * chained, so money paid in or taken out moves the value but not the return. Deposits are positive flows
+ * and withdrawals negative. An empty account earns nothing, so a stretch that starts empty is measured from its
+ * first deposit, and one that ends empty up to its last withdrawal: a deposit into an empty account an hour
+ * before a reading then earns what it gained in that hour, not that gain spread over the hour's share of the
+ * day. Undefined with fewer than two readings, or when a stretch began with nothing invested yet still gained
+ * or lost.
+ */
+export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: number; amount: number }>): TimeWeightedReturn | undefined {
+  const readings = points
+    .map((point) => ({ point, at: Date.parse(point.at) }))
+    .filter((reading) => Number.isFinite(reading.at) && Number.isFinite(reading.point.totalValue))
+    .sort((a, b) => a.at - b.at);
+  if (readings.length < 2) return undefined;
+  const series: ReturnPoint[] = [{ date: readings[0]!.point.date, return: 0 }];
+  let growth = 1, netFlows = 0;
+  for (let index = 1; index < readings.length; index++) {
+    const start = readings[index - 1]!, end = readings[index]!;
+    const inside = flows.filter((flow) => Number.isFinite(flow.amount) && flow.at > start.at && flow.at <= end.at);
+    const total = inside.reduce((sum, flow) => sum + flow.amount, 0);
+    // The part of the stretch anything was invested in: from the first deposit into an empty account, up to the
+    // withdrawal that emptied it.
+    const empty = (value: number) => value < Math.max(MIN_INVESTED, EMPTY_SHARE * inside.reduce((sum, flow) => sum + Math.abs(flow.amount), 0));
+    const deposits = inside.filter((flow) => flow.amount > 0).map((flow) => flow.at);
+    const withdrawals = inside.filter((flow) => flow.amount < 0).map((flow) => flow.at);
+    const from = empty(start.point.totalValue) && deposits.length ? Math.min(...deposits) : start.at;
+    const to = empty(end.point.totalValue) && withdrawals.length ? Math.max(...withdrawals) : end.at;
+    const length = to - from;
+    const share = (at: number) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
+    const weighted = inside.reduce((sum, flow) => sum + flow.amount * share(flow.at), 0);
+    const invested = start.point.totalValue + weighted;
+    const gain = end.point.totalValue - start.point.totalValue - total;
+    netFlows += total;
+    if (invested < MIN_INVESTED) {
+      // An empty account that stayed empty has no return to chain; one that moved cannot be measured.
+      if (Math.abs(gain) >= MIN_INVESTED) return undefined;
+    } else {
+      growth *= 1 + gain / invested;
+    }
+    if (!(growth > 0)) return undefined;
+    series.push({ date: end.point.date, return: round(growth - 1, 6) });
+  }
+  return { return: round(growth - 1, 6), from: readings[0]!.point.date, to: readings[readings.length - 1]!.point.date, netFlows: round(netFlows), series };
+}
+
 export function summarizePerformance(input: {
   environment: TradingEnvironment;
   account: AccountSummary;
@@ -183,6 +239,10 @@ export function summarizePerformance(input: {
   truncated: boolean;
   /** When the account value was read; returns need a window that ends then. */
   now?: Date;
+  /** The account value TradePilot recorded each day in the window: the value chart and the time-weighted return. */
+  values?: ValuePoint[];
+  /** Whether the transactions stopped at the page limit; `truncated` covers every data set. */
+  transactionsTruncated?: boolean;
 }): PerformanceSummary {
   const { window } = input;
   const fills = input.orders.filter((item) => item.fill && inWindow(item.fill.filledAt ?? item.order?.createdAt, window));
@@ -269,6 +329,28 @@ export function summarizePerformance(input: {
     }
   }
 
+  // The time-weighted return needs every deposit and withdrawal between the first reading and the last.
+  // History is read newest first, so after a cut-off it is complete back to the oldest record read.
+  let timeWeighted: TimeWeightedReturn | undefined;
+  if (input.values && input.values.length >= 2) {
+    const firstReading = Math.min(...input.values.map((point) => Date.parse(point.at)).filter(Number.isFinite));
+    const oldestRead = Math.min(...input.transactions.map((item) => Date.parse(item.dateTime ?? "")).filter(Number.isFinite));
+    if ((input.transactionsTruncated ?? input.truncated) && !(oldestRead <= firstReading)) {
+      notes.push("timeWeighted is omitted because the deposit and withdrawal history stops before the first recorded day; raise maxPages.");
+    } else {
+      // A transfer between Trading 212 accounts moves money in or out like a deposit or withdrawal; its sign says which.
+      const flows = transactions.flatMap((item) => {
+        const type = (item.type ?? "").toUpperCase();
+        const at = Date.parse(item.dateTime ?? "");
+        const amount = Math.abs(item.amount ?? 0);
+        if (!Number.isFinite(at)) return [];
+        return DEPOSIT.has(type) ? [{ at, amount }] : WITHDRAW.has(type) ? [{ at, amount: -amount }] : type === "TRANSFER" && item.amount ? [{ at, amount: item.amount }] : [];
+      });
+      timeWeighted = timeWeightedReturn(input.values, flows);
+      if (!timeWeighted) notes.push("timeWeighted is omitted because a stretch between recorded days began with nothing invested.");
+    }
+  }
+
   return {
     kind: "performance",
     environment: input.environment,
@@ -287,6 +369,8 @@ export function summarizePerformance(input: {
     byTicker: [...perTicker]
       .map(([ticker, row]) => ({ ticker, realizedProfitLoss: round(row.realizedProfitLoss), dividends: round(row.dividends), costs: round(row.costs) }))
       .sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    ...(input.values && input.values.length >= 2 ? { valueHistory: input.values } : {}),
+    ...(timeWeighted ? { timeWeighted } : {}),
     notes,
     timestamp: new Date().toISOString(),
   };

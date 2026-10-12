@@ -49,6 +49,23 @@ describe("text summaries for hosts that only show text", () => {
     expect(describePayload(performance)).toMatch(/Annualized return \(money-weighted, since \d{4}-\d{2}-\d{2}\) [+-]?\d/);
   });
 
+  it("gives the time-weighted return over recorded days with the withdrawal taken out", async () => {
+    const services = sample();
+    const now = Date.now();
+    const day = (ago: number) => ({ date: new Date(now - ago * 86_400_000).toISOString().slice(0, 10), at: new Date(now - ago * 86_400_000 + 60_000).toISOString() });
+    // The sample account took out 500 ninety days ago; the value fell by it but the return did not.
+    const values = [{ ...day(100), totalValue: 10_500 }, { ...day(80), totalValue: 10_100 }, { ...day(1), totalValue: 10_605 }];
+    const performance = await services.insights.performance("demo", { from: new Date(now - 120 * 86_400_000), to: new Date(now) }, undefined, async (account) => {
+      // The days are read for the account whose history this is, not whichever was recorded last.
+      expect(account).toBe(21_200_000);
+      return values;
+    });
+    expect(performance.valueHistory).toHaveLength(3);
+    expect(performance.timeWeighted?.netFlows).toBe(-500);
+    expect(performance.timeWeighted?.return).toBeCloseTo((1 + 100 / (10_500 - 500 * (10 / 20))) * 1.05 - 1, 3);
+    expect(describePayload(performance)).toMatch(/Time-weighted return from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: \+6%, with 500 of net withdrawals in between taken out/);
+  });
+
   it("summarizes a tax year with gains and losses apart and says it is not a tax calculation", async () => {
     const services = sample();
     const year = await services.insights.taxYear("demo", { yearStart: "04-06", timeZone: "Europe/London" });

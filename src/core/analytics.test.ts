@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
-import type { Exchange, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem } from "../shared/history.js";
-import { analyzeAllocation, currentTaxYear, forwardDividends, marketStatus, moneyWeightedReturn, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear } from "./analytics.js";
+import type { Exchange, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, ValuePoint } from "../shared/history.js";
+import { analyzeAllocation, currentTaxYear, forwardDividends, marketStatus, moneyWeightedReturn, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear, timeWeightedReturn } from "./analytics.js";
 
 const instrument = (ticker: string, currencyCode = "USD", type = "STOCK"): Instrument => ({ ticker, name: ticker, shortName: ticker, currencyCode, type });
 const position = (ticker: string, value: number, currencyCode = "USD"): Position => ({
@@ -132,6 +132,85 @@ describe("money-weighted return", () => {
   it("has no answer without money both in and out", () => {
     expect(moneyWeightedReturn([{ at: 0, amount: -100 }])).toBeUndefined();
     expect(moneyWeightedReturn([{ at: 0, amount: -100 }, { at: year, amount: 0 }])).toBeUndefined();
+  });
+});
+
+describe("time-weighted return", () => {
+  const reading = (date: string, totalValue: number): ValuePoint => ({ date, totalValue, at: `${date}T12:00:00.000Z` });
+  const at = (date: string, time = "12:00:00.000") => Date.parse(`${date}T${time}Z`);
+
+  it("chains the change between readings when nothing was paid in or out", () => {
+    const result = timeWeightedReturn([reading("2026-09-01", 100), reading("2026-09-02", 110), reading("2026-09-03", 99)], []);
+    expect(result?.return).toBeCloseTo(-0.01, 6);
+    expect(result?.series.map((point) => point.return)).toEqual([0, 0.1, -0.01]);
+    expect(result).toMatchObject({ from: "2026-09-01", to: "2026-09-03", netFlows: 0 });
+  });
+
+  it("takes a deposit out of the gain and weighs it by how long it was invested", () => {
+    // Paid in just before the second reading: it earned nothing, so the 100 gain is on the first 1,000.
+    const late = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 2100), reading("2026-09-03", 2205)], [{ at: at("2026-09-02", "11:59:59.000"), amount: 1000 }]);
+    expect(late?.series[1]?.return).toBeCloseTo(0.1, 4);
+    expect(late?.return).toBeCloseTo(1.1 * 1.05 - 1, 4);
+    expect(late?.netFlows).toBe(1000);
+    // Paid in right after the first reading: it was invested all along, so the 200 gain is on 2,000.
+    const early = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 2200)], [{ at: at("2026-09-01", "12:00:00.001"), amount: 1000 }]);
+    expect(early?.return).toBeCloseTo(0.1, 4);
+  });
+
+  it("counts a withdrawal halfway through for half the stretch", () => {
+    const result = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 550)], [{ at: at("2026-09-02", "00:00:00.000"), amount: -500 }]);
+    expect(result?.return).toBeCloseTo(50 / 750, 6);
+    expect(result?.netFlows).toBe(-500);
+  });
+
+  it("counts only the part of a stretch anything was invested in", () => {
+    // An empty account funded an hour before the reading: the 10 gained is on the 1,000 paid in, not on an hour's share of it.
+    const funded = timeWeightedReturn([reading("2026-09-01", 0), reading("2026-09-02", 1010)], [{ at: at("2026-09-02", "11:00:00.000"), amount: 1000 }]);
+    expect(funded?.return).toBeCloseTo(0.01, 6);
+    // Emptied an hour after the first reading: the 3 gained before it was taken out is on the 1,000 there.
+    const emptied = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 0)], [{ at: at("2026-09-01", "13:00:00.000"), amount: -1003 }]);
+    expect(emptied?.return).toBeCloseTo(0.003, 6);
+    // A few euros left over count as empty next to the money moved.
+    const leftOver = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 5)], [{ at: at("2026-09-01", "13:00:00.000"), amount: -998 }]);
+    expect(leftOver?.return).toBeCloseTo(0.003, 6);
+    // A withdrawal before the deposit, or a deposit after the withdrawal, doesn't move where the money was in.
+    const late = timeWeightedReturn([reading("2026-09-01", 50), reading("2026-09-02", 10_100)],
+      [{ at: at("2026-09-01", "13:00:00.000"), amount: -50 }, { at: at("2026-09-02", "11:00:00.000"), amount: 10_000 }]);
+    expect(late?.return).toBeCloseTo(0.01, 6);
+    const topUp = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 5)],
+      [{ at: at("2026-09-01", "13:00:00.000"), amount: -1003 }, { at: at("2026-09-02", "11:00:00.000"), amount: 5 }]);
+    expect(topUp?.return).toBeCloseTo(0.003, 6);
+  });
+
+  it("starts measuring once money is in and gives up on a gain from nothing", () => {
+    const funded = timeWeightedReturn([reading("2026-09-01", 0), reading("2026-09-02", 1000), reading("2026-09-03", 1100)], [{ at: at("2026-09-02", "12:00:00.000"), amount: 1000 }]);
+    expect(funded?.series.map((point) => point.return)).toEqual([0, 0, 0.1]);
+    expect(timeWeightedReturn([reading("2026-09-01", 0), reading("2026-09-02", 50)], [])).toBeUndefined();
+    expect(timeWeightedReturn([reading("2026-09-01", 100)], [])).toBeUndefined();
+  });
+
+  it("is part of the performance summary for any window, but only with every flow since the first reading", () => {
+    const values = [reading("2026-09-01", 1000), reading("2026-09-15", 1600), reading("2026-09-30", 1650)];
+    const deposit: HistoryTransactionItem = { type: "DEPOSIT", amount: 500, dateTime: "2026-09-15T11:00:00Z" };
+    const older: HistoryTransactionItem = { type: "DEPOSIT", amount: 900, dateTime: "2026-08-01T10:00:00Z" };
+    const window = { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-10-01T00:00:00Z") };
+    const base = { environment: "demo" as const, account: { currency: "EUR", totalValue: 1650 }, orders: [], dividends: [], window, values };
+    const complete = summarizePerformance({ ...base, transactions: [deposit], truncated: false });
+    expect(complete.simpleReturn).toBeUndefined();
+    expect(complete.timeWeighted?.return).toBeCloseTo((1 + 100 / (1000 + 500 / 336)) * (1 + 50 / 1600) - 1, 6);
+    expect(complete.timeWeighted?.netFlows).toBe(500);
+    // Cut off after the first reading: a deposit before the cut could be missing.
+    const cut = summarizePerformance({ ...base, transactions: [deposit], truncated: true, transactionsTruncated: true });
+    expect(cut.timeWeighted).toBeUndefined();
+    expect(cut.notes.join(" ")).toMatch(/timeWeighted is omitted/);
+    // Cut off before it: everything since the first reading was read.
+    const reached = summarizePerformance({ ...base, transactions: [deposit, older], truncated: true, transactionsTruncated: true });
+    expect(reached.timeWeighted?.netFlows).toBe(500);
+    // A transfer from another Trading 212 account is money paid in too.
+    const transfer: HistoryTransactionItem = { type: "TRANSFER", amount: 500, dateTime: "2026-09-15T11:00:00Z" };
+    expect(summarizePerformance({ ...base, transactions: [transfer], truncated: false }).timeWeighted?.return).toBeCloseTo(complete.timeWeighted!.return, 9);
+    // Only the orders were cut off.
+    expect(summarizePerformance({ ...base, transactions: [deposit], truncated: true, transactionsTruncated: false }).timeWeighted).toBeDefined();
   });
 });
 

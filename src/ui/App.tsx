@@ -29,7 +29,7 @@ import { envLabel, executionText, fill, formatProblem, verificationText, type Ex
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
 import { intentForAccount } from "./lib/orders";
 import { PortfolioView } from "./views/PortfolioView";
-import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
+import { AllocationView, IncomeView, PerformanceView, periodOf, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
@@ -79,11 +79,6 @@ const INSIGHT_TOOLS: Record<InsightKind, string> = {
 };
 const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome" };
 
-function periodOf(range: { from?: string; to: string }): InsightPeriod {
-  if (!range.from) return "all";
-  const from = new Date(range.from);
-  return from.getUTCMonth() === 0 && from.getUTCDate() === 1 && from.getUTCHours() === 0 ? "ytd" : "1y";
-}
 const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
   payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income";
 

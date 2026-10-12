@@ -164,6 +164,27 @@ export interface ValuePoint {
   at: string;
 }
 
+/** The chained time-weighted return from the first recorded day up to one day. */
+export interface ReturnPoint {
+  date: string;
+  return: number;
+}
+
+/**
+ * Return over the days TradePilot recorded the account value, with deposits and withdrawals taken out:
+ * how the money that was invested did, whatever was paid in or taken out along the way.
+ */
+export interface TimeWeightedReturn {
+  /** From the first recorded day to the last, as a fraction (0.042 is +4.2%). */
+  return: number;
+  /** Dates of the first and last recorded day. */
+  from: string;
+  to: string;
+  /** Deposits and transfers in, less withdrawals and transfers out, between them: what the return leaves out. */
+  netFlows: number;
+  series: ReturnPoint[];
+}
+
 export interface PerformanceSummary {
   kind: "performance";
   environment: TradingEnvironment;
@@ -189,6 +210,8 @@ export interface PerformanceSummary {
   byTicker: Array<{ ticker: string; realizedProfitLoss: number; dividends: number; costs: number }>;
   /** The account value TradePilot recorded each day in the window, when it has two days or more. */
   valueHistory?: ValuePoint[];
+  /** The time-weighted return over those days, when every deposit and withdrawal between them was read. */
+  timeWeighted?: TimeWeightedReturn;
   notes: string[];
   timestamp: string;
 }

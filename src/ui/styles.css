@@ -636,6 +636,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .lineGrid text, .lineAxis { fill: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .lineArea { fill: color-mix(in srgb, var(--tp-chart) 12%, transparent); }
 .linePath { fill: none; stroke: var(--tp-chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lineZero { stroke: var(--tp-muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+.chartControls { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 10px; }
+.chartControls .segmented button { min-height: 32px; padding: 0 10px; }
 .lineFocus line { stroke: var(--tp-border-strong); stroke-width: 1; }
 .lineFocus circle { fill: var(--tp-chart); stroke: var(--tp-bg); stroke-width: 2; }
 .lineTip { position: absolute; top: 0; width: 150px; padding: 6px 9px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); box-shadow: var(--tp-shadow); pointer-events: none; font-size: 12px; }
@@ -866,6 +869,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 
 @container (max-width: 640px) {
   .viewTabs button, .segmented button, .linkButton { min-height: 40px; }
+  .chartControls .segmented button { min-height: 40px; }
   .resolutionEdited button { min-height: 40px; }
   .pieTotals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stateCard { grid-template-columns: auto minmax(0, 1fr); padding: 15px; }
