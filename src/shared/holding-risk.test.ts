@@ -333,6 +333,38 @@ describe("the risk at target weights", () => {
     expect(none).toBeUndefined();
   });
 
+  it("measures instruments not held over the holdings' weeks, for the covariance alone", () => {
+    const a = holding("A", 3000, pattern([1, -1, 1, -1]));
+    const b = holding("B", 1000, pattern([1, 1, -1, -1], 0.04));
+    let alone: HoldingCovariance | undefined;
+    const risk = holdingRiskOf([a, b], TODAY, undefined, (given) => { alone = given; })!;
+    let found: HoldingCovariance | undefined;
+    // N moves as A does at twice the size; S misses the first ten weeks; J's closes jump as across pounds and pence.
+    const jumped = fridays(pattern([1, -1, 1, -1])).map((point, index) => (index > 30 ? { ...point, close: point.close * 100 } : point));
+    const beside = holdingRiskOf([a, b], TODAY, undefined, (given) => { found = given; }, [
+      { ticker: "N", points: fridays(pattern([1, -1, 1, -1], 0.04)) },
+      { ticker: "S", points: fridays(pattern([1, 1, -1, -1])).slice(10) },
+      { ticker: "J", points: jumped },
+      // A holding asked for again is the holding, not an instrument beside it.
+      { ticker: "A", points: fridays(pattern([1, 1, -1, -1])) },
+    ])!;
+    // The holdings' risk does not change.
+    expect(beside).toEqual(risk);
+    expect(found!.tickers).toEqual(["A", "B", "N"]);
+    expect(found!.unmeasured).toEqual([{ ticker: "S", reason: "short" }, { ticker: "J", reason: "jumps" }]);
+    // The holdings' block is the covariance without them, and N's is A's at twice the size.
+    found!.matrix.slice(0, 2).forEach((row, i) => row.slice(0, 2).forEach((cell, j) => expect(cell).toBeCloseTo(alone!.matrix[i]![j]!, 12)));
+    expect(found!.matrix[2]![2]).toBeCloseTo(4 * found!.matrix[0]![0]!, 12);
+    expect(found!.matrix[2]![0]).toBeCloseTo(2 * found!.matrix[0]![0]!, 12);
+    expect(found!.matrix[0]![2]).toBe(found!.matrix[2]![0]);
+    // Half in A and half in N, which moves as A does at twice the size: one and a half times A's volatility.
+    const mixed = targetRiskOf(found!, [{ ticker: "A", weight: 0.3 }, { ticker: "B", weight: 0.1 }], new Map([["A", 0.2], ["N", 0.2]]), true)!;
+    expect(mixed.leftOut).toEqual([]);
+    expect(mixed.atTargets.volatility).toBeCloseTo(1.5 * Math.sqrt(found!.matrix[0]![0]!), 10);
+    expect(mixed.now.shares.get("N")).toBe(0);
+    expect(mixed.account).toBeDefined();
+  });
+
   it("weighs the holdings measured among themselves, and counts any other ticker as nothing", () => {
     const half = riskAtWeights(covariance, new Map([["A", 0.25], ["B", 0.25], ["X", 0.5]]))!;
     // Half each of A and B, unrelated: √(0.25 × 0.04 + 0.25 × 0.16).

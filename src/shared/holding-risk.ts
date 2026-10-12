@@ -91,9 +91,12 @@ function jumps(weeks: WeeklyInput["weeks"]): boolean {
  * closes included, for the share measured. Undefined when fewer than two holdings, or no more than MIN_WEEKS weeks
  * together, are left, or nothing moved. `onCovariance` is handed the holdings measured and their covariance a year,
  * which is not in the result: it is long, and the volatility at any weights is worked out from it (riskAtWeights).
+ * `alongside` are instruments not held, for targets that would buy them: they are in the covariance, after the
+ * holdings, when they have a close in each of the holdings' weeks and their closes do not jump, and are named in its
+ * `unmeasured` otherwise; they change nothing in the result.
  */
-export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number, onCovariance?: (covariance: HoldingCovariance) => void):
-  (HoldingRisk & { mix: HoldingMix }) | undefined {
+export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number, onCovariance?: (covariance: HoldingCovariance) => void,
+  alongside: ReadonlyArray<Pick<HoldingRiskInput, "ticker" | "points">> = []): (HoldingRisk & { mix: HoldingMix }) | undefined {
   const valued = inputs.filter((input) => input.value > 0 && Number.isFinite(input.value));
   // The holdings' value, those without closes included, for the share measured.
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input) => sum + input.value, 0));
@@ -118,13 +121,27 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   }
   if (measured.length < 2 || common.length - 1 <= MIN_WEEKS) return undefined;
   // Weekly log returns; a gap of whole weeks (a market shut all week) counts as that many weeks of variance.
-  const returns = measured.map((input) => common.slice(1).map((week, index) => {
+  const weeklyReturns = (weeks: WeeklyInput["weeks"]) => common.slice(1).map((week, index) => {
     const before = common[index]!;
-    return Math.log(input.weeks.get(week)!.close / input.weeks.get(before)!.close) / Math.sqrt((week - before) / 7);
-  }));
+    return Math.log(weeks.get(week)!.close / weeks.get(before)!.close) / Math.sqrt((week - before) / 7);
+  });
+  const returns = measured.map((input) => weeklyReturns(input.weeks));
+  // The instruments not held, over the holdings' weeks; one missing a week, or jumping, is left out.
+  const held = new Set(inputs.map((input) => input.ticker));
+  const besides = [...new Map(alongside.filter((input) => !held.has(input.ticker)).map((input) => [input.ticker, weeklyCloses(input.points, today)]))];
+  const unmeasured: NonNullable<HoldingCovariance["unmeasured"]> = [];
+  const beside: Array<{ ticker: string; returns: number[] }> = [];
+  for (const [ticker, weeks] of besides) {
+    if (jumps(weeks)) unmeasured.push({ ticker, reason: "jumps" });
+    else if (!common.every((week) => weeks.has(week))) unmeasured.push({ ticker, reason: "short" });
+    else beside.push({ ticker, returns: weeklyReturns(weeks) });
+  }
   const n = common.length - 1;
-  const means = returns.map((series) => series.reduce((sum, value) => sum + value, 0) / n);
-  const covariance = returns.map((a, i) => returns.map((b, j) => a.reduce((sum, value, k) => sum + (value - means[i]!) * (b[k]! - means[j]!), 0) / (n - 1) * WEEKS_A_YEAR));
+  const series = [...returns, ...beside.map((input) => input.returns)];
+  const means = series.map((values) => values.reduce((sum, value) => sum + value, 0) / n);
+  const all = series.map((a, i) => series.map((b, j) => a.reduce((sum, value, k) => sum + (value - means[i]!) * (b[k]! - means[j]!), 0) / (n - 1) * WEEKS_A_YEAR));
+  // The holdings' own: the instruments not held are only for the covariance handed on.
+  const covariance = all.slice(0, measured.length).map((row) => row.slice(0, measured.length));
   const value = measured.reduce((sum, input) => sum + input.value, 0);
   const weights = measured.map((input) => input.value / value);
   // Each holding's covariance with the portfolio, and the portfolio's variance.
@@ -147,7 +164,7 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   const correlation = (i: number, j: number) => (i === j ? 1 : own[i]! > 0 && own[j]! > 0 ? round(Math.max(-1, Math.min(1, covariance[i]![j]! / (own[i]! * own[j]!))), 4) : 0);
   // A week is dated by the latest of the holdings' last closes in it.
   const dateOf = (week: number) => measured.map((input) => input.weeks.get(week)!.date).sort().at(-1)!;
-  onCovariance?.({ tickers: measured.map((input) => input.ticker), matrix: covariance });
+  onCovariance?.({ tickers: [...measured.map((input) => input.ticker), ...beside.map((input) => input.ticker)], matrix: all, ...(unmeasured.length ? { unmeasured } : {}) });
   return {
     from: dateOf(common[0]!),
     to: dateOf(common[n]!),

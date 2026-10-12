@@ -5,7 +5,7 @@ import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload } 
 import { targetRiskOf } from "../../shared/holding-risk";
 import { createTranslator } from "../i18n";
 import { AllocationView } from "../views/InsightsView";
-import { canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, type TargetForm } from "./target-editor";
+import { awayPending, canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, savedAway, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, type TargetForm } from "./target-editor";
 
 const holding = (ticker: string, value: number) => ({ ticker, name: ticker, currency: "USD", value, weight: value / 10_000 });
 const data = (extra: Partial<AllocationAnalysis> = {}) => ({
@@ -146,14 +146,14 @@ describe("the target weights form", () => {
   const covariance: HoldingCovariance = { tickers: ["VUSA", "AAPL", "KO"], matrix: [[0.04, 0.02, 0.005], [0.02, 0.09, 0.004], [0.005, 0.004, 0.0225]] };
   const measured = { rows: covariance.tickers.map((ticker) => ({ ticker, weight: 1 / 3, volatility: 0.2, risk: 1 / 3, correlation: 0.5 })), to: "2026-10-09", weeks: 51 };
   const summary = (props: Partial<Parameters<typeof TargetRiskSummary>[0]>, locale: "en" | "zh-CN" = "en") =>
-    renderToStaticMarkup(createElement(TargetRiskSummary, { state: { state: "read", covariance }, weeks: 51, locale, t: createTranslator(locale), ...props }));
+    renderToStaticMarkup(createElement(TargetRiskSummary, { state: { state: "read", covariance, asked: [] }, weeks: 51, locale, t: createTranslator(locale), ...props }));
 
   it("shows the volatility now and at the targets, and the whole account's when it can", () => {
     const holdings = data().holdings;
     const risk = targetRiskOf(covariance, holdings, new Map([["VUSA", 0.3], ["AAPL", 0.3], ["KO", 0.3]]), false, 0.1)!;
     const html = summary({ risk });
     expect(html).toContain("Risk at these targets");
-    expect(html).toContain(">Holdings measured, together</th>");
+    expect(html).toContain(">Holdings and targets measured, together</th>");
     expect(html).toContain(">Whole account, cash included</th>");
     expect(html).toContain("From the 51 weeks of closes");
     expect(html).toContain('<p role="status" class="visuallyHidden">The risk at these targets is worked out as you type.</p>');
@@ -203,14 +203,14 @@ describe("the target weights form", () => {
     expect(covarianceFits({ ...payload, to: "2026-10-02" }, measured)).toBe(false);
     expect(covarianceFits({ ...payload, covariance: { tickers: ["VUSA", "AAPL"], matrix: [[0.04, 0.02], [0.02, 0.09]] } }, measured)).toBe(false);
     const shown: unknown[] = [];
-    const load = (read: () => Promise<HoldingCovariancePayload>, open = true) => loadCovariance(read, measured, () => open, (state) => shown.push(state));
+    const load = (read: () => Promise<HoldingCovariancePayload>, open = true) => loadCovariance(read, measured, [], () => open, (state) => shown.push(state));
     let asked = 0;
     await load(async () => { asked += 1; return payload; });
     expect(asked).toBe(1);
     await load(async () => ({ ...payload, weeks: 50 }));
     await load(async () => ({ kind: "holding_covariance", environment: "demo", problem: "No quote provider" }));
     await load(async () => { throw new Error("offline"); });
-    expect(shown).toEqual([{ state: "read", covariance }, { state: "stale" }, { state: "none" }, { state: "none" }]);
+    expect(shown).toEqual([{ state: "read", covariance, asked: [] }, { state: "stale" }, { state: "none" }, { state: "none" }]);
     // Closed before the read came back: nothing is shown.
     await load(async () => payload, false);
     expect(shown).toHaveLength(4);
@@ -244,12 +244,69 @@ describe("the target weights form", () => {
     expect(editor({ VUSA: "50", AAPL: "25" })).not.toContain("are kept (");
   });
 
+  it("takes instruments not held after the holdings, once each, and gives them a share only with equal weights", () => {
+    const saved = data({ drift });
+    expect(savedAway(saved)).toEqual([{ ticker: "EIMI" }]);
+    // Added from the search: after the saved one; a holding, or one already there, is not taken twice.
+    const away = [...savedAway(saved), { ticker: "NEW", name: "New Co" }, { ticker: "VUSA" }, { ticker: "NEW" }];
+    expect(targetRows(saved, away).map((row) => [row.ticker, row.held, row.name])).toEqual([["VUSA", true, "VUSA"], ["AAPL", true, "AAPL"], ["KO", true, "KO"], ["EIMI", false, undefined], ["NEW", false, "New Co"]]);
+    // Removed, the saved one is no row, so it is not saved.
+    expect(targetRows(saved, []).map((row) => row.ticker)).toEqual(["VUSA", "AAPL", "KO"]);
+    // Equal weights share what the cash leaves among all five; today's weights and the equal-risk ones give them none.
+    expect(presetForm("equal", saved, "10", away).weights).toEqual({ VUSA: "18", AAPL: "18", KO: "18", EIMI: "18", NEW: "18" });
+    expect(presetForm("today", saved, "10", away).weights).toMatchObject({ EIMI: "", NEW: "" });
+    // With more than a target list takes, the ones not held come first: they were put there to be bought.
+    const many = data({ holdings: Array.from({ length: 24 }, (_, index) => holding(`T${index}`, 400 - index * 5)) });
+    const crowded = presetForm("equal", many, "10", [{ ticker: "NEW" }]);
+    expect(crowded.weights.NEW).not.toBe("");
+    expect(Object.values(crowded.weights).filter((text) => text !== "")).toHaveLength(20);
+    expect(crowded.weights.T18).not.toBe("");
+    expect(crowded.weights.T19).toBe("");
+    expect(readForm(form(crowded.weights, crowded.cash)).problem).toBeUndefined();
+  });
+
+  it("uses a covariance with instruments not held only when they were asked for, and says which are still to come", () => {
+    const payload = { kind: "holding_covariance" as const, environment: "demo" as const, weeks: 51, to: "2026-10-09",
+      covariance: { tickers: [...covariance.tickers, "EIMI"], matrix: [[0.04, 0.02, 0.005, 0.01], [0.02, 0.09, 0.004, 0.01], [0.005, 0.004, 0.0225, 0.01], [0.01, 0.01, 0.01, 0.03]] } };
+    expect(covarianceFits(payload, measured, ["EIMI", "NEW"])).toBe(true);
+    // Not asked for: it is not the read the form made.
+    expect(covarianceFits(payload, measured)).toBe(false);
+    expect(covarianceFits({ ...payload, covariance: { ...payload.covariance, tickers: ["VUSA", "AAPL", "EIMI", "EIMI"] } }, measured, ["EIMI"])).toBe(false);
+    const read = { state: "read" as const, covariance: { ...payload.covariance, unmeasured: [{ ticker: "LATE", reason: "later" as const }, { ticker: "ODD", reason: "short" as const }] }, asked: ["EIMI", "LATE", "ODD"] };
+    const pending = awayPending(read, ["EIMI", "LATE", "NEW", "ODD"]);
+    expect([...pending.reading]).toEqual(["NEW"]);
+    expect([...pending.later]).toEqual(["LATE"]);
+    expect([...awayPending({ state: "reading" }, ["NEW"]).reading]).toEqual([]);
+    // In the summary: the ones still being read, the ones a Refresh reads, and the rest, each said once.
+    const risk = targetRiskOf(read.covariance, data().holdings, new Map([["VUSA", 0.3], ["EIMI", 0.1], ["NEW", 0.1], ["LATE", 0.1], ["ODD", 0.1]]), false)!;
+    expect(risk.leftOut).toEqual(["NEW", "LATE", "ODD"]);
+    const html = summary({ risk, state: read, pending });
+    expect(html).toContain("Reading the closes of NEW to count them…");
+    expect(html).toContain("The closes of LATE are still on their way; press Refresh to count them.");
+    expect(html).toContain("Not measured, so left out: ODD.");
+    expect(html).toContain('aria-busy="true"');
+    const zh = summary({ risk, state: read, pending }, "zh-CN");
+    expect(zh).toContain("正在读取NEW的收盘价，读完后计入…LATE的收盘价还在读取中，点“刷新”后计入。未测算，未计入：ODD。");
+  });
+
+  it("offers a search for targets not held, and a way to remove them, when connected", () => {
+    const search = async () => [];
+    const html = renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift }), locale: "en", t: createTranslator("en"), onSave: async () => true, onSearch: search, onClose: () => undefined }));
+    expect(html).toContain("Add a target you don&#x27;t hold");
+    expect(html).toContain('aria-label="Remove EIMI from the targets"');
+    // Holdings are removed by leaving their share empty, not by a button.
+    expect(html).not.toContain("Remove VUSA from the targets");
+    expect(renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift }), locale: "en", t: createTranslator("en"), onSave: async () => true, onClose: () => undefined }))).not.toContain("Add a target");
+    expect(renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift }), locale: "zh-CN", t: createTranslator("zh-CN"), onSave: async () => true, onSearch: search, onClose: () => undefined })))
+      .toContain('aria-label="从目标中移除EIMI"');
+  });
+
   it("says beside the drift what volatility the saved targets would give", () => {
     const volatility = { now: 0.182, atTargets: 0.151, account: { now: 0.164, atTargets: 0.143 } };
     const html = renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, volatility } }), locale: "en", t: createTranslator("en") }));
-    expect(html).toContain("At these targets the holdings measured would move 15.1% a year together (18.2% now). The whole account, cash included: 14.3% (16.4% now).");
+    expect(html).toContain("At these targets the holdings and targets measured would move 15.1% a year together (18.2% now). The whole account, cash included: 14.3% (16.4% now).");
     const zh = renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, volatility: { now: 0.182, atTargets: 0.151 } } }), locale: "zh-CN", t: createTranslator("zh-CN") }));
-    expect(zh).toContain("按这组目标，已测算的持仓合计年化波动 15.1%（现在 18.2%）。");
+    expect(zh).toContain("按这组目标，已测算的持仓和目标合计年化波动 15.1%（现在 18.2%）。");
     expect(zh).not.toContain("整个账户（含现金）");
     // Chinese sentences follow each other without a space.
     expect(renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, volatility } }), locale: "zh-CN", t: createTranslator("zh-CN") })))

@@ -381,7 +381,7 @@ function driftLines(drift: AllocationDrift): string[] {
 
 function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {
   const { account, leftOut } = volatility;
-  return `- At the targets, the holdings measured would move ${pct(volatility.atTargets)} a year together (${pct(volatility.now)} now)`
+  return `- At the targets, the holdings and targets measured would move ${pct(volatility.atTargets)} a year together (${pct(volatility.now)} now)`
     + (account ? `; the account, cash counted as not moving, ${pct(account.atTargets)} (${pct(account.now)} now)` : "")
     + (leftOut?.length ? `; not measured, so left out: ${leftOut.join(", ")}` : "")
     + ". From the weeks of risk by holding; past volatility, not a forecast.";

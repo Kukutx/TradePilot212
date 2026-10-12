@@ -1,6 +1,7 @@
 // Risk by holding for the allocation: a year of each holding's daily closes, as the holding page reads them (one
 // cached read each), turned into weekly returns by holdingRiskOf. The largest holdings are read first, a few at a
-// time, for a few seconds at most; the rest are read on in the background and measured on the next read.
+// time, for a few seconds at most; the rest are read on in the background and measured on the next read. Instruments
+// not held can be measured beside them, for the covariance at targets that would buy them.
 
 import type { Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AllocationAnalysis, HoldingCovariance, HoldingWeight } from "../shared/history.js";
@@ -24,6 +25,13 @@ export interface HoldingRiskDeps {
   budgetMs?: number;
   /** Handed the holdings measured and their covariance, which the result leaves out (holdingRiskOf). */
   onCovariance?: (covariance: HoldingCovariance) => void;
+  /**
+   * Instruments not held to measure beside the holdings, for the covariance alone (targets that would buy them): read
+   * after the holdings, within the same wait, and only with `onCovariance`.
+   */
+  alongside?: readonly string[];
+  /** The quote provider's price of an instrument not held, where the sample account's path of closes ends. */
+  quoteOf?: (instrument: Instrument) => Promise<number | undefined>;
 }
 
 type Missing = NonNullable<AllocationAnalysis["riskMissing"]>[number];
@@ -40,29 +48,34 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   const positions = new Map(read.positions.flatMap((position) => (position.instrument?.ticker ? [[position.instrument.ticker, position] as const] : [])));
   // A year back from the start of today (UTC), as the holding page and the gains ask: one cached read.
   const from = new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS);
-  const requestFor = (holding: HoldingWeight): PriceHistoryRequest | undefined => {
-    const position = positions.get(holding.ticker);
-    const instrument = listed.get(holding.ticker) ?? position?.instrument;
-    return instrument && { instrument, from, minDays: MIN_DAYS, ...(position?.currentPrice ? { last: position.currentPrice } : {}) };
+  // A held instrument's closes are checked against Trading 212's price; one not held ends at the provider's quote.
+  const requestFor = (ticker: string): PriceHistoryRequest | undefined => {
+    const position = positions.get(ticker);
+    const instrument = listed.get(ticker) ?? position?.instrument;
+    return instrument && { instrument, from, minDays: MIN_DAYS, ...(position?.currentPrice ? { last: position.currentPrice } : deps.quoteOf ? { quote: deps.quoteOf(instrument) } : {}) };
   };
   const ask = (request: PriceHistoryRequest) => priceHistory(request)
     .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message }));
-  const later = async (holding: HoldingWeight): Promise<Read> => ({ reason: "later", problem: `${holding.ticker}'s closes were not read in time; they are read now for the next read.` });
+  const later = async (ticker: string): Promise<Read> => ({ reason: "later", problem: `${ticker}'s closes were not read in time; they are read now for the next read.` });
   const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS);
   const started = new Set<string>();
-  const readOne = async (holding: HoldingWeight): Promise<Read> => {
-    const request = requestFor(holding);
-    if (!request) return { reason: "data", problem: `Trading 212 does not list ${holding.ticker} at the moment.` };
-    if (Date.now() >= deadline) return later(holding);
-    started.add(holding.ticker);
+  const readOne = async (ticker: string): Promise<Read> => {
+    if (!listed.has(ticker) && !positions.has(ticker)) return { reason: "data", problem: `Trading 212 does not list ${ticker} at the moment.` };
+    if (Date.now() >= deadline) return later(ticker);
+    const request = requestFor(ticker)!;
+    started.add(ticker);
     // Waited for until the deadline only; a read that runs on fills the cache for the next one.
     const result = await settleWithin(ask(request), Math.max(0, deadline - Date.now()));
-    if (!result || ("late" in result && result.late)) return later(holding);
+    if (!result || ("late" in result && result.late)) return later(ticker);
     return "prices" in result ? { points: result.prices.points } : { reason: result.missing, problem: result.problem };
   };
-  const results = await eachLimited(valued, CONCURRENCY, deadline, readOne, later);
-  // The holdings not reached are read now, a few at a time, without waiting: the next read finds them cached.
-  const unread = valued.filter((holding) => !started.has(holding.ticker)).flatMap((holding) => requestFor(holding) ?? []);
+  // Instruments not held, for the covariance alone: after the holdings, which the risk on screen needs first.
+  const held = new Set([...holdings.map((holding) => holding.ticker), ...positions.keys()]);
+  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
+  const tickers = [...valued.map((holding) => holding.ticker), ...besides];
+  const results = await eachLimited(tickers, CONCURRENCY, deadline, readOne, later);
+  // The instruments not reached are read now, a few at a time, without waiting: the next read finds them cached.
+  const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
   if (unread.length) void eachLimited(unread, CONCURRENCY, Infinity, ask, ask);
   const inputs: HoldingRiskInput[] = [];
   const missing: Missing[] = [];
@@ -71,11 +84,23 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
     if ("points" in result) inputs.push({ ticker: holding.ticker, value: holding.value, points: result.points });
     else missing.push({ ticker: holding.ticker, reason: result.reason, problem: result.problem });
   });
+  const alongside: Array<Pick<HoldingRiskInput, "ticker" | "points">> = [];
+  const unmeasured: NonNullable<HoldingCovariance["unmeasured"]> = [];
+  besides.forEach((ticker, index) => {
+    const result = results[valued.length + index]!;
+    if ("points" in result) alongside.push({ ticker, points: result.points });
+    else unmeasured.push({ ticker, reason: result.reason });
+  });
+  // The covariance names the instruments not held it leaves out, the ones not read with the ones it could not measure.
+  const onCovariance = deps.onCovariance && ((found: HoldingCovariance) => {
+    const left = [...unmeasured, ...(found.unmeasured ?? [])];
+    deps.onCovariance!({ ...found, ...(left.length ? { unmeasured: left } : {}) });
+  });
   // No provider, or a plan without a year of closes: one reason for every holding, said once.
   if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
     return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0]!.problem}` };
   }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0), deps.onCovariance);
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0), onCovariance, alongside);
   return {
     ...(risk ? { risk } : { riskProblem: inputs.length < 2
       ? "Fewer than two holdings have daily closes to measure."

@@ -1,15 +1,17 @@
-// Target weights, set on the Allocation tab: a share of the account for each holding and for cash, typed in or
-// filled from today's weights, equal weights or the equal-risk weights. Saved targets drive the drift panel, the
-// rebalance to targets and the scheduler's drift notices; they never trade.
+// Target weights, set on the Allocation tab: a share of the account for each holding, for instruments not held found
+// by a search, and for cash, typed in or filled from today's weights, equal weights or the equal-risk weights. Saved
+// targets drive the drift panel, the rebalance to targets and the scheduler's drift notices; they never trade.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { Instrument } from "../../shared/contracts";
 import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload, HoldingRisk } from "../../shared/history";
 import { equalRiskTargets, OVER_ACCOUNT, targetRiskOf, type TargetRisk } from "../../shared/holding-risk";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { parseAmount, pct } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, type Translator } from "../lib/messages";
-import { Field } from "./common";
+import { Field, Icon } from "./common";
+import { InstrumentSearch } from "./instrument-search";
 
 /** As many targets as the server keeps: a rebalance to them is one basket. */
 export const MAX_TARGETS = 20;
@@ -42,13 +44,30 @@ const downText = (share: number) => percentText(Math.max(0, Math.floor(share * 1
 /** A share as the server keeps it: four decimals (0.01%). */
 const serverShare = (share: number) => Math.round(share * 10_000) / 10_000;
 
-/** The rows: the holdings, largest first, then the saved targets not held. */
-export function targetRows(data: Pick<Data, "holdings" | "drift">): Array<{ ticker: string; name?: string; current: number; held: boolean }> {
-  const held = data.holdings.filter((holding) => holding.value > 0).sort((a, b) => b.value - a.value)
-    .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true }));
+export interface TargetRow { ticker: string; name?: string; current: number; held: boolean }
+/** An instrument not held in the form: a saved target, or one added from the search. */
+export interface AwayRow { ticker: string; name?: string }
+
+const heldRows = (data: Pick<Data, "holdings">): TargetRow[] => data.holdings.filter((holding) => holding.value > 0).sort((a, b) => b.value - a.value)
+  .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true }));
+
+/** The saved targets not held, as the form opens. */
+export function savedAway(data: Pick<Data, "holdings" | "drift">): AwayRow[] {
+  const held = new Set(heldRows(data).map((row) => row.ticker));
+  return (data.drift?.rows ?? []).filter((row) => !held.has(row.ticker)).map((row) => ({ ticker: row.ticker }));
+}
+
+/** The rows: the holdings, largest first, then the instruments not held (`away`, by default the saved targets not held). */
+export function targetRows(data: Pick<Data, "holdings" | "drift">, away: readonly AwayRow[] = savedAway(data)): TargetRow[] {
+  const held = heldRows(data);
   const known = new Set(held.map((row) => row.ticker));
-  const away = (data.drift?.rows ?? []).filter((row) => !known.has(row.ticker)).map((row) => ({ ticker: row.ticker, current: 0, held: false }));
-  return [...held, ...away];
+  const others: TargetRow[] = [];
+  for (const row of away) {
+    if (known.has(row.ticker)) continue;
+    known.add(row.ticker);
+    others.push({ ticker: row.ticker, ...(row.name ? { name: row.name } : {}), current: 0, held: false });
+  }
+  return [...held, ...others];
 }
 
 /** The form as it opens: the saved targets, or today's weights when none are saved. */
@@ -78,14 +97,17 @@ export const canUseParity = (data: Data) => parityShares(data) !== undefined;
 
 /**
  * A preset's weights, rounded down to 0.01%. Today's weights keep today's cash; equal weights share what the cash
- * typed leaves; the equal-risk weights move the holdings measured among themselves and keep the others and the cash
- * at today's. With more holdings than a target list takes, only the MAX_TARGETS largest get one (for the equal-risk
- * weights, the furthest from them, as the plan moves), and the others are left without, at their share today.
+ * typed leaves among the holdings and the instruments not held in the form (`away`); the equal-risk weights move the
+ * holdings measured among themselves and keep the others and the cash at today's. Instruments not held have no share
+ * today, so only equal weights give them one. With more than a target list takes, only the MAX_TARGETS largest
+ * holdings get one (for equal weights, after the instruments not held; for the equal-risk weights, the furthest from
+ * them, as the plan moves), and the others are left without, at their share today.
  */
-export function presetForm(preset: TargetPreset, data: Data, cashText: string): Pick<TargetForm, "weights" | "cash"> {
-  const rows = targetRows(data);
+export function presetForm(preset: TargetPreset, data: Data, cashText: string, away?: readonly AwayRow[]): Pick<TargetForm, "weights" | "cash"> {
+  const rows = targetRows(data, away);
   const held = rows.filter((row) => row.held);
-  const chosen = new Set(held.slice(0, MAX_TARGETS).map((row) => row.ticker));
+  // Equal weights: the instruments not held were put in the form to be bought, so they come first.
+  const chosen = new Set((preset === "equal" ? [...rows.filter((row) => !row.held), ...held] : held).slice(0, MAX_TARGETS).map((row) => row.ticker));
   const fillWith = (share: (row: (typeof rows)[number]) => number | undefined) =>
     Object.fromEntries(rows.map((row) => { const value = chosen.has(row.ticker) ? share(row) : undefined; return [row.ticker, value === undefined ? "" : downText(value)]; }));
   // What the holdings left without a target hold today: kept, they take that share.
@@ -154,8 +176,11 @@ export function typedTargets(form: TargetForm, tickers: string[]): Map<string, n
   return typed;
 }
 
-/** The holdings' covariance as the form reads it: on its way, read, not to be had, or read for other holdings or weeks. */
-export type CovarianceState = { state: "reading" } | { state: "read"; covariance: HoldingCovariance } | { state: "none" } | { state: "stale" };
+/**
+ * The holdings' covariance as the form reads it: on its way, read (with the instruments not held `asked` beside the
+ * holdings), not to be had, or read for other holdings or weeks.
+ */
+export type CovarianceState = { state: "reading" } | { state: "read"; covariance: HoldingCovariance; asked: string[] } | { state: "none" } | { state: "stale" };
 
 /** What the risk by holding on screen measured: the covariance must be for the same. */
 export type MeasuredRisk = Pick<HoldingRisk, "rows" | "to" | "weeks">;
@@ -169,23 +194,40 @@ export function covarianceKey(data: Pick<Data, "risk" | "timestamp">): string {
   return risk ? `${data.timestamp ?? ""}|${risk.to}|${risk.weeks}|${risk.rows.map((row) => row.ticker).sort().join(",")}` : "";
 }
 
-/** Whether a covariance read is for the holdings and the weeks of the risk on screen. */
-export function covarianceFits(payload: HoldingCovariancePayload, risk: MeasuredRisk): boolean {
+/**
+ * Whether a covariance read is for the holdings and the weeks of the risk on screen: every holding measured, and
+ * beside them only instruments not held that were asked for (`alongside`).
+ */
+export function covarianceFits(payload: HoldingCovariancePayload, risk: MeasuredRisk, alongside: readonly string[] = []): boolean {
   const tickers = payload.covariance?.tickers ?? [];
   const shown = new Set(risk.rows.map((row) => row.ticker));
-  return tickers.length === shown.size && tickers.every((ticker) => shown.has(ticker)) && payload.weeks === risk.weeks && payload.to === risk.to;
+  const asked = new Set(alongside);
+  return new Set(tickers).size === tickers.length && tickers.filter((ticker) => shown.has(ticker)).length === shown.size
+    && tickers.every((ticker) => shown.has(ticker) || asked.has(ticker)) && payload.weeks === risk.weeks && payload.to === risk.to;
 }
 
 /** Reads the covariance and hands the form what it shows, unless the form has closed or moved on (`open`). */
-export async function loadCovariance(read: () => Promise<HoldingCovariancePayload>, risk: MeasuredRisk, open: () => boolean, show: (state: CovarianceState) => void): Promise<void> {
+export async function loadCovariance(read: () => Promise<HoldingCovariancePayload>, risk: MeasuredRisk, alongside: readonly string[], open: () => boolean, show: (state: CovarianceState) => void): Promise<void> {
   let next: CovarianceState;
   try {
     const payload = await read();
-    next = !payload.covariance ? { state: "none" } : covarianceFits(payload, risk) ? { state: "read", covariance: payload.covariance } : { state: "stale" };
+    next = !payload.covariance ? { state: "none" } : covarianceFits(payload, risk, alongside) ? { state: "read", covariance: payload.covariance, asked: [...alongside] } : { state: "stale" };
   } catch {
     next = { state: "none" };
   }
   if (open()) show(next);
+}
+
+/**
+ * The instruments not held, of those with a target, that the risk at the targets leaves out for now: their closes are
+ * being read (`reading`: added since the covariance was read), or were not read in time (`later`, read by a Refresh).
+ */
+export function awayPending(state: CovarianceState | undefined, alongside: readonly string[]): { reading: Set<string>; later: Set<string> } {
+  if (state?.state !== "read") return { reading: new Set(), later: new Set() };
+  return {
+    reading: new Set(alongside.filter((ticker) => !state.asked.includes(ticker))),
+    later: new Set((state.covariance.unmeasured ?? []).filter((item) => item.reason === "later").map((item) => item.ticker)),
+  };
 }
 
 /**
@@ -208,13 +250,15 @@ const RISK_STATUS = {
 } as const;
 
 /** The volatility a year now and at the targets typed, with what is left out. */
-export function TargetRiskSummary({ risk, state, weeks, parity, book, locale, t }: {
+export function TargetRiskSummary({ risk, state, weeks, parity, pending, book, locale, t }: {
   /** Worked out from the form once the covariance is read. */
   risk?: TargetRisk | "invalid" | "unmeasured"; state: CovarianceState;
   /** The weekly returns of risk by holding, which the covariance is read over. */
   weeks: number;
   /** Filled from the equal-risk weights, whose shares of the risk here are near, not quite, equal. */
   parity?: boolean;
+  /** Instruments not held left out for now (awayPending). */
+  pending?: ReturnType<typeof awayPending>;
   book?: InstrumentBook; locale: SupportedLocale; t: Translator;
 }) {
   const titleId = useId();
@@ -222,6 +266,12 @@ export function TargetRiskSummary({ risk, state, weeks, parity, book, locale, t 
   const figures = state.state === "read" && typeof risk === "object" ? risk : undefined;
   const status = state.state !== "read" ? RISK_STATUS[state.state] : typeof risk === "string" ? RISK_STATUS[risk] : undefined;
   const gap = locale === "zh-CN" ? "" : " ";
+  const list = (tickers: string[]) => tickers.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ");
+  // What is left out: the instruments not held still being read, the ones a Refresh reads, and the rest.
+  const leftOut = figures?.leftOut ?? [];
+  const reading = leftOut.filter((ticker) => pending?.reading.has(ticker));
+  const later = leftOut.filter((ticker) => !reading.includes(ticker) && pending?.later.has(ticker));
+  const rest = leftOut.filter((ticker) => !reading.includes(ticker) && !later.includes(ticker));
   const line = (label: string, now: number, at: number) => (
     <tr>
       <th scope="row">{label}</th>
@@ -230,7 +280,7 @@ export function TargetRiskSummary({ risk, state, weeks, parity, book, locale, t 
     </tr>
   );
   return (
-    <div className="targetRisk" role="group" aria-labelledby={titleId} aria-busy={state.state === "reading" || undefined}>
+    <div className="targetRisk" role="group" aria-labelledby={titleId} aria-busy={state.state === "reading" || reading.length > 0 || undefined}>
       <h3 id={titleId} className="targetRiskTitle">{t("targetsRiskTitle")}</h3>
       {/* Said when it changes (read, or not to be worked out), not at each figure typed. */}
       <p role="status" className={status ? "panelNote" : "visuallyHidden"}>{t(status ?? "targetsRiskReady")}</p>
@@ -245,7 +295,9 @@ export function TargetRiskSummary({ risk, state, weeks, parity, book, locale, t 
           </table>
           <p className="panelNote">
             {fill(t("targetsRiskNote"), { weeks: String(weeks) })}
-            {figures.leftOut.length > 0 && <>{gap}{fill(t("targetsRiskLeftOut"), { list: figures.leftOut.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") })}</>}
+            {reading.length > 0 && <>{gap}{fill(t("targetsRiskAwayReading"), { list: list(reading) })}</>}
+            {later.length > 0 && <>{gap}{fill(t("targetsRiskAwayLater"), { list: list(later) })}</>}
+            {rest.length > 0 && <>{gap}{fill(t("targetsRiskLeftOut"), { list: list(rest) })}</>}
             {parity && <>{gap}{t("targetsRiskParity")}</>}
           </p>
         </>
@@ -263,7 +315,10 @@ const PROBLEM_KEYS = {
   over: "targetsProblemOver",
 } as const;
 
-export function TargetEditor({ data, book, locale, t, busy, start, onSave, onClear, onReadCovariance, onClose }: {
+/** The wait after the instruments not held change before their closes are read: a few added at once are read together. */
+const WIDEN_WAIT_MS = 500;
+
+export function TargetEditor({ data, book, locale, t, busy, start, onSave, onClear, onReadCovariance, onSearch, onClose }: {
   data: Data; book?: InstrumentBook; locale: SupportedLocale; t: Translator; busy?: boolean;
   /** A preset to fill the form with as it opens, instead of the saved targets. */
   start?: TargetPreset;
@@ -271,8 +326,13 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   onSave: (save: TargetSave) => Promise<boolean>;
   /** Removes the saved targets; only when there are some. */
   onClear?: () => Promise<boolean>;
-  /** Reads the holdings' covariance for the holdings measured, for the risk at the targets typed in; only with risk by holding. */
-  onReadCovariance?: (measured: MeasuredRisk) => Promise<HoldingCovariancePayload>;
+  /**
+   * Reads the holdings' covariance for the holdings measured, and the instruments not held in the form (`alongside`)
+   * beside them, for the risk at the targets typed in; only with risk by holding.
+   */
+  onReadCovariance?: (measured: MeasuredRisk, alongside: string[]) => Promise<HoldingCovariancePayload>;
+  /** Searches Trading 212's instruments, to add a target not held. */
+  onSearch?: (query: string) => Promise<Instrument[]>;
   onClose: () => void;
 }) {
   const [form, setForm] = useState<TargetForm>(() => {
@@ -282,19 +342,32 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const [filled, setFilled] = useState<TargetPreset | undefined>(start);
   const [touched, setTouched] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // The instruments not held in the form: the saved targets not held, and the ones added from the search.
+  const [away, setAway] = useState<AwayRow[]>(() => savedAway(data));
+  const [focusTicker, setFocusTicker] = useState<string>();
+  const rows = targetRows(data, away);
+  const alongside = rows.filter((row) => !row.held).map((row) => row.ticker).sort();
+  const alongsideKey = alongside.join(",");
   // The risk by holding on screen, which the covariance is read for: again when a refresh measures other holdings or weeks.
   const measured = onReadCovariance ? data.risk : undefined;
   const measuredKey = measured ? covarianceKey(data) : "";
   const [covariance, setCovariance] = useState<CovarianceState | undefined>(measured ? { state: "reading" } : undefined);
+  const readFor = useRef<string | undefined>(undefined);
   const errorId = useId();
-  // Read as the form opens; the risk at the targets is then worked out as they are typed.
+  // Read as the form opens; the risk at the targets is then worked out as they are typed. Other holdings or weeks
+  // measured read it afresh; an instrument not held added or removed reads it again a moment later, the figures
+  // staying meanwhile, and a read that then falls short keeps them, leaving out what it could not measure.
   useEffect(() => {
-    if (!measured || !onReadCovariance) { setCovariance(undefined); return undefined; }
+    if (!measured || !onReadCovariance) { readFor.current = undefined; setCovariance(undefined); return undefined; }
     let open = true;
-    setCovariance({ state: "reading" });
-    void loadCovariance(() => onReadCovariance(measured), measured, () => open, setCovariance);
-    return () => { open = false; };
-  }, [measuredKey]);
+    const fresh = readFor.current !== measuredKey;
+    readFor.current = measuredKey;
+    if (fresh) setCovariance({ state: "reading" });
+    const asked = alongside;
+    const timer = setTimeout(() => void loadCovariance(() => onReadCovariance(measured, asked), measured, asked, () => open,
+      (next) => setCovariance((current) => (fresh || next.state === "read" || current?.state !== "read" ? next : { ...current, asked }))), fresh ? 0 : WIDEN_WAIT_MS);
+    return () => { open = false; clearTimeout(timer); };
+  }, [measuredKey, alongsideKey]);
   // Opened from a button, perhaps further down the page: brought into sight, with the focus on its heading.
   const panel = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -303,7 +376,6 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
     const still = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     panel.current?.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
   }, []);
-  const rows = targetRows(data);
   const read = readForm(form, rows.map((row) => row.ticker));
   const left = 100 - read.total - read.cash;
   // Kept, the holdings without a target take their share today beside the targets and the cash.
@@ -311,12 +383,32 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const kept = form.sell ? 0 : rows.filter((row) => row.held && !typed.has(row.ticker)).reduce((sum, row) => sum + row.current, 0) * 100;
   const keptOver = !read.problem && kept > 0 && read.total + read.cash + kept > 100 + OVER_ACCOUNT * 100;
   const risk = covariance?.state === "read" ? riskOfForm(covariance.covariance, data.holdings, form, rows.map((row) => row.ticker)) : undefined;
+  const pending = awayPending(covariance, alongside);
   const share = (value: number) => pct(value / 100, locale, 1);
   const crowded = rows.filter((row) => row.held).length > MAX_TARGETS;
   const problemKey = read.problem === "many" && form.sell ? "targetsProblemManySold" : read.problem && PROBLEM_KEYS[read.problem];
   const error = problemKey && fill(t(problemKey), { count: String(MAX_TARGETS), total: share(read.total + read.cash) });
   const shown = touched ? error : undefined;
-  const apply = (preset: TargetPreset) => { setForm({ ...form, ...presetForm(preset, data, form.cash) }); setFilled(preset); setTouched(false); };
+  const apply = (preset: TargetPreset) => { setForm({ ...form, ...presetForm(preset, data, form.cash, away) }); setFilled(preset); setTouched(false); };
+  const listed = new Set(rows.map((row) => row.ticker));
+  const search = useRef<HTMLInputElement>(null);
+  const add = (item: Instrument) => {
+    if (listed.has(item.ticker)) return false;
+    setAway([...away, { ticker: item.ticker, ...(item.name || item.shortName ? { name: item.name || item.shortName } : {}) }]);
+    setForm({ ...form, weights: { ...form.weights, [item.ticker]: "" } });
+    setFilled(undefined);
+    // Its share is typed next.
+    setFocusTicker(item.ticker);
+    return true;
+  };
+  const remove = (ticker: string) => {
+    setAway(away.filter((row) => row.ticker !== ticker));
+    const { [ticker]: _removed, ...weights } = form.weights;
+    setForm({ ...form, weights });
+    setFilled(undefined);
+    // The button goes with its row: the focus goes back to the search, or the heading without one.
+    (search.current ?? heading.current)?.focus?.();
+  };
   const submit = async () => {
     setTouched(true);
     if (!read.save || busy) return;
@@ -350,7 +442,14 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
               const wrong = touched && read.invalid.includes(row.ticker);
               return (
                 <li key={row.ticker}>
-                  <span className="barLabel"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
+                  <span className="targetName">
+                    <span className="barLabel"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
+                    {!row.held && (
+                      <button type="button" className="removeLegButton targetRemove" aria-label={fill(t("targetsRemove"), { name: label.name })} title={fill(t("targetsRemove"), { name: label.name })} onClick={() => remove(row.ticker)}>
+                        <Icon name="close" />
+                      </button>
+                    )}
+                  </span>
                   <span className="targetNow">
                     <span>{row.held ? fill(t("targetsNow"), { share: pct(row.current, locale, 1) }) : t("targetsNotHeld")}</span>
                     {typeof risk === "object" && risk.now.shares.has(row.ticker) && (() => {
@@ -360,7 +459,8 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
                   </span>
                   <span className={`field targetField${wrong ? " invalid" : ""}`}>
                     <span className="fieldControl withUnit">
-                      <input aria-label={fill(t("targetsWeightLabel"), { name: label.detail ? `${label.name} (${label.detail})` : label.name })} inputMode="decimal" autoComplete="off" placeholder="0"
+                      <input ref={row.ticker === focusTicker ? (input) => { if (input) { input.focus(); setFocusTicker(undefined); } } : undefined}
+                        aria-label={fill(t("targetsWeightLabel"), { name: label.detail ? `${label.name} (${label.detail})` : label.name })} inputMode="decimal" autoComplete="off" placeholder="0"
                         {...(wrong ? { "aria-invalid": true, "aria-describedby": errorId } : {})}
                         value={form.weights[row.ticker] ?? ""} onChange={(event) => { setForm({ ...form, weights: { ...form.weights, [row.ticker]: event.target.value } }); setFilled(undefined); }} />
                       <span className="fieldUnit" aria-hidden="true">%</span>
@@ -370,6 +470,10 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
               );
             })}
           </ul>
+          {onSearch && (
+            <InstrumentSearch inputRef={search} label={t("targetsAddLabel")} listed={listed} listedText={t("targetsListed")} addText={t("targetsAdd")} busy={busy} locale={locale} t={t}
+              onSearch={onSearch} onAdd={add} />
+          )}
           <div className="formGrid targetSettings">
             <Field label={t("targetsCash")} unit="%" hint={fill(t("targetsCashHint"), { share: pct(data.cashWeight, locale, 1) })}
               {...(read.problem === "cash" && shown ? { error: shown } : {})}>
@@ -390,7 +494,7 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
             {left >= 0.05 && !read.problem && <>{locale === "zh-CN" ? "" : " "}{fill(t(form.sell ? "targetsLeftSold" : "targetsLeftKept"), { share: share(left) })}</>}
           </p>
           {keptOver && <p className="panelNote targetKeptOver">{fill(t("targetsKeptOver"), { kept: share(kept), total: share(read.total + read.cash + kept) })}</p>}
-          {covariance && measured && <TargetRiskSummary {...(risk ? { risk } : {})} state={covariance} weeks={measured.weeks} parity={filled === "parity"} {...(book ? { book } : {})} locale={locale} t={t} />}
+          {covariance && measured && <TargetRiskSummary {...(risk ? { risk } : {})} state={covariance} weeks={measured.weeks} parity={filled === "parity"} pending={pending} {...(book ? { book } : {})} locale={locale} t={t} />}
           {shown && read.problem !== "cash" && read.problem !== "threshold" && <p className="fieldError targetError" id={errorId} role="alert">{shown}</p>}
           <div className="alertFormActions">
             {onClear && <button type="button" className="secondaryButton targetClear" onClick={() => void clear()}>{t(confirmClear ? "targetsClearConfirm" : "targetsClear")}</button>}

@@ -124,7 +124,7 @@ describe("text summaries for hosts that only show text", () => {
     const analysis = await services.targets.withDrift(await services.insights.allocation("demo"));
     const volatility = { now: 0.182, atTargets: 0.151, account: { now: 0.164, atTargets: 0.143 } };
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, volatility } }))
-      .toContain("- At the targets, the holdings measured would move 15.1% a year together (18.2% now); the account, cash counted as not moving, 14.3% (16.4% now). From the weeks of risk by holding; past volatility, not a forecast.");
+      .toContain("- At the targets, the holdings and targets measured would move 15.1% a year together (18.2% now); the account, cash counted as not moving, 14.3% (16.4% now). From the weeks of risk by holding; past volatility, not a forecast.");
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, volatility: { now: 0.182, atTargets: 0.151, leftOut: ["EIMI_EQ"] } } }))
       .toContain("(18.2% now); not measured, so left out: EIMI_EQ. From");
   });

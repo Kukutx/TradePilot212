@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createServices } from "../app/services.js";
 import type { Instrument, Position } from "../shared/contracts.js";
-import type { AllocationAnalysis, HoldingCovariancePayload, HoldingWeight } from "../shared/history.js";
+import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload, HoldingWeight } from "../shared/history.js";
 import { MAX_PARITY_TARGETS, riskAtWeights } from "../shared/holding-risk.js";
 import type { PricePoint } from "../shared/prices.js";
 import { createConfig } from "./config.js";
@@ -117,6 +117,34 @@ describe("reading risk by holding", () => {
     ]);
   });
 
+  it("reads instruments not held after the holdings, for the covariance alone", async () => {
+    const requests: PriceHistoryRequest[] = [];
+    const priceHistory = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
+      requests.push(request);
+      if (request.instrument.ticker === "NOSYM") return { missing: "symbol", problem: "No symbol for NOSYM." };
+      return { prices: { source: "test", points: fridays(request.instrument.ticker.length) } };
+    };
+    const holdings = [holding("AAA", 500), holding("BB", 400)];
+    const read = { positions: [position("AAA"), position("BB")], instruments: ["AAA", "BB", "FOUR", "NOSYM"].map(instrument) };
+    let found: HoldingCovariance | undefined;
+    const result = await readHoldingRisk({ priceHistory, onCovariance: (given) => { found = given; }, alongside: ["FOUR", "NOSYM", "GONE", "AAA"], quoteOf: async () => 50 }, "demo", holdings, read, NOW);
+    // The holdings first; an instrument held is not asked for again, and one Trading 212 does not list is not asked for.
+    expect(requests.map((request) => request.instrument.ticker)).toEqual(["AAA", "BB", "FOUR", "NOSYM"]);
+    // A holding's closes are checked against Trading 212's price; one not held ends at the quote.
+    expect(requests[0]!.last).toBe(42);
+    expect(requests[2]!.last).toBeUndefined();
+    expect(await requests[2]!.quote).toBe(50);
+    expect(found!.tickers).toEqual(["AAA", "BB", "FOUR"]);
+    expect(found!.unmeasured).toEqual([{ ticker: "NOSYM", reason: "symbol" }, { ticker: "GONE", reason: "data" }]);
+    // The holdings' risk names only holdings.
+    expect(result.riskMissing).toBeUndefined();
+    expect(result.risk!.rows.map((row) => row.ticker).sort()).toEqual(["AAA", "BB"]);
+    // Nothing is read beside the holdings for a caller without the covariance.
+    requests.length = 0;
+    await readHoldingRisk({ priceHistory, alongside: ["FOUR"] }, "demo", holdings, read, NOW);
+    expect(requests.map((request) => request.instrument.ticker)).toEqual(["AAA", "BB"]);
+  });
+
   it("says why there is nothing to measure", async () => {
     const priceHistory = async (): Promise<PriceHistoryResult> => ({ prices: { source: "test", points: fridays(1).slice(-10) } });
     const read = { positions: [], instruments: ["A", "B"].map(instrument) };
@@ -217,7 +245,7 @@ describe("the allocation tool's risk by holding", () => {
     const savedDrift = (saved.structuredContent as { drift?: AllocationAnalysis["drift"] }).drift;
     // Sold, the holdings without a target leave AAPL and KO, both measured: the whole account can be measured too.
     expect(savedDrift?.volatility).toMatchObject({ now: expect.any(Number), atTargets: expect.any(Number), account: { now: expect.any(Number), atTargets: expect.any(Number) } });
-    expect(JSON.stringify(saved.content)).toMatch(/At the targets, the holdings measured would move [\d.]+% a year together \([\d.]+% now\); the account, cash counted as not moving, [\d.]+%/);
+    expect(JSON.stringify(saved.content)).toMatch(/At the targets, the holdings and targets measured would move [\d.]+% a year together \([\d.]+% now\); the account, cash counted as not moving, [\d.]+%/);
     const outcome = await client.callTool({ name: "analyze_portfolio_allocation", arguments: { environment: "demo" } });
     const data = outcome.structuredContent as AllocationAnalysis;
     expect(data.drift?.volatility).toEqual(savedDrift?.volatility);
@@ -240,6 +268,34 @@ describe("the allocation tool's risk by holding", () => {
     expect(some.covariance!.tickers.sort()).toEqual([...two].sort());
     const index = (payload: HoldingCovariancePayload, ticker: string) => payload.covariance!.tickers.indexOf(ticker);
     expect(some.covariance!.matrix[index(some, two[0]!)]![index(some, two[1]!)]).toBeCloseTo(read.covariance!.matrix[index(read, two[0]!)]![index(read, two[1]!)]!, 10);
+    await client.close();
+  });
+
+  it("measures the targets not held beside the holdings: the saved ones, and the ones the widget asks for", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const services = sample();
+    const server = createMcpServer(services, services.config, async () => "<html></html>", new Set(["trade:read"]));
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    // The sample account holds no MSCI World: its closes are read beside the holdings, so it is measured.
+    const saved = await client.callTool({ name: "manage_target_allocation", arguments: { action: "set", environment: "demo", targets: [{ instrument: "AAPL_US_EQ", weight: 0.4 }, { instrument: "EUNLd_EQ", weight: 0.3 }], sellUntargeted: true } });
+    const savedDrift = (saved.structuredContent as { drift?: AllocationAnalysis["drift"] }).drift!;
+    expect(savedDrift.volatility).toMatchObject({ atTargets: expect.any(Number), account: { atTargets: expect.any(Number) } });
+    expect(savedDrift.volatility!.leftOut).toBeUndefined();
+    const data = (await client.callTool({ name: "analyze_portfolio_allocation", arguments: { environment: "demo" } })).structuredContent as AllocationAnalysis;
+    expect(data.drift!.volatility).toEqual(savedDrift.volatility);
+    // Not held, it is in no holding's risk.
+    expect(data.risk!.rows.map((row) => row.ticker)).not.toContain("EUNLd_EQ");
+    // The widget asks for the ones in its form; one Trading 212 does not list is named.
+    const tickers = data.risk!.rows.map((row) => row.ticker);
+    const read = (await client.callTool({ name: "app_get_holding_covariance", arguments: { environment: "demo", tickers, alongside: ["TSLA_US_EQ", "NOPE_US_EQ"] } })).structuredContent as HoldingCovariancePayload;
+    expect(read.covariance!.tickers.slice(0, tickers.length).sort()).toEqual([...tickers].sort());
+    expect(read.covariance!.tickers.slice(tickers.length)).toEqual(["TSLA_US_EQ"]);
+    expect(read.covariance!.unmeasured).toEqual([{ ticker: "NOPE_US_EQ", reason: "data" }]);
+    expect(read).toMatchObject({ weeks: data.risk!.weeks, to: data.risk!.to });
     await client.close();
   });
 });

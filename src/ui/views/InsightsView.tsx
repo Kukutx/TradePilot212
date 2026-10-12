@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import type { Instrument } from "../../shared/contracts";
 import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, HoldingCovariancePayload, IncomeSummary, PerformanceSummary, ReturnPoint, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
@@ -151,15 +152,17 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   );
 }
 
-export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, onReadCovariance, busy }: {
+export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, onReadCovariance, onSearch, busy }: {
   data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void;
   /** Drafts the rebalance to the equal-risk weights as a basket to review; only with order tools. */
   onPlanEqualRisk?: (plan: EqualRiskPlan) => void;
   /** Save or remove the target weights; each resolves true once done. Targets never trade. */
   onSaveTargets?: (save: TargetSave) => Promise<boolean>;
   onClearTargets?: () => Promise<boolean>;
-  /** Reads the holdings' covariance, for the risk at the targets typed in. */
-  onReadCovariance?: (measured: MeasuredRisk) => Promise<HoldingCovariancePayload>;
+  /** Reads the holdings' covariance, with instruments not held beside them, for the risk at the targets typed in. */
+  onReadCovariance?: (measured: MeasuredRisk, alongside: string[]) => Promise<HoldingCovariancePayload>;
+  /** Searches Trading 212's instruments, to add a target not held. */
+  onSearch?: (query: string) => Promise<Instrument[]>;
   busy?: boolean;
 }) {
   // The target form, open on the saved targets or filled from a preset.
@@ -198,7 +201,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
       {onSaveTargets && editing ? (
         // Opened again from another button (Use as targets while editing), it starts afresh from that.
         <TargetEditor key={editing} data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(busy === undefined ? {} : { busy })} {...(editing === "saved" ? {} : { start: editing })}
-          onSave={onSaveTargets} {...(data.drift && onClearTargets ? { onClear: onClearTargets } : {})} {...(data.risk && onReadCovariance ? { onReadCovariance } : {})}
+          onSave={onSaveTargets} {...(data.drift && onClearTargets ? { onClear: onClearTargets } : {})} {...(data.risk && onReadCovariance ? { onReadCovariance } : {})} {...(onSearch ? { onSearch } : {})}
           onClose={() => { setEditing(null); setRefocus(true); }} />
       ) : data.drift ? (
         <DriftPanel drift={data.drift} spareCash={(data.availableCash ?? data.cash) - data.drift.cash.target * data.totalValue} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(onInvestCash ? { onInvestCash } : {})}
