@@ -474,6 +474,17 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(writes).toEqual([]);
   });
 
+  it("dates a held risk-sized buy's reference by the holding's price, for a reference-age policy", async () => {
+    const policy = createConfig({ POLICY_APPLY_TO: "demo", POLICY_MAX_REFERENCE_AGE_SECONDS: "120", POLICY_MAX_POSITION_WEIGHT: "0" }).policy;
+    const service = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: fxFetch() });
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    // Reviewed an hour after it was sized: the holding's price was just read, so the reference is not stale.
+    const before = Date.now();
+    const preview = await service.prepareOrder({ ...sized.draft, referencePrice: 210, referencePriceAt: new Date(before - 3_600_000).toISOString() });
+    expect(preview.draft.referencePrice).toBe(216);
+    expect(Date.parse(preview.draft.referencePriceAt!)).toBeGreaterThanOrEqual(before - 1000);
+  });
+
   it("keeps a rate you gave when the quote source has none, but not one it gave", async () => {
     let rate: number | undefined;
     const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "nesn.sw", quote: async () => ({ ticker: "NESNz_EQ", symbol: "nesn.sw", price: 100, asOf: new Date().toISOString(), source: "stooq" as const }),

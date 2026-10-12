@@ -866,27 +866,30 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    // A risk-sized buy of an instrument you do not hold reads the quote of the moment. It is the market price: the
-    // last price a Stop's trigger and the unit-slip check are compared with, and the price a fall to or under the
-    // stop-loss is seen at. A Market or Stop also takes it as its reference when it is above the price it was
-    // sized at, so its value and its loss at the stop are not understated, and otherwise dates the reference by
-    // it: the reference has just been checked against the market. When the quote source can price the instrument
-    // but has no quote just now, the order is refused rather than checked without one (a Limit too: with the
-    // market under the stop-loss it would fill there); with no quote source, the price given stands, as for any order.
+    // A risk-sized buy reads the market price of the moment: the holding's, or for an instrument you do not hold,
+    // the quote source's. It is the last price a Stop's trigger and the unit-slip check are compared with, and the
+    // price a fall to or under the stop-loss is seen at. A Market or Stop also takes it as its reference when it is
+    // above the price it was sized at, so its value and its loss at the stop are not understated, and otherwise
+    // dates the reference by it: the reference has just been checked against the market. When the quote source can
+    // price the instrument but has no quote just now, the order is refused rather than checked without one (a Limit
+    // too: with the market under the stop-loss it would fill there); with no quote source, the price given stands,
+    // as for any order.
     const risky = !!draft.riskBudget && draft.side === "buy";
     const lookup = { fresh: risky && !!options.fresh };
     let marketPrice = position?.currentPrice || undefined;
+    let marketAt = marketPrice ? new Date().toISOString() : undefined;
     if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument, lookup).catch(() => undefined);
       if (quote) {
         marketPrice = quote.price;
-        if (draft.type === "market" || draft.type === "stop") {
-          if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
-          draft.referencePriceAt = quote.asOf;
-        }
+        marketAt = quote.asOf;
       } else if (this.deps.quotes?.symbolFor(instrument)) {
         fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
+    }
+    if (risky && marketPrice && marketAt && (draft.type === "market" || draft.type === "stop")) {
+      if (marketPrice > (draft.referencePrice ?? 0)) draft.referencePrice = marketPrice;
+      draft.referencePriceAt = marketAt;
     }
     // A risk-sized buy also asks for the exchange rate of the moment instead of the one it was sized at, so an
     // adverse move in the rate counts toward the loss at the stop. When its rate came from the quote source and

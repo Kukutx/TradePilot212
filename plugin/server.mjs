@@ -35955,17 +35955,19 @@ var TradingService = class {
     const risky = !!draft.riskBudget && draft.side === "buy";
     const lookup = { fresh: risky && !!options.fresh };
     let marketPrice = position?.currentPrice || void 0;
+    let marketAt = marketPrice ? (/* @__PURE__ */ new Date()).toISOString() : void 0;
     if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument, lookup).catch(() => void 0);
       if (quote) {
         marketPrice = quote.price;
-        if (draft.type === "market" || draft.type === "stop") {
-          if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
-          draft.referencePriceAt = quote.asOf;
-        }
+        marketAt = quote.asOf;
       } else if (this.deps.quotes?.symbolFor(instrument)) {
         fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
+    }
+    if (risky && marketPrice && marketAt && (draft.type === "market" || draft.type === "stop")) {
+      if (marketPrice > (draft.referencePrice ?? 0)) draft.referencePrice = marketPrice;
+      draft.referencePriceAt = marketAt;
     }
     const accountCode = (account.currency ?? "").toUpperCase();
     const instrumentCode = instrument.currencyCode.toUpperCase();
