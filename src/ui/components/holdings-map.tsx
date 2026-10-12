@@ -1,7 +1,7 @@
 // The holdings as a map: one tile per holding, its area its value in the account currency, its colour how it moved,
 // on the day or since it was bought. Each tile opens the holding; its text says what the colour shows.
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Position } from "../../shared/contracts";
 import type { DayMove } from "../../shared/today";
 import type { SupportedLocale } from "../i18n";
@@ -23,12 +23,19 @@ const GAP = 2;
 export function scaleEnd(values: number[], steps: number[]): number {
   const sizes = values.map(Math.abs).sort((a, b) => a - b);
   // The move that four in five holdings stay within.
-  const typical = sizes.length ? sizes[Math.floor((sizes.length - 1) * 0.8)]! : 0;
+  const typical = sizes.length ? sizes[Math.ceil(sizes.length * 0.8) - 1]! : 0;
   return steps.find((step) => step >= typical) ?? steps[steps.length - 1]!;
 }
 
 /** How strongly a tile is coloured, 0 to 1: its move against the scale's end, a move beyond it at full strength. */
 export const strength = (value: number, end: number) => Math.min(1, Math.abs(value) / end);
+
+/**
+ * How much a tile shows for its laid-out size, gap included: large has the symbol, the move and the amount; medium the
+ * symbol and the move; small the symbol; tiny nothing. Each needs room for its lines at 1.2 line height and its padding.
+ */
+export const tileSize = (width: number, height: number) =>
+  width >= 120 && height >= 80 ? "large" : width >= 64 && height >= 48 ? "medium" : width >= 40 && height >= 22 ? "small" : "tiny";
 
 /** The map's height for its width: wide on a desktop, near square on a phone. */
 export const mapHeight = (width: number) => (width < 480 ? Math.round(width * 0.95) : Math.round(Math.min(440, Math.max(260, width * 0.46))));
@@ -64,10 +71,14 @@ export function HoldingsMap({ positions, moves, today, measure, currency, book, 
 }) {
   const [width, setWidth] = useState(initialWidth);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  // Measured before the first paint, so the map never shows laid out for another width.
+  useLayoutEffect(() => {
     const element = box.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => { if (entry) setWidth(Math.max(240, Math.round(entry.contentRect.width))); });
+    if (!element) return;
+    const fit = (measured: number) => { if (measured > 0) setWidth(Math.max(240, Math.round(measured))); };
+    fit(element.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => { if (entry) fit(entry.contentRect.width); });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -103,7 +114,7 @@ export function HoldingsMap({ positions, moves, today, measure, currency, book, 
         {laid.map(({ item: tile, x, y, width: w, height: h }) => {
           // The colour carries the sign; the text stays in the text colour, with its sign written out.
           const tone = tile.move === undefined || tile.move === 0 ? "" : tile.move > 0 ? "up" : "down";
-          const size = w >= 120 && h >= 72 ? "large" : w >= 64 && h >= 42 ? "medium" : w >= 40 && h >= 22 ? "small" : "tiny";
+          const size = tileSize(w, h);
           const px = (value: number) => Math.round(value * 10) / 10;
           const style = {
             left: px(x + GAP / 2), top: px(y + GAP / 2), width: px(Math.max(0, w - GAP)), height: px(Math.max(0, h - GAP)),
@@ -121,7 +132,8 @@ export function HoldingsMap({ positions, moves, today, measure, currency, book, 
           return (
             <div key={tile.position.instrument.ticker} role="listitem" className="mapCell" style={style}>
               {onOpen
-                ? <button type="button" className={className} title={text} aria-label={text} onClick={() => onOpen(tile.position.instrument.ticker)}>{content}</button>
+                // A tile too small to see is skipped by the keyboard; the table opens that holding.
+                ? <button type="button" className={className} title={text} aria-label={text} {...(size === "tiny" ? { tabIndex: -1 } : {})} onClick={() => onOpen(tile.position.instrument.ticker)}>{content}</button>
                 : <div className={className} title={text} aria-label={text}>{content}</div>}
             </div>
           );

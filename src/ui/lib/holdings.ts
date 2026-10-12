@@ -74,6 +74,9 @@ const MEASURE_KEY = "tradepilot212.mapMeasure";
 
 export interface HoldingsPrefs { view: HoldingsView; sort: HoldingsSort; measure: MapMeasure }
 
+/** The choice made while the widget is open, for hosts that block storage: it then lasts until the widget closes. */
+let unsaved: HoldingsPrefs | undefined;
+
 /** The viewer's last table-or-map choice, order and map colour; the table in Trading 212's order when none is saved. */
 export function readHoldingsPrefs(): HoldingsPrefs {
   try {
@@ -83,16 +86,17 @@ export function readHoldingsPrefs(): HoldingsPrefs {
       measure: localStorage.getItem(MEASURE_KEY) === "total" ? "total" : "day",
     };
   } catch {
-    return { view: "table", sort: undefined, measure: "day" };
+    return unsaved ?? { view: "table", sort: undefined, measure: "day" };
   }
 }
 
 export function saveHoldingsPrefs(prefs: HoldingsPrefs): void {
+  unsaved = prefs;
   try {
     localStorage.setItem(VIEW_KEY, prefs.view);
     localStorage.setItem(SORT_KEY, sortId(prefs.sort));
     localStorage.setItem(MEASURE_KEY, prefs.measure);
   } catch {
-    // Sandboxed hosts may block storage; the choice then lasts while the widget is open.
+    // Sandboxed hosts may block storage; the choice is kept above instead.
   }
 }

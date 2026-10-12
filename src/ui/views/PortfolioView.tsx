@@ -61,8 +61,8 @@ export function PortfolioView({
     return updated;
   });
   // Without the day's moves there is nothing to sort or colour by on the day.
-  const sort = prefs.sort?.key === "day" && !day ? undefined : prefs.sort;
   const dayKnown = mapDayKnown(today);
+  const sort = prefs.sort?.key === "day" && !dayKnown ? undefined : prefs.sort;
   const measure = dayKnown ? prefs.measure : "total";
   const positions = sortHoldings(payload.positions, sort, moves, book, locale);
   /** A column header that sorts by it, saying which way it is sorted now. */
@@ -120,7 +120,7 @@ export function PortfolioView({
                 <label className="sortSelect">
                   <span>{t("sortLabel")}</span>
                   <select value={sortId(sort)} onChange={(event) => choose({ sort: sortFromId(event.target.value) })}>
-                    {[undefined, ...SORT_CHOICES].filter((choice) => day || choice?.key !== "day").map((choice) => (
+                    {[undefined, ...SORT_CHOICES].filter((choice) => dayKnown || choice?.key !== "day").map((choice) => (
                       <option key={sortId(choice)} value={sortId(choice)}>{t(SORT_NAMES[sortId(choice)]!)}</option>
                     ))}
                   </select>
@@ -132,7 +132,7 @@ export function PortfolioView({
             ) : (<>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr>{header("name", t("symbol"))}<th>{t("quantity")}</th><th>{t("currentPrice")}</th>{day && header("day", t("todayColumn"), "dayColumn")}<th className="optionalColumn">{t("averagePrice")}</th>{header("value", t("positionValue"))}{header("pnl", t("pnl"))}<th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
+                <thead><tr>{header("name", t("symbol"))}<th>{t("quantity")}</th><th>{t("currentPrice")}</th>{day && (dayKnown ? header("day", t("todayColumn"), "dayColumn") : <th className="dayColumn">{t("todayColumn")}</th>)}<th className="optionalColumn">{t("averagePrice")}</th>{header("value", t("positionValue"))}{header("pnl", t("pnl"))}<th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
                   {positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");

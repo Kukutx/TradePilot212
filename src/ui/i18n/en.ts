@@ -366,7 +366,7 @@ export const en = {
   mapTileTotal: "{name}: {move} since bought{amount}; {value}, {share} of holdings",
   mapAmountPart: " ({amount})",
   mapNoMove: "no figure",
-  mapLoading: "being read",
+  mapLoading: "still loading",
   mapLegend: "Colour runs from red at a fall of {end} or more, through grey for no change, to green at a rise of {end} or more.",
   mapSize: "Area: value",
   todayNone: "Today: {reason}",

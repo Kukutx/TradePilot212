@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Position } from "../../shared/contracts";
 import type { DayMove } from "../../shared/today";
-import { holdingReturn, nextSort, readHoldingsPrefs, SORT_CHOICES, sortFromId, sortHoldings, sortId } from "./holdings";
+import { holdingReturn, nextSort, readHoldingsPrefs, saveHoldingsPrefs, SORT_CHOICES, sortFromId, sortHoldings, sortId } from "./holdings";
 
 const holding = (ticker: string, name: string, value?: number, result?: number): Position => ({
   instrument: { ticker, name, currencyCode: "USD" }, quantity: 1, quantityAvailableForTrading: 1, quantityInPies: 0, averagePricePaid: 1, currentPrice: 1,
@@ -52,5 +52,17 @@ describe("holdings order", () => {
 
   it("starts with the table in Trading 212's order, coloured by the day, where nothing is saved or storage is blocked", () => {
     expect(readHoldingsPrefs()).toEqual({ view: "table", sort: undefined, measure: "day" });
+  });
+
+  it("keeps the choice while the widget is open where storage is blocked, so the holdings view keeps it when it comes back", () => {
+    const blocked = { get: () => { throw new Error("blocked"); }, configurable: true };
+    Object.defineProperty(globalThis, "localStorage", blocked);
+    try {
+      expect(readHoldingsPrefs()).toEqual({ view: "table", sort: undefined, measure: "day" });
+      saveHoldingsPrefs({ view: "map", sort: { key: "day", direction: "asc" }, measure: "total" });
+      expect(readHoldingsPrefs()).toEqual({ view: "map", sort: { key: "day", direction: "asc" }, measure: "total" });
+    } finally {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
   });
 });

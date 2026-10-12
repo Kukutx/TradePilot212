@@ -1113,8 +1113,6 @@ h2[tabindex="-1"]:focus { outline: none; }
 .positionsTable th:first-child .sortArrow { right: auto; left: calc(100% + 4px); }
 
 .holdingsMapWrap { display: grid; gap: 10px; }
-.mapControls { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
-.mapControls .segmented button { min-height: 32px; padding: 0 10px; }
 .mapLegend { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; margin: 0; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .mapScale { width: 112px; height: 10px; border: 1px solid var(--tp-border); border-radius: 5px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--tp-red) var(--tp-map-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-green) var(--tp-map-max), var(--tp-bg-soft))); }
@@ -1123,7 +1121,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .mapSize { margin-left: 4px; }
 .holdingsMap { position: relative; width: 100%; margin: 0; padding: 0; overflow: hidden; border-radius: 12px; }
 .mapCell { position: absolute; display: flex; }
-.mapTile { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 6px 9px; overflow: hidden; border: 0; border-radius: 6px;
+.mapTile { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: safe center; gap: 1px; padding: 6px 9px; line-height: 1.2; overflow: hidden; border: 0; border-radius: 6px;
   background: var(--tp-bg-soft); color: var(--tp-text); font: inherit; text-align: left; }
 .mapTile.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
 .mapTile.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
@@ -1132,13 +1130,16 @@ button.mapTile:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tp-t
 button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: -2px; }
 .mapName { max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .mapMove { font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.mapAmount { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .82; }
+.mapAmount { font-size: 12px; font-variant-numeric: tabular-nums; }
 .mapTile.large { padding: 9px 11px; gap: 2px; }
 .mapTile.large .mapName { font-size: 14px; }
 .mapTile.large .mapMove { font-size: 18px; }
 .mapTile.small { padding: 2px 6px; }
 .mapTile.small .mapName { font-size: 12px; }
 .mapTile.tiny { padding: 0; }
+@container (max-width: 640px) {
+  .holdingsToolbar .segmented button, .sortSelect select { min-height: 40px; }
+}
 @media (forced-colors: active) {
   .mapTile { border: 1px solid CanvasText; }
 }
