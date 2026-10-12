@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.37.0
+
+- A map of the holdings. The dashboard's Positions panel switches between the table and a map: one tile per holding, its area its value, coloured green or red by its move on the day or its return since bought, stronger the further it moved. Each tile shows the symbol, the move and the amount as far as it fits, gives its full description on hover and to screen readers, and opens the holding. The colour scale ends where most holdings' moves do, so one big mover does not wash out the rest; the text stays in the text colour with its sign, and a holding without a figure is hatched. On a phone the map is near square.
+- The holdings table sorts: from a **Sort** menu or by clicking the Symbol, Day, Position value or P/L header (largest first, then smallest first, then back to Trading 212's order). Phone cards follow the same order. The view, the order and the map's colour are remembered per viewer where the host allows local storage.
+
 ## 2.36.0
 
 - A price alert on the day's move: "tell me when Apple moves 3% either way in a day". It compares the price with its previous close, as the dashboard's day does, fires at most once per trading day, and arms itself again on the next, so it never needs re-arming. It works on holdings and on any instrument the quote provider prices, and the holding page's form offers it for both.

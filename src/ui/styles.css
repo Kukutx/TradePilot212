@@ -1094,3 +1094,51 @@ h2[tabindex="-1"]:focus { outline: none; }
   .watchMeta, .watchNote, .watchNoteForm { padding-left: 4px; }
   .watchControls { width: 100%; justify-content: space-between; }
 }
+
+/* ---- Holdings: table or map, and their order ---- */
+.appShell { --tp-map-max: 70%; --tp-map-none: repeating-linear-gradient(135deg, var(--tp-bg-soft) 0 6px, var(--tp-border) 6px 7px); }
+/* Darker tiles under light text: the strongest colour stays at 4.5:1 or more against it. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --tp-map-max: 50%; } }
+:root[data-theme="dark"] .appShell { --tp-map-max: 50%; }
+
+.holdingsToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.holdingsToolbar .segmented button { min-height: 32px; padding: 0 12px; }
+.sortSelect { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; font-weight: 650; }
+.sortSelect select { min-height: 36px; max-width: 100%; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 600; }
+.sortHeader { position: relative; display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+.sortHeader:hover, .sortHeader.active { color: var(--tp-text); }
+.sortHeader:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* The arrow takes no width, so sorting never widens the table: before a right-aligned label, after the first one. */
+.sortArrow { position: absolute; top: 50%; right: calc(100% + 3px); transform: translateY(-50%); font-size: 12px; }
+.positionsTable th:first-child .sortArrow { right: auto; left: calc(100% + 4px); }
+
+.holdingsMapWrap { display: grid; gap: 10px; }
+.mapControls { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.mapControls .segmented button { min-height: 32px; padding: 0 10px; }
+.mapLegend { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; margin: 0; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.mapScale { width: 112px; height: 10px; border: 1px solid var(--tp-border); border-radius: 5px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tp-red) var(--tp-map-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-green) var(--tp-map-max), var(--tp-bg-soft))); }
+.mapMissing { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
+.mapMissing i { width: 14px; height: 10px; border: 1px solid var(--tp-border); border-radius: 3px; background: var(--tp-map-none); }
+.mapSize { margin-left: 4px; }
+.holdingsMap { position: relative; width: 100%; margin: 0; padding: 0; overflow: hidden; border-radius: 12px; }
+.mapCell { position: absolute; display: flex; }
+.mapTile { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 6px 9px; overflow: hidden; border: 0; border-radius: 6px;
+  background: var(--tp-bg-soft); color: var(--tp-text); font: inherit; text-align: left; }
+.mapTile.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.mapTile.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.mapTile.none { background: var(--tp-map-none); }
+button.mapTile:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tp-text) 55%, transparent); }
+button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: -2px; }
+.mapName { max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.mapMove { font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.mapAmount { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .82; }
+.mapTile.large { padding: 9px 11px; gap: 2px; }
+.mapTile.large .mapName { font-size: 14px; }
+.mapTile.large .mapMove { font-size: 18px; }
+.mapTile.small { padding: 2px 6px; }
+.mapTile.small .mapName { font-size: 12px; }
+.mapTile.tiny { padding: 0; }
+@media (forced-colors: active) {
+  .mapTile { border: 1px solid CanvasText; }
+}

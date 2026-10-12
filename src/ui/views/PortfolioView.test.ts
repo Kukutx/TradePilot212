@@ -39,7 +39,7 @@ describe("the dashboard's day", () => {
   it("adds the holdings' move to the overview and a Day column, naming the session when it is an earlier one", () => {
     const html = render({ data: today, loading: false });
     expect(html).toContain('<b class="positive">+€69.00 (+2.19%)</b><span>Move on Fri, Oct 9, the last session · 2 of 3');
-    expect(html).toContain('<th class="dayColumn">Day</th>');
+    expect(html).toContain('<th class="dayColumn" aria-sort="none"><button type="button" class="sortHeader">Day</button></th>');
     expect(html).toContain('title="Since the close on Thu, Oct 8: $222.80 Shares traded on the day count from their fill price."><strong class="positive">+3.93%</strong><small class="positive">+€96.60</small><span class="visuallyHidden"> Since the close on Thu, Oct 8: $222.80</span>');
     // A holding without a move says why, for screen readers and on hover.
     expect(html).toContain('title="stooq&#x27;s closes for KO.US end on 2026-10-07.">—<span class="visuallyHidden"> the provider has no close for the last session yet</span>');
@@ -69,9 +69,9 @@ describe("the dashboard's day", () => {
   it("shows the column while the day is read, and nothing of it when it is not asked for", () => {
     const loading = render({ loading: true });
     expect(loading).toContain('<div class="dayTotal loading" aria-busy="true"><span>Today …</span></div>');
-    expect(loading).toContain('<th class="dayColumn">Day</th>');
+    expect(loading).toContain('<th class="dayColumn" aria-sort="none"><button type="button" class="sortHeader">Day</button></th>');
     const none = render(undefined);
-    expect(none).not.toContain('<th class="dayColumn">Day</th>');
+    expect(none).not.toContain('<th class="dayColumn" aria-sort="none"><button type="button" class="sortHeader">Day</button></th>');
     expect(none).not.toContain("dayTotal");
   });
 
@@ -79,5 +79,37 @@ describe("the dashboard's day", () => {
     const missing = render({ data: { ...today, total: undefined, moves: [{ ...today.moves[1]!, missing: "provider", problem: "No quote provider is configured." }] }, loading: false }, "zh-CN");
     expect(missing).toContain("今日：没有行情源，取不到前收盘价");
     expect(render({ data: today, loading: false }, "zh-CN")).toContain("上个交易日（10月9日周五）的涨跌");
+  });
+
+  it("offers the table or a map, and an order: by a column header or the menu, the day's only when there is one", () => {
+    const html = render({ data: today, loading: false });
+    expect(html).toContain('<div class="segmented" role="radiogroup" aria-label="Show holdings as"><button type="button" role="radio" aria-checked="true" class="active">Table</button><button type="button" role="radio" aria-checked="false" class="">Map</button></div>');
+    expect(html).toContain('<option value="default" selected="">Trading 212&#x27;s order</option>');
+    expect(html).toContain('<option value="day-asc">Day&#x27;s move, worst first</option>');
+    expect(html).toContain('<th aria-sort="none"><button type="button" class="sortHeader">Position value</button></th>');
+    const none = render(undefined, "zh-CN");
+    expect(none).not.toContain("day-desc");
+    expect(none).toContain('<option value="pnl-asc">盈亏从低到高</option>');
+    expect(none).toContain('aria-label="持仓显示方式"');
+  });
+
+  it("opens in the viewer's last order and view", () => {
+    const saved: Record<string, string> = { "tradepilot212.holdingsSort": "value-asc", "tradepilot212.holdingsView": "table" };
+    const storage = { getItem: (key: string) => saved[key] ?? null, setItem: (key: string, value: string) => { saved[key] = value; } };
+    Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+    try {
+      const sorted = render({ data: today, loading: false });
+      expect(sorted.indexOf("<strong>Coca-Cola</strong>")).toBeLessThan(sorted.indexOf("<strong>Apple</strong>"));
+      expect(sorted).toContain('<th aria-sort="ascending"><button type="button" class="sortHeader active">Position value<span class="sortArrow" aria-hidden="true">↑</span></button></th>');
+      saved["tradepilot212.holdingsView"] = "map";
+      const map = render({ data: today, loading: false });
+      expect(map).toContain('class="holdingsMap"');
+      expect(map).not.toContain("positionsTable");
+      // The map's colour choice takes the place of the order.
+      expect(map).toContain('aria-label="Colour shows"');
+      expect(map).not.toContain("sortSelect");
+    } finally {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
   });
 });

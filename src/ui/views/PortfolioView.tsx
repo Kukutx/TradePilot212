@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
@@ -6,13 +6,21 @@ import { portfolioProtection, stopProtection } from "../../shared/protection";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Sparkline } from "../components/charts";
 import { DayCell, DayTotal, type TodayState } from "../components/day";
+import { HoldingsMap, mapDayKnown } from "../components/holdings-map";
 import type { DayMove } from "../../shared/today";
 import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
+import { nextSort, readHoldingsPrefs, saveHoldingsPrefs, SORT_CHOICES, sortFromId, sortHoldings, sortId, type HoldingsPrefs, type HoldingsSortKey } from "../lib/holdings";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
+import type { MessageKey } from "../i18n";
 import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
 import { stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
 
 export type { TodayState };
+
+const SORT_NAMES: Record<string, MessageKey> = {
+  default: "sortDefault", "value-desc": "sortValueDesc", "value-asc": "sortValueAsc", "day-desc": "sortDayDesc", "day-asc": "sortDayAsc",
+  "pnl-desc": "sortPnlDesc", "pnl-asc": "sortPnlAsc", "name-asc": "sortNameAsc",
+};
 
 export function PortfolioView({
   payload,
@@ -46,6 +54,28 @@ export function PortfolioView({
   const soldOut = (today?.data?.moves ?? []).filter((move) => move.quantity === 0 && move.profitLoss !== undefined);
   /** The holdings' day, unless its read failed. */
   const day = today && !today.failed ? today : undefined;
+  const [prefs, setPrefs] = useState(readHoldingsPrefs);
+  const choose = (next: Partial<HoldingsPrefs>) => setPrefs((current) => {
+    const updated = { ...current, ...next };
+    saveHoldingsPrefs(updated);
+    return updated;
+  });
+  // Without the day's moves there is nothing to sort or colour by on the day.
+  const sort = prefs.sort?.key === "day" && !day ? undefined : prefs.sort;
+  const dayKnown = mapDayKnown(today);
+  const measure = dayKnown ? prefs.measure : "total";
+  const positions = sortHoldings(payload.positions, sort, moves, book, locale);
+  /** A column header that sorts by it, saying which way it is sorted now. */
+  const header = (key: HoldingsSortKey, label: ReactNode, className?: string) => {
+    const active = sort?.key === key ? sort.direction : undefined;
+    return (
+      <th {...(className ? { className } : {})} aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}>
+        <button type="button" className={`sortHeader${active ? " active" : ""}`} onClick={() => choose({ sort: nextSort(sort, key) })}>
+          {label}{active && <span className="sortArrow" aria-hidden="true">{active === "asc" ? "↑" : "↓"}</span>}
+        </button>
+      </th>
+    );
+  };
   return (
     <main className="contentStack">
       {payload.warning && <div className="notice warning">{payload.warning}</div>}
@@ -73,11 +103,38 @@ export function PortfolioView({
           <div className="emptyState compact">{t("noPositions")}</div>
         ) : (
           <>
+            <div className="holdingsToolbar">
+              <div className="segmented" role="radiogroup" aria-label={t("holdingsShow")}>
+                {(["table", "map"] as const).map((view) => (
+                  <button key={view} type="button" role="radio" aria-checked={prefs.view === view} className={prefs.view === view ? "active" : ""} onClick={() => choose({ view })}>{t(view === "table" ? "viewTable" : "viewMap")}</button>
+                ))}
+              </div>
+              {prefs.view === "map" ? (
+                <div className="segmented" role="radiogroup" aria-label={t("mapColour")}>
+                  {(["day", "total"] as const).map((key) => (
+                    <button key={key} type="button" role="radio" aria-checked={measure === key} className={measure === key ? "active" : ""} disabled={key === "day" && !dayKnown}
+                      onClick={() => choose({ measure: key })}>{t(key === "day" ? "mapDay" : "mapTotal")}</button>
+                  ))}
+                </div>
+              ) : (
+                <label className="sortSelect">
+                  <span>{t("sortLabel")}</span>
+                  <select value={sortId(sort)} onChange={(event) => choose({ sort: sortFromId(event.target.value) })}>
+                    {[undefined, ...SORT_CHOICES].filter((choice) => day || choice?.key !== "day").map((choice) => (
+                      <option key={sortId(choice)} value={sortId(choice)}>{t(SORT_NAMES[sortId(choice)]!)}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            {prefs.view === "map" ? (
+              <HoldingsMap positions={payload.positions} moves={moves} {...(today ? { today } : {})} measure={measure} currency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})} />
+            ) : (<>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th>{day && <th className="dayColumn">{t("todayColumn")}</th>}<th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
+                <thead><tr>{header("name", t("symbol"))}<th>{t("quantity")}</th><th>{t("currentPrice")}</th>{day && header("day", t("todayColumn"), "dayColumn")}<th className="optionalColumn">{t("averagePrice")}</th>{header("value", t("positionValue"))}{header("pnl", t("pnl"))}<th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
-                  {payload.positions.map((position) => {
+                  {positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
                     const guard = stopProtection(position, payload.orders);
                     return (
@@ -109,11 +166,12 @@ export function PortfolioView({
               </table>
             </div>
             <div className="mobilePositionList">
-              {payload.positions.map((position) => (
+              {positions.map((position) => (
                 <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})}
                   {...(day ? { day: { move: moves.get(position.instrument.ticker), loading: day.loading } } : {})} />
               ))}
             </div>
+            </>)}
             {soldOut.length > 0 && (
               <p className="panelNote">{fill(t("todaySoldOut"), {
                 items: soldOut.map((move) => `${instrumentLabel(move.ticker, book, move).name} ${money(move.profitLoss, currency, locale, { signed: true })}`).join(", "),
