@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
+import type { Instrument } from "../shared/contracts.js";
 import type { Exchange } from "../shared/history.js";
+import type { PricePoint } from "../shared/prices.js";
 import type { PriceHistoryRequest } from "./price-history.js";
 import { createConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
-import { dayFigures, fallbackDay, inCloseUnit, portfolioToday, sessionOf, type ScheduleEvent } from "./today.js";
+import { dayCloseOf, dayFigures, daySessionOf, fallbackDay, inCloseUnit, portfolioToday, sessionOf, type ScheduleEvent } from "./today.js";
 
 /** A week as Trading 212 lists it, Monday 5 to Friday 16 October 2026: by default a US one, with pre-market and after hours. */
 function usWeek(open = 13.5, close = 20, extended = true): ScheduleEvent[] {
@@ -28,16 +30,19 @@ describe("the trading day of a price", () => {
 
   it("is the session in progress, or the one that closed last, after hours and over the weekend", () => {
     expect(at("2026-10-14T15:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
-    expect(at("2026-10-14T22:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
-    expect(at("2026-10-10T12:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-14T22:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z"), ended: closedAt("2026-10-14T20:00:00Z") });
+    expect(at("2026-10-10T12:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
     // Monday before the pre-market still shows Friday's move.
-    expect(at("2026-10-12T05:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-12T05:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
+    // One traded after hours moves until they close.
+    expect(at("2026-10-14T22:00:00Z", true)).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
+    expect(at("2026-10-10T12:00:00Z", true)?.ended).toBe(closedAt("2026-10-10T00:00:00Z"));
   });
 
   it("belongs to the day that opens next in the pre-market, for an instrument traded in it", () => {
     expect(at("2026-10-12T09:00:00Z", true)).toEqual({ day: "2026-10-12", previous: "2026-10-09", previousClose: closedAt("2026-10-09T20:00:00Z") });
     // Trading 212's price of one not traded before the open is still Friday's.
-    expect(at("2026-10-12T09:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-12T09:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
   });
 
   it("has no answer without an opening to go by, and then takes today or the Friday before a weekend", () => {
@@ -214,5 +219,36 @@ describe("the portfolio on the day", () => {
     const today = await services.today("demo");
     expect(today.moves.length).toBe(5);
     expect(today.moves.every((move) => move.previousClose?.source === "sample" && move.change !== undefined)).toBe(true);
+  });
+});
+
+describe("the previous close of an alert's price", () => {
+  const exchanges: Exchange[] = [{ id: 1, name: "NASDAQ", workingSchedules: [{ id: 7, timeEvents: usWeek() as never }] }];
+  const now = new Date("2026-10-14T15:00:00Z");
+
+  it("has no trading day when the instrument's schedule cannot be read, rather than a guessed one", async () => {
+    expect(await daySessionOf({ schedules: async () => exchanges }, "demo", { workingScheduleId: 7 }, false, now)).toMatchObject({ day: "2026-10-14", previous: "2026-10-13" });
+    expect(await daySessionOf({ schedules: async () => { throw new Error("Too many requests"); } }, "demo", { workingScheduleId: 7 }, false, now)).toBeUndefined();
+    expect(await daySessionOf({ schedules: async () => exchanges }, "demo", { workingScheduleId: 9 }, false, now)).toBeUndefined();
+    // An instrument that names no schedule takes the date.
+    expect(await daySessionOf({}, "demo", {}, false, now)).toEqual({ day: "2026-10-14" });
+    const read = await dayCloseOf({ schedules: async () => [], priceHistory: async () => { throw new Error("not read"); } }, "demo", { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", workingScheduleId: 7 }, 103, false, now);
+    expect(read).toEqual({ missing: "data", problem: "Trading 212's exchange schedules could not be read, so the trading day of AAPL_US_EQ's price is not known." });
+  });
+
+  it("keeps the closes read for a quote apart from those checked against Trading 212's price", async () => {
+    const closes = new Map<string, PricePoint & { source: string }>();
+    const quotedCloses = new Map<string, PricePoint & { source: string }>();
+    const deps = {
+      schedules: async () => exchanges,
+      priceHistory: async () => ({ prices: { source: "stooq", symbol: "AAPL.US", points: [{ date: "2026-10-12", close: 98 }, { date: "2026-10-13", close: 100 }] } }),
+      closes,
+      quotedCloses,
+    };
+    const instrument: Instrument = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", workingScheduleId: 7 };
+    expect(await dayCloseOf(deps, "demo", instrument, 103, true, now)).toEqual({ day: "2026-10-14", close: 100, date: "2026-10-13", change: 0.03 });
+    expect([quotedCloses.size, closes.size]).toEqual([1, 0]);
+    expect(await dayCloseOf(deps, "demo", instrument, 97, false, now)).toEqual({ day: "2026-10-14", close: 100, date: "2026-10-13", change: -0.03 });
+    expect([quotedCloses.size, closes.size]).toEqual([1, 1]);
   });
 });

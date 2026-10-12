@@ -17,6 +17,11 @@ function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string
   return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
 }
 
+/** A day's-move alert's last change from the previous close, after the alert's other figures. */
+export function alertDayText(alert: PriceAlert, t: Translator, locale: SupportedLocale): string {
+  return alert.condition === "day_move" && alert.lastDayChange !== undefined ? ` · ${fill(t("alertDayChange"), { change: pct(alert.lastDayChange, locale, 2, { signed: true }) })}` : "";
+}
+
 /** Alert prices are in the instrument's currency; percent conditions stay percentages. */
 export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined, locale: SupportedLocale): string {
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
@@ -81,8 +86,8 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
                   <InstrumentName ticker={alert.ticker} book={book} />
                   <span className={`statusPill ${alert.triggeredAt ? "fired" : ""}`}>{alert.triggeredAt ? t("alertTriggered") : t("alertArmed")}</span>
                 </div>
-                <small>{alertConditionLabel(alert.condition, t)} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}</small>
-                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {price(alert.ticker, alert.triggeredPrice)}</small>}
+                <small>{alertConditionLabel(alert.condition, t)} {alertTarget(alert, book, locale)}{alert.lastPrice !== undefined ? ` · ${t("lastPrice")} ${price(alert.ticker, alert.lastPrice)}` : ""}{alert.highWatermark !== undefined ? ` · ${t("highWatermark")} ${price(alert.ticker, alert.highWatermark)}` : ""}{alertDayText(alert, t, locale)}</small>
+                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {price(alert.ticker, alert.triggeredPrice)}{alert.condition === "day_move" ? ` · ${t("alertDayAgain")}` : ""}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
                 {onDeleteAlert && onRearmAlert && <AlertActions alert={alert} t={t} busy={busy} onRearm={onRearmAlert} onDelete={onDeleteAlert} />}
               </li>

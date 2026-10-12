@@ -14,7 +14,7 @@ import { createPriceHistory } from "../core/price-history.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker, createSampleQuotes } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
-import { DAY_ORDER_PAGES, portfolioToday } from "../core/today.js";
+import { DAY_ORDER_PAGES, dayCloseOf, daySessionOf, portfolioToday } from "../core/today.js";
 import { TargetAllocations } from "../core/targets.js";
 import { ValueHistory } from "../core/value-history.js";
 import { Watchlist } from "../core/watchlist.js";
@@ -58,7 +58,12 @@ export function createServices(input: ServiceDependencies) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
-  const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
+  const alerts = new PriceAlerts({
+    config: deps.config, store: deps.store, trading,
+    // A day's-move alert sets the price against its previous close as the dashboard's day does.
+    dayClose: (environment, instrument, price, quoted, now) => dayCloseOf({ priceHistory, closes, quotedCloses, schedules }, environment, instrument, price, quoted, now),
+    tradingDay: async (environment, instrument, quoted, now) => (await daySessionOf({ schedules }, environment, instrument, quoted, now))?.day,
+  });
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
@@ -76,6 +81,8 @@ export function createServices(input: ServiceDependencies) {
   const schedules = (environment: TradingEnvironment) => insights.schedules(environment);
   /** Previous closes that will not change today, kept across the day's reads. */
   const closes = new Map<string, PricePoint & { source: string }>();
+  /** The same for alerts priced by a quote, whose closes are checked against the quote rather than Trading 212's price. */
+  const quotedCloses = new Map<string, PricePoint & { source: string }>();
   /** Each holding's move since its previous close, with the day's fills counted from their price. */
   const today = (environment: TradingEnvironment, now?: Date) => portfolioToday({
     trading,

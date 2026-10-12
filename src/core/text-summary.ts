@@ -564,8 +564,12 @@ function planLine(plan: DcaPlan): string {
 
 function alertLine(alert: PriceAlert, instrument?: { name?: string; currencyCode?: string }): string {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
-  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num(alert.percent)}%`;
-  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}${unit}` : ", armed"}${alert.note ? ` — ${alert.note}` : ""}`;
+  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num(alert.price, 6)}${unit}`
+    : alert.condition === "day_move" ? `day's move of ${num(alert.percent)}% either way` : `${alert.condition.replace("_", " ")} ${num(alert.percent)}%`;
+  const day = alert.condition === "day_move"
+    ? `${alert.lastDayChange === undefined ? "" : `, ${signedPct(alert.lastDayChange)} since the close on ${alert.lastCloseDate ?? "?"}`}${alert.triggeredAt ? `; fired for ${alert.triggeredDay ?? "the day"}, armed again on the next trading day` : ""}`
+    : "";
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === undefined ? "" : `, last ${num(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num(alert.triggeredPrice, 6)}${unit}` : ", armed"}${day}${alert.note ? ` — ${alert.note}` : ""}`;
 }
 
 function linkLine(link: ProtectiveLink): string {

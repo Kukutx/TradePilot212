@@ -34,7 +34,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - fill notices for open orders, including ones placed in the Trading 212 app: filled (with the average price), partly filled, or closed without a fill, in the activity log and to the webhook ([docs/AUTOMATION.md](./docs/AUTOMATION.md#order-fill-notices))
 - weekly or monthly investment plans that wait for your confirmation when due, with Market or gap-capped Limit legs, or one amount split across your saved targets so the most underweight holdings get the most; Demo plans can optionally run unattended
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
-- price alerts on holdings or any quoted instrument (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
+- price alerts on holdings or any quoted instrument (above / below a price, a day's move either way from the previous close that arms itself again each trading day, trailing drop from the high, gain or loss against average cost), checked every minute
 - a built-in sample account (`TRADEPILOT_SAMPLE_DATA=true`) for trying everything without an API key ([docs/TRY_IT.md](./docs/TRY_IT.md))
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans, rebalancing and the journal review
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest

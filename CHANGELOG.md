@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.36.0
+
+- A price alert on the day's move: "tell me when Apple moves 3% either way in a day". It compares the price with its previous close, as the dashboard's day does, fires at most once per trading day, and arms itself again on the next, so it never needs re-arming. It works on holdings and on any instrument the quote provider prices, and the holding page's form offers it for both.
+- A session that closed before the alert was set does not count, so an alert set on a weekend waits for Monday instead of reporting Friday's move, and once it has fired for a day only a later day counts. It waits, and says why, while Trading 212's exchange schedules cannot be read or the quote provider does not have the previous close yet. Once it has fired, it reads neither positions nor prices until the next trading day.
+- The holding page's price ladder and chart draw a day's-move alert at both of its levels from the previous close, the automation overview gives its last change ("on the day -2.14%"), and a fired one says it arms itself again on the next trading day, in place of a Re-arm button. `manage_price_alerts` takes `condition: "day_move"`, and `list_price_alerts` gives the change since the close and the day it fired for.
+
 ## 2.35.0
 
 - An instrument's page shows its move on the day under the holding's value: what it made or lost in your currency and the price's change since its previous close, with that close written out ("Since the close on Thu, Oct 8: $222.80"). An instrument you do not hold shows the change under its quoted price (before the open, the last session's, since a quote does not move then). The figures are the dashboard's, from the closes the page's chart already reads, so the page asks the quote provider for nothing more.

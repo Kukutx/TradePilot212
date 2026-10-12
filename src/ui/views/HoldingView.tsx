@@ -60,6 +60,16 @@ export function priceLevels(data: HoldingDetail, t: Translator, locale: Supporte
   });
   for (const alert of data.alerts) {
     if (alert.triggeredAt) continue;
+    // A day's move fires either way from the previous close: two levels.
+    const close = data.day?.previousClose?.close;
+    if (alert.condition === "day_move") {
+      if (!close || alert.percent === undefined) continue;
+      for (const sign of [1, -1]) {
+        const price = close * (1 + (sign * alert.percent) / 100);
+        if (price > 0) levels.push({ key: `alert-${alert.id}-${sign > 0 ? "up" : "down"}`, kind: "alert", price, label: fill(t("levelDayMove"), { change: `${sign > 0 ? "+" : "-"}${num(alert.percent, locale, 2)}%` }) });
+      }
+      continue;
+    }
     const price = alertPrice(alert, position);
     if (price === undefined || !(price > 0)) continue;
     const condition = alert.condition === "above" || alert.condition === "below" ? alertConditionLabel(alert.condition, t) : `${alertConditionLabel(alert.condition, t)} ${num(alert.percent, locale, 2)}%`;
@@ -275,7 +285,7 @@ export function HoldingView({
                   <strong>{alertConditionLabel(alert.condition, t)} {alertTarget(alert, book, locale)}</strong>
                   <span className={`statusPill ${alert.triggeredAt ? "fired" : ""}`}>{alert.triggeredAt ? t("alertTriggered") : t("alertArmed")}</span>
                 </div>
-                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {amount(alert.triggeredPrice, quote, locale)}</small>}
+                {alert.triggeredAt && <small>{dateTime(alert.triggeredAt, locale)} · {amount(alert.triggeredPrice, quote, locale)}{alert.condition === "day_move" ? ` · ${t("alertDayAgain")}` : ""}</small>}
                 {alert.note && <small className="mutedInline">{alert.note}</small>}
                 <AlertActions alert={alert} t={t} busy={busy} onRearm={onRearmAlert} onDelete={onDeleteAlert} />
               </li>
