@@ -497,8 +497,11 @@ export default function App() {
     const done = await run("errorTitleAlert", async () => {
       await callTool("manage_price_alerts", { environment, ...input });
     });
-    if (done) await refresh(environment, "holdings");
-    return done;
+    if (!done) return false;
+    // The watchlist shows the alerts on its rows; it is read again when it next shows.
+    setInsights(({ watchlist: _old, ...rest }) => rest);
+    await refresh(environment, "holdings");
+    return true;
   }
 
   /**
@@ -524,7 +527,7 @@ export default function App() {
    * Add, change the note of, or remove a watchlist instrument; the watchlist never trades. The watchlist tab is read
    * again when shown, and a holding page notes the change in place rather than reading everything again.
    */
-  async function changeWatch(env: TradingEnvironment, input: { action: "add" | "remove"; instrument: string; note?: string }): Promise<boolean> {
+  async function changeWatch(env: TradingEnvironment, input: { action: "add" | "note" | "remove"; instrument: string; note?: string }): Promise<boolean> {
     const outcome: { item?: { ticker: string; addedAt: string; note?: string } } = {};
     const done = await run("errorTitleWatchlist", async () => {
       Object.assign(outcome, await callTool<{ item: { ticker: string; addedAt: string; note?: string } }>("manage_watchlist", { environment: env, ...input }));
@@ -952,7 +955,7 @@ export default function App() {
                 onOpen={(ticker) => void openHolding(ticker)}
                 onAdd={(ticker) => changeWatch(environment, { action: "add", instrument: ticker })}
                 onRemove={(ticker) => void changeWatch(environment, { action: "remove", instrument: ticker })}
-                onNote={(ticker, note) => changeWatch(environment, { action: "add", instrument: ticker, note })}
+                onNote={(ticker, note) => changeWatch(environment, { action: "note", instrument: ticker, note })}
                 onSearch={searchInstruments}
                 onRefresh={() => void loadInsight("watchlist")} />
             )}

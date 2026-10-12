@@ -71,15 +71,17 @@ const watch = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["manage_price_alerts", { action: "create", instrument: "TSLA_US_EQ", condition: "above", price: 260 }],
   ["get_watchlist", {}],
   ["get_holding_detail", { instrument: "TSLA" }],
+  ["manage_watchlist", { action: "note", instrument: "TSLA", note: "After the call" }],
   ["manage_watchlist", { action: "remove", instrument: "TSLA_US_EQ" }],
   ["get_watchlist", {}],
 ]);
-const [watchAdded, , watchlist, watched, watchRemoved, emptied] = watch.results;
+const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied] = watch.results;
 const watchRow = watchlist.structuredContent?.items?.[0];
 if (watchAdded.isError || watchAdded.structuredContent?.item?.ticker !== "TSLA_US_EQ") throw new Error(`Adding to the watchlist failed: ${JSON.stringify(watchAdded).slice(0, 300)}`);
 if (watchlist.isError || watchRow?.ticker !== "TSLA_US_EQ" || !(watchRow.price > 0) || watchRow.priceSource !== "sample" || !(watchRow.spark?.closes?.length > 30) || watchRow.levels?.[0]?.kind !== "alert" || watchRow.note !== "Wait for delivery numbers")
   throw new Error(`Watchlist failed: ${JSON.stringify(watchlist).slice(0, 300)}`);
 if (watched.isError || watched.structuredContent?.position || watched.structuredContent?.quote?.price !== watchRow.price || !watched.structuredContent?.watching) throw new Error(`Watched holding page failed: ${JSON.stringify(watched).slice(0, 300)}`);
+if (noted.isError || noted.structuredContent?.item?.note !== "After the call") throw new Error(`Changing a watchlist note failed: ${JSON.stringify(noted).slice(0, 300)}`);
 if (watchRemoved.isError || emptied.structuredContent?.items?.length !== 0) throw new Error(`Removing from the watchlist failed: ${JSON.stringify(emptied).slice(0, 300)}`);
 // Saved targets: the allocation shows their drift and a rebalance without targets uses them.
 const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [

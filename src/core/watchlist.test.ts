@@ -4,7 +4,7 @@ import type { PricePoint } from "../shared/prices.js";
 import { createConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
-import { watchFigures, watchLevels, watchlistView } from "./watchlist.js";
+import { Watchlist, watchFigures, watchLevels, watchlistView } from "./watchlist.js";
 
 function sample() {
   const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
@@ -12,11 +12,11 @@ function sample() {
 }
 
 /** A copy of the trading service whose quote provider answers `quote` (undefined: no answer). */
-function withQuote(services: ReturnType<typeof sample>, quote: (ticker: string) => number | undefined) {
+function withQuote(services: ReturnType<typeof sample>, quote: (ticker: string) => number | undefined, asOf = "2026-10-12T15:00:00Z") {
   const trading = Object.assign(Object.create(Object.getPrototypeOf(services.trading)), services.trading, {
     externalQuote: async (instrument: { ticker: string }) => {
       const price = quote(instrument.ticker);
-      return price === undefined ? undefined : { ticker: instrument.ticker, symbol: instrument.ticker, price, asOf: "2026-10-12T15:00:00Z", source: "stooq" };
+      return price === undefined ? undefined : { ticker: instrument.ticker, symbol: instrument.ticker, price, asOf, source: "stooq" };
     },
   });
   return trading as typeof services.trading;
@@ -45,6 +45,9 @@ describe("watchlist store", () => {
     expect((await watchlist.add("demo", "TSLA", "")).item.note).toBeUndefined();
     expect((await watchlist.list("demo")).map((item) => item.ticker)).toEqual(["TSLA_US_EQ", "NVDA_US_EQ"]);
     expect(await watchlist.list("live")).toEqual([]);
+    // A note change never adds one that is not on the list.
+    await expect(watchlist.note("demo", "AMZN", "Cloud margins")).rejects.toThrow("AMZN is not on the watchlist");
+    expect((await watchlist.note("demo", "TSLA", "After the call")).note).toBe("After the call");
     expect((await watchlist.remove("demo", "tsla_us_eq")).ticker).toBe("TSLA_US_EQ");
     await expect(watchlist.remove("demo", "Tesla")).rejects.toThrow("Tesla is not on the watchlist");
     expect((await watchlist.list("demo")).map((item) => item.ticker)).toEqual(["NVDA_US_EQ"]);
@@ -57,6 +60,27 @@ describe("watchlist store", () => {
     for (let index = 0; index < 50; index++) await store.put(`watch:demo:T${index}`, { environment: "demo", ticker: `T${index}`, addedAt: "2026-01-01T00:00:00Z" });
     const full = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store, fetcher: (async () => new Response("{}")) as typeof fetch });
     await expect(full.watchlist.add("demo", "TSLA")).rejects.toThrow("at most 50");
+  });
+
+  it("keeps the cap when adds come at once", async () => {
+    const store = new MemoryStateStore();
+    for (let index = 0; index < 49; index++) await store.put(`watch:demo:T${index}`, { environment: "demo", ticker: `T${index}`, addedAt: "2026-01-01T00:00:00Z" });
+    const { watchlist } = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store, fetcher: (async () => new Response("{}")) as typeof fetch });
+    const results = await Promise.allSettled(["TSLA", "AMZN", "ASML"].map((instrument) => watchlist.add("demo", instrument)));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await watchlist.list("demo")).toHaveLength(50);
+  });
+
+  it("changes the note of, and removes, an instrument Trading 212 no longer lists", async () => {
+    const store = new MemoryStateStore();
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
+    const services = createServices({ config, store, fetcher: (async () => new Response("{}")) as typeof fetch });
+    await services.watchlist.add("demo", "TSLA");
+    const trading = Object.assign(Object.create(Object.getPrototypeOf(services.trading)), services.trading, { instruments: async () => [] });
+    const watchlist = new Watchlist({ config, store, trading });
+    expect((await watchlist.note("demo", "TSLA_US_EQ", "Delisted?")).note).toBe("Delisted?");
+    expect((await watchlist.add("demo", "TSLA_US_EQ", "Still delisted")).item.note).toBe("Still delisted");
+    expect((await watchlist.remove("demo", "TSLA_US_EQ")).ticker).toBe("TSLA_US_EQ");
   });
 });
 
@@ -85,6 +109,12 @@ describe("watchlist figures", () => {
     // The day before the last close, not the last close itself.
     expect(figures.changes["1d"]).toBeCloseTo(month.at(-1)!.close / month.at(-2)!.close - 1, 6);
     expect(watchFigures({ price: 10, day: "2026-10-12", points: [] })).toEqual({ changes: {} });
+  });
+
+  it("gives the range from the first close when the closes cover less than a year", () => {
+    const month = closes("2026-09-07", 36);
+    expect(watchFigures({ price: 200, day: "2026-10-12", points: month }).rangeFrom).toBe(month[0]!.date);
+    expect(watchFigures({ price: 470, day: "2026-10-12", points: year }).rangeFrom).toBeUndefined();
   });
 
   it("collects the open orders at their trigger and the armed above and below alerts", () => {
@@ -164,6 +194,38 @@ describe("watchlist view", () => {
     expect(amzn!.price).toBeUndefined();
     // Added at 186.4 (the sample's quote); a price ten times that is no "since added".
     expect(amzn!.sinceAdded).toBeUndefined();
+  });
+
+  it("compares a quote from an earlier day with the close before that day", async () => {
+    const services = sample();
+    await services.watchlist.add("demo", "AMZN");
+    const points = closes("2026-07-01", 101);
+    expect(points.at(-1)!.date).toBe("2026-10-09");
+    // Friday's price on the Monday morning: 1D is Friday against Thursday, not Friday against itself.
+    const friday = points.at(-1)!.close;
+    const view = await watchlistView({
+      ...services,
+      trading: withQuote(services, () => friday, "2026-10-09T20:00:00Z"),
+      priceHistory: async () => ({ prices: { source: "stooq", symbol: "AMZN.US", points } }),
+    }, "demo", new Date("2026-10-12T07:00:00Z"));
+    expect(view.items[0]!.changes["1d"]).toBeCloseTo(friday / points.at(-2)!.close - 1, 6);
+    expect(view.items[0]!.rangeFrom).toBe("2026-07-01");
+    expect(describePayload(view)).toMatch(/; range since 2026-07-01 [\d.]+ to [\d.]+, 0% below the high;/);
+  });
+
+  it("checks a quote against the orders and alerts for its unit when the closes did not come", async () => {
+    const services = sample();
+    await services.watchlist.add("demo", "TSLA");
+    const view = await watchlistView({
+      ...services,
+      trading: withQuote(services, () => 2.441),
+      priceHistory: async () => ({ missing: "data", problem: "Stooq took more than 3 seconds." }),
+    }, "demo");
+    const tsla = view.items[0]!;
+    expect(tsla.price).toBeUndefined();
+    expect(tsla.levels[0]!.distance).toBeUndefined();
+    expect(tsla).toMatchObject({ pricesMissing: "unit" });
+    expect(tsla.pricesProblem).toContain("multiply the factor in its QUOTE_SYMBOLS mapping by 100 (TSLA_US_EQ=TSLA_US_EQ*100 when it has none)");
   });
 
   it("says when Trading 212 no longer lists an instrument on the list", async () => {

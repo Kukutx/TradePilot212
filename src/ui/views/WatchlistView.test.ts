@@ -58,6 +58,13 @@ describe("watchlist view", () => {
     expect(zh).toContain("持有 20");
   });
 
+  it("names the start of a range shorter than a year", () => {
+    const html = render({ ...data, items: [{ ...nvda, rangeFrom: "2026-05-20" }] });
+    expect(html).toContain("3.5% below its high since May 20, 2026");
+    expect(html).toContain('title="Range since May 20, 2026: $92.10 to $133.40"');
+    expect(render({ ...data, items: [{ ...tsla, rangeFrom: "2026-05-20" }] }, "zh-CN")).toContain("处于2026年5月20日以来高点");
+  });
+
   it("sorts by the biggest move over the period or by the nearest level", () => {
     expect(sortWatchRows(data.items, "added", "1d").map((row) => row.shortName)).toEqual(["NVDA", "TSLA", "AMZN"]);
     expect(sortWatchRows(data.items, "move", "1d").map((row) => row.shortName)).toEqual(["NVDA", "TSLA", "AMZN"]);

@@ -7,7 +7,7 @@ import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
 import type { InsightsService } from "./insights-service.js";
 import type { TradeJournal } from "./journal.js";
-import { settleWithin, type PriceAnchor, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
+import { quoteUnitProblem, settleWithin, unitReference, type PriceAnchor, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { TargetAllocations } from "./targets.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 import type { Watchlist } from "./watchlist.js";
@@ -79,7 +79,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price),
   ].filter((price): price is number => typeof price === "number" && price > 0));
-  const [targets, alerts, notes, market, history, prices, quote, watched] = await Promise.all([
+  const [targets, alerts, notes, market, history, read, quoted, watched] = await Promise.all([
     deps.targets.get(environment),
     alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
@@ -92,6 +92,10 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     quoteRead,
     deps.watchlist?.get(environment, ticker).catch(() => undefined),
   ]);
+  // The quote comes from the closes' mapping: in another unit when they are, and checked the same way when they did not come.
+  const unitProblem = quoted ? quoteUnitProblem(quoted, ticker, unitReference(undefined, await levels, await fills)) : undefined;
+  const quote = quoted && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted : undefined;
+  const prices: PriceHistoryResult | undefined = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
   const filled = new Set(listedFills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])));

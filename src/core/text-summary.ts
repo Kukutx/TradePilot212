@@ -79,13 +79,13 @@ function watchLevelText(level: WatchLevel): string {
   return `${what} ${num(level.price, 6)}${level.distance === undefined ? "" : ` (${signedPct(level.distance)})`}`;
 }
 
-/** One watchlist row: the price and where from, the changes (1D is since the last close before today), the range and levels. */
+/** One watchlist row: the price and where from, the changes (1D is since the previous close), the range and levels. */
 function watchLine(row: WatchRow): string {
   const name = row.name && row.name !== row.ticker ? ` (${row.name})` : "";
   const source = row.priceSource === "broker" ? "Trading 212" : row.priceSource === "close" ? `close of ${row.priceAt}` : row.priceSource === "sample" ? "simulated" : row.priceSource;
   const changes = WATCH_PERIODS.filter((key) => row.changes[key] !== undefined).map((key) => `${key.toUpperCase()} ${signedPct(row.changes[key]!)}`);
   const range = row.high !== undefined && row.low !== undefined && row.price !== undefined && row.high > 0
-    ? `12-month range ${num(row.low, 6)} to ${num(row.high, 6)}, ${pct(1 - row.price / row.high)} below the high`
+    ? `${row.rangeFrom ? `range since ${row.rangeFrom}` : "12-month range"} ${num(row.low, 6)} to ${num(row.high, 6)}, ${pct(1 - row.price / row.high)} below the high`
     : "";
   return [
     `${row.ticker}${name}: ${row.price === undefined ? "no price" : `${num(row.price, 6)}${row.currencyCode ? ` ${row.currencyCode}` : ""} (${source})`}`,
@@ -102,7 +102,7 @@ function watchLine(row: WatchRow): string {
 function watchlist(data: WatchlistView): string[] {
   return [
     ...credentialsLine(data.environment, data.credentials),
-    data.items.length ? `Watchlist on ${env(data.environment)}, ${data.items.length} instrument(s), changes to the price now (1D since the last close before today):` : `The ${env(data.environment)} watchlist is empty; add instruments with manage_watchlist.`,
+    data.items.length ? `Watchlist on ${env(data.environment)}, ${data.items.length} instrument(s), changes to the price now (1D since the previous close):` : `The ${env(data.environment)} watchlist is empty; add instruments with manage_watchlist.`,
     ...data.items.map(watchLine),
   ];
 }

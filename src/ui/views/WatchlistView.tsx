@@ -52,11 +52,18 @@ function RangeBar({ row, locale, t }: { row: WatchRow; locale: SupportedLocale; 
   if (row.high === undefined || row.low === undefined || row.price === undefined || !(row.high > 0)) return null;
   const at = row.high > row.low ? Math.min(1, Math.max(0, (row.price - row.low) / (row.high - row.low))) : 1;
   const below = 1 - row.price / row.high;
-  const range = fill(t("watchRangeLabel"), { low: amount(row.low, row.currencyCode, locale, { digits: priceDigits(row.low) }), high: amount(row.high, row.currencyCode, locale, { digits: priceDigits(row.high) }) });
+  const since = row.rangeFrom ? dayLabel(row.rangeFrom, locale) : undefined;
+  const range = fill(t(since ? "watchRangeSinceLabel" : "watchRangeLabel"), {
+    low: amount(row.low, row.currencyCode, locale, { digits: priceDigits(row.low) }),
+    high: amount(row.high, row.currencyCode, locale, { digits: priceDigits(row.high) }),
+    ...(since ? { date: since } : {}),
+  });
   return (
     <span className="watchRange" title={range}>
       <span className="rangeTrack" aria-hidden="true"><i style={{ left: `${(at * 100).toFixed(1)}%` }} /></span>
-      {below < 0.0005 ? t("watchAtHigh") : fill(t("watchFromHigh"), { value: pct(below, locale) })}
+      {below < 0.0005
+        ? (since ? fill(t("watchAtHighSince"), { date: since }) : t("watchAtHigh"))
+        : fill(t(since ? "watchFromHighSince" : "watchFromHigh"), { value: pct(below, locale), ...(since ? { date: since } : {}) })}
     </span>
   );
 }

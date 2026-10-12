@@ -38461,7 +38461,7 @@ function watchLine(row) {
   const name = row.name && row.name !== row.ticker ? ` (${row.name})` : "";
   const source = row.priceSource === "broker" ? "Trading 212" : row.priceSource === "close" ? `close of ${row.priceAt}` : row.priceSource === "sample" ? "simulated" : row.priceSource;
   const changes = WATCH_PERIODS.filter((key) => row.changes[key] !== void 0).map((key) => `${key.toUpperCase()} ${signedPct(row.changes[key])}`);
-  const range = row.high !== void 0 && row.low !== void 0 && row.price !== void 0 && row.high > 0 ? `12-month range ${num2(row.low, 6)} to ${num2(row.high, 6)}, ${pct(1 - row.price / row.high)} below the high` : "";
+  const range = row.high !== void 0 && row.low !== void 0 && row.price !== void 0 && row.high > 0 ? `${row.rangeFrom ? `range since ${row.rangeFrom}` : "12-month range"} ${num2(row.low, 6)} to ${num2(row.high, 6)}, ${pct(1 - row.price / row.high)} below the high` : "";
   return [
     `${row.ticker}${name}: ${row.price === void 0 ? "no price" : `${num2(row.price, 6)}${row.currencyCode ? ` ${row.currencyCode}` : ""} (${source})`}`,
     changes.join(", "),
@@ -38476,7 +38476,7 @@ function watchLine(row) {
 function watchlist(data) {
   return [
     ...credentialsLine(data.environment, data.credentials),
-    data.items.length ? `Watchlist on ${env(data.environment)}, ${data.items.length} instrument(s), changes to the price now (1D since the last close before today):` : `The ${env(data.environment)} watchlist is empty; add instruments with manage_watchlist.`,
+    data.items.length ? `Watchlist on ${env(data.environment)}, ${data.items.length} instrument(s), changes to the price now (1D since the previous close):` : `The ${env(data.environment)} watchlist is empty; add instruments with manage_watchlist.`,
     ...data.items.map(watchLine)
   ];
 }
@@ -39013,6 +39013,17 @@ function unitFactor(last, reference, mapped = 1) {
   return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
 }
 var middle = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+function unitReference(last, levels, fills) {
+  const priced = levels.filter((price) => price > 0);
+  const newest = fills.reduce((best, item) => !best || item.at > best.at ? item : best, void 0);
+  return last ? { price: last, ratio: UNIT_RATIO, what: "last price" } : priced.length ? { price: middle(priced), ratio: UNIT_RATIO, what: "order and alert prices" } : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" } : void 0;
+}
+var offUnit = (price, reference) => price / reference.price >= reference.ratio || reference.price / price >= reference.ratio;
+function quoteUnitProblem(quote, ticker, reference) {
+  if (!reference || !offUnit(quote.price, reference)) return void 0;
+  const factor = unitFactor(quote.price, reference.price);
+  return `${quote.source}'s price for ${quote.symbol} (${quote.price}) is far from Trading 212's ${reference.what} (${reference.price}), so it looks like another unit; multiply the factor in its QUOTE_SYMBOLS mapping by ${factor} (${ticker}=${quote.symbol}*${factor} when it has none).`;
+}
 function createPriceHistory(deps) {
   const now = deps.now ?? (() => /* @__PURE__ */ new Date());
   return async (request) => {
@@ -39042,11 +39053,9 @@ function createPriceHistory(deps) {
     }
     if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1e3} seconds for ${symbol2}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol2}.` };
-    const levels = (await request.levels ?? []).filter((price) => price > 0);
-    const newest = (await request.fills ?? []).reduce((best, item) => !best || item.at > best.at ? item : best, void 0);
-    const check2 = request.last ? { price: request.last, ratio: UNIT_RATIO, what: "last price" } : levels.length ? { price: middle(levels), ratio: UNIT_RATIO, what: "order and alert prices" } : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" } : void 0;
+    const check2 = unitReference(request.last, await request.levels ?? [], await request.fills ?? []);
     const last = prices.points[prices.points.length - 1].close;
-    if (check2 && (last / check2.price >= check2.ratio || check2.price / last >= check2.ratio)) {
+    if (check2 && offUnit(last, check2)) {
       const factor = unitFactor(last, check2.price, prices.factor);
       const mapping = `${instrument.ticker}=${symbol2}${factor === 1 ? "" : `*${factor}`}`;
       return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol2} (last ${last}) are far from Trading 212's ${check2.what} (${check2.price}), so they look like another unit; map it in QUOTE_SYMBOLS as ${mapping}.` };
@@ -39145,7 +39154,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
     deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
-  const fills = historyRead.then((read) => Array.isArray(read) ? read[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
+  const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
   const subject = listed ?? position.instrument;
   const quoteRead = position?.currentPrice ? Promise.resolve(void 0) : settleWithin(deps.trading.externalQuote(subject).catch(() => void 0), QUOTE_WAIT_MS);
   const alertsRead = deps.alerts.list(environment);
@@ -39153,7 +39162,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list2.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price)
   ].filter((price) => typeof price === "number" && price > 0));
-  const [targets, alerts, notes, market, history, prices, quote, watched] = await Promise.all([
+  const [targets, alerts, notes, market, history, read, quoted2, watched] = await Promise.all([
     deps.targets.get(environment),
     alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
@@ -39161,10 +39170,13 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, subject, now),
     historyRead,
-    deps.priceHistory?.({ instrument: subject, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : { quote: quoteRead.then((read) => read?.price) }, levels, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message })),
+    deps.priceHistory?.({ instrument: subject, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : { quote: quoteRead.then((read2) => read2?.price) }, levels, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message })),
     quoteRead,
     deps.watchlist?.get(environment, ticker).catch(() => void 0)
   ]);
+  const unitProblem = quoted2 ? quoteUnitProblem(quoted2, ticker, unitReference(void 0, await levels, await fills)) : void 0;
+  const quote = quoted2 && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted2 : void 0;
+  const prices = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
   const filled = new Set(listedFills.flatMap((fill) => fill.orderId ? [fill.orderId] : []));
@@ -39401,6 +39413,21 @@ var Watchlist = class {
     this.deps = deps;
   }
   deps;
+  /** Changes run one at a time, so two adds at once cannot both pass the cap. */
+  queue = Promise.resolve();
+  serial(work) {
+    const run = this.queue.then(work, work);
+    this.queue = run.catch(() => void 0);
+    return run;
+  }
+  /** The entry for an instrument: by its exact ticker first, so one Trading 212 no longer lists still matches. */
+  async find(environment, instrument) {
+    const wanted = instrument.trim().toUpperCase();
+    const item = (await this.list(environment)).find((entry) => entry.ticker.toUpperCase() === wanted);
+    if (item) return { ticker: item.ticker, item };
+    const { ticker } = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
+    return { ticker, item: await this.get(environment, ticker) };
+  }
   /** In the order they were added. */
   async list(environment) {
     return (await this.deps.store.list(`watch:${environment}:`)).map((entry) => entry.value).sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.ticker.localeCompare(b.ticker));
@@ -39414,43 +39441,50 @@ var Watchlist = class {
    */
   async add(environment, instrument, note, now = /* @__PURE__ */ new Date()) {
     requireCredentials(this.deps.config, environment);
-    const resolved = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
-    const key = watchKey(environment, resolved.ticker);
-    const text = note?.trim().slice(0, MAX_WATCH_NOTE);
-    const existing = await this.deps.store.get(key);
-    if (existing) {
-      if (note === void 0) return { item: existing, added: false };
-      const { note: _old, ...rest } = existing;
-      const item2 = { ...rest, ...text ? { note: text } : {} };
-      await this.deps.store.put(key, item2);
-      return { item: item2, added: false };
-    }
-    if ((await this.list(environment)).length >= MAX_WATCHLIST) fail("INVALID_INPUT", `A watchlist keeps at most ${MAX_WATCHLIST} instruments; remove one first`, { field: "instrument" });
-    const positions = await this.deps.trading.positions(environment).catch(() => []);
-    const held = positions.find((position) => position.instrument?.ticker === resolved.ticker)?.currentPrice;
-    const price = held && held > 0 ? held : (await settleWithin(this.deps.trading.externalQuote(resolved).catch(() => void 0), QUOTE_WAIT_MS2))?.price;
-    const item = {
-      environment,
-      ticker: resolved.ticker,
-      ...text ? { note: text } : {},
-      addedAt: now.toISOString(),
-      ...price && price > 0 ? { addedPrice: price } : {}
-    };
-    await this.deps.store.put(key, item);
-    return { item, added: true };
+    return this.serial(async () => {
+      const found = await this.find(environment, instrument);
+      if (found.item) return { item: note === void 0 ? found.item : await this.writeNote(found.item, note), added: false };
+      const instruments = await this.deps.trading.instruments(environment);
+      const resolved = instruments.find((entry) => entry.ticker === found.ticker) ?? resolveInstrumentFromList(instruments, found.ticker);
+      if ((await this.list(environment)).length >= MAX_WATCHLIST) fail("INVALID_INPUT", `A watchlist keeps at most ${MAX_WATCHLIST} instruments; remove one first`, { field: "instrument" });
+      const positions = await this.deps.trading.positions(environment).catch(() => []);
+      const held = positions.find((position) => position.instrument?.ticker === resolved.ticker)?.currentPrice;
+      const price = held && held > 0 ? held : (await settleWithin(this.deps.trading.externalQuote(resolved).catch(() => void 0), QUOTE_WAIT_MS2))?.price;
+      const text = note?.trim().slice(0, MAX_WATCH_NOTE);
+      const item = {
+        environment,
+        ticker: resolved.ticker,
+        ...text ? { note: text } : {},
+        addedAt: now.toISOString(),
+        ...price && price > 0 ? { addedPrice: price } : {}
+      };
+      await this.deps.store.put(watchKey(environment, item.ticker), item);
+      return { item, added: true };
+    });
+  }
+  /** Change the note of an instrument on the list (an empty note clears it); one not on the list is not added. */
+  note(environment, instrument, note) {
+    return this.serial(async () => {
+      const found = await this.find(environment, instrument);
+      if (!found.item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
+      return this.writeNote(found.item, note);
+    });
+  }
+  async writeNote(existing, note) {
+    const text = note.trim().slice(0, MAX_WATCH_NOTE);
+    const { note: _old, ...rest } = existing;
+    const item = { ...rest, ...text ? { note: text } : {} };
+    await this.deps.store.put(watchKey(existing.environment, existing.ticker), item);
+    return item;
   }
   /** Take an instrument off the list: by its exact ticker first, so one Trading 212 no longer lists can still go. */
-  async remove(environment, instrument) {
-    const items = await this.list(environment);
-    const wanted = instrument.trim().toUpperCase();
-    let item = items.find((entry) => entry.ticker.toUpperCase() === wanted);
-    if (!item) {
-      const resolved = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
-      item = items.find((entry) => entry.ticker === resolved.ticker);
-    }
-    if (!item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
-    await this.deps.store.delete(watchKey(environment, item.ticker));
-    return item;
+  remove(environment, instrument) {
+    return this.serial(async () => {
+      const { item } = await this.find(environment, instrument);
+      if (!item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
+      await this.deps.store.delete(watchKey(environment, item.ticker));
+      return item;
+    });
   }
 };
 function watchLevels(ticker, orders, alerts) {
@@ -39486,6 +39520,8 @@ function watchFigures({ price, day: day2, points: points2 }) {
     changes,
     high: Math.max(...closes2),
     low: Math.min(...closes2),
+    // Closes short of a year (a recent listing, or a provider's 100 days) give the range from their first day.
+    ...rangeCovered(points2, PERIOD_DAYS["1y"]) ? {} : { rangeFrom: before[0].date },
     spark: { from: recent[0].date, closes: [...recent.map((point) => point.close), price] }
   };
 }
@@ -39543,7 +39579,12 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
         missing = history.missing;
         problem = history.problem;
       }
-      if (!price && quoted2 && quoted2.price > 0 && missing !== "unit") {
+      const unitProblem = quoted2 && !brokerPrice ? quoteUnitProblem(quoted2, item.ticker, unitReference(void 0, levels.map((level) => level.price), [])) : void 0;
+      if (unitProblem && !points2 && missing !== "unit") {
+        missing = "unit";
+        problem = unitProblem;
+      }
+      if (!price && quoted2 && quoted2.price > 0 && missing !== "unit" && !unitProblem) {
         price = quoted2.price;
         priceSource = quoted2.source;
         priceAt = quoted2.asOf;
@@ -39555,7 +39596,8 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
         priceAt = last.date;
       }
     }
-    const figures = price && points2?.length ? watchFigures({ price, day: priceSource === "close" ? priceAt : today, points: points2 }) : { changes: {} };
+    const day2 = priceSource === "broker" || !priceAt ? today : priceAt.slice(0, 10);
+    const figures = price && points2?.length ? watchFigures({ price, day: day2, points: points2 }) : { changes: {} };
     const ratio2 = price && item.addedPrice ? price / item.addedPrice : void 0;
     return {
       ticker: item.ticker,
@@ -40525,7 +40567,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_watchlist",
     {
       title: "Watchlist",
-      description: "Show the watchlist: the instruments the user follows, held or not, each with its price now (Trading 212's for a holding, the quote provider's otherwise, else the last daily close), its change over 1 day (since the last close before today), 1, 3 and 12 months, where it sits in its 12-month range, a three-month sparkline, the open orders and armed above/below price alerts on it with how far the price is from each, and the change since it was added. Renders the watchlist tab; tapping a row opens the instrument's page. Change it with manage_watchlist. Read-only.",
+      description: "Show the watchlist: the instruments the user follows, held or not, each with its price now (Trading 212's for a holding, the quote provider's otherwise, else the last daily close), its change over 1 day (since the previous close: the last one before the day the price is from), 1, 3 and 12 months, where it sits in its 12-month range (or the range of the closes there are, from rangeFrom), a three-month sparkline, the open orders and armed above/below price alerts on it with how far the price is from each, and the change since it was added. Renders the watchlist tab; tapping a row opens the instrument's page. Change it with manage_watchlist. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -40544,12 +40586,12 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "manage_watchlist",
     {
       title: "Manage Watchlist",
-      description: `Add an instrument to the watchlist, optionally with a note on why it is watched, or remove one. Adding one already on the list changes its note (an empty note clears it). An instrument is added at its price now, for "since added". At most ${MAX_WATCHLIST} per account. The watchlist is kept by TradePilot, per account; it is never sent to Trading 212 and places no orders. Set price alerts on a watched instrument with manage_price_alerts.`,
+      description: `Add an instrument to the watchlist, optionally with a note on why it is watched, change the note of one on it (action "note"; an empty note clears it), or remove one. Adding one already on the list changes its note. An instrument is added at its price now, for "since added". At most ${MAX_WATCHLIST} per account. The watchlist is kept by TradePilot, per account; it is never sent to Trading 212 and places no orders. Set price alerts on a watched instrument with manage_price_alerts.`,
       inputSchema: external_exports.object({
-        action: external_exports.enum(["add", "remove"]),
+        action: external_exports.enum(["add", "note", "remove"]),
         environment: environmentWithDefault,
         instrument: external_exports.string().min(1).describe("Ticker, symbol, ISIN or name"),
-        note: external_exports.string().max(MAX_WATCH_NOTE).optional().describe("Why it is watched, for add")
+        note: external_exports.string().max(MAX_WATCH_NOTE).optional().describe("Why it is watched, for add and note")
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       _meta: {}
@@ -40559,6 +40601,10 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
         if (action === "remove") {
           const item2 = await watchlist2.remove(environment, instrument);
           return result({ kind: "watchlist_change", environment, action, item: item2 }, `Removed ${item2.ticker} from the ${environment.toUpperCase()} watchlist.`);
+        }
+        if (action === "note") {
+          const item2 = await watchlist2.note(environment, instrument, note ?? "");
+          return result({ kind: "watchlist_change", environment, action, item: item2 }, `${item2.note ? "Updated" : "Cleared"} the note on ${item2.ticker}.`);
         }
         const { item, added } = await watchlist2.add(environment, instrument, note);
         return result(

@@ -1038,7 +1038,7 @@ export function createMcpServer(
     {
       title: "Watchlist",
       description:
-        "Show the watchlist: the instruments the user follows, held or not, each with its price now (Trading 212's for a holding, the quote provider's otherwise, else the last daily close), its change over 1 day (since the last close before today), 1, 3 and 12 months, where it sits in its 12-month range, a three-month sparkline, the open orders and armed above/below price alerts on it with how far the price is from each, and the change since it was added. Renders the watchlist tab; tapping a row opens the instrument's page. Change it with manage_watchlist. Read-only.",
+        "Show the watchlist: the instruments the user follows, held or not, each with its price now (Trading 212's for a holding, the quote provider's otherwise, else the last daily close), its change over 1 day (since the previous close: the last one before the day the price is from), 1, 3 and 12 months, where it sits in its 12-month range (or the range of the closes there are, from rangeFrom), a three-month sparkline, the open orders and armed above/below price alerts on it with how far the price is from each, and the change since it was added. Renders the watchlist tab; tapping a row opens the instrument's page. Change it with manage_watchlist. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -1059,12 +1059,12 @@ export function createMcpServer(
     "manage_watchlist",
     {
       title: "Manage Watchlist",
-      description: `Add an instrument to the watchlist, optionally with a note on why it is watched, or remove one. Adding one already on the list changes its note (an empty note clears it). An instrument is added at its price now, for "since added". At most ${MAX_WATCHLIST} per account. The watchlist is kept by TradePilot, per account; it is never sent to Trading 212 and places no orders. Set price alerts on a watched instrument with manage_price_alerts.`,
+      description: `Add an instrument to the watchlist, optionally with a note on why it is watched, change the note of one on it (action "note"; an empty note clears it), or remove one. Adding one already on the list changes its note. An instrument is added at its price now, for "since added". At most ${MAX_WATCHLIST} per account. The watchlist is kept by TradePilot, per account; it is never sent to Trading 212 and places no orders. Set price alerts on a watched instrument with manage_price_alerts.`,
       inputSchema: z.object({
-        action: z.enum(["add", "remove"]),
+        action: z.enum(["add", "note", "remove"]),
         environment: environmentWithDefault,
         instrument: z.string().min(1).describe("Ticker, symbol, ISIN or name"),
-        note: z.string().max(MAX_WATCH_NOTE).optional().describe("Why it is watched, for add"),
+        note: z.string().max(MAX_WATCH_NOTE).optional().describe("Why it is watched, for add and note"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       _meta: {},
@@ -1074,6 +1074,10 @@ export function createMcpServer(
         if (action === "remove") {
           const item = await watchlist.remove(environment, instrument);
           return result({ kind: "watchlist_change", environment, action, item }, `Removed ${item.ticker} from the ${environment.toUpperCase()} watchlist.`);
+        }
+        if (action === "note") {
+          const item = await watchlist.note(environment, instrument, note ?? "");
+          return result({ kind: "watchlist_change", environment, action, item }, `${item.note ? "Updated" : "Cleared"} the note on ${item.ticker}.`);
         }
         const { item, added } = await watchlist.add(environment, instrument, note);
         return result({ kind: "watchlist_change", environment, action, item, added },

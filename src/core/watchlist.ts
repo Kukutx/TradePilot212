@@ -9,7 +9,7 @@ import { MAX_WATCH_NOTE, MAX_WATCHLIST, type WatchItem, type WatchLevel, type Wa
 import type { PriceAlerts } from "./alerts.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
-import { settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
+import { quoteUnitProblem, settleWithin, unitReference, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 
@@ -30,7 +30,25 @@ const round = (value: number) => Math.round(value * 1e6) / 1e6;
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
 export class Watchlist {
+  /** Changes run one at a time, so two adds at once cannot both pass the cap. */
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading: Pick<TradingService, "instruments" | "positions" | "externalQuote"> }) {}
+
+  private serial<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(work, work);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** The entry for an instrument: by its exact ticker first, so one Trading 212 no longer lists still matches. */
+  private async find(environment: TradingEnvironment, instrument: string): Promise<{ ticker: string; item?: WatchItem }> {
+    const wanted = instrument.trim().toUpperCase();
+    const item = (await this.list(environment)).find((entry) => entry.ticker.toUpperCase() === wanted);
+    if (item) return { ticker: item.ticker, item };
+    const { ticker } = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
+    return { ticker, item: await this.get(environment, ticker) };
+  }
 
   /** In the order they were added. */
   async list(environment: TradingEnvironment): Promise<WatchItem[]> {
@@ -49,45 +67,54 @@ export class Watchlist {
    */
   async add(environment: TradingEnvironment, instrument: string, note?: string, now = new Date()): Promise<{ item: WatchItem; added: boolean }> {
     requireCredentials(this.deps.config, environment);
-    const resolved = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
-    const key = watchKey(environment, resolved.ticker);
-    const text = note?.trim().slice(0, MAX_WATCH_NOTE);
-    const existing = await this.deps.store.get<WatchItem>(key);
-    if (existing) {
-      if (note === undefined) return { item: existing, added: false };
-      const { note: _old, ...rest } = existing;
-      const item: WatchItem = { ...rest, ...(text ? { note: text } : {}) };
-      await this.deps.store.put(key, item);
-      return { item, added: false };
-    }
-    if ((await this.list(environment)).length >= MAX_WATCHLIST) fail("INVALID_INPUT", `A watchlist keeps at most ${MAX_WATCHLIST} instruments; remove one first`, { field: "instrument" });
-    // The price it is added at: Trading 212's for a holding, else the quote provider's when it answers in time.
-    const positions = await this.deps.trading.positions(environment).catch((): Position[] => []);
-    const held = positions.find((position) => position.instrument?.ticker === resolved.ticker)?.currentPrice;
-    const price = held && held > 0 ? held : (await settleWithin(this.deps.trading.externalQuote(resolved).catch(() => undefined), QUOTE_WAIT_MS))?.price;
-    const item: WatchItem = {
-      environment,
-      ticker: resolved.ticker,
-      ...(text ? { note: text } : {}),
-      addedAt: now.toISOString(),
-      ...(price && price > 0 ? { addedPrice: price } : {}),
-    };
-    await this.deps.store.put(key, item);
-    return { item, added: true };
+    return this.serial(async () => {
+      const found = await this.find(environment, instrument);
+      if (found.item) return { item: note === undefined ? found.item : await this.writeNote(found.item, note), added: false };
+      const instruments = await this.deps.trading.instruments(environment);
+      const resolved = instruments.find((entry) => entry.ticker === found.ticker) ?? resolveInstrumentFromList(instruments, found.ticker);
+      if ((await this.list(environment)).length >= MAX_WATCHLIST) fail("INVALID_INPUT", `A watchlist keeps at most ${MAX_WATCHLIST} instruments; remove one first`, { field: "instrument" });
+      // The price it is added at: Trading 212's for a holding, else the quote provider's when it answers in time.
+      const positions = await this.deps.trading.positions(environment).catch((): Position[] => []);
+      const held = positions.find((position) => position.instrument?.ticker === resolved.ticker)?.currentPrice;
+      const price = held && held > 0 ? held : (await settleWithin(this.deps.trading.externalQuote(resolved).catch(() => undefined), QUOTE_WAIT_MS))?.price;
+      const text = note?.trim().slice(0, MAX_WATCH_NOTE);
+      const item: WatchItem = {
+        environment,
+        ticker: resolved.ticker,
+        ...(text ? { note: text } : {}),
+        addedAt: now.toISOString(),
+        ...(price && price > 0 ? { addedPrice: price } : {}),
+      };
+      await this.deps.store.put(watchKey(environment, item.ticker), item);
+      return { item, added: true };
+    });
+  }
+
+  /** Change the note of an instrument on the list (an empty note clears it); one not on the list is not added. */
+  note(environment: TradingEnvironment, instrument: string, note: string): Promise<WatchItem> {
+    return this.serial(async () => {
+      const found = await this.find(environment, instrument);
+      if (!found.item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
+      return this.writeNote(found.item, note);
+    });
+  }
+
+  private async writeNote(existing: WatchItem, note: string): Promise<WatchItem> {
+    const text = note.trim().slice(0, MAX_WATCH_NOTE);
+    const { note: _old, ...rest } = existing;
+    const item: WatchItem = { ...rest, ...(text ? { note: text } : {}) };
+    await this.deps.store.put(watchKey(existing.environment, existing.ticker), item);
+    return item;
   }
 
   /** Take an instrument off the list: by its exact ticker first, so one Trading 212 no longer lists can still go. */
-  async remove(environment: TradingEnvironment, instrument: string): Promise<WatchItem> {
-    const items = await this.list(environment);
-    const wanted = instrument.trim().toUpperCase();
-    let item = items.find((entry) => entry.ticker.toUpperCase() === wanted);
-    if (!item) {
-      const resolved = resolveInstrumentFromList(await this.deps.trading.instruments(environment), instrument);
-      item = items.find((entry) => entry.ticker === resolved.ticker);
-    }
-    if (!item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
-    await this.deps.store.delete(watchKey(environment, item.ticker));
-    return item;
+  remove(environment: TradingEnvironment, instrument: string): Promise<WatchItem> {
+    return this.serial(async () => {
+      const { item } = await this.find(environment, instrument);
+      if (!item) fail("INVALID_INPUT", `${instrument} is not on the watchlist`, { field: "instrument" });
+      await this.deps.store.delete(watchKey(environment, item.ticker));
+      return item;
+    });
   }
 }
 
@@ -117,7 +144,7 @@ export interface WatchCloses {
 }
 
 /** The changes, range and sparkline of a row, from its closes and its price now. */
-export function watchFigures({ price, day, points }: WatchCloses): Pick<WatchRow, "changes" | "high" | "low" | "spark"> {
+export function watchFigures({ price, day, points }: WatchCloses): Pick<WatchRow, "changes" | "high" | "low" | "rangeFrom" | "spark"> {
   const changes: Partial<Record<WatchPeriod, number>> = {};
   // The closes before the price's own day; the price stands in for that day's close.
   const before = points.filter((point) => point.date < day);
@@ -135,6 +162,8 @@ export function watchFigures({ price, day, points }: WatchCloses): Pick<WatchRow
     changes,
     high: Math.max(...closes),
     low: Math.min(...closes),
+    // Closes short of a year (a recent listing, or a provider's 100 days) give the range from their first day.
+    ...(rangeCovered(points, PERIOD_DAYS["1y"]) ? {} : { rangeFrom: before[0]!.date }),
     spark: { from: recent[0]!.date, closes: [...recent.map((point) => point.close), price] },
   };
 }
@@ -203,12 +232,17 @@ export async function watchlistView(deps: WatchlistDeps, environment: TradingEnv
       const [quoted, history] = await Promise.all([quote, read]);
       if (history && "prices" in history) points = history.prices.points;
       else if (history) { missing = history.missing; problem = history.problem; }
-      // Closes in another unit come with a quote in it too, from the same provider.
-      if (!price && quoted && quoted.price > 0 && missing !== "unit") { price = quoted.price; priceSource = quoted.source; priceAt = quoted.asOf; }
+      // The quote comes from the closes' mapping: in another unit when they are, and checked the same way when they
+      // did not come (late, or none on the plan).
+      const unitProblem = quoted && !brokerPrice ? quoteUnitProblem(quoted, item.ticker, unitReference(undefined, levels.map((level) => level.price), [])) : undefined;
+      if (unitProblem && !points && missing !== "unit") { missing = "unit"; problem = unitProblem; }
+      if (!price && quoted && quoted.price > 0 && missing !== "unit" && !unitProblem) { price = quoted.price; priceSource = quoted.source; priceAt = quoted.asOf; }
       const last = points?.[points.length - 1];
       if (!price && last) { price = last.close; priceSource = "close"; priceAt = last.date; }
     }
-    const figures = price && points?.length ? watchFigures({ price, day: priceSource === "close" ? priceAt! : today, points }) : { changes: {} };
+    // The day the price is from: a quote can be the last session's (a weekend, or before the market opens).
+    const day = priceSource === "broker" || !priceAt ? today : priceAt.slice(0, 10);
+    const figures = price && points?.length ? watchFigures({ price, day, points }) : { changes: {} };
     // A price added in another unit (a fund quoted in pounds, held in pence) gives no "since added".
     const ratio = price && item.addedPrice ? price / item.addedPrice : undefined;
     return {

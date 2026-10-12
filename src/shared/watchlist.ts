@@ -10,7 +10,7 @@ export const MAX_WATCHLIST = 50;
 /** The longest a watchlist note keeps. */
 export const MAX_WATCH_NOTE = 200;
 
-/** The periods a row gives the change over: since the last close before today, and over 1, 3 and 12 months. */
+/** The periods a row gives the change over: since the previous close, and over 1, 3 and 12 months. */
 export const WATCH_PERIODS = ["1d", "1m", "3m", "1y"] as const;
 export type WatchPeriod = typeof WATCH_PERIODS[number];
 
@@ -53,11 +53,13 @@ export interface WatchRow {
   priceAt?: string;
   /** From the price when added to the price now. */
   sinceAdded?: number;
-  /** The change to the price now over each period the closes cover in full (1d: since the last close before today). */
+  /** The change to the price now over each period the closes cover in full (1d: since the last close before the day the price is from). */
   changes: Partial<Record<WatchPeriod, number>>;
   /** The highest and lowest of the closes (up to a year) and the price now. */
   high?: number;
   low?: number;
+  /** The first close's date, when the closes cover less than a year: the range is from then, not 12 months. */
+  rangeFrom?: string;
   /** The closes of the last three months, oldest first, ending at the price now; `from` is the first one's date. */
   spark?: { from: string; closes: number[] };
   /** Open orders and armed alerts, nearest the price first. */
