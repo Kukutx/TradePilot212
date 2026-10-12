@@ -474,6 +474,40 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(writes).toEqual([]);
   });
 
+  it("keeps a rate you gave when the quote source has none, but not one it gave", async () => {
+    let rate: number | undefined;
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "nesn.sw", quote: async () => ({ ticker: "NESNz_EQ", symbol: "nesn.sw", price: 100, asOf: new Date().toISOString(), source: "stooq" as const }),
+      fxRate: async (from, to) => rate === undefined ? undefined : ({ from, to, rate, asOf: new Date().toISOString(), source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
+    const risk = { mode: "risk", amount: 30, stopLossPrice: 90 } as const;
+    // The source has no franc rate, so the caller gives one: the review goes on with it.
+    const given = await service.resolveOrderIntent({ environment: "demo", instrument: "NESNz_EQ", side: "buy", type: "market", fxRate: 0.94, fxRateAt: new Date().toISOString(), sizing: risk });
+    expect(given.draft.fxRate).toBe(0.94);
+    expect(given.draft.fxRateQuoted).toBeUndefined();
+    expect((await service.prepareOrder({ ...given.draft })).draft.fxRate).toBe(0.94);
+    // A rate the source gave is marked, and refused once the source has none.
+    rate = 0.94;
+    const quoted = await service.resolveOrderIntent({ environment: "demo", instrument: "NESNz_EQ", side: "buy", type: "market", sizing: risk });
+    expect(quoted.draft).toMatchObject({ fxRate: 0.94, fxRateQuoted: true });
+    rate = undefined;
+    await expect(service.prepareOrder({ ...quoted.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "fx_rate" } });
+  });
+
+  it("refuses a risk-sized buy with no price at all, and leaves the budget out of a basket", async () => {
+    // No quote source, no holding and no cap on the order's value: only the price on the order values it.
+    const service = new TradingService({ config: { ...config(), maxOrderNotional: 0 }, store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }) });
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", referencePrice: 216, referencePriceAt: new Date().toISOString(), sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(sized.draft.riskBudget).toBeDefined();
+    const bare = { ...sized.draft };
+    delete bare.referencePrice;
+    delete bare.referencePriceAt;
+    await expect(service.prepareOrder(bare)).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "price", ticker: "MSFT_US_EQ" } });
+    // In a basket it is an ordinary order: the basket review neither shows nor checks the budget.
+    const basket = await service.prepareBasket({ environment: "demo", purpose: "custom", title: "x", drafts: [{ ...sized.draft }] });
+    expect(basket.legs[0]!.draft.riskBudget).toBeUndefined();
+    expect(basket.legs[0]!.notices.map((notice) => notice.code)).not.toContain("RISK_OVER_BUDGET");
+  });
+
   it("refuses a risk-sized Market or Stop buy it can't price at the moment, and keeps a Stop's reference a market price", async () => {
     const writes: string[] = [];
     let price: number | undefined = 216;

@@ -89,6 +89,7 @@ const orderDraftSchema = z.object({
   referencePriceAt: z.string().datetime().optional(),
   fxRate: fxRateSchema,
   fxRateAt: z.string().datetime().optional(),
+  fxRateQuoted: z.boolean().optional().describe("Set by TradePilot when fxRate came from the quote source; pass it back as returned."),
   riskBudget: z.object({ stopLossPrice: z.number().positive(), budget: z.number().positive() }).optional(),
 });
 
@@ -1065,7 +1066,8 @@ export function createMcpServer(
         inputSchema: z.object({
           environment: environmentWithDefault,
           title: z.string().min(1).max(80).default("Order basket"),
-          orders: z.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS),
+          // A basket checks its orders as ordinary ones, without a risk budget.
+          orders: z.array(orderDraftSchema.omit({ environment: true, riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -1319,7 +1321,7 @@ export function createMcpServer(
           environment: environmentEnum,
           purpose: z.enum(["rebalance", "protective", "dca", "custom"]),
           title: z.string().min(1).max(80),
-          drafts: z.array(orderDraftSchema).min(1).max(MAX_BASKET_LEGS),
+          drafts: z.array(orderDraftSchema.omit({ riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
           planId: z.string().optional(),
           notes: z.array(z.string().max(500)).max(20).optional(),
         }),

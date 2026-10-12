@@ -344,6 +344,13 @@ export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: nu
 }
 
 /** The risk notices a preview showed, kept with its confirmation so the send can tell what is new. */
+/** A copy of the draft without its risk budget. */
+function withoutRiskBudget(draft: OrderDraft): OrderDraft {
+  const copy = { ...draft };
+  delete copy.riskBudget;
+  return copy;
+}
+
 function riskShown(notices: OrderNotice[]): { risk?: RiskShown } {
   const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
   const loss = typeof over?.details?.loss === "number" ? over.details.loss : undefined;
@@ -814,7 +821,8 @@ export class TradingService {
     }
 
     // A provider rate travels with the draft, so the confirmation values it the same way.
-    if (givenRate === undefined && external) { givenRate = external.rate; fxRateAt ??= external.asOf; }
+    const rateQuoted = givenRate === undefined && !!external;
+    if (rateQuoted) { givenRate = external!.rate; fxRateAt ??= external!.asOf; }
     const draft: OrderDraft = {
       environment: intent.environment,
       ticker: instrument.ticker,
@@ -829,6 +837,7 @@ export class TradingService {
       ...(referencePriceAt ? { referencePriceAt } : {}),
       ...(givenRate === undefined ? {} : { fxRate: givenRate }),
       ...(fxRateAt ? { fxRateAt } : {}),
+      ...(rateQuoted ? { fxRateQuoted: true } : {}),
       // The review checks the loss at the stop again, at the prices of the moment.
       ...(sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round(risk.budget, 2) } } : {}),
     };
@@ -880,8 +889,9 @@ export class TradingService {
       }
     }
     // A risk-sized buy also asks for the exchange rate of the moment instead of the one it was sized at, so an
-    // adverse move in the rate counts toward the loss at the stop. When the quote source has exchange rates but
-    // none just now, it is refused; with none, or a rate your holdings imply, the review goes on as before.
+    // adverse move in the rate counts toward the loss at the stop. When its rate came from the quote source and
+    // the source has none just now, it is refused; with a rate you gave, one your holdings imply, or a source that
+    // never has rates, the review goes on with the draft's rate as before.
     const accountCode = (account.currency ?? "").toUpperCase();
     const instrumentCode = instrument.currencyCode.toUpperCase();
     const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode], lookup);
@@ -889,10 +899,14 @@ export class TradingService {
     if (fresh) {
       draft.fxRate = fresh.rate;
       draft.fxRateAt = fresh.asOf;
-    } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      draft.fxRateQuoted = true;
+    } else if (risky && draft.fxRate && draft.fxRateQuoted && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
     const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    // With no price at all (no holding, no quote, and no price on the order), neither its loss nor its cost is known.
+    if (risky && checked.estimatedNotional === undefined)
+      fail("RISK_CHECK_UNAVAILABLE", `No price is known for ${instrument.ticker} (you do not hold it, the quote source has none, and the order gives none), so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; give a reference price.`, { missing: "price", ticker: instrument.ticker });
     // Its loss at the stop is in the account currency: with no currency or no rate to convert it, it can't be checked.
     if (risky && !accountCode)
       fail("RISK_CHECK_UNAVAILABLE", "The account currency is unknown just now, so the loss at the stop-loss of this risk-sized buy can't be checked against its budget. Nothing was sent.", { missing: "account_currency" });
@@ -1309,7 +1323,9 @@ export class TradingService {
   }
 
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
-  async prepareBasket(request: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
+  async prepareBasket(raw: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
+    // A basket checks its orders as ordinary ones: a risk-sized buy's budget is checked only when it is reviewed on its own.
+    const request = { ...raw, drafts: raw.drafts.map(withoutRiskBudget) };
     requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);

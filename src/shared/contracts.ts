@@ -247,6 +247,11 @@ export interface OrderDraft {
   fxRate?: number;
   fxRateAt?: string;
   /**
+   * True when `fxRate` came from the quote source rather than from you. A risk-sized buy whose rate came from
+   * there is refused when the source has no rate at its review, rather than checked at the old one.
+   */
+  fxRateQuoted?: boolean;
+  /**
    * What a risk-sized buy may lose at its stop-loss: the stop-loss price (instrument currency) and the
    * budget (account currency). The review checks the loss again at the prices of the moment.
    */

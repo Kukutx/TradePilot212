@@ -608,6 +608,7 @@ export const zhCN: Record<MessageKey, string> = {
   errorRiskChangedStop: "复核之后价格变了，已在止损价 {stop} 或以下。订单没有发出，请重新复核。",
   errorRiskRateUnavailable: "行情源暂时没有 {from} 兑 {to} 的汇率，无法核对到止损价的亏损。订单没有发出，请稍后再试。",
   errorRiskCurrencyUnavailable: "Trading 212 暂时没有返回账户货币，无法按预算核对到止损价的亏损。订单没有发出，请稍后再试。",
+  errorRiskPriceUnavailable: "这只标的没有可用的价格：你没有持仓，行情源没有报价，订单里也没有给出价格。无法核对到止损价的亏损，订单没有发出；请填写参考价。",
   errorRiskQuoteUnavailable: "行情源暂时没有这只标的的价格，无法核对到止损价的亏损。订单没有发出，请稍后再试。",
   noticeFarAbove: "订单价格比最新价 {last} 高 {percent}。",
   noticeFarBelow: "订单价格比最新价 {last} 低 {percent}。",

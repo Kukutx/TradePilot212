@@ -35508,6 +35508,11 @@ function riskNotices(draft, current) {
     details: { loss: round3(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency }
   }];
 }
+function withoutRiskBudget(draft) {
+  const copy = { ...draft };
+  delete copy.riskBudget;
+  return copy;
+}
 function riskShown(notices) {
   const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
   const loss = typeof over?.details?.loss === "number" ? over.details.loss : void 0;
@@ -35903,7 +35908,8 @@ var TradingService = class {
       estimatedQuoteNotional = pricingReference * quantity;
       note = !conversion ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${round3(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
     }
-    if (givenRate === void 0 && external) {
+    const rateQuoted = givenRate === void 0 && !!external;
+    if (rateQuoted) {
       givenRate = external.rate;
       fxRateAt ??= external.asOf;
     }
@@ -35921,6 +35927,7 @@ var TradingService = class {
       ...referencePriceAt ? { referencePriceAt } : {},
       ...givenRate === void 0 ? {} : { fxRate: givenRate },
       ...fxRateAt ? { fxRateAt } : {},
+      ...rateQuoted ? { fxRateQuoted: true } : {},
       // The review checks the loss at the stop again, at the prices of the moment.
       ...sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round3(risk.budget, 2) } } : {}
     };
@@ -35967,10 +35974,13 @@ var TradingService = class {
     if (fresh) {
       draft.fxRate = fresh.rate;
       draft.fxRateAt = fresh.asOf;
-    } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      draft.fxRateQuoted = true;
+    } else if (risky && draft.fxRate && draft.fxRateQuoted && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
     const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    if (risky && checked.estimatedNotional === void 0)
+      fail("RISK_CHECK_UNAVAILABLE", `No price is known for ${instrument.ticker} (you do not hold it, the quote source has none, and the order gives none), so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; give a reference price.`, { missing: "price", ticker: instrument.ticker });
     if (risky && !accountCode)
       fail("RISK_CHECK_UNAVAILABLE", "The account currency is unknown just now, so the loss at the stop-loss of this risk-sized buy can't be checked against its budget. Nothing was sent.", { missing: "account_currency" });
     if (risky && checked.estimatedNotional !== void 0 && checked.accountNotional === void 0)
@@ -36352,7 +36362,8 @@ var TradingService = class {
     return markets;
   }
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
-  async prepareBasket(request, options = {}) {
+  async prepareBasket(raw, options = {}) {
+    const request = { ...raw, drafts: raw.drafts.map(withoutRiskBudget) };
     requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
@@ -38732,6 +38743,7 @@ var orderDraftSchema = external_exports.object({
   referencePriceAt: external_exports.string().datetime().optional(),
   fxRate: fxRateSchema,
   fxRateAt: external_exports.string().datetime().optional(),
+  fxRateQuoted: external_exports.boolean().optional().describe("Set by TradePilot when fxRate came from the quote source; pass it back as returned."),
   riskBudget: external_exports.object({ stopLossPrice: external_exports.number().positive(), budget: external_exports.number().positive() }).optional()
 });
 var orderSizingSchema = external_exports.discriminatedUnion("mode", [
@@ -39646,7 +39658,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           title: external_exports.string().min(1).max(80).default("Order basket"),
-          orders: external_exports.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS)
+          // A basket checks its orders as ordinary ones, without a risk budget.
+          orders: external_exports.array(orderDraftSchema.omit({ environment: true, riskBudget: true })).min(1).max(MAX_BASKET_LEGS)
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -39886,7 +39899,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
           environment: environmentEnum,
           purpose: external_exports.enum(["rebalance", "protective", "dca", "custom"]),
           title: external_exports.string().min(1).max(80),
-          drafts: external_exports.array(orderDraftSchema).min(1).max(MAX_BASKET_LEGS),
+          drafts: external_exports.array(orderDraftSchema.omit({ riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
           planId: external_exports.string().optional(),
           notes: external_exports.array(external_exports.string().max(500)).max(20).optional()
         }),

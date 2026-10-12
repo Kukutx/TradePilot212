@@ -104,6 +104,7 @@ describe("structured server codes", () => {
     expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "quote", ticker: "MSFT_US_EQ" } }, zh, "zh-CN"))
       .toBe("行情源暂时没有这只标的的价格，无法核对到止损价的亏损。订单没有发出，请稍后再试。");
     expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "account_currency" } }, en, "en")).toMatch(/^Trading 212 did not give the account currency just now/);
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "price", ticker: "MSFT_US_EQ" } }, zh, "zh-CN")).toMatch(/请填写参考价。$/);
   });
 
   it("words the new order notices from their values", () => {
