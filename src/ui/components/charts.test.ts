@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decimalsOf, niceTicks } from "./charts";
+import { axisMoney, decimalsOf, niceTicks } from "./charts";
 
 describe("line chart gridlines", () => {
   it("sits at round steps inside the range", () => {
@@ -29,6 +29,24 @@ describe("line chart gridlines", () => {
 
 describe("gridline decimals", () => {
   it("writes a step with the decimals it needs", () => {
-    expect([10, 5, 1, 2.5, 0.5, 0.2, 0.05, 0.001].map(decimalsOf)).toEqual([0, 0, 0, 1, 1, 1, 2, 2]);
+    expect([10, 5, 1, 2.5, 0.5, 0.2, 0.05, 0.025, 0.001, 0.00025].map(decimalsOf)).toEqual([0, 0, 0, 1, 1, 1, 2, 3, 3, 4]);
+  });
+});
+
+describe("money on the value axis", () => {
+  const labels = (min: number, max: number, locale: "en" | "zh-CN") => {
+    const { ticks, step } = niceTicks(min, max);
+    return ticks.map((value) => axisMoney(value, step, "EUR", locale));
+  };
+
+  it("writes round values short, without trailing zeros", () => {
+    expect(labels(13_480, 16_920, "en")).toEqual(["€14K", "€15K", "€16K"]);
+    expect(labels(1_002_000, 1_091_000, "en")).toEqual(["€1.025M", "€1.05M", "€1.075M"]);
+  });
+
+  it("gives a short value the decimals its step needs, and writes it in full when three are not enough", () => {
+    expect(labels(5_000, 5_090, "en")).toEqual(["€5K", "€5.025K", "€5.05K", "€5.075K"]);
+    expect(labels(14_000, 14_900, "zh-CN")).toEqual(["€1.4万", "€1.425万", "€1.45万", "€1.475万"]);
+    expect(labels(10_000, 10_000.01, "en")).toEqual(["€10,000", "€10,000.005", "€10,000.01"]);
   });
 });

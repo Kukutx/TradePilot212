@@ -163,6 +163,18 @@ describe("time-weighted return", () => {
     expect(result?.netFlows).toBe(-500);
   });
 
+  it("counts only the part of a stretch anything was invested in", () => {
+    // An empty account funded an hour before the reading: the 10 gained is on the 1,000 paid in, not on an hour's share of it.
+    const funded = timeWeightedReturn([reading("2026-09-01", 0), reading("2026-09-02", 1010)], [{ at: at("2026-09-02", "11:00:00.000"), amount: 1000 }]);
+    expect(funded?.return).toBeCloseTo(0.01, 6);
+    // Emptied an hour after the first reading: the 3 gained before it was taken out is on the 1,000 there.
+    const emptied = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 0)], [{ at: at("2026-09-01", "13:00:00.000"), amount: -1003 }]);
+    expect(emptied?.return).toBeCloseTo(0.003, 6);
+    // A few euros left over count as empty next to the money moved.
+    const leftOver = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 5)], [{ at: at("2026-09-01", "13:00:00.000"), amount: -998 }]);
+    expect(leftOver?.return).toBeCloseTo(0.003, 6);
+  });
+
   it("starts measuring once money is in and gives up on a gain from nothing", () => {
     const funded = timeWeightedReturn([reading("2026-09-01", 0), reading("2026-09-02", 1000), reading("2026-09-03", 1100)], [{ at: at("2026-09-02", "12:00:00.000"), amount: 1000 }]);
     expect(funded?.series.map((point) => point.return)).toEqual([0, 0, 0.1]);

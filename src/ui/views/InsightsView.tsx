@@ -3,12 +3,23 @@ import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSum
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
-import { BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels } from "../components/charts";
+import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels } from "../components/charts";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
+
+/** The period a performance window was read for, from its dates, to mark it on the period switch. */
+export function periodOf(range: { from?: string; to: string }): InsightPeriod {
+  if (!range.from) return "all";
+  const from = new Date(range.from);
+  // The server's year-to-date window starts at the very start of the UTC year; a 1m or 3m one starts at the time of asking.
+  if (from.getTime() === Date.UTC(from.getUTCFullYear(), 0, 1)) return "ytd";
+  // The server's 1m and 3m windows are 30 and 91 days long; any other bounded window shows as 12 months.
+  const days = (Date.parse(range.to) - from.getTime()) / 86_400_000;
+  return Math.abs(days - 30) < 1 ? "1m" : Math.abs(days - 91) < 1 ? "3m" : "1y";
+}
 
 const COST_KEYS: Record<string, MessageKey> = {
   CURRENCY_CONVERSION_FEE: "costCurrencyConversionFee",
@@ -189,11 +200,7 @@ function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: V
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const change = last.totalValue - first.totalValue;
-  const compact = new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", maximumFractionDigits: 2 });
-  const largest = Math.max(...points.map((point) => Math.abs(point.totalValue)));
-  // "€14.1K" or "1.41万" is exact to two digits after the leading ones; a finer step is written in full.
-  const valueAxis = (value: number, step: number) => step >= 10 ** (Math.floor(Math.log10(largest || 1)) - 2) ? compact.format(value)
-    : new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: decimalsOf(step) }).format(value);
+  const valueAxis = (value: number, step: number) => axisMoney(value, step, currency, locale);
   const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
   const asReturn = returns && show === "return";
   // As many decimals as the gridline step needs: "+10%" a step of 10%, "+7.5%" a step of 2.5%.

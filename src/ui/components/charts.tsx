@@ -2,6 +2,7 @@
 // a native tooltip on every mark, and a table fallback so nothing relies on color alone.
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { localeTag, type SupportedLocale } from "../i18n";
 
 export interface BarDatum { key: string; label: string; value: number; display: string; sublabel?: string; title?: string }
 
@@ -115,10 +116,22 @@ export function niceTicks(min: number, max: number): { ticks: number[]; step: nu
   return { ticks: best!.ticks, step: best!.step };
 }
 
-/** The decimals a gridline step is written with: 0 for 10 or 5, 1 for 2.5 or 0.5, at most 2. */
+/** The decimals a gridline step is written with: 0 for 10 or 5, 1 for 2.5 or 0.5, 3 for 0.025, at most 4. */
 export function decimalsOf(step: number): number {
-  for (let digits = 0; digits < 2; digits++) if (Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) < 1e-6) return digits;
-  return 2;
+  for (let digits = 0; digits < 4; digits++) if (Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) < 1e-6) return digits;
+  return 4;
+}
+
+/**
+ * A gridline value in the account currency: short ("€14K", "€1.025M", "1.425万") when that is exact, else in
+ * full with the decimals the step needs. Whether the next gridline is exact too decides it, so a step the
+ * short form can't show writes every gridline in full rather than some short and some long.
+ */
+export function axisMoney(value: number, step: number, currency: string, locale: SupportedLocale): string {
+  const short = (digits: number) => new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", minimumFractionDigits: 0, maximumFractionDigits: digits });
+  const exact = (amount: number) => short(3).format(amount) === short(8).format(amount);
+  if (exact(value) && exact(value + step)) return short(3).format(value);
+  return new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: decimalsOf(step) }).format(value);
 }
 
 /**

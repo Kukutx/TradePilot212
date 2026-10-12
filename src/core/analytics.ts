@@ -178,14 +178,19 @@ export function moneyWeightedReturn(flows: Array<{ at: number; amount: number }>
 
 /** Below this much in the account currency, a stretch has nothing invested to measure a return on. */
 const MIN_INVESTED = 1;
+/** An account holding less than this share of the money moved in or out in a stretch counts as empty. */
+const EMPTY_SHARE = 0.01;
 
 /**
  * Time-weighted return over recorded account values. Each stretch between two readings is measured by the
  * Modified Dietz method: the change in value less the deposits and withdrawals in it, over the starting
  * value plus each of those flows weighted by the share of the stretch it was invested for. The stretches are
  * chained, so money paid in or taken out moves the value but not the return. Deposits are positive flows
- * and withdrawals negative. Undefined with fewer than two readings, or when a stretch began with nothing
- * invested yet still gained or lost.
+ * and withdrawals negative. An empty account earns nothing, so a stretch that starts empty is measured from its
+ * first deposit, and one that ends empty up to its last withdrawal: a deposit into an empty account an hour
+ * before a reading then earns what it gained in that hour, not that gain spread over the hour's share of the
+ * day. Undefined with fewer than two readings, or when a stretch began with nothing invested yet still gained
+ * or lost.
  */
 export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: number; amount: number }>): TimeWeightedReturn | undefined {
   const readings = points
@@ -197,10 +202,17 @@ export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: numb
   let growth = 1, netFlows = 0;
   for (let index = 1; index < readings.length; index++) {
     const start = readings[index - 1]!, end = readings[index]!;
-    const length = end.at - start.at;
     const inside = flows.filter((flow) => Number.isFinite(flow.amount) && flow.at > start.at && flow.at <= end.at);
     const total = inside.reduce((sum, flow) => sum + flow.amount, 0);
-    const weighted = inside.reduce((sum, flow) => sum + flow.amount * (length > 0 ? (end.at - flow.at) / length : 0), 0);
+    // The part of the stretch anything was invested in: from the first deposit into an empty account, up to the
+    // withdrawal that emptied it.
+    const empty = (value: number) => value < Math.max(MIN_INVESTED, EMPTY_SHARE * inside.reduce((sum, flow) => sum + Math.abs(flow.amount), 0));
+    const times = inside.map((flow) => flow.at);
+    const from = empty(start.point.totalValue) && times.length ? Math.min(...times) : start.at;
+    const to = empty(end.point.totalValue) && times.length ? Math.max(...times) : end.at;
+    const length = to - from;
+    const share = (at: number) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
+    const weighted = inside.reduce((sum, flow) => sum + flow.amount * share(flow.at), 0);
     const invested = start.point.totalValue + weighted;
     const gain = end.point.totalValue - start.point.totalValue - total;
     netFlows += total;

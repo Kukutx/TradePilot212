@@ -36823,6 +36823,7 @@ function moneyWeightedReturn(flows) {
   return (low + high) / 2;
 }
 var MIN_INVESTED = 1;
+var EMPTY_SHARE = 0.01;
 function timeWeightedReturn(points2, flows) {
   const readings = points2.map((point) => ({ point, at: Date.parse(point.at) })).filter((reading) => Number.isFinite(reading.at) && Number.isFinite(reading.point.totalValue)).sort((a, b) => a.at - b.at);
   if (readings.length < 2) return void 0;
@@ -36830,10 +36831,15 @@ function timeWeightedReturn(points2, flows) {
   let growth = 1, netFlows = 0;
   for (let index = 1; index < readings.length; index++) {
     const start = readings[index - 1], end = readings[index];
-    const length = end.at - start.at;
     const inside = flows.filter((flow) => Number.isFinite(flow.amount) && flow.at > start.at && flow.at <= end.at);
     const total = inside.reduce((sum, flow) => sum + flow.amount, 0);
-    const weighted = inside.reduce((sum, flow) => sum + flow.amount * (length > 0 ? (end.at - flow.at) / length : 0), 0);
+    const empty = (value) => value < Math.max(MIN_INVESTED, EMPTY_SHARE * inside.reduce((sum, flow) => sum + Math.abs(flow.amount), 0));
+    const times = inside.map((flow) => flow.at);
+    const from = empty(start.point.totalValue) && times.length ? Math.min(...times) : start.at;
+    const to = empty(end.point.totalValue) && times.length ? Math.max(...times) : end.at;
+    const length = to - from;
+    const share3 = (at) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
+    const weighted = inside.reduce((sum, flow) => sum + flow.amount * share3(flow.at), 0);
     const invested = start.point.totalValue + weighted;
     const gain = end.point.totalValue - start.point.totalValue - total;
     netFlows += total;
