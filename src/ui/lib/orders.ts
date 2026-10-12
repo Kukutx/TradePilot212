@@ -88,10 +88,10 @@ export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | unde
   // Risk sizing is for buys; a draft switched to a sell no longer has a loss at the stop to show.
   if (!risk || resolution.sizing.mode !== "risk" || draft.side !== "buy") return undefined;
   const stop = resolution.sizing.stopLossPrice;
-  // As the server sizes it: the limit, or the higher of the trigger or reference price and the last price.
-  const given = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : draft.referencePrice;
-  const entry = draft.type === "limit" || draft.type === "stop_limit" ? given ?? risk.entryPrice
-    : Math.max(...[given ?? risk.entryPrice, risk.currentPrice].filter((price): price is number => typeof price === "number" && Number.isFinite(price)));
+  // As the server sizes and reviews it: the limit, or the highest of the trigger, the reference and the last price.
+  const entry = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice ?? risk.entryPrice
+    : Math.max(...[draft.type === "stop" ? draft.stopPrice : undefined, draft.referencePrice ?? risk.entryPrice, risk.currentPrice]
+      .filter((price): price is number => typeof price === "number" && Number.isFinite(price)));
   const base = { budget: risk.budget, cashCapped: !!risk.cashCapped };
   if (!(entry > stop) || !(risk.entryPrice > stop)) return { ...base, over: false };
   const loss = draft.quantity * (entry - stop) * (risk.perShare / (risk.entryPrice - stop));

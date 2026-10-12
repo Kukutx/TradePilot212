@@ -599,6 +599,8 @@ export const zhCN: Record<MessageKey, string> = {
   errorExecutionBusy: "这个账户还有一笔订单正在发送。请稍后再试，本次确认仍然有效。",
   noticeStopTriggered: "止损触发价 {stop} 已被最新价 {last} 触及，下单后会立即触发。",
   noticeLimitAtOnce: "最新价为 {last}，限价 {limit} 可能会立即以接近市价的价格成交。",
+  noticeRiskOverBudget: "按止损价 {stop}，这笔订单现在约亏 {loss}，超过定仓时的预算 {budget}：价格已变动或数量被修改。",
+  noticeRiskStopAbovePrice: "价格已在定仓时的止损价 {stop} 或以下。",
   noticeFarAbove: "订单价格比最新价 {last} 高 {percent}。",
   noticeFarBelow: "订单价格比最新价 {last} 低 {percent}。",
   noticeHoursUnavailable: "暂时读取不到交易时段，这笔市价单可能要等到下次开盘才成交。",

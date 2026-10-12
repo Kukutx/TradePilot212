@@ -597,6 +597,8 @@ export const en = {
   errorExecutionBusy: "Another order on this account is still being sent. Try again in a moment; this confirmation is still valid.",
   noticeStopTriggered: "The stop price {stop} has already been reached (last price {last}), so the order triggers as soon as it is placed.",
   noticeLimitAtOnce: "With the last price at {last}, the limit {limit} can fill at once, close to the market price.",
+  noticeRiskOverBudget: "At the stop-loss of {stop}, this order would now lose about {loss}, more than the {budget} it was sized for. The price has moved or the quantity was changed.",
+  noticeRiskStopAbovePrice: "The price is already at or below the stop-loss of {stop} this order was sized for.",
   noticeFarAbove: "The order price is {percent} above the last price {last}.",
   noticeFarBelow: "The order price is {percent} below the last price {last}.",
   noticeHoursUnavailable: "The market hours couldn't be read just now, so this Market order may wait until the next open.",

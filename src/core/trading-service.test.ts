@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Instrument, OrderDraft } from "../shared/contracts.js";
 import { createConfig, type RuntimeConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
-import { resolveInstrumentFromList, TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
+import { resolveInstrumentFromList, riskNotices, TradingService, validateOrderAgainstSnapshot } from "./trading-service.js";
 
 const instrument: Instrument = {
   ticker: "AAPL_US_EQ",
@@ -384,6 +384,30 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const limit = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "limit", limitPrice: 212, sizing: risk });
     expect(limit.risk).toMatchObject({ entryPrice: 212, currentPrice: 216 });
     expect(limit.draft).toMatchObject({ limitPrice: 212, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" });
+  });
+
+  it("counts a reference above a Stop's trigger, and carries the budget for the review to check", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    // Trigger 220, last price 216, but the price given is 230: 30 USD a share to the stop, not 20.
+    const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "stop", stopPrice: 220, referencePrice: 230, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(stop.risk?.entryPrice).toBe(230);
+    expect(stop.draft).toMatchObject({ referencePrice: 230, riskBudget: { stopLossPrice: 200, budget: 30 } });
+    const market = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    const fresh = { referencePriceAt: new Date().toISOString() };
+    // As sized, the review finds the loss within the budget.
+    const asSized = await service.prepareOrder({ ...market.draft, ...fresh });
+    expect(asSized.notices.map((notice) => notice.code)).not.toContain("RISK_OVER_BUDGET");
+    // After the price moves to 230, or the quantity is raised, it says the loss at the stop is now over the budget.
+    const moved = await service.prepareOrder({ ...market.draft, ...fresh, referencePrice: 230 });
+    expect(moved.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.details).toMatchObject({ loss: 56.25, budget: 30, stopLossPrice: 200 });
+    const raised = await service.prepareOrder({ ...market.draft, ...fresh, quantity: 3 });
+    expect(raised.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.message).toMatch(/would now lose about 44\.44 EUR, more than the 30\.00 EUR it was sized for/);
+  });
+
+  it("says when the price is already under the stop-loss a buy was sized for", () => {
+    const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 2, riskBudget: { stopLossPrice: 200, budget: 30 } };
+    expect(riskNotices(draft, { estimatedNotional: 390, accountNotional: 361.11, estimatedNotionalCurrency: "USD", accountCurrency: "EUR" }).map((notice) => notice.code)).toEqual(["RISK_STOP_ABOVE_PRICE"]);
+    expect(riskNotices({ ...draft, side: "sell" }, { estimatedNotional: 390, accountNotional: 361.11, estimatedNotionalCurrency: "USD" })).toEqual([]);
   });
 
   it("refuses risk sizing that cannot work", async () => {

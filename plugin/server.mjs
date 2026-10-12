@@ -35488,6 +35488,23 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     ...last ? { lastPrice: last } : {}
   };
 }
+function riskNotices(draft, current) {
+  const limit = draft.riskBudget;
+  if (!limit || draft.side !== "buy" || !current.estimatedNotional || current.accountNotional === void 0 || !(draft.quantity > 0)) return [];
+  const price = current.estimatedNotional / draft.quantity;
+  const instrumentCurrency = current.estimatedNotionalCurrency;
+  const accountCurrency = current.accountCurrency ?? instrumentCurrency;
+  if (!(price > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round3(price, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round3(price, 6), currency: instrumentCurrency } }];
+  }
+  const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
+  if (loss <= limit.budget + 5e-3) return [];
+  return [{
+    code: "RISK_OVER_BUDGET",
+    message: `At the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency}, this order would now lose about ${loss.toFixed(2)} ${accountCurrency}, more than the ${limit.budget.toFixed(2)} ${accountCurrency} it was sized for: the price has moved or the quantity was changed.`,
+    details: { loss: round3(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency }
+  }];
+}
 function priceNotices(draft, last, currency) {
   if (!last || draft.type === "market") return [];
   const notices = [];
@@ -35794,7 +35811,7 @@ var TradingService = class {
         const known = prices.filter((price) => typeof price === "number" && Number.isFinite(price) && price > 0);
         return known.length ? Math.max(...known) : void 0;
       };
-      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current) : highest(referencePrice, current);
+      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice) : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
       const reference = intent.type === "limit" || intent.type === "stop_limit" ? highest(referencePrice, current) ?? entry : entry;
       if (reference !== referencePrice) {
@@ -35883,7 +35900,9 @@ var TradingService = class {
       ...referencePrice === void 0 ? {} : { referencePrice },
       ...referencePriceAt ? { referencePriceAt } : {},
       ...givenRate === void 0 ? {} : { fxRate: givenRate },
-      ...fxRateAt ? { fxRateAt } : {}
+      ...fxRateAt ? { fxRateAt } : {},
+      // The review checks the loss at the stop again, at the prices of the moment.
+      ...sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round3(risk.budget, 2) } } : {}
     };
     validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
     return {
@@ -35934,7 +35953,7 @@ var TradingService = class {
     }
   }
   orderNotices(draft, current, market) {
-    const notices = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency)];
+    const notices = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency), ...riskNotices(draft, current)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === void 0) {
       notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
@@ -38656,7 +38675,8 @@ var orderDraftSchema = external_exports.object({
   referencePrice: external_exports.number().positive().optional(),
   referencePriceAt: external_exports.string().datetime().optional(),
   fxRate: fxRateSchema,
-  fxRateAt: external_exports.string().datetime().optional()
+  fxRateAt: external_exports.string().datetime().optional(),
+  riskBudget: external_exports.object({ stopLossPrice: external_exports.number().positive(), budget: external_exports.number().positive() }).optional()
 });
 var orderSizingSchema = external_exports.discriminatedUnion("mode", [
   external_exports.object({ mode: external_exports.literal("quantity"), quantity: external_exports.number().positive() }),

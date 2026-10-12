@@ -89,6 +89,7 @@ const orderDraftSchema = z.object({
   referencePriceAt: z.string().datetime().optional(),
   fxRate: fxRateSchema,
   fxRateAt: z.string().datetime().optional(),
+  riskBudget: z.object({ stopLossPrice: z.number().positive(), budget: z.number().positive() }).optional(),
 });
 
 const orderSizingSchema = z.discriminatedUnion("mode", [

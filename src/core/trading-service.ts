@@ -311,6 +311,30 @@ export function validateOrderAgainstSnapshot(
 }
 
 /** Warnings for a limit or stop that will not behave the way its price suggests. */
+/**
+ * A risk-sized buy checked again at the prices of the moment: the loss at its stop-loss, valued as the review
+ * values the order (the limit, or the highest of the trigger, reference and last price). Over the budget it was
+ * sized for, because the price moved or the quantity was changed, it says so before you confirm.
+ */
+export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; estimatedNotionalCurrency: string; accountCurrency?: string }): OrderNotice[] {
+  const limit = draft.riskBudget;
+  if (!limit || draft.side !== "buy" || !current.estimatedNotional || current.accountNotional === undefined || !(draft.quantity > 0)) return [];
+  const price = current.estimatedNotional / draft.quantity;
+  const instrumentCurrency = current.estimatedNotionalCurrency;
+  const accountCurrency = current.accountCurrency ?? instrumentCurrency;
+  if (!(price > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round(price, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round(price, 6), currency: instrumentCurrency } }];
+  }
+  const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
+  // A cent of rounding is not over the budget.
+  if (loss <= limit.budget + 0.005) return [];
+  return [{
+    code: "RISK_OVER_BUDGET",
+    message: `At the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency}, this order would now lose about ${loss.toFixed(2)} ${accountCurrency}, more than the ${limit.budget.toFixed(2)} ${accountCurrency} it was sized for: the price has moved or the quantity was changed.`,
+    details: { loss: round(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency },
+  }];
+}
+
 export function priceNotices(draft: OrderDraft, last: number | undefined, currency: string): OrderNotice[] {
   if (!last || draft.type === "market") return [];
   const notices: OrderNotice[] = [];
@@ -657,15 +681,15 @@ export class TradingService {
       if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
       // The worst price the buy can fill at, so the loss at the stop is never understated. A Limit or Stop Limit
       // buy fills at its limit or below. A Market buy, or a Stop whose trigger the price has already passed,
-      // fills near the last price (the holding's, or the quote source's for one you do not hold), so the higher of
-      // that and the price given is taken.
+      // fills near the last price (the holding's, or the quote source's for one you do not hold), so the highest
+      // of that, the price given and a Stop's trigger is taken.
       const current = position?.currentPrice || quotePrice;
       const highest = (...prices: Array<number | undefined>) => {
         const known = prices.filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price > 0);
         return known.length ? Math.max(...known) : undefined;
       };
       const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice
-        : intent.type === "stop" ? highest(intent.stopPrice, current)
+        : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice)
         : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
       // The draft's reference is the entry for a Market or Stop, and for a Limit the higher of the price given
@@ -768,6 +792,8 @@ export class TradingService {
       ...(referencePriceAt ? { referencePriceAt } : {}),
       ...(givenRate === undefined ? {} : { fxRate: givenRate }),
       ...(fxRateAt ? { fxRateAt } : {}),
+      // The review checks the loss at the stop again, at the prices of the moment.
+      ...(sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round(risk.budget, 2) } } : {}),
     };
 
     // Validate what can be validated now. This remains read-only; no order is submitted.
@@ -826,8 +852,8 @@ export class TradingService {
     }
   }
 
-  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number }, market?: MarketStatus): OrderNotice[] {
-    const notices: OrderNotice[] = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency)];
+  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number }, market?: MarketStatus): OrderNotice[] {
+    const notices: OrderNotice[] = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency), ...riskNotices(draft, current)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === undefined) {
       notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });

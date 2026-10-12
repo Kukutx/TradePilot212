@@ -244,6 +244,11 @@ export interface OrderDraft {
    */
   fxRate?: number;
   fxRateAt?: string;
+  /**
+   * What a risk-sized buy may lose at its stop-loss: the stop-loss price (instrument currency) and the
+   * budget (account currency). The review checks the loss again at the prices of the moment.
+   */
+  riskBudget?: { stopLossPrice: number; budget: number };
 }
 
 export type OrderSizing =
@@ -344,7 +349,9 @@ export type OrderNoticeCode =
   | "MARKET_HOURS_UNKNOWN"
   | "STOP_ALREADY_TRIGGERED"
   | "LIMIT_FILLS_AT_ONCE"
-  | "PRICE_FAR_FROM_LAST";
+  | "PRICE_FAR_FROM_LAST"
+  | "RISK_OVER_BUDGET"
+  | "RISK_STOP_ABOVE_PRICE";
 
 export interface OrderNotice {
   code: OrderNoticeCode;

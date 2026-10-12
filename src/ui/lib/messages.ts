@@ -187,6 +187,17 @@ export function noticeText(notice: OrderNotice, t: Translator, locale: Supported
       const last = price("last");
       return limit && last ? fill(t("noticeLimitAtOnce"), { limit, last }) : notice.message;
     }
+    case "RISK_OVER_BUDGET": {
+      const stop = price("stopLossPrice");
+      const account = typeof details.accountCurrency === "string" ? details.accountCurrency : undefined;
+      const loss = typeof details.loss === "number" ? amount(details.loss, account, locale) : undefined;
+      const budget = typeof details.budget === "number" ? amount(details.budget, account, locale) : undefined;
+      return stop && loss && budget ? fill(t("noticeRiskOverBudget"), { stop, loss, budget }) : notice.message;
+    }
+    case "RISK_STOP_ABOVE_PRICE": {
+      const stop = price("stopLossPrice");
+      return stop ? fill(t("noticeRiskStopAbovePrice"), { stop }) : notice.message;
+    }
     case "PRICE_FAR_FROM_LAST": {
       const percent = typeof details.percent === "number" ? details.percent : undefined;
       const last = price("last");
