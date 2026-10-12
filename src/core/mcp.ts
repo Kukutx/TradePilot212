@@ -19,6 +19,8 @@ import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
 import { holdingDetail } from "./holding.js";
 import { journalReview } from "./journal-review.js";
+import { watchlistView } from "./watchlist.js";
+import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -127,7 +129,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, automationOverview }: Services,
+  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -139,7 +141,7 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
-  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory };
+  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);
@@ -884,7 +886,7 @@ export function createMcpServer(
     "manage_price_alerts",
     {
       title: "Manage Price Alerts",
-      description: "Create, delete or re-arm a price alert on a holding. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
       inputSchema: z.object({
         action: z.enum(["create", "delete", "rearm"]),
         alertId: z.string().optional().describe("Required for delete and rearm"),
@@ -1024,6 +1026,62 @@ export function createMcpServer(
         const { overall } = review;
         const edge = overall.averageEdge === undefined ? "" : `; ${overall.inFavour} of ${overall.priced} went your way, average edge ${overall.averageEdge >= 0 ? "+" : ""}${num(overall.averageEdge * 100, 1)}%`;
         return result(data, `${review.withNote} of ${review.fills} fill(s) have a journal note${edge}${review.due ? `; ${review.due} due for a look back` : ""}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_watchlist",
+    {
+      title: "Watchlist",
+      description:
+        "Show the watchlist: the instruments the user follows, held or not, each with its price now (Trading 212's for a holding, the quote provider's otherwise, else the last daily close), its change over 1 day (since the previous close: the last one before the day the price is from), 1, 3 and 12 months, where it sits in its 12-month range (or the range of the closes there are, from rangeFrom), a three-month sparkline, the open orders and armed above/below price alerts on it with how far the price is from each, and the change since it was added. Renders the watchlist tab; tapping a row opens the instrument's page. Change it with manage_watchlist. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault }),
+      annotations: readOnly,
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment }) => {
+      try {
+        const data = { ...(await watchlistView({ watchlist, trading, alerts, priceHistory }, environment)), writeEnabled: canWrite };
+        return result(data, `Rendered the ${environment.toUpperCase()} watchlist (${data.items.length} instrument(s)).`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // The watchlist stays in TradePilot and places nothing, so it works without order tools.
+  registerAppTool(
+    server,
+    "manage_watchlist",
+    {
+      title: "Manage Watchlist",
+      description: `Add an instrument to the watchlist, optionally with a note on why it is watched, change the note of one on it (action "note"; an empty note clears it), or remove one. Adding one already on the list changes its note. An instrument is added at its price now, for "since added". At most ${MAX_WATCHLIST} per account. The watchlist is kept by TradePilot, per account; it is never sent to Trading 212 and places no orders. Set price alerts on a watched instrument with manage_price_alerts.`,
+      inputSchema: z.object({
+        action: z.enum(["add", "note", "remove"]),
+        environment: environmentWithDefault,
+        instrument: z.string().min(1).describe("Ticker, symbol, ISIN or name"),
+        note: z.string().max(MAX_WATCH_NOTE).optional().describe("Why it is watched, for add and note"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      _meta: {},
+    },
+    async ({ action, environment, instrument, note }) => {
+      try {
+        if (action === "remove") {
+          const item = await watchlist.remove(environment, instrument);
+          return result({ kind: "watchlist_change", environment, action, item }, `Removed ${item.ticker} from the ${environment.toUpperCase()} watchlist.`);
+        }
+        if (action === "note") {
+          const item = await watchlist.note(environment, instrument, note ?? "");
+          return result({ kind: "watchlist_change", environment, action, item }, `${item.note ? "Updated" : "Cleared"} the note on ${item.ticker}.`);
+        }
+        const { item, added } = await watchlist.add(environment, instrument, note);
+        return result({ kind: "watchlist_change", environment, action, item, added },
+          added ? `Added ${item.ticker} to the ${environment.toUpperCase()} watchlist${item.addedPrice ? ` at ${num(item.addedPrice, 6)}` : ""}.` : `${item.ticker} is on the watchlist already${note === undefined ? "" : "; its note is updated"}.`);
       } catch (error) {
         return toolError(error);
       }

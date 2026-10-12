@@ -11,7 +11,7 @@ Three ways to check that TradePilot works for you, from quickest to most complet
 
 ## 1. Sample data (no account)
 
-TradePilot has a built-in sample account: EUR cash, five holdings in USD, GBX and EUR, two pies, a year of trades, dividends and deposits, and one pending limit order. Market orders fill at once against it; other orders stay pending until you cancel them. Live is switched off and nothing is sent to Trading 212.
+TradePilot has a built-in sample account: EUR cash, five holdings in USD, GBX and EUR, two pies, a year of trades, dividends and deposits, one pending limit order, and two more instruments to watch (Amazon and ASML). Its instruments get simulated quotes, so the watchlist and the price charts work offline. Market orders fill at once against it; other orders stay pending until you cancel them. Live is switched off and nothing is sent to Trading 212.
 
 In Claude Code:
 
@@ -42,7 +42,7 @@ pnpm install
 TRADEPILOT_SAMPLE_DATA=true pnpm stdio
 ```
 
-Sample data lives in memory, so it starts fresh each time the server starts. Plans, alerts and the activity log are kept in the data directory as usual.
+Sample data lives in memory, so it starts fresh each time the server starts. Plans, alerts, the watchlist and the activity log are kept in the data directory as usual.
 
 ## 2. Your Trading 212 Demo account
 

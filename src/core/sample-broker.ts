@@ -3,6 +3,8 @@
 // stocks, a UK ETF, two pies and a year of history. Market orders fill at once at the sample price;
 // other orders stay pending until cancelled. Nothing leaves the process and no real account is used.
 
+import type { QuoteProvider } from "./quotes.js";
+
 export const SAMPLE_BASE_URL = "https://sample.tradepilot.invalid/api/v0";
 
 type Json = Record<string, unknown>;
@@ -27,9 +29,37 @@ const INSTRUMENTS: SampleInstrument[] = [
   { ticker: "TSLA_US_EQ", name: "Tesla", shortName: "TSLA", currencyCode: "USD", isin: "US88160R1014", type: "STOCK", price: 244.1, extendedHours: true, workingScheduleId: 1 },
   { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 UCITS ETF (Dist)", shortName: "VUSA", currencyCode: "GBX", isin: "IE00B3XXRP09", type: "ETF", price: 9175, workingScheduleId: 2 },
   { ticker: "EUNLd_EQ", name: "iShares Core MSCI World UCITS ETF (Acc)", shortName: "EUNL", currencyCode: "EUR", isin: "IE00B4L5Y983", type: "ETF", price: 98.42, workingScheduleId: 3 },
+  // Not held and never traded: something to watch.
+  { ticker: "AMZN_US_EQ", name: "Amazon", shortName: "AMZN", currencyCode: "USD", isin: "US0231351067", type: "STOCK", price: 186.4, extendedHours: true, workingScheduleId: 1 },
+  { ticker: "ASMLa_EQ", name: "ASML Holding", shortName: "ASML", currencyCode: "EUR", isin: "NL0010273215", type: "STOCK", price: 642.3, workingScheduleId: 3 },
 ];
 /** Account (EUR) value of one unit of each quote currency. */
 const EUR_PER_UNIT: Record<string, number> = { EUR: 1, USD: 0.92, GBX: 0.0118 };
+
+/**
+ * Prices for the sample account's quote provider: each sample instrument at its sample price, and rates between the
+ * sample currencies, so the instruments it does not hold have a price too. Nothing leaves the process.
+ */
+export function createSampleQuotes(): QuoteProvider {
+  const byTicker = new Map(INSTRUMENTS.map((item) => [item.ticker.toUpperCase(), item]));
+  return {
+    name: "sample",
+    hasFxRates: true,
+    symbolFor: (instrument) => byTicker.get(instrument.ticker.toUpperCase())?.shortName,
+    async quote(instrument) {
+      const item = byTicker.get(instrument.ticker.toUpperCase());
+      return item ? { ticker: item.ticker, symbol: item.shortName, price: item.price, asOf: new Date().toISOString(), source: "sample" } : undefined;
+    },
+    async fxRate(from, to) {
+      const source = from.toUpperCase();
+      const target = to.toUpperCase();
+      const fromEur = EUR_PER_UNIT[source];
+      const toEur = EUR_PER_UNIT[target];
+      if (!fromEur || !toEur || source === target) return undefined;
+      return { from: source, to: target, rate: fromEur / toEur, asOf: new Date().toISOString(), source: "sample" };
+    },
+  };
+}
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const round = (value: number, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;

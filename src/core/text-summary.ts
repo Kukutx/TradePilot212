@@ -10,6 +10,7 @@ import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, Bas
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
+import { WATCH_PERIODS, type WatchLevel, type WatchlistView, type WatchRow } from "../shared/watchlist.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
 const MAX_ROWS = 30;
@@ -71,6 +72,39 @@ function journalTradeLine(trade: JournalTrade): string {
   return `${day(trade.filledAt)} ${trade.ticker} ${trade.side.toUpperCase()} ${num(trade.quantity, 8)} @ ${num(trade.price, 4)}${trade.priceCurrency ? ` ${trade.priceCurrency}` : ""}, ${now}`
     + `${trade.realisedProfitLoss === undefined ? "" : `, realised ${num(trade.realisedProfitLoss)}`}${trade.due ? ", due for a look back" : ""}`
     + `; note ${trade.entry.id}${trade.entry.thesis ? `, why: ${quoted(trade.entry.thesis)}` : ""}${trade.entry.review ? `, review: ${quoted(trade.entry.review)}` : ""}${trade.entry.tags?.length ? `, tags ${trade.entry.tags.join(", ")}` : ""}`;
+}
+
+function watchLevelText(level: WatchLevel): string {
+  const what = level.kind === "alert" ? `alert ${level.condition}` : `${level.side} ${level.kind}`;
+  return `${what} ${num(level.price, 6)}${level.distance === undefined ? "" : ` (${signedPct(level.distance)})`}`;
+}
+
+/** One watchlist row: the price and where from, the changes (1D is since the previous close), the range and levels. */
+function watchLine(row: WatchRow): string {
+  const name = row.name && row.name !== row.ticker ? ` (${row.name})` : "";
+  const source = row.priceSource === "broker" ? "Trading 212" : row.priceSource === "close" ? `close of ${row.priceAt}` : row.priceSource === "sample" ? "simulated" : row.priceSource;
+  const changes = WATCH_PERIODS.filter((key) => row.changes[key] !== undefined).map((key) => `${key.toUpperCase()} ${signedPct(row.changes[key]!)}`);
+  const range = row.high !== undefined && row.low !== undefined && row.price !== undefined && row.high > 0
+    ? `${row.rangeFrom ? `range since ${row.rangeFrom}` : "12-month range"} ${num(row.low, 6)} to ${num(row.high, 6)}, ${pct(1 - row.price / row.high)} below the high`
+    : "";
+  return [
+    `${row.ticker}${name}: ${row.price === undefined ? "no price" : `${num(row.price, 6)}${row.currencyCode ? ` ${row.currencyCode}` : ""} (${source})`}`,
+    changes.join(", "),
+    range,
+    row.levels.length ? row.levels.map(watchLevelText).join(", ") : "",
+    row.held ? `held ${num(row.held.quantity, 8)} at ${num(row.held.averagePrice, 6)}` : "",
+    row.sinceAdded === undefined ? "" : `${signedPct(row.sinceAdded)} since added ${day(row.addedAt)}`,
+    row.note ? `note: ${quoted(row.note)}` : "",
+    row.pricesMissing ? `no daily closes: ${row.pricesProblem}` : "",
+  ].filter(Boolean).join("; ") + ".";
+}
+
+function watchlist(data: WatchlistView): string[] {
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    data.items.length ? `Watchlist on ${env(data.environment)}, ${data.items.length} instrument(s), changes to the price now (1D since the previous close):` : `The ${env(data.environment)} watchlist is empty; add instruments with manage_watchlist.`,
+    ...data.items.map(watchLine),
+  ];
 }
 
 function journalReview(data: JournalReview): string[] {
@@ -295,7 +329,7 @@ function holding(data: HoldingDetail): string[] {
   return [
     ...credentialsLine(data.environment, data.credentials),
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
-    data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
+    data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.quote ? `; price ${num(data.quote.price, 6)}${data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : ""} (${data.quote.source === "sample" ? "simulated for the sample account" : `${data.quote.source} ${data.quote.symbol}, ${minute(data.quote.asOf)}`})` : ""}${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
     ...priceLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
@@ -603,6 +637,7 @@ export function describePayload(data: unknown): string {
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
     case "trade_journal": lines = rows((payload as unknown as JournalPayload).entries, (entry) => journalLine(entry)); break;
     case "journal_review": lines = journalReview(payload as unknown as JournalReview); break;
+    case "watchlist": lines = watchlist(payload as unknown as WatchlistView); break;
     case "journal_entry": lines = payload.entry ? [journalLine(payload.entry as JournalEntry)] : []; break;
     case "trading_policy": lines = policy(payload as unknown as Parameters<typeof policy>[0]); break;
     case "history_export": lines = exports(payload as Parameters<typeof exports>[0]); break;

@@ -7,9 +7,10 @@ import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
 import type { InsightsService } from "./insights-service.js";
 import type { TradeJournal } from "./journal.js";
-import type { PriceAnchor, PriceHistoryRequest, PriceHistoryResult } from "./price-history.js";
+import { quoteUnitProblem, settleWithin, unitReference, type PriceAnchor, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { TargetAllocations } from "./targets.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
+import type { Watchlist } from "./watchlist.js";
 
 const DAY_MS = 86_400_000;
 /** Fills and dividends listed; the dividend total covers the whole window. */
@@ -21,6 +22,8 @@ const MAX_DIVIDENDS = 12;
 const MAX_NOTES = 20;
 /** Two pages of each history is at most four requests, well inside Trading 212's limits even with a few views open. */
 const HISTORY_PAGES = 2;
+/** The page waits this long for the quote provider's price of an instrument not held; a slower one is left out. */
+const QUOTE_WAIT_MS = 3000;
 
 export interface HoldingDeps {
   trading: TradingService;
@@ -30,6 +33,8 @@ export interface HoldingDeps {
   targets: TargetAllocations;
   /** Daily closes for the price chart; without it the page has none. */
   priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
+  /** Whether the instrument is on the watchlist; without it the page does not say. */
+  watchlist?: Pick<Watchlist, "get">;
 }
 
 /**
@@ -65,23 +70,32 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
     ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
     : []));
+  const subject = listed ?? position!.instrument;
+  // Not held: Trading 212 has no price for it, so the quote provider's, when it answers in time.
+  const quoteRead = position?.currentPrice ? Promise.resolve(undefined) : settleWithin(deps.trading.externalQuote(subject).catch(() => undefined), QUOTE_WAIT_MS);
   const alertsRead = deps.alerts.list(environment);
   // Where the open orders and armed above/below alerts sit: the unit check's reference for an instrument not held.
   const levels = alertsRead.catch(() => []).then((list) => [
     ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price),
   ].filter((price): price is number => typeof price === "number" && price > 0));
-  const [targets, alerts, notes, market, history, prices] = await Promise.all([
+  const [targets, alerts, notes, market, history, read, quoted, watched] = await Promise.all([
     deps.targets.get(environment),
     alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
-    deps.insights.tryMarketStatus(environment, listed ?? position!.instrument, now),
+    deps.insights.tryMarketStatus(environment, subject, now),
     historyRead,
-    deps.priceHistory?.({ instrument: listed ?? position!.instrument, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : {}), levels, fills })
+    deps.priceHistory?.({ instrument: subject, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : { quote: quoteRead.then((read) => read?.price) }), levels, fills })
       .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message })),
+    quoteRead,
+    deps.watchlist?.get(environment, ticker).catch(() => undefined),
   ]);
+  // The quote comes from the closes' mapping: in another unit when they are, and checked the same way when they did not come.
+  const unitProblem = quoted ? quoteUnitProblem(quoted, ticker, unitReference(undefined, await levels, await fills)) : undefined;
+  const quote = quoted && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted : undefined;
+  const prices: PriceHistoryResult | undefined = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
   const filled = new Set(listedFills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])));
@@ -96,6 +110,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     instrument,
     ...(dashboard.account?.currency ? { accountCurrency: dashboard.account.currency } : {}),
     ...(position ? { position } : {}),
+    ...(quote ? { quote: { price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol } } : {}),
+    ...(watched ? { watching: { addedAt: watched.addedAt, ...(watched.note ? { note: watched.note } : {}) } } : {}),
     ...(typeof value === "number" && typeof total === "number" && total > 0 ? { weight: value / total } : {}),
     ...(target === undefined ? {} : { targetWeight: target }),
     orders: dashboard.orders.filter((order) => order.ticker === ticker),

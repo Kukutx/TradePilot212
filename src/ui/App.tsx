@@ -38,6 +38,8 @@ import { PieChangeView, PiesView } from "./views/PiesView";
 import { AutomationView } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
 import { JournalReviewView } from "./views/JournalView";
+import { WatchlistView } from "./views/WatchlistView";
+import type { WatchlistView as WatchlistPayload } from "../shared/watchlist";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
 type BasePayload =
@@ -61,10 +63,10 @@ type BasePayload =
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
-type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSummary> | WithAccess<IncomeSummary> | WithAccess<JournalReview>;
+type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSummary> | WithAccess<IncomeSummary> | WithAccess<JournalReview> | WithAccess<WatchlistPayload>;
 type InsightKind = InsightPayload["kind"];
 type PortfolioTab = "holdings" | InsightKind;
-type InsightCache = { allocation?: WithAccess<AllocationAnalysis>; performance?: WithAccess<PerformanceSummary>; income?: WithAccess<IncomeSummary>; journal_review?: WithAccess<JournalReview> };
+type InsightCache = { allocation?: WithAccess<AllocationAnalysis>; performance?: WithAccess<PerformanceSummary>; income?: WithAccess<IncomeSummary>; journal_review?: WithAccess<JournalReview>; watchlist?: WithAccess<WatchlistPayload> };
 
 /** A failed action: a title naming what failed, the reason, and a way to try again when that is safe. */
 interface Problem {
@@ -79,11 +81,14 @@ const INSIGHT_TOOLS: Record<InsightKind, string> = {
   performance: "get_portfolio_performance",
   income: "get_income_summary",
   journal_review: "get_journal_review",
+  watchlist: "get_watchlist",
 };
-const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome", journal_review: "tabJournal" };
+const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", watchlist: "tabWatchlist", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome", journal_review: "tabJournal" };
+/** Tabs read for the account as it is now, with no period. */
+const timeless = (kind: InsightKind) => kind === "allocation" || kind === "watchlist";
 
 const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
-  payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income" || payload?.kind === "journal_review";
+  payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income" || payload?.kind === "journal_review" || payload?.kind === "watchlist";
 
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
@@ -219,7 +224,7 @@ function ViewTabs({ tab, busy, t, onSelect }: { tab: PortfolioTab; busy: boolean
   return (
     <div className={`tabStrip${edges.start ? " fadeStart" : ""}${edges.end ? " fadeEnd" : ""}`}>
       <nav className="viewTabs" aria-label={t("viewsLabel")} ref={nav}>
-        {(["holdings", "allocation", "performance", "income", "journal_review"] as const).map((key) => (
+        {(["holdings", "watchlist", "allocation", "performance", "income", "journal_review"] as const).map((key) => (
           <button key={key} type="button" aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : ""} disabled={busy && tab !== key} onClick={() => onSelect(key)}>
             {t(TAB_KEYS[key])}
           </button>
@@ -314,7 +319,7 @@ export default function App() {
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
       setInsights({ [payload.kind]: payload });
       setTab(payload.kind);
-      if (payload.kind !== "allocation") setPeriod(periodOf(payload.period));
+      if (payload.kind !== "allocation" && payload.kind !== "watchlist") setPeriod(periodOf(payload.period));
     } else if (payload.kind === "portfolio") {
       setInsights({});
       setTab("holdings");
@@ -430,7 +435,7 @@ export default function App() {
     setInsightError(null);
     const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
-      const args = kind === "allocation" ? { environment: env }
+      const args = timeless(kind) ? { environment: env }
         : { environment: env, period: range, ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}) };
       const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
@@ -458,7 +463,7 @@ export default function App() {
   /** A tab needs reading when it is not loaded, or was read for another period than the switch shows. */
   function stale(kind: InsightKind): boolean {
     const loaded = insights[kind];
-    return !loaded || loaded.environment !== environment || (loaded.kind !== "allocation" && periodOf(loaded.period) !== period);
+    return !loaded || loaded.environment !== environment || (loaded.kind !== "allocation" && loaded.kind !== "watchlist" && periodOf(loaded.period) !== period);
   }
 
   async function changePeriod(next: InsightPeriod): Promise<void> {
@@ -492,8 +497,11 @@ export default function App() {
     const done = await run("errorTitleAlert", async () => {
       await callTool("manage_price_alerts", { environment, ...input });
     });
-    if (done) await refresh(environment, "holdings");
-    return done;
+    if (!done) return false;
+    // The watchlist shows the alerts on its rows; it is read again when it next shows.
+    setInsights(({ watchlist: _old, ...rest }) => rest);
+    await refresh(environment, "holdings");
+    return true;
   }
 
   /**
@@ -513,6 +521,37 @@ export default function App() {
     setInsights(({ journal_review: _old, ...rest }) => rest);
     if (base?.kind === "holding" && base.environment === env) await refresh(env, "holdings");
     return true;
+  }
+
+  /**
+   * Add, change the note of, or remove a watchlist instrument; the watchlist never trades. The watchlist tab is read
+   * again when shown, and a holding page notes the change in place rather than reading everything again.
+   */
+  async function changeWatch(env: TradingEnvironment, input: { action: "add" | "note" | "remove"; instrument: string; note?: string }): Promise<boolean> {
+    const outcome: { item?: { ticker: string; addedAt: string; note?: string } } = {};
+    const done = await run("errorTitleWatchlist", async () => {
+      Object.assign(outcome, await callTool<{ item: { ticker: string; addedAt: string; note?: string } }>("manage_watchlist", { environment: env, ...input }));
+    });
+    if (!done) return false;
+    if (tab === "watchlist" && base?.kind !== "holding" && environment === env) {
+      await loadInsight("watchlist", env);
+      return true;
+    }
+    setInsights(({ watchlist: _old, ...rest }) => rest);
+    const item = outcome.item;
+    if (item) {
+      setBase((current) => {
+        if (current?.kind !== "holding" || current.environment !== env || current.ticker !== item.ticker) return current;
+        const { watching: _was, ...rest } = current;
+        return input.action === "remove" ? rest : { ...rest, watching: { addedAt: item.addedAt, ...(item.note ? { note: item.note } : {}) } };
+      });
+    }
+    return true;
+  }
+
+  /** Trading 212's instruments matching a query, best first, for the watchlist's search. */
+  async function searchInstruments(query: string): Promise<Instrument[]> {
+    return (await callTool<{ instruments: Instrument[] }>("search_trading212_instruments", { environment, query, limit: 8 })).instruments ?? [];
   }
 
   /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
@@ -911,6 +950,15 @@ export default function App() {
                 onPeriod={(next) => void changePeriod(next)} onTag={(tag) => void loadInsight("journal_review", environment, period, tag)}
                 onOpen={(ticker) => void openHolding(ticker)} onSaveNote={changeNote} />
             )}
+            {portfolioLike && tab === "watchlist" && insights.watchlist && (
+              <WatchlistView data={insights.watchlist} book={book} locale={locale} t={t} busy={loading}
+                onOpen={(ticker) => void openHolding(ticker)}
+                onAdd={(ticker) => changeWatch(environment, { action: "add", instrument: ticker })}
+                onRemove={(ticker) => void changeWatch(environment, { action: "remove", instrument: ticker })}
+                onNote={(ticker, note) => changeWatch(environment, { action: "note", instrument: ticker, note })}
+                onSearch={searchInstruments}
+                onRefresh={() => void loadInsight("watchlist")} />
+            )}
             {base?.kind === "trade_plan" && (
               <TradePlanView
                 payload={base}
@@ -946,6 +994,7 @@ export default function App() {
                   ? { action: "update", entryId, thesis, review, tags }
                   : { action: "add", instrument: base.ticker, ...(orderId ? { orderId } : {}), ...(thesis ? { thesis } : {}), ...(review ? { review } : {}), ...(tags.length ? { tags } : {}) })}
                 onDeleteNote={(entryId) => void changeNote(base.environment, { action: "delete", entryId })}
+                onWatch={(watch) => void changeWatch(base.environment, { action: watch ? "add" : "remove", instrument: base.ticker })}
                 onCancel={(id) => void startCancel(id)}
                 onTrade={(side) => {
                   // One share to start; the editor changes the size and type before anything is reviewed.

@@ -47,10 +47,22 @@ describe("holding detail", () => {
     expect(detail.position).toBeUndefined();
     expect(detail.weight).toBeUndefined();
     expect(detail.orders.map((order) => order.id)).toEqual([81234]);
-    expect(describePayload(detail)).toMatch(/^Not held\.$/m);
-    // The sample account simulates prices for its holdings only.
+    // Not held, its price comes from the quote provider: the sample account's own, offline.
+    expect(detail.quote).toMatchObject({ price: 244.1, source: "sample", symbol: "TSLA" });
+    expect(describePayload(detail)).toMatch(/^Not held; price 244\.1 USD \(simulated for the sample account\)\.$/m);
+    // And the simulated closes end at that price.
+    expect(detail.prices?.points.at(-1)?.close).toBe(244.1);
+  });
+
+  it("leaves the quote out of a holding's page, and says so when the provider gives none", async () => {
+    const held = await holdingDetail(sample(), "demo", "NVDA");
+    expect(held.quote).toBeUndefined();
+    const services = sample();
+    const quiet = { ...services, trading: Object.assign(Object.create(Object.getPrototypeOf(services.trading)), services.trading, { externalQuote: async () => undefined }) };
+    const detail = await holdingDetail(quiet, "demo", "TSLA");
+    expect(detail.quote).toBeUndefined();
     expect(detail).toMatchObject({ pricesMissing: "sample" });
-    expect(describePayload(detail)).toMatch(/^No daily prices: The sample account has prices only for the instruments it holds\.$/m);
+    expect(describePayload(detail)).toMatch(/^Not held\.$/m);
   });
 
   it("adds a year of daily closes that pass through the fills, and sums them up in the text", async () => {
@@ -82,6 +94,21 @@ describe("holding detail", () => {
     expect(describePayload(detail)).toMatch(/Fills since \d{4}-\d{2}-\d{2} \(newest 20 of 26\)/);
   });
 
+  it("leaves out a quote in another unit, also when the closes did not come", async () => {
+    // TSLA has a buy limit at 215; a quote a hundred times under it is in another unit.
+    for (const read of [{ missing: "data" as const, problem: "Stooq took more than 3 seconds." }, { missing: "unit" as const, problem: "Stooq's closes look like another unit." }]) {
+      const services = sample();
+      const trading = Object.assign(Object.create(Object.getPrototypeOf(services.trading)), services.trading, {
+        externalQuote: async () => ({ ticker: "TSLA_US_EQ", symbol: "TSLA.US", price: 2.441, asOf: "2026-10-12T15:00:00Z", source: "stooq" }),
+      });
+      const detail = await holdingDetail({ ...services, trading, priceHistory: async () => read }, "demo", "TSLA");
+      expect(detail.quote).toBeUndefined();
+      expect(detail.pricesMissing).toBe("unit");
+      expect(detail.pricesProblem).toBe(read.missing === "unit" ? read.problem
+        : "stooq's price for TSLA.US (2.441) is far from Trading 212's order and alert prices (215), so it looks like another unit; multiply the factor in its QUOTE_SYMBOLS mapping by 100 (TSLA_US_EQ=TSLA.US*100 when it has none).");
+    }
+  });
+
   it("keeps the rest when the daily closes cannot be read", async () => {
     const services = { ...sample(), priceHistory: async () => { throw new Error("quote provider down"); } };
     const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");
@@ -105,7 +132,7 @@ describe("holding detail", () => {
     await services.targets.set("demo", { targets: [{ instrument: "TSLA_US_EQ", weight: 0.05 }] });
     const detail = await holdingDetail(services, "demo", "TSLA_US_EQ");
     expect(detail.targetWeight).toBe(0.05);
-    expect(describePayload(detail)).toMatch(/^Not held; target 5%\.$/m);
+    expect(describePayload(detail)).toMatch(/^Not held; price 244\.1 USD \(simulated for the sample account\); target 5%\.$/m);
   });
 
   it("keeps the rest when the history cannot be read", async () => {

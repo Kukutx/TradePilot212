@@ -65,6 +65,7 @@ const labels: Record<string, { en: string; zh: string }> = {
   holding: { en: "One holding", zh: "单只持仓" },
   journal: { en: "Trade journal", zh: "交易日志" },
   review: { en: "Journal review", zh: "日志复盘" },
+  watchlist: { en: "Watchlist", zh: "自选" },
   order: { en: "Order review", zh: "下单确认" },
   risk: { en: "Size by risk", zh: "按止损风险买入" },
   protective: { en: "Stop-loss and take-profit", zh: "止损止盈" },

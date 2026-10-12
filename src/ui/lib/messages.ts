@@ -106,6 +106,7 @@ const PROVIDER_NAMES: Record<string, string> = { stooq: "Stooq", finnhub: "Finnh
 
 export function quoteProviderLabel(provider: string, t: Translator): string {
   if (!provider || provider === "none") return t("quoteNone");
+  if (provider === "sample") return t("quoteSample");
   return PROVIDER_NAMES[provider] ?? provider;
 }
 

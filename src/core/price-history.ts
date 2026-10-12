@@ -18,6 +18,11 @@ export interface PriceHistoryRequest {
   from: Date;
   /** Trading 212's last price, when held: the provider's closes are checked against it for the unit. */
   last?: number;
+  /**
+   * The quote provider's price, when not held (it can still be on its way): where the sample path ends. Coming from
+   * the provider itself, it is no check on the unit.
+   */
+  quote?: Promise<number | undefined>;
   /** The prices of the instrument's open orders and armed alerts: the unit check's reference when it is not held. */
   levels?: Promise<number[]>;
   /** The account's fills of the instrument: the unit check's last resort, and the sample path's anchors. */
@@ -36,6 +41,17 @@ const UNIT_RATIO_FILL = 50;
 /** The holding page waits this long for the closes; a slower answer is cached for the next look. */
 const HISTORY_WAIT_MS = 3000;
 
+/** What `promise` gives within `ms`, else undefined; the promise itself runs on (a provider read fills its cache). */
+export async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+  try {
+    return await Promise.race([promise, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The QUOTE_SYMBOLS factor that brings closes at `last` to Trading 212's `reference`: a power of ten times the one mapped. */
 export function unitFactor(last: number, reference: number, mapped = 1): number {
   return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
@@ -43,13 +59,48 @@ export function unitFactor(last: number, reference: number, mapped = 1): number 
 
 const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuoteProvider; now?: () => Date; waitMs?: number }) {
+/** What a provider's price is checked against for its unit, and how far off counts. */
+export interface UnitReference { price: number; ratio: number; what: string }
+
+/** Trading 212's last price, else the middle of the open orders and alerts, else the newest fill (with more room). */
+export function unitReference(last: number | undefined, levels: number[], fills: PriceAnchor[]): UnitReference | undefined {
+  const priced = levels.filter((price) => price > 0);
+  const newest = fills.reduce<PriceAnchor | undefined>((best, item) => (!best || item.at > best.at ? item : best), undefined);
+  return last ? { price: last, ratio: UNIT_RATIO, what: "last price" }
+    : priced.length ? { price: middle(priced)!, ratio: UNIT_RATIO, what: "order and alert prices" }
+    : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" }
+    : undefined;
+}
+
+/** Whether a provider's price is far enough from the reference to be in another unit. */
+export const offUnit = (price: number, reference: UnitReference) => price / reference.price >= reference.ratio || reference.price / price >= reference.ratio;
+
+/**
+ * Why the provider's quote of an instrument not held looks like another unit, when it does: it comes from the same
+ * mapping as the closes, so it is checked the same way, also when the closes did not come.
+ */
+export function quoteUnitProblem(quote: { price: number; symbol: string; source: string }, ticker: string, reference: UnitReference | undefined): string | undefined {
+  if (!reference || !offUnit(quote.price, reference)) return undefined;
+  const factor = unitFactor(quote.price, reference.price);
+  return `${quote.source}'s price for ${quote.symbol} (${quote.price}) is far from Trading 212's ${reference.what} (${reference.price}), so it looks like another unit; multiply the factor in its QUOTE_SYMBOLS mapping by ${factor} (${ticker}=${quote.symbol}*${factor} when it has none).`;
+}
+
+export function createPriceHistory(deps: {
+  sampleData: boolean;
+  quotes?: QuoteProvider;
+  /** The sample account's fills of an instrument, for a request that brings none: each view draws the same path. */
+  sampleAnchors?: (instrument: Instrument, from: Date) => Promise<PriceAnchor[]>;
+  now?: () => Date;
+  waitMs?: number;
+}) {
   const now = deps.now ?? (() => new Date());
   return async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
     const { instrument } = request;
     if (deps.sampleData) {
-      if (!request.last) return { missing: "sample", problem: "The sample account has prices only for the instruments it holds." };
-      return { prices: samplePriceHistory(instrument.ticker, { from: request.from, to: now(), last: request.last, anchors: await request.fills ?? [] }) };
+      const last = request.last ?? await request.quote;
+      if (!last) return { missing: "sample", problem: "The sample account has prices only for its own instruments." };
+      const anchors = await (request.fills ?? deps.sampleAnchors?.(instrument, request.from).catch(() => []));
+      return { prices: samplePriceHistory(instrument.ticker, { from: request.from, to: now(), last, anchors: anchors ?? [] }) };
     }
     const quotes = deps.quotes;
     if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };
@@ -69,14 +120,9 @@ export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuotePr
     if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol}.` };
     // The unit is checked against the last price, else the open orders and alerts, else the newest fill.
-    const levels = (await request.levels ?? []).filter((price) => price > 0);
-    const newest = (await request.fills ?? []).reduce<PriceAnchor | undefined>((best, item) => (!best || item.at > best.at ? item : best), undefined);
-    const check = request.last ? { price: request.last, ratio: UNIT_RATIO, what: "last price" }
-      : levels.length ? { price: middle(levels)!, ratio: UNIT_RATIO, what: "order and alert prices" }
-      : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" }
-      : undefined;
+    const check = unitReference(request.last, await request.levels ?? [], await request.fills ?? []);
     const last = prices.points[prices.points.length - 1]!.close;
-    if (check && (last / check.price >= check.ratio || check.price / last >= check.ratio)) {
+    if (check && offUnit(last, check)) {
       const factor = unitFactor(last, check.price, prices.factor);
       const mapping = `${instrument.ticker}=${symbol}${factor === 1 ? "" : `*${factor}`}`;
       return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol} (last ${last}) are far from Trading 212's ${check.what} (${check.price}), so they look like another unit; map it in QUOTE_SYMBOLS as ${mapping}.` };

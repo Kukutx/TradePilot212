@@ -1,6 +1,6 @@
 # Portfolio analytics
 
-TradePilot computes portfolio figures deterministically from Trading 212 data, so the model does not have to do arithmetic. All of these tools are read-only, except that `manage_history_export` can request a report and `manage_trade_journal` writes notes to TradePilot's own store.
+TradePilot computes portfolio figures deterministically from Trading 212 data, so the model does not have to do arithmetic. All of these tools are read-only, except that `manage_history_export` can request a report and `manage_trade_journal` and `manage_watchlist` write to TradePilot's own store.
 
 | Tool | What it returns | Trading 212 API permission |
 |---|---|---|
@@ -11,6 +11,8 @@ TradePilot computes portfolio figures deterministically from Trading 212 data, s
 | `get_trade_history` | Executed fills with their order id, price, quantity, net value, realized P/L, FX rate, and costs, and the trade journal notes on those orders; with `includeUnfilled`, also orders cancelled, rejected or expired without a fill. A ticker filter is applied by Trading 212, so older trades of one instrument are found | history (orders), TradePilot's trade journal |
 | `get_cash_history` | Dividends, deposits, withdrawals, interest and fees one by one, with totals per type; filter by type or by an instrument's dividends | history (dividends, transactions) |
 | `get_holding_detail` | One instrument, held or not: position, share of the account and saved target weight, pending orders with their distance from the last price, price alerts, trade journal notes, market session, the last 12 months of fills and dividends (with the total), and up to 12 months of daily closes from the quote provider, summed up in the text as the change over them and over each of 1, 3 and 6 months they cover in full, with the high and low. Renders the holding page with a price chart | account, portfolio, orders, metadata, history (orders, dividends), TradePilot's trade journal |
+| `get_watchlist` | The instruments on the watchlist, held or not: the price now and where from, the change since the previous close and over 1, 3 and 12 months, the high and low of the last 12 months (or of the closes there are), three months of closes, open orders and armed alerts with their distance from the price, the move since added and the note ([WATCHLIST.md](./WATCHLIST.md)). Renders the Watchlist tab | portfolio, orders, metadata; the quote provider for prices and closes |
+| `manage_watchlist` | Adds an instrument to the watchlist with an optional note, changes the note, or removes one. Writes only TradePilot's own store | metadata (to resolve an instrument) |
 | `get_order_status` | One order by id: open (and how much filled), filled, partly filled, cancelled or rejected, with its fills | orders, history (orders) |
 | `get_market_hours` | Current session (regular, pre-market, after-hours, overnight, break, closed) and the next open and close | metadata |
 | `manage_history_export` | Lists the broker's CSV reports, or requests a new one | history |
