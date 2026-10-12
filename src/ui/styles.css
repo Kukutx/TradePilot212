@@ -1060,14 +1060,15 @@ h2[tabindex="-1"]:focus { outline: none; }
 .watchControls .segmented button { min-height: 32px; padding: 0 10px; }
 .watchSort { display: inline-flex; align-items: center; gap: 6px; color: var(--tp-muted); font-size: 12px; font-weight: 650; }
 .watchSort select { height: 34px; max-width: 170px; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
-.watchAdd { display: grid; gap: 6px; margin-bottom: 10px; }
-.watchAdd > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
-.watchAdd input { width: 100%; height: 42px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
-.watchAdd input:hover { border-color: var(--tp-border-strong); }
-.watchAdd .panelNote { margin: 0; }
-.watchResults { list-style: none; margin: 0; padding: 2px 4px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg); box-shadow: var(--tp-shadow); }
-.watchResults li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 4px 4px 4px 8px; }
-.watchResults li + li { border-top: 1px solid var(--tp-border); }
+.instrumentSearch { display: grid; gap: 6px; margin-bottom: 10px; }
+.instrumentSearch > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.instrumentSearch input { width: 100%; height: 42px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
+.instrumentSearch input:hover { border-color: var(--tp-border-strong); }
+.instrumentSearch .panelNote { margin: 0; }
+.instrumentResults { list-style: none; margin: 0; padding: 2px 4px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg); box-shadow: var(--tp-shadow); }
+.instrumentResults li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 4px 4px 4px 8px; }
+.instrumentResults li + li { border-top: 1px solid var(--tp-border); }
+.instrumentResults .compactButton, .instrumentResults .statusPill { flex: 0 0 auto; white-space: nowrap; }
 .watchName { display: grid; min-width: 0; }
 .watchName strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .watchName small { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tp-muted); font-size: 12px; }
@@ -1354,10 +1355,14 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .targetRiskTable strong { font-size: 15px; font-weight: 700; }
 .targetRiskChange { display: block; color: var(--tp-muted); font-size: 11.5px; }
 .targetClear { margin-right: auto; color: var(--tp-red); }
+.targetName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.targetRemove { width: 30px; height: 30px; border-radius: 9px; }
+.targetEditor .instrumentSearch { margin: 0 0 14px; }
 @container (max-width: 640px) {
   .targetRows li { grid-template-columns: minmax(0, 1fr) 96px; gap: 4px 10px; }
   .targetNow { grid-column: 1; grid-row: 2; justify-items: start; }
   .targetField { grid-column: 2; grid-row: 1 / span 2; }
+  .targetRemove { width: 40px; height: 40px; }
 }
 
 .targetFieldset { min-width: 0; margin: 0; padding: 0; border: 0; }

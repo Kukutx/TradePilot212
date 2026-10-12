@@ -102,8 +102,9 @@ const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["plan_portfolio_rebalance", {}],
   ["plan_portfolio_rebalance", { buyOnly: true }],
   ["app_get_holding_covariance", { environment: "demo" }],
+  ["app_get_holding_covariance", { environment: "demo", alongside: ["TSLA_US_EQ"] }],
 ]);
-const [saved, allocation, rebalance, buyOnly, covariance] = targets.results;
+const [saved, allocation, rebalance, buyOnly, covariance, widened] = targets.results;
 if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
 if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
 // Risk by holding, from the sample closes: every holding measured.
@@ -114,6 +115,8 @@ if (!(allocation.structuredContent?.risk?.rows?.length >= 2) || allocation.struc
 if (!(allocation.structuredContent.drift.volatility?.atTargets > 0) || !(saved.structuredContent?.drift?.volatility?.atTargets > 0)) throw new Error(`Allocation lacks the volatility at the targets: ${JSON.stringify(allocation.structuredContent.drift).slice(0, 300)}`);
 const matrix = covariance.structuredContent?.covariance?.matrix;
 if (covariance.isError || matrix?.length !== allocation.structuredContent.risk.rows.length || JSON.stringify(allocation.structuredContent).includes("covariance")) throw new Error(`Holdings' covariance failed: ${JSON.stringify(covariance).slice(0, 300)}`);
+// A target not held, measured beside the holdings for the form.
+if (widened.isError || widened.structuredContent?.covariance?.tickers?.at(-1) !== "TSLA_US_EQ" || widened.structuredContent.covariance.matrix.length !== matrix.length + 1) throw new Error(`Covariance beside the holdings failed: ${JSON.stringify(widened).slice(0, 300)}`);
 if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
 const buyOnlyPlan = buyOnly.structuredContent?.rebalance;
 if (buyOnly.isError || !buyOnlyPlan?.buyOnly || buyOnlyPlan.trades.some((trade) => trade.side !== "buy")) throw new Error(`Buy-only rebalance failed: ${JSON.stringify(buyOnly).slice(0, 300)}`);

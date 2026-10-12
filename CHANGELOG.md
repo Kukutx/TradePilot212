@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.51.0
+
+- Targets you don't hold yet. The target form on the Allocation tab searches Trading 212's instruments and adds one as a target, beside the holdings; a target not held, saved or added, can be removed from the form with its own button. Enter in the search never saves the form. Equal weights share what the cash leaves among them too (they come first when there are more than 20).
+- They count in the risk at the targets: their closes are read beside the holdings', over the same weeks, so the volatility the targets would give, the whole account's included, and each one's share of the risk take them in. While an added one is read the figures stay and say so; one whose closes weren't read this time says a **Refresh** counts it, and one without closes over those weeks is named and left out.
+- Saved targets not held count the same way in `drift.volatility` from `analyze_portfolio_allocation` and `manage_target_allocation`, and in the volatility beside the drift.
+- The watchlist and the target form share one instrument search.
+
 ## 2.50.0
 
 - Risk at the targets typed. The target form on the Allocation tab works out, as each share is typed, the volatility a year the targets would give: the holdings measured together, and the whole account with cash counted as not moving, each beside today's, and under each holding its share of the risk now and at the targets. It reads the holdings' covariance as it opens, for the holdings and the weeks risk by holding measured (when what it reads doesn't match the risk on screen, as when closes are still on their way, it asks for a **Refresh**); a target not held, or a holding not measured, is named and left out, and then the whole account is not given.

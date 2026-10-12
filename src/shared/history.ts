@@ -249,10 +249,18 @@ export interface TargetVolatility {
   leftOut?: string[];
 }
 
-/** The holdings measured for risk by holding and a year's covariance of their weekly returns, in the same order. */
+/**
+ * The holdings measured for risk by holding and a year's covariance of their weekly returns, in the same order; then
+ * any instruments not held that were asked for alongside and could be measured over the same weeks.
+ */
 export interface HoldingCovariance {
   tickers: string[];
   matrix: number[][];
+  /**
+   * The instruments not held asked for alongside that are not in it, and why: their closes were not read in time
+   * (`later`) or could not be read, miss some of the holdings' weeks (`short`), or jump as across a change of unit.
+   */
+  unmeasured?: Array<{ ticker: string; reason: PricesMissing | "later" | "short" | "jumps" }>;
 }
 
 /** The widget's read of the holdings' covariance, for the risk at the targets typed in; never shown to the model. */

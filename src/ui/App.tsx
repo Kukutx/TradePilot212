@@ -100,6 +100,8 @@ const LOCALE_STORAGE_KEY = "tradepilot212.locale";
 const TODAY_FRESH_MS = 2 * 60_000;
 /** The holdings' covariance is read again after this long: the weekly closes it comes from change once a week. */
 const COVARIANCE_KEEP_MS = 30 * 60_000;
+/** Why a covariance read can leave out an instrument not held this time but not the next: read again rather than kept. */
+const PASSING_MISSES = new Set(["later", "data"]);
 
 function readSavedLocale(): SupportedLocale | null {
   try {
@@ -462,18 +464,22 @@ export default function App() {
 
   /**
    * The holdings' covariance, for the risk at the targets typed in: read for the holdings the risk on screen measured,
-   * and kept a while for them and its weeks, as the closes it is read from change once a week. A failed read, or one
-   * that does not fit the risk on screen, is not kept.
+   * with the instruments not held in the form beside them, and kept a while for them and its weeks, as the closes it
+   * is read from change once a week. A failed read, one that does not fit the risk on screen, and one that left out an
+   * instrument not held for a reason that can pass (its closes on their way, or not read this time), are not kept: a
+   * Refresh reads them again. One left out for good (no symbol, too few weeks) is kept like the rest.
    */
-  function readCovariance(env: TradingEnvironment, measured: MeasuredRisk): Promise<HoldingCovariancePayload> {
+  function readCovariance(env: TradingEnvironment, measured: MeasuredRisk, alongside: string[]): Promise<HoldingCovariancePayload> {
     const tickers = measured.rows.map((row) => row.ticker);
-    const key = `${env}:${measured.to}:${measured.weeks}:${[...tickers].sort().join(",")}`;
+    const key = `${env}:${measured.to}:${measured.weeks}:${[...tickers].sort().join(",")}:${[...alongside].sort().join(",")}`;
     const kept = covariances.current.get(key);
     if (kept && Date.now() - kept.at < COVARIANCE_KEEP_MS) return kept.read;
-    const read = callTool<HoldingCovariancePayload>("app_get_holding_covariance", { environment: env, tickers });
+    const read = callTool<HoldingCovariancePayload>("app_get_holding_covariance", { environment: env, tickers, ...(alongside.length ? { alongside } : {}) });
     covariances.current.set(key, { at: Date.now(), read });
     const forget = () => { if (covariances.current.get(key)?.read === read) covariances.current.delete(key); };
-    read.then((payload) => { if (!covarianceFits(payload, measured)) forget(); }, forget);
+    read.then((payload) => {
+      if (!covarianceFits(payload, measured, alongside) || payload.covariance?.unmeasured?.some((item) => PASSING_MISSES.has(item.reason))) forget();
+    }, forget);
     return read;
   }
 
@@ -630,9 +636,9 @@ export default function App() {
     return true;
   }
 
-  /** Trading 212's instruments matching a query, best first, for the watchlist's search. */
-  async function searchInstruments(query: string): Promise<Instrument[]> {
-    return (await callTool<{ instruments: Instrument[] }>("search_trading212_instruments", { environment, query, limit: 8 })).instruments ?? [];
+  /** Trading 212's instruments matching a query, best first, for the watchlist's and the target form's search. */
+  async function searchInstruments(query: string, env: TradingEnvironment = environment): Promise<Instrument[]> {
+    return (await callTool<{ instruments: Instrument[] }>("search_trading212_instruments", { environment: env, query, limit: 8 })).instruments ?? [];
   }
 
   /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
@@ -1026,7 +1032,8 @@ export default function App() {
                 {...(connected ? {
                   onSaveTargets: (save: TargetSave) => changeTargets({ action: "set", ...save }, allocationEnvironment),
                   onClearTargets: () => changeTargets({ action: "clear" }, allocationEnvironment),
-                  ...(insights.allocation.risk ? { onReadCovariance: (measured: MeasuredRisk) => readCovariance(allocationEnvironment, measured) } : {}),
+                  onSearch: (query: string) => searchInstruments(query, allocationEnvironment),
+                  ...(insights.allocation.risk ? { onReadCovariance: (measured: MeasuredRisk, alongside: string[]) => readCovariance(allocationEnvironment, measured, alongside) } : {}),
                 } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
