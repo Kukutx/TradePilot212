@@ -106,15 +106,22 @@ function activityLine(event: ActivityEvent): string {
 
 /**
  * "NVDA_US_EQ 5 of 20 (25%) from 118, 8.3% below the last price", "… from 118 down to 100 …" for stops at
- * several prices, plus what reaching them costs when the broker values the holding.
+ * several prices, plus what they cost once triggered when the broker values the holding. A stop-limit is
+ * counted at its limit, so the text names the limit and that it may not fill.
  */
 function stopText(position: Position, guard: StopProtection, currency: string | undefined): string {
   const gap = guard.gap === undefined ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const several = guard.levels.length > 1;
   const lowest = guard.levels.at(-1);
-  const range = guard.levels.length > 1 && lowest ? ` down to ${num(lowest.stopPrice, 6)}` : "";
+  const range = several && lowest ? ` down to ${num(lowest.stopPrice, 6)}` : "";
+  const limit = guard.levels.find((level) => level.limitPrice !== undefined)?.limitPrice;
+  const limits = limit === undefined ? "" : several
+    ? " (stop-limits sell at their limit or better, or not at all after a gap)"
+    : ` (stop-limit: sells at ${num(limit, 6)} or better, or not at all after a gap)`;
   const outcome = stopOutcome(position, guard);
-  const cost = outcome ? `; at ${range ? "the lowest stop" : "the stop"} ${money(-outcome.drop, currency)} from now${outcome.pnlAtStop === undefined ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
-  return `${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${range}${gap}${cost}`;
+  const when = `${several ? "if every stop triggers" : "if it triggers"}${limit === undefined ? "" : " and fills"}`;
+  const cost = outcome ? `; ${when}: ${money(-outcome.drop, currency)} from now${outcome.pnlAtStop === undefined ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num(guard.covered, 8)} of ${num(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num(guard.stopPrice, 6)}${range}${limits}${gap}${cost}`;
 }
 
 /** Which holdings a pending sell stop covers, how much of each and how far below the last price; and every holding without one. */

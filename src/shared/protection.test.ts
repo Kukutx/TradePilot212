@@ -105,11 +105,14 @@ describe("stop-loss protection", () => {
     const text = describePayload(await services.trading.getDashboard("demo"));
     // The sample account has one sell stop: 5 of 20 NVIDIA at 118.
     // 10.75 USD a share to the stop on 5 shares, at the 0.92 EUR the valuation implies; a quarter of the 597.08 P/L stays.
-    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; at the stop -49\.45 EUR from now, P\/L \+99\.82\. No stop on [A-Za-z_, ]+\.$/m);
+    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; if it triggers: -49\.45 EUR from now, P\/L \+99\.82\. No stop on [A-Za-z_, ]+\.$/m);
     const dashboard = await services.trading.getDashboard("demo");
     // A second stop lower down widens the range, and its 5 shares cost from the last price down to 100.
     const ladder = describePayload({ ...dashboard, orders: [...dashboard.orders, { id: 99, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -5, stopPrice: 100, status: "NEW" }] });
-    expect(ladder).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 down to 100, 8\.3% below the last price; at the lowest stop -/m);
+    expect(ladder).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 down to 100, 8\.3% below the last price; if every stop triggers: -/m);
+    // A stop-limit names its limit and is costed there: 5 shares from 128.75 to 115 at the 0.92 EUR rate.
+    const stopLimit = describePayload({ ...dashboard, orders: [{ id: 98, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 115, status: "NEW" }] });
+    expect(stopLimit).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118 \(stop-limit: sells at 115 or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -63\.25 EUR from now/m);
     const bare = describePayload({ ...dashboard, orders: [] });
     // With no stop anywhere, the line still names every holding without one.
     expect(bare).toMatch(/^Stop-loss orders: none\. No stop on (?=.*NVDA_US_EQ)(?=.*AAPL_US_EQ)[A-Za-z_, ]+\.$/m);

@@ -37990,11 +37990,15 @@ function activityLine(event) {
 }
 function stopText(position, guard, currency) {
   const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const several = guard.levels.length > 1;
   const lowest = guard.levels.at(-1);
-  const range = guard.levels.length > 1 && lowest ? ` down to ${num2(lowest.stopPrice, 6)}` : "";
+  const range = several && lowest ? ` down to ${num2(lowest.stopPrice, 6)}` : "";
+  const limit = guard.levels.find((level) => level.limitPrice !== void 0)?.limitPrice;
+  const limits = limit === void 0 ? "" : several ? " (stop-limits sell at their limit or better, or not at all after a gap)" : ` (stop-limit: sells at ${num2(limit, 6)} or better, or not at all after a gap)`;
   const outcome = stopOutcome(position, guard);
-  const cost = outcome ? `; at ${range ? "the lowest stop" : "the stop"} ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
-  return `${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${range}${gap}${cost}`;
+  const when = `${several ? "if every stop triggers" : "if it triggers"}${limit === void 0 ? "" : " and fills"}`;
+  const cost = outcome ? `; ${when}: ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  return `${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${range}${limits}${gap}${cost}`;
 }
 function protectionLines(positions, orders, currency) {
   if (!positions.length) return [];

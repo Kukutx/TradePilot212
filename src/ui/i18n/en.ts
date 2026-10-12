@@ -470,6 +470,7 @@ export const en = {
   stopOutcomeShort: "If it triggers: {change} from now",
   stopsOutcome: "If every stop triggers: {change} from now · P/L then {pnl}",
   stopsOutcomeShort: "If every stop triggers: {change} from now",
+  stopLimitOutcome: "Stop-limits are counted at their limit; after a gap they may not fill.",
   protectionAll: "Every holding has a full stop-loss",
   protectionSummary: "{covered} of {holdings} holdings fully covered by stop-losses",
   protectionUnprotected: "Unprotected {value} ({share} of holdings)",
