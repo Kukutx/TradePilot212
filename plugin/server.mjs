@@ -35717,7 +35717,7 @@ var TradingService = class {
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : void 0;
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
-    const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
+    const needsRiskQuote = sizing.mode === "risk" && intent.side === "buy" && !position?.currentPrice;
     let quotePrice;
     let quoteAt;
     if (needsPrice || needsRiskQuote) {
@@ -35796,12 +35796,10 @@ var TradingService = class {
       };
       const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current) : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      if (intent.type === "limit" || intent.type === "stop_limit") {
-        if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
-        referencePrice ??= entry;
-      } else if (entry !== referencePrice) {
-        referencePriceAt = entry === position?.currentPrice ? fetchedAt : entry === quotePrice ? quoteAt : void 0;
-        referencePrice = entry;
+      const reference = intent.type === "limit" || intent.type === "stop_limit" ? highest(referencePrice, current) ?? entry : entry;
+      if (reference !== referencePrice) {
+        referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : void 0;
+        referencePrice = reference;
       }
       if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
       const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();

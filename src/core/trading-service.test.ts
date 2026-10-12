@@ -380,6 +380,10 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 210, sizing: risk });
     expect(stop.risk?.entryPrice).toBe(216);
     expect(stop.draft.referencePrice).toBe(216);
+    // A Limit is sized at its limit but keeps the quote as its reference, for when its type is changed to Market.
+    const limit = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "limit", limitPrice: 212, sizing: risk });
+    expect(limit.risk).toMatchObject({ entryPrice: 212, currentPrice: 216 });
+    expect(limit.draft).toMatchObject({ limitPrice: 212, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" });
   });
 
   it("refuses risk sizing that cannot work", async () => {

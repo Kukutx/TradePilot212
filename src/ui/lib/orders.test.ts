@@ -57,6 +57,11 @@ describe("risk at the stop", () => {
     // A Stop at 208 has been passed and fills near 216; one at 224 fills at its trigger.
     expect(riskAtStop({ ...draft, type: "stop", stopPrice: 208 }, held)?.loss).toBeCloseTo(30, 8);
     expect(riskAtStop({ ...draft, type: "stop", stopPrice: 224 }, held)?.loss).toBeCloseTo(45, 8);
+    // Sized as a Limit at 212 (12 USD to the stop), then changed to Market: it fills near 216, 16 USD from the stop.
+    const limited: OrderResolution = { ...resolution, risk: { budget: 30, entryPrice: 212, currentPrice: 216, perShare: 12 / 1.08 } };
+    const asLimit: OrderDraft = { ...draft, type: "limit", limitPrice: 212, quantity: 2.7, referencePrice: 216 };
+    expect(riskAtStop(asLimit, limited)?.loss).toBeCloseTo(30, 8);
+    expect(riskAtStop({ ...asLimit, type: "market" }, limited)?.loss).toBeCloseTo(40, 8);
   });
 
   it("is only for risk-sized drafts", () => {

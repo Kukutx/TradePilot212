@@ -577,9 +577,10 @@ export class TradingService {
     // Amount-based sizing of an instrument you do not hold falls back to the external quote provider.
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === undefined
       && !position?.currentPrice && intent.type === "market";
-    // A risk-sized Market or Stop buy of one you do not hold reads it too, given a price or not: it can fill
-    // near the quote, and when that is higher the loss at the stop is larger.
-    const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
+    // A risk-sized buy of one you do not hold reads it too, given a price or not: a Market or Stop can fill near
+    // the quote, and when that is higher the loss at the stop is larger. A Limit keeps it as its reference, in
+    // case its type is changed to one of those in the editor.
+    const needsRiskQuote = sizing.mode === "risk" && intent.side === "buy" && !position?.currentPrice;
     let quotePrice: number | undefined;
     let quoteAt: string | undefined;
     if (needsPrice || needsRiskQuote) {
@@ -667,14 +668,13 @@ export class TradingService {
         : intent.type === "stop" ? highest(intent.stopPrice, current)
         : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      if (intent.type === "limit" || intent.type === "stop_limit") {
-        if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
-        referencePrice ??= entry;
-      } else if (entry !== referencePrice) {
-        // The draft carries the entry, so the review values the order and checks the limits at it too, not at
-        // a lower price given or the trigger. Its time is the holding's or the quote's.
-        referencePriceAt = entry === position?.currentPrice ? fetchedAt : entry === quotePrice ? quoteAt : undefined;
-        referencePrice = entry;
+      // The draft's reference is the entry for a Market or Stop, and for a Limit the higher of the price given
+      // and the last price. The review values the order and checks the limits at it, also after the type is
+      // changed in the editor, rather than at a lower price given. Its time is the holding's or the quote's.
+      const reference = intent.type === "limit" || intent.type === "stop_limit" ? highest(referencePrice, current) ?? entry : entry;
+      if (reference !== referencePrice) {
+        referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : undefined;
+        referencePrice = reference;
       }
       if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
       const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
