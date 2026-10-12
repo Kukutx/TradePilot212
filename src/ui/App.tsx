@@ -21,7 +21,7 @@ import type {
 } from "../shared/contracts";
 import type { AutomationOverview, BasketExecutionResult, BasketLeg, BasketPreview } from "../shared/automation";
 import type { HoldingDetail } from "../shared/holding";
-import { journalText } from "../shared/journal";
+import { journalText, type JournalReview } from "../shared/journal";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
@@ -37,6 +37,7 @@ import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
 import { AutomationView } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
+import { JournalReviewView } from "./views/JournalView";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
 type BasePayload =
@@ -60,10 +61,10 @@ type BasePayload =
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
-type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSummary> | WithAccess<IncomeSummary>;
+type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSummary> | WithAccess<IncomeSummary> | WithAccess<JournalReview>;
 type InsightKind = InsightPayload["kind"];
 type PortfolioTab = "holdings" | InsightKind;
-type InsightCache = { allocation?: WithAccess<AllocationAnalysis>; performance?: WithAccess<PerformanceSummary>; income?: WithAccess<IncomeSummary> };
+type InsightCache = { allocation?: WithAccess<AllocationAnalysis>; performance?: WithAccess<PerformanceSummary>; income?: WithAccess<IncomeSummary>; journal_review?: WithAccess<JournalReview> };
 
 /** A failed action: a title naming what failed, the reason, and a way to try again when that is safe. */
 interface Problem {
@@ -77,11 +78,12 @@ const INSIGHT_TOOLS: Record<InsightKind, string> = {
   allocation: "analyze_portfolio_allocation",
   performance: "get_portfolio_performance",
   income: "get_income_summary",
+  journal_review: "get_journal_review",
 };
-const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome" };
+const TAB_KEYS: Record<PortfolioTab, MessageKey> = { holdings: "tabHoldings", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome", journal_review: "tabJournal" };
 
 const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
-  payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income";
+  payload?.kind === "allocation" || payload?.kind === "performance" || payload?.kind === "income" || payload?.kind === "journal_review";
 
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
@@ -217,7 +219,7 @@ function ViewTabs({ tab, busy, t, onSelect }: { tab: PortfolioTab; busy: boolean
   return (
     <div className={`tabStrip${edges.start ? " fadeStart" : ""}${edges.end ? " fadeEnd" : ""}`}>
       <nav className="viewTabs" aria-label={t("viewsLabel")} ref={nav}>
-        {(["holdings", "allocation", "performance", "income"] as const).map((key) => (
+        {(["holdings", "allocation", "performance", "income", "journal_review"] as const).map((key) => (
           <button key={key} type="button" aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : ""} disabled={busy && tab !== key} onClick={() => onSelect(key)}>
             {t(TAB_KEYS[key])}
           </button>
@@ -231,6 +233,8 @@ export default function App() {
   const [base, setBase] = useState<BasePayload | null>(null);
   // The dashboard a holding was opened from, so Back returns to it without a new read.
   const [holdingFrom, setHoldingFrom] = useState<DashboardPayload | null>(null);
+  // The view a holding was opened from, such as the journal, so Back returns to it.
+  const [holdingTab, setHoldingTab] = useState<PortfolioTab>("holdings");
   const [tab, setTab] = useState<PortfolioTab>("holdings");
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
@@ -299,6 +303,7 @@ export default function App() {
     setBase(payload);
     // A page the host hands over starts fresh: Back from a holding then reads the dashboard again.
     setHoldingFrom(null);
+    setHoldingTab("holdings");
     setProblem(null);
     setInsightError(null);
     const env = initialEnvironment(payload);
@@ -445,7 +450,7 @@ export default function App() {
 
   async function changePeriod(next: InsightPeriod): Promise<void> {
     setPeriod(next);
-    if (tab === "performance" || tab === "income") await loadInsight(tab, environment, next);
+    if (tab === "performance" || tab === "income" || tab === "journal_review") await loadInsight(tab, environment, next);
   }
 
   async function refresh(env = environment, target: PortfolioTab = tab): Promise<void> {
@@ -487,6 +492,7 @@ export default function App() {
       await callTool("manage_trade_journal", { environment: env, ...input });
     });
     if (done && base?.kind === "holding" && base.environment === env) await refresh(env, "holdings");
+    else if (done && tab === "journal_review" && environment === env) await loadInsight("journal_review", env);
     return done;
   }
 
@@ -495,21 +501,30 @@ export default function App() {
     await run("errorTitleLoad", async () => {
       const detail = await callTool<HoldingDetail>("app_get_holding", { environment, instrument: ticker });
       setHoldingFrom(base?.kind === "portfolio" ? base : null);
+      // The tab views stay hidden behind the holding until Back returns to the one it was opened from.
+      setHoldingTab(tab);
+      setTab("holdings");
       setBase(detail);
     }, () => void openHolding(ticker));
   }
 
+  /** Back from a holding goes to the view it was opened from, when that is still loaded for this account. */
+  function backTab(): PortfolioTab {
+    return holdingTab !== "holdings" && insights[holdingTab]?.environment === environment ? holdingTab : "holdings";
+  }
+
   async function backFromHolding(): Promise<void> {
+    const returnTab = backTab();
     if (holdingFrom && holdingFrom.environment === environment) {
       setBase(holdingFrom);
       setHoldingFrom(null);
-      setTab("holdings");
+      setTab(returnTab);
       return;
     }
     setHoldingFrom(null);
     await run("errorTitleRefresh", async () => {
       setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment }));
-      setTab("holdings");
+      setTab(returnTab);
     }, () => void backFromHolding());
   }
 
@@ -583,8 +598,9 @@ export default function App() {
       setVerification(null);
       setPreview(null);
       setDraft(null);
-      // The saved dashboard no longer matches the account; Back from a holding reads it again.
+      // The saved dashboard and tabs no longer match the account; Back from a holding and each tab read again.
       setHoldingFrom(null);
+      setInsights({});
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -626,6 +642,7 @@ export default function App() {
       const result = await callTool<BasketExecutionResult>("app_execute_basket", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
       setBasketResult(result);
       setBasketVerifications({});
+      setInsights({});
     } catch (requestError) {
       // The token may already be consumed; never resend it. The person must review again explicitly,
       // unless the server said the send never started because another order was in flight.
@@ -712,6 +729,7 @@ export default function App() {
       setCancelPreview(null);
       if (base?.kind === "cancel_draft") setCancelDraftClosed(true);
       setHoldingFrom(null);
+      setInsights({});
     });
     if (sent) await refresh(environment, "holdings");
   }
@@ -867,6 +885,10 @@ export default function App() {
             {tab === "income" && insights.income && (
               <IncomeView data={insights.income} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
             )}
+            {portfolioLike && tab === "journal_review" && insights.journal_review && (
+              <JournalReviewView data={insights.journal_review} book={book} locale={locale} t={t} period={period} busy={loading}
+                onPeriod={(next) => void changePeriod(next)} onOpen={(ticker) => void openHolding(ticker)} onSaveNote={changeNote} />
+            )}
             {base?.kind === "trade_plan" && (
               <TradePlanView
                 payload={base}
@@ -893,6 +915,7 @@ export default function App() {
                 t={t}
                 writeEnabled={writeEnabled}
                 busy={loading}
+                {...(backTab() === "holdings" ? {} : { backLabel: t(TAB_KEYS[backTab()]) })}
                 onBack={() => void backFromHolding()}
                 onSaveAlert={(request) => changeAlert({ action: "create", instrument: base.ticker, ...request })}
                 onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}

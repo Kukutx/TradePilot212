@@ -116,6 +116,11 @@ export class InsightsService {
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
   }
 
+  /** Read the account's history afresh next time: an order or a cancellation was just sent. */
+  forgetHistory(environment: TradingEnvironment): void {
+    for (const key of this.historyCache.keys()) if (key.startsWith(`${environment}:`)) this.historyCache.delete(key);
+  }
+
   /** Walk newest-first history pages until the window start or the page budget is reached. */
   async collect<K extends HistoryKind>(environment: TradingEnvironment, kind: K, window: HistoryWindow, maxPages = DEFAULT_HISTORY_PAGES, ticker?: string): Promise<Collected<HistoryItemOf<K>>> {
     const pages = Math.max(1, Math.min(MAX_HISTORY_PAGES, Math.floor(maxPages)));

@@ -18,6 +18,7 @@ import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
 import { holdingDetail } from "./holding.js";
+import { journalReview } from "./journal-review.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -991,6 +992,35 @@ export function createMcpServer(
           ...(input.tags === undefined ? {} : { tags: input.tags }),
         });
         return result({ kind: "journal_entry", entry }, `Updated journal note ${entry.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_journal_review",
+    {
+      title: "Trade Journal Review",
+      description:
+        "Look back over the trade journal: each note on an order filled in the period, next to how that trade has gone since. The fill price is set against the price now (the broker's for holdings, the quote provider's otherwise); the edge is the move in the trade's favour (up for a buy, down for a sell), with FX and costs left out and each trade counting once. Per tag: how many trades went your way and the average edge, plus realised P/L on sells. Also counts the fills without a note and the trades due for a look back (a reason, no review, 30 days or more since the fill). Use manage_trade_journal to save a review. Read-only.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        ...windowSchema,
+        tag: z.string().min(1).max(MAX_JOURNAL_TAG + 8).optional().describe("Only the notes with this tag"),
+      }),
+      annotations: readOnly,
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, period, from, to, maxPages, tag }) => {
+      try {
+        const window = parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) });
+        const review = await journalReview({ journal, insights, trading }, environment, window, { ...(tag ? { tag } : {}), maxPages });
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...review };
+        const { overall } = review;
+        const edge = overall.averageEdge === undefined ? "" : `; ${overall.inFavour} of ${overall.priced} went your way, average edge ${overall.averageEdge >= 0 ? "+" : ""}${num(overall.averageEdge * 100, 1)}%`;
+        return result(data, `${review.withNote} of ${review.fills} fill(s) have a journal note${edge}${review.due ? `; ${review.due} due for a look back` : ""}.`);
       } catch (error) {
         return toolError(error);
       }

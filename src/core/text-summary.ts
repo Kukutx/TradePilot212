@@ -3,7 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
-import type { JournalEntry, JournalPayload } from "../shared/journal.js";
+import { REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
@@ -56,6 +56,36 @@ function journalLine(entry: JournalEntry, withTicker = true): string {
   const order = entry.order ? ` ${entry.order.side.toUpperCase()} ${num(entry.order.quantity, 8)} ${entry.order.type.replace("_", "-")}${entry.order.unconfirmed ? " (result unclear when sent)" : ""}` : "";
   return `${entry.id} ${day(entry.createdAt)}${withTicker ? ` ${entry.ticker}` : ""}${entry.orderId ? ` order ${entry.orderId}` : ""}${order}`
     + `${entry.thesis ? `; why: ${quoted(entry.thesis)}` : ""}${entry.review ? `; review: ${quoted(entry.review)}` : ""}${entry.tags?.length ? `; tags ${entry.tags.join(", ")}` : ""}`;
+}
+
+const signedPct = (value: number) => `${value >= 0 ? "+" : ""}${num(value * 100, 1)}%`;
+
+function tagStatsLine(row: JournalTagStats, currency: string, name = row.tag === undefined ? "(no tag)" : `#${row.tag}`): string {
+  const edge = row.averageEdge === undefined ? "no price now" : `${row.inFavour}/${row.priced} in your favour, average ${signedPct(row.averageEdge)}`;
+  return `${name}: ${row.trades} trade(s), ${edge}${row.realisedProfitLoss ? `, realised ${num(row.realisedProfitLoss)} ${currency}` : ""}`;
+}
+
+function journalTradeLine(trade: JournalTrade): string {
+  const now = trade.move === undefined ? "no price now" : `now ${num(trade.priceNow)} (${signedPct(trade.move)}, ${signedPct(trade.edge!)} in the trade's favour)`;
+  return `${day(trade.filledAt)} ${trade.ticker} ${trade.side.toUpperCase()} ${num(trade.quantity, 8)} @ ${num(trade.price, 4)}${trade.priceCurrency ? ` ${trade.priceCurrency}` : ""}, ${now}`
+    + `${trade.realisedProfitLoss === undefined ? "" : `, realised ${num(trade.realisedProfitLoss)}`}${trade.due ? ", due for a look back" : ""}`
+    + `; note ${trade.entry.id}${trade.entry.thesis ? `, why: ${quoted(trade.entry.thesis)}` : ""}${trade.entry.review ? `, review: ${quoted(trade.entry.review)}` : ""}${trade.entry.tags?.length ? `, tags ${trade.entry.tags.join(", ")}` : ""}`;
+}
+
+function journalReview(data: JournalReview): string[] {
+  const currency = data.accountCurrency ?? "";
+  return [
+    `${env(data.environment)} journal review ${data.period.from ? `${day(data.period.from)} to ${day(data.period.to)}` : `all time to ${day(data.period.to)}`}${data.tag ? `, tag #${data.tag}` : ""}: ${data.withNote} of ${data.fills} fill(s) have a note, ${data.reviewed} with a look back.`,
+    `Edge = the price move since the fill in the trade's favour (a buy gains when the price rose, a sell when it fell); FX and costs are left out and each trade counts once.`,
+    ...(data.overall.trades ? [`${tagStatsLine(data.overall, currency, "All")}.`] : []),
+    ...(data.due ? [`${data.due} trade(s) are ${REVIEW_AFTER_DAYS}+ days old with a reason and no look back yet.`] : []),
+    ...(data.unmatched ? [`${data.unmatched} note(s) are on orders not among these fills (still open, cancelled, or filled before the period).`] : []),
+    ...(data.withoutOrder ? [`${data.withoutOrder} note(s) are on an instrument rather than a filled order.`] : []),
+    ...(data.unpriced.length ? [`No price now for ${data.unpriced.join(", ")}.`] : []),
+    ...(data.truncated ? ["History was cut at the page limit; older fills are not counted."] : []),
+    ...section("By tag", rows(data.tags, (row) => tagStatsLine(row, currency))),
+    ...section(`Trades with a note${data.tradesTotal > data.trades.length ? ` (newest ${data.trades.length} of ${data.tradesTotal})` : ""}`, rows(data.trades, journalTradeLine)),
+  ];
 }
 
 function noticesLines(notices: OrderNotice[] | undefined): string[] {
@@ -553,6 +583,7 @@ export function describePayload(data: unknown): string {
     case "price_alerts": lines = rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)); break;
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
     case "trade_journal": lines = rows((payload as unknown as JournalPayload).entries, (entry) => journalLine(entry)); break;
+    case "journal_review": lines = journalReview(payload as unknown as JournalReview); break;
     case "journal_entry": lines = payload.entry ? [journalLine(payload.entry as JournalEntry)] : []; break;
     case "trading_policy": lines = policy(payload as unknown as Parameters<typeof policy>[0]); break;
     case "history_export": lines = exports(payload as Parameters<typeof exports>[0]); break;

@@ -14,6 +14,7 @@ TradePilot computes portfolio figures deterministically from Trading 212 data, s
 | `get_order_status` | One order by id: open (and how much filled), filled, partly filled, cancelled or rejected, with its fills | orders, history (orders) |
 | `get_market_hours` | Current session (regular, pre-market, after-hours, overnight, break, closed) and the next open and close | metadata |
 | `manage_history_export` | Lists the broker's CSV reports, or requests a new one | history |
+| `get_journal_review` | Each trade journal note on an order filled in the period, with how the trade has gone since: fill price against the price now, the edge (the move in the trade's favour: up for a buy, down for a sell; FX and costs left out), realised P/L on sells. Per tag, the trades that went your way and the average edge; how many fills have a note and which trades are due for a look back ([JOURNAL.md](./JOURNAL.md)). Renders the Journal tab | portfolio, metadata, history (orders), TradePilot's trade journal; the quote provider for instruments not held |
 | `manage_trade_journal` | Lists, adds, changes and deletes trade journal notes: why each trade was made and what came of it ([JOURNAL.md](./JOURNAL.md)). Writes only TradePilot's own store | metadata (to resolve an instrument) |
 
 ## Periods

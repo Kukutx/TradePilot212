@@ -18,6 +18,18 @@ Each note has a thesis (why), a review (looking back) or both, up to 1000 charac
 - `get_holding_detail` returns the instrument's notes under `journal`: the 20 newest and any on a listed fill, with `journalTotal` when there are more.
 - `manage_trade_journal` with `action: "list"` returns the notes for an environment, optionally for one instrument (a ticker that a note carries matches even when Trading 212 no longer lists it) or one order.
 
+## Looking back
+
+The **Journal** tab, or `get_journal_review` in the chat, sets each note on an order filled in the period next to how that trade has gone since:
+
+- **Edge**: how far the price has moved in the trade's favour since the fill, up for a buy and down for a sell. The fill price is compared with the price now: the broker's for a holding, the quote provider's for an instrument you no longer hold (an instrument it cannot price counts without an edge, and the page says which). FX and costs are left out, and each trade counts once whatever its size, so it measures the call rather than the money.
+- **Went your way**: how many of the priced trades have an edge above zero, and the average edge, for all of them and per tag. A tag's row shows its average as a bar from a centre line, right when it went your way and left when it went against you; choosing a row lists only its trades.
+- **Realised on these sells**: what Trading 212 booked on the sells with a note.
+- **Trades with a reason**: how many of the period's fills have a note, and how many of those have a look back.
+- **Due for a look back**: trades with a reason, no look back, and at least 30 days since the fill. Each says so, and **Add a look back** writes one under the trade, which stays in view while you write.
+
+The tab follows the period switch (1M, 3M, YTD, 1Y, All), and an instrument's name opens its holding page, whose Back link returns to the journal. Notes on orders that are not among the period's fills (still open, cancelled, or filled before it) and notes without an order are counted at the foot. The order history is read once a minute at most; sending or cancelling an order reads it afresh, so a new fill shows the next time the tab opens.
+
 The `trade-journal` skill uses all of these to review your trades: it reads the reasons you gave at the time next to how each trade turned out, and saves what you take from it as the review.
 
 ## Changing and deleting

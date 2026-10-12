@@ -82,6 +82,7 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "income", group: "portfolio", tool: "get_income_summary", args: {}, prompt: { en: "What income did my portfolio pay?", zh: "我的组合派了多少股息和利息？" } },
     { id: "holding", group: "portfolio", tool: "get_holding_detail", args: { instrument: "NVDA" }, prompt: { en: "Show me everything about my NVIDIA position.", zh: "看看我的英伟达持仓详情。" } },
     { id: "journal", group: "portfolio", tool: "get_holding_detail", args: { instrument: "AAPL" }, prompt: { en: "Why did I buy Apple, and how did it go?", zh: "我当初为什么买苹果？后来怎么样了？" } },
+    { id: "review", group: "portfolio", tool: "get_journal_review", args: { period: "all" }, prompt: { en: "Look back over my trade journal: which reasons worked?", zh: "复盘一下我的交易日志：哪些理由靠谱？" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",
       args: { candidates: [
@@ -179,17 +180,26 @@ async function seedSample(): Promise<void> {
 
 /** Journal notes on the two newest sample Apple buys and one without an order, so the holding page shows the journal. */
 async function seedJournal(): Promise<void> {
-  const history = await client.callTool({ name: "get_trade_history", arguments: { ticker: "AAPL", period: "all" } });
-  const buys = ((history.structuredContent as { fills?: Array<{ orderId?: string; side?: string }> } | undefined)?.fills ?? [])
-    .filter((fill) => fill.orderId && String(fill.side).toUpperCase() === "BUY");
-  const [newest, earlier] = buys;
+  const history = await client.callTool({ name: "get_trade_history", arguments: { period: "all", limit: 50 } });
+  const fills = ((history.structuredContent as { fills?: Array<{ orderId?: string; ticker?: string; side?: string }> } | undefined)?.fills ?? []).filter((fill) => fill.orderId);
+  // The nth newest fill of an instrument on one side, newest first.
+  const pick = (ticker: string, side: "BUY" | "SELL", nth = 0) => fills.filter((fill) => fill.ticker === ticker && String(fill.side).toUpperCase() === side)[nth];
+  const on = (ticker: string, side: "BUY" | "SELL", nth: number, note: Record<string, unknown>) => {
+    const fill = pick(ticker, side, nth);
+    return fill ? [{ instrument: ticker, orderId: fill.orderId, ...note }] : [];
+  };
   const notes: Record<string, unknown>[] = [
-    ...(earlier ? [{ orderId: earlier.orderId, thesis: "Started a position after the earnings beat; adding in thirds so one bad week does not set the price.", tags: ["earnings"] }] : []),
-    ...(newest ? [{ orderId: newest.orderId, thesis: "Services keep growing faster than hardware, and the pullback brought the price back to its 200-day average. Wrong if margins shrink next quarter.", review: "Margins held and the price recovered within weeks. Buying the pullback in two steps worked better than one order.", tags: ["pullback", "long-term"] }] : []),
-    { thesis: "Watching the next earnings: add if services growth stays above 10%.", tags: ["earnings", "watchlist"] },
+    ...on("AAPL_US_EQ", "BUY", 1, { thesis: "Started a position after the earnings beat; adding in thirds so one bad week does not set the price.", tags: ["earnings"] }),
+    ...on("NVDA_US_EQ", "SELL", 0, { thesis: "Took profit after the stock doubled; it had grown past a fifth of the portfolio.", review: "Sold too early: the price kept rising. Next time trail a stop instead of selling outright.", tags: ["trim"] }),
+    ...on("TSLA_US_EQ", "BUY", 0, { thesis: "Small speculative position on the robotaxi launch; sized so losing it all would not matter.", tags: ["theme"] }),
+    ...on("KO_US_EQ", "SELL", 0, { thesis: "Selling part: the yield fell under 3% after the run-up; rotating into the world ETF.", tags: ["income", "trim"] }),
+    ...on("NVDA_US_EQ", "BUY", 0, { thesis: "Data-centre spending keeps beating forecasts; buying while guidance is still being raised.", review: "Worked, but the position grew too large. Set a weight cap before adding next time.", tags: ["theme"] }),
+    ...on("MSFT_US_EQ", "BUY", 0, { thesis: "Cloud growth is speeding up again; the next quarter's Azure numbers decide whether I add.", tags: ["earnings"] }),
+    ...on("AAPL_US_EQ", "BUY", 0, { thesis: "Services keep growing faster than hardware, and the pullback brought the price back to its 200-day average. Wrong if margins shrink next quarter.", review: "Margins held and the price recovered within weeks. Buying the pullback in two steps worked better than one order.", tags: ["pullback", "long-term"] }),
+    { instrument: "AAPL", thesis: "Watching the next earnings: add if services growth stays above 10%.", tags: ["earnings", "watchlist"] },
   ];
   for (const note of notes) {
-    const outcome = await client.callTool({ name: "manage_trade_journal", arguments: { action: "add", instrument: "AAPL", ...note } });
+    const outcome = await client.callTool({ name: "manage_trade_journal", arguments: { action: "add", ...note } });
     if (outcome.isError) console.warn("Could not seed the journal:", JSON.stringify(outcome.content).slice(0, 200));
   }
 }

@@ -76,6 +76,7 @@ export function HoldingView({
   t,
   writeEnabled,
   busy,
+  backLabel,
   onBack,
   onTrade,
   onProtect,
@@ -93,6 +94,8 @@ export function HoldingView({
   writeEnabled: boolean;
   /** While a read or write is running, Back and the alert controls wait, so a late result can't replace the page. */
   busy: boolean;
+  /** Where Back goes, when not the holdings list: the view the page was opened from. */
+  backLabel?: string;
   onBack: () => void;
   onTrade: (side: "buy" | "sell") => void;
   /** Opens the order editor with a sell stop for the uncovered shares; nothing is sent until reviewed and confirmed. */
@@ -150,7 +153,7 @@ export function HoldingView({
   const share = data.weight === undefined ? "—" : data.targetWeight === undefined ? pct(data.weight, locale) : `${pct(data.weight, locale)} / ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`;
   return (
     <main className="contentStack">
-      <nav className="holdingNav"><button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {t("backToHoldings")}</button></nav>
+      <nav className="holdingNav"><button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {backLabel ?? t("backToHoldings")}</button></nav>
 
       <section className="overviewPanel holdingHero">
         <div className="overviewLead">

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.30.0
+
+- Look back over the journal. A **Journal** tab next to Income sets each note on an order filled in the period against how that trade has gone since: the fill price, the price now (the broker's for a holding, the quote provider's otherwise) and the edge, how far the price moved in the trade's favour, up for a buy and down for a sell. The edge leaves FX and costs out and counts each trade once, so it measures the call. The overview gives the average edge, how many trades went your way, how many fills have a reason and how many of those a look back, the trades due for one, and the realised P/L on the noted sells.
+- Per tag: the trades, how many went your way and the average edge, drawn as a bar either side of a centre line. Choosing a tag lists only its trades.
+- A trade with a reason, no look back and a month since the fill is marked **Due for a look back**; **Add a look back** writes it under the trade, which stays in view. An instrument's name opens its holding page, and Back returns to the journal.
+- `get_journal_review` gives the same in the chat, for a period or one tag, with a text summary for hosts without the widget. It works without order tools. The `trade-journal` skill starts from it.
+- Sending or cancelling an order clears the order history read in the last minute, and the widget's loaded tabs, so the holding page, the journal and the performance tab read the new fill the next time they open.
+- The preview's sample journal has notes across five instruments, buys and sells, some with a look back, and a **Journal review** view.
+
 ## 2.29.0
 
 - A trade journal. Each trade can have a note with why you made it and, later, what came of it looking back, plus a few tags. Notes stay in TradePilot and never reach Trading 212 ([docs/JOURNAL.md](./docs/JOURNAL.md)).
