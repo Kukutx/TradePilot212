@@ -17,6 +17,7 @@ import type {
   TimeWeightedReturn,
   ValuePoint,
 } from "../shared/history.js";
+import { drawdownOf } from "../shared/drawdown.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
 
 export interface AllocationLimits {
@@ -227,7 +228,8 @@ export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: numb
     if (!(growth > 0)) return undefined;
     series.push({ date: end.point.date, return: round(growth - 1, 6) });
   }
-  return { return: round(growth - 1, 6), from: readings[0]!.point.date, to: readings[readings.length - 1]!.point.date, netFlows: round(netFlows), series };
+  const drawdown = drawdownOf(series);
+  return { return: round(growth - 1, 6), from: readings[0]!.point.date, to: readings[readings.length - 1]!.point.date, netFlows: round(netFlows), series, ...(drawdown ? { drawdown } : {}) };
 }
 
 export function summarizePerformance(input: {

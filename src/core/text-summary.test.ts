@@ -81,6 +81,10 @@ describe("text summaries for hosts that only show text", () => {
     expect(performance.timeWeighted?.netFlows).toBe(-500);
     expect(performance.timeWeighted?.return).toBeCloseTo((1 + 100 / (10_500 - 500 * (10 / 20))) * 1.05 - 1, 3);
     expect(describePayload(performance)).toMatch(/Time-weighted return from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: \+6%, with 500 of net withdrawals in between taken out/);
+    // It only rose; a fall not made up yet is told with its days.
+    expect(describePayload(performance)).toContain("Over these days it never fell below an earlier high.");
+    const fell = { ...performance, timeWeighted: { ...performance.timeWeighted!, drawdown: { max: -0.0825, peak: "2026-08-01", trough: "2026-08-20", current: -0.031, currentPeak: "2026-08-01" } } };
+    expect(describePayload(fell)).toContain("Largest fall from a high (time-weighted): -8.3%, from the high on 2026-08-01 to the low on 2026-08-20, not made up yet. Now 3.1% below the high of 2026-08-01.");
   });
 
   it("summarizes a tax year with gains and losses apart and says it is not a tax calculation", async () => {

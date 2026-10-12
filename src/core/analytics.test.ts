@@ -146,6 +146,17 @@ describe("time-weighted return", () => {
     expect(result).toMatchObject({ from: "2026-09-01", to: "2026-09-03", netFlows: 0 });
   });
 
+  it("gives the deepest fall from a high, with a withdrawal neither a fall nor a deposit a rise", () => {
+    // 1,000 to 1,100 (+10%); 600 taken out and 500 left at the third reading (no change); 1,000 paid in just after
+    // it and 1,425 at the fourth (-5% on 1,500): only that last stretch fell.
+    const result = timeWeightedReturn(
+      [reading("2026-09-01", 1000), reading("2026-09-02", 1100), reading("2026-09-03", 500), reading("2026-09-04", 1425)],
+      [{ at: at("2026-09-03", "00:00:00.000"), amount: -600 }, { at: at("2026-09-03", "12:00:00.001"), amount: 1000 }],
+    );
+    expect(result?.series.map((point) => point.return)).toEqual([0, 0.1, 0.1, 0.045]);
+    expect(result?.drawdown).toEqual({ max: -0.05, peak: "2026-09-03", trough: "2026-09-04", current: -0.05, currentPeak: "2026-09-03" });
+  });
+
   it("takes a deposit out of the gain and weighs it by how long it was invested", () => {
     // Paid in just before the second reading: it earned nothing, so the 100 gain is on the first 1,000.
     const late = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 2100), reading("2026-09-03", 2205)], [{ at: at("2026-09-02", "11:59:59.000"), amount: 1000 }]);

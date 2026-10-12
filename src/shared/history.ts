@@ -171,6 +171,21 @@ export interface ReturnPoint {
   return: number;
 }
 
+/** The deepest fall of a return from a high, and how far below its high it ends (`src/shared/drawdown.ts`). */
+export interface Drawdown {
+  /** The deepest fall from a high, as a negative fraction (-0.082 is 8.2% below it); 0 when it never fell by 0.05% or more. */
+  max: number;
+  /** The day of the high it fell from and of the low it fell to; absent when it never fell. */
+  peak?: string;
+  trough?: string;
+  /** The first day after the low back at the high it fell from; absent while it has not been made up. */
+  recovered?: string;
+  /** How far below the highest point so far it is on the last day, as a negative fraction: 0 at (or within 0.05% of) a high. */
+  current: number;
+  /** The day of that high, when it is below it. */
+  currentPeak?: string;
+}
+
 /**
  * Return over the days TradePilot recorded the account value, with deposits and withdrawals taken out:
  * how the money that was invested did, whatever was paid in or taken out along the way.
@@ -184,6 +199,8 @@ export interface TimeWeightedReturn {
   /** Deposits and transfers in, less withdrawals and transfers out, between them: what the return leaves out. */
   netFlows: number;
   series: ReturnPoint[];
+  /** Its deepest fall from a high over those days. */
+  drawdown?: Drawdown;
 }
 
 /** An instrument to compare the return with. */
@@ -206,6 +223,8 @@ export interface BenchmarkReturn extends BenchmarkOption {
   return: number;
   /** On each day of the time-weighted return's series. */
   series: ReturnPoint[];
+  /** Its deepest fall from a high over the same days. */
+  drawdown?: Drawdown;
 }
 
 /** One instrument's gain over a period, in the account currency. */
