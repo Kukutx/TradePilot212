@@ -31,22 +31,29 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 ## 功能
 
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
+- 每个持仓一页：持仓和占账户比例、过去一年日线价格走势图（标出你的买卖点，成本价、挂单止损限价和提醒价横线）、同样价位的价格阶梯、过去一年成交和分红，以及它的交易日志
+- 自选列表：持有和没持有的标的都能加，显示现价、1日/1月/3月/1年涨跌、三个月走势小图、在 12 个月区间里的位置、最近一笔挂单或提醒还差多少、加入以来涨跌和你的备注；可从搜索或任意标的页加入（[docs/WATCHLIST.md](./docs/WATCHLIST.md)）
+- 交易日志：下单时写下理由，或事后补在成交上，之后再写复盘；存在 TradePilot 里并关联 Trading 212 订单。“日志”标签页把每条理由和这笔交易之后的走势对照，按标签统计你的判断有多少次对了（[docs/JOURNAL.md](./docs/JOURNAL.md)）
 - 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录（含已撤销和被拒的订单）、逐笔股息与资金流水，以及仓位集中度（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
 - 在对话里跟进订单：查询单个订单的状态和成交明细；发起撤单后在界面里由你确认
 - 交易时段感知：休市时下市价单会提示订单将排队到下次开盘
 - 规则引擎：单一持仓占比上限、每日下单笔数和金额预算、标的和品种白名单/黑名单、休市禁止市价单、参考价时效（[docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)）
 - 组合篮子：最多 20 笔订单一起校验、一次确认，先卖后买，遇到结果不确定的订单就停止发送剩余订单
-- 按目标权重再平衡：根据券商价格和可用现金算出买卖数量
+- 按目标权重再平衡：根据券商价格和可用现金算出买卖数量；保存的目标在界面里显示偏离，偏离超过阈值时提醒，一键再平衡，或只买不卖把闲置现金投给低配的标的（[docs/AUTOMATION.md](./docs/AUTOMATION.md#saved-targets-and-drift-notices)）
 - 券商原生止损和止盈单（GTC，长期有效），两张联动：一张成交后 TradePilot 自动撤另一张
-- 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；Demo 计划可以选择无人值守自动执行
+- 挂单成交通知（包括在 Trading 212 App 里下的单）：全部成交（附均价）、部分成交、未成交就关闭，写进操作记录并推送到 webhook（[docs/AUTOMATION.md](./docs/AUTOMATION.md#order-fill-notices)）
+- 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；也可以按保存的目标权重分配一笔金额，最低配的买得最多；Demo 计划可以选择无人值守自动执行
 - Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/PIES.md](./docs/PIES.md)）
 - 价格提醒（持仓或任何能取到外部报价的标的）：高于或低于某价格、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
 - 内置样例账户（`TRADEPILOT_SAMPLE_DATA=true`），不需要 API Key 就能试用全部功能（[docs/TRY_IT.md](./docs/TRY_IT.md)）
-- 未持仓标的的外部报价，数据源可插拔：默认免费的 Stooq，无需注册；也可以填自己的 Finnhub、Twelve Data 或 Alpha Vantage Key。价格提醒、定投和再平衡都能用
+- 未持仓标的的外部报价，数据源可插拔：默认免费的 Stooq，无需注册；也可以填自己的 Finnhub、Twelve Data 或 Alpha Vantage Key。价格提醒、自选列表、未持有标的的详情页、定投、再平衡和日志复盘都能用
 - 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒、结果不确定时都会推送；还可以每天推一条账户摘要
 - 界面里的“自动化”页：定投计划、价格提醒、联动的止损止盈、今日额度使用和各项设置一目了然
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入
-- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进和再平衡六个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
+- 账户市值走势图，来自 TradePilot 自己每天的记录（Trading 212 的 API 没有历史市值）
+- 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 年化资金加权收益（XIRR），以及按税务年度汇总：已实现盈利和亏损分开列、股息、利息和费用（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进、再平衡和税务年度七个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
@@ -270,6 +277,8 @@ NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
 NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
 DIGEST_HOUR_UTC=7             # 可选，每天 UTC 7 点推送账户摘要
 ```
+
+收益页默认拿时间加权收益和标普 500（SPY）对比；`BENCHMARK=VWRL` 换成别的基金（非美国上市的要在 `QUOTE_SYMBOLS` 里映射），`BENCHMARK=none` 关闭对比。
 
 ## 本地开发
 

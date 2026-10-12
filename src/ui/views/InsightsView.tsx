@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSummary, TimeWeightedReturn, ValuePoint } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, IncomeSummary, PerformanceSummary, TimeWeightedReturn, ValuePoint } from "../../shared/history";
+import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
@@ -191,11 +192,65 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
   );
 }
 
+const BENCHMARK_MISSING: Record<PricesMissing, MessageKey> = {
+  provider: "benchmarkMissingProvider",
+  plan: "benchmarkMissingPlan",
+  symbol: "benchmarkMissingSymbol",
+  data: "benchmarkMissingData",
+  unit: "benchmarkMissingData",
+  sample: "benchmarkMissingSample",
+};
+
+const benchmarkName = (option: BenchmarkOption) => option.shortName ?? option.ticker;
+
+/** How the time-weighted return did against the benchmark over the same days, in words, and why there is none. */
+function BenchmarkNote({ data, locale, t }: { data: PerformanceSummary; locale: SupportedLocale; t: Translator }) {
+  const { benchmark, timeWeighted } = data;
+  if (!timeWeighted) return null;
+  if (!benchmark) {
+    if (!data.benchmarkMissing) return null;
+    const wanted = data.benchmarkOptions?.find((option) => option.ticker === data.benchmarkTicker);
+    return <p className="panelNote benchmarkNote">{fill(t(BENCHMARK_MISSING[data.benchmarkMissing]), { name: wanted ? benchmarkName(wanted) : t("benchmarkFallbackName") })}</p>;
+  }
+  const gap = timeWeighted.return - benchmark.return;
+  const name = benchmarkName(benchmark);
+  const points = pct(Math.abs(gap), locale, 1).replace(/\s*%$/, "");
+  const key: MessageKey = Math.abs(gap) < 0.0005 ? "benchmarkLevel" : gap > 0 ? "benchmarkAhead" : "benchmarkBehind";
+  return (
+    <p className="panelNote benchmarkNote">
+      <strong className={signedClass(Math.abs(gap) < 0.0005 ? 0 : gap)}>{fill(t(key), { gap: points, name })}</strong>
+      {" · "}{fill(t("benchmarkReturn"), { name, value: pct(benchmark.return, locale, 1, { signed: true }) })}
+      {benchmark.currencyCode && benchmark.currencyCode !== data.accountCurrency && <>{" "}{fill(t("benchmarkCurrency"), { name, currency: benchmark.currencyCode, account: data.accountCurrency })}</>}
+      {benchmark.source === "sample" && <>{" "}{t("benchmarkSample")}</>}
+    </p>
+  );
+}
+
+/** Pick the fund to compare with: the default, then the ETFs held and on the watchlist, or none. */
+function BenchmarkPicker({ data, busy, t, onBenchmark }: { data: PerformanceSummary; busy: boolean; t: Translator; onBenchmark: (choice: string) => void }) {
+  const options = data.benchmarkOptions ?? [];
+  if (!data.timeWeighted || !options.length) return null;
+  const current = data.benchmark?.ticker ?? data.benchmarkTicker ?? "none";
+  return (
+    <label className="benchmarkPicker">
+      <span>{t("benchmarkLabel")}</span>
+      <select value={current} disabled={busy} aria-label={t("benchmarkLabel")} onChange={(event) => onBenchmark(event.target.value)}>
+        {options.map((option) => <option key={option.ticker} value={option.ticker}>{option.name ? `${benchmarkName(option)} · ${option.name}` : benchmarkName(option)}</option>)}
+        <option value="none">{t("benchmarkNone")}</option>
+      </select>
+    </label>
+  );
+}
+
 /**
  * The account value TradePilot recorded each day, with the change over the window. With a time-weighted
- * return it opens on that instead, since the value also moves with every deposit and withdrawal.
+ * return it opens on that instead, since the value also moves with every deposit and withdrawal, and draws the
+ * benchmark's return over the same days beside it.
  */
-function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: ValuePoint[]; returns?: TimeWeightedReturn; currency: string; locale: SupportedLocale; t: Translator }) {
+function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, onBenchmark }: {
+  points: ValuePoint[]; returns?: TimeWeightedReturn; data: PerformanceSummary; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
+  onBenchmark?: (choice: string) => void;
+}) {
   const [show, setShow] = useState<"return" | "value">("return");
   const first = points[0]!;
   const last = points[points.length - 1]!;
@@ -217,6 +272,17 @@ function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: V
       {asReturn ? (
         <LineChart title={t("returnHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("returnColumn")} labels={chartLabels(t)} zero controls={controls}
           axis={percentAxis}
+          {...(data.benchmark ? {
+            compare: {
+              name: benchmarkName(data.benchmark),
+              mainName: t("benchmarkYou"),
+              // The benchmark comes on the same days as the return.
+              points: returns.series.map((point) => {
+                const match = data.benchmark!.series.find((item) => item.date === point.date);
+                return match ? { value: match.return, display: pct(match.return, locale, 2, { signed: true }) } : undefined;
+              }),
+            },
+          } : {})}
           data={returns.series.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.return, display: pct(point.return, locale, 2, { signed: true }), time: time(point.date) }))} />
       ) : (
         <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={valueAxis} {...(controls ? { controls } : {})}
@@ -233,12 +299,20 @@ function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: V
           {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}
         </p>
       )}
+      {asReturn && (
+        <div className="benchmarkRow">
+          <BenchmarkNote data={data} locale={locale} t={t} />
+          {onBenchmark && <BenchmarkPicker data={data} busy={busy} t={t} onBenchmark={onBenchmark} />}
+        </div>
+      )}
     </section>
   );
 }
 
-export function PerformanceView({ data, book, locale, t, period, onPeriod, busy }: {
+export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, busy }: {
   data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; onPeriod: (next: InsightPeriod) => void; busy: boolean;
+  /** Read the performance again compared with another fund, or "none". */
+  onBenchmark?: (choice: string) => void;
 }) {
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined) => money(value, currency, locale);
@@ -274,7 +348,10 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, busy 
         </div>
       </section>
 
-      {data.valueHistory && data.valueHistory.length >= 2 && <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} currency={currency} locale={locale} t={t} />}
+      {data.valueHistory && data.valueHistory.length >= 2 && (
+        <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} data={data} currency={currency} locale={locale} t={t} busy={busy}
+          {...(onBenchmark ? { onBenchmark } : {})} />
+      )}
 
       <div className="twoColumn">
         <section className="dataPanel">

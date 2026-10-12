@@ -120,6 +120,7 @@ function config(): RuntimeConfig {
     quoteProvider: "none",
     quoteApiKey: "",
     quoteSymbols: new Map(),
+    benchmark: "",
     sampleData: false,
     oauthRedirectHosts: [],
     trading212: {

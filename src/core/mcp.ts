@@ -20,6 +20,7 @@ import { describePayload, num } from "./text-summary.js";
 import { holdingDetail } from "./holding.js";
 import { journalReview } from "./journal-review.js";
 import { watchlistView } from "./watchlist.js";
+import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
@@ -255,19 +256,24 @@ export function createMcpServer(
     {
       title: "Portfolio Performance",
       description:
-        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. Read-only.",
-      inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
+        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. Read-only.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        ...windowSchema,
+        benchmark: z.string().min(1).max(40).optional().describe("Trading 212 ticker, symbol, ISIN or name of the fund to compare the time-weighted return with, or a US symbol; \"none\" for no comparison. Default: the server's BENCHMARK, else SPY"),
+      }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
-    async ({ environment, period, from, to, maxPages }) => {
+    async ({ environment, period, from, to, maxPages, benchmark }) => {
       try {
         const window = parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) });
         // The value TradePilot recorded each day; Trading 212 itself has no value history.
         const summary = await insights.performance(environment, window, maxPages, (account) =>
           values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), ...(account === undefined ? {} : { account }) }));
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary };
-        return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        const compared = await compareWithBenchmark({ config, trading, watchlist, priceHistory }, environment, summary, benchmark);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary, ...compared };
+        return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }

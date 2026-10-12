@@ -141,7 +141,7 @@ export function axisMoney(value: number, grid: Grid, currency: string, locale: S
  * and last dates, and a crosshair with a tooltip on hover or arrow keys. A table view lists every point.
  * With `zero`, a line marks zero and the area fills between it and the series, for values that go negative.
  */
-export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, zero, controls }: {
+export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, zero, controls, compare }: {
   data: LinePoint[];
   title: string;
   labels: ChartLabels;
@@ -152,6 +152,11 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   zero?: boolean;
   /** Shown in the caption beside the table switch. */
   controls?: ReactNode;
+  /**
+   * A second series on the same days and scale, such as a benchmark: dashed and neutral, named with the first in a
+   * legend, and given beside it in the tooltip and the table. A day without a value is left out of its line.
+   */
+  compare?: { name: string; mainName: string; points: Array<{ value: number; display: string } | undefined> };
 }) {
   const [asTable, setAsTable] = useState(false);
   const [active, setActive] = useState<number | null>(null);
@@ -164,7 +169,7 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
     observer.observe(element);
     return () => observer.disconnect();
   }, [asTable]);
-  const values = data.map((item) => item.value);
+  const values = [...data.map((item) => item.value), ...(compare?.points.flatMap((item) => (item ? [item.value] : [])) ?? [])];
   let low = Math.min(...values, ...(zero ? [0] : []));
   let high = Math.max(...values, ...(zero ? [0] : []));
   if (high - low < 1e-9) { low -= Math.max(1, Math.abs(low) * 0.01); high += Math.max(1, Math.abs(high) * 0.01); }
@@ -181,10 +186,16 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   const x = (index: number) => LINE_PAD.left + position(index) * plotWidth;
   const y = (value: number) => LINE_PAD.top + (1 - (value - low) / (high - low)) * plotHeight;
   const line = data.map((item, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(item.value).toFixed(1)}`).join("");
+  // A gap in the second series starts a new stroke rather than bridging it.
+  const compareLine = compare?.points.map((item, index) => {
+    if (!item) return "";
+    return `${index && compare.points[index - 1] ? "L" : "M"}${x(index).toFixed(1)},${y(item.value).toFixed(1)}`;
+  }).join("");
   const base = LINE_PAD.top + plotHeight;
   const floor = zero ? y(0) : base;
   const area = `${line}L${x(data.length - 1).toFixed(1)},${floor.toFixed(1)}L${x(0).toFixed(1)},${floor.toFixed(1)}Z`;
   const point = active === null ? undefined : data[active];
+  const other = active === null ? undefined : compare?.points[active];
   const pick = (event: PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = (event.clientX - rect.left - LINE_PAD.left) / Math.max(1, rect.width - LINE_PAD.left - LINE_PAD.right);
@@ -201,6 +212,7 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   };
   const first = data[0];
   const latest = data[data.length - 1];
+  const latestOther = compare?.points[compare.points.length - 1];
   return (
     <figure className="chartFigure">
       <figcaption>
@@ -209,13 +221,17 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
           : <ViewSwitch asTable={asTable} labels={labels} onToggle={() => setAsTable(!asTable)} />}
       </figcaption>
       {asTable ? (
-        <table className="chartTable"><thead><tr><th>{nameHeader}</th><th>{valueHeader}</th></tr></thead>
-          <tbody>{[...data].reverse().map((item) => <tr key={item.key}><td>{item.label}</td><td>{item.display}</td></tr>)}</tbody></table>
+        <table className="chartTable">
+          <thead><tr><th>{nameHeader}</th><th>{compare ? compare.mainName : valueHeader}</th>{compare && <th>{compare.name}</th>}</tr></thead>
+          <tbody>{data.map((item, index) => (
+            <tr key={item.key}><td>{item.label}</td><td>{item.display}</td>{compare && <td>{compare.points[index]?.display ?? "—"}</td>}</tr>
+          )).reverse()}</tbody>
+        </table>
       ) : (
         <div className="lineChart" ref={box}>
           <svg
             width={width} height={LINE_HEIGHT} role="img" tabIndex={0}
-            aria-label={`${title}: ${first?.label} ${first?.display}, ${latest?.label} ${latest?.display}`}
+            aria-label={`${title}: ${first?.label} ${first?.display}, ${latest?.label} ${latest?.display}${compare && latestOther ? `; ${compare.name} ${latestOther.display}` : ""}`}
             onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setActive(null)} onKeyDown={step} onBlur={() => setActive(null)}
           >
             {grid.ticks.map((tick) => (
@@ -226,22 +242,36 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
             ))}
             {zero && <line className="lineZero" x1={LINE_PAD.left} x2={width - LINE_PAD.right} y1={floor} y2={floor} />}
             <path className="lineArea" d={area} />
+            {compareLine && <path className="lineCompare" d={compareLine} />}
             <path className="linePath" d={line} />
             <text className="lineAxis" x={x(0)} y={LINE_HEIGHT - 6} textAnchor="start">{first?.label}</text>
             {data.length > 1 && <text className="lineAxis" x={x(data.length - 1)} y={LINE_HEIGHT - 6} textAnchor="end">{latest?.label}</text>}
             {point && active !== null && (
               <g className="lineFocus">
                 <line x1={x(active)} x2={x(active)} y1={LINE_PAD.top} y2={base} />
+                {other && <circle className="compareDot" cx={x(active)} cy={y(other.value)} r={4} />}
                 <circle cx={x(active)} cy={y(point.value)} r={5} />
               </g>
             )}
           </svg>
           {point && active !== null && (
-            <div className="lineTip" role="status" style={{ left: `${Math.min(width - 150, Math.max(0, x(active) - 75))}px` }}>
-              <span>{point.label}</span><strong>{point.display}</strong>
+            <div className={compare ? "lineTip withCompare" : "lineTip"} role="status" style={{ left: `${Math.min(width - (compare ? 190 : 150), Math.max(0, x(active) - (compare ? 95 : 75)))}px` }}>
+              <span>{point.label}</span>
+              {compare ? (
+                <>
+                  <span className="tipSeries"><i className="swatch main" aria-hidden="true" />{compare.mainName}<strong>{point.display}</strong></span>
+                  <span className="tipSeries"><i className="swatch compare" aria-hidden="true" />{compare.name}<strong>{other?.display ?? "—"}</strong></span>
+                </>
+              ) : <strong>{point.display}</strong>}
             </div>
           )}
         </div>
+      )}
+      {compare && (
+        <ul className="priceLegend lineLegend">
+          <li><svg className="legendLine" width="20" height="4" aria-hidden="true"><line className="legendMain" x1="0" x2="20" y1="2" y2="2" /></svg>{compare.mainName}</li>
+          <li><svg className="legendLine" width="20" height="4" aria-hidden="true"><line className="legendCompare" x1="0" x2="20" y1="2" y2="2" /></svg>{compare.name}</li>
+        </ul>
       )}
     </figure>
   );

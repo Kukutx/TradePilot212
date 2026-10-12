@@ -52,8 +52,10 @@ if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("a
 const writable = await listTools({ TRADEPILOT_ALLOW_WRITES: "true" });
 if (!["app_execute_order", "app_execute_basket", "app_execute_pie_change", "manage_investment_plans", "manage_price_alerts", "review_protective_orders", "review_portfolio_stops", "review_pie_change"].every((name) => writable.includes(name))) throw new Error("Write tools missing with TRADEPILOT_ALLOW_WRITES=true");
 // Sample data: the bundle serves a simulated account with no Trading 212 keys and no network.
-const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY: "x", T212_LIVE_API_SECRET: "x" }, [["get_portfolio_dashboard", {}], ["get_portfolio_dashboard", { environment: "live" }], ["get_holding_detail", { instrument: "NVDA" }], ["get_journal_review", {}]]);
-const [dashboard, live, holding, review] = sample.results;
+const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY: "x", T212_LIVE_API_SECRET: "x" }, [["get_portfolio_dashboard", {}], ["get_portfolio_dashboard", { environment: "live" }], ["get_holding_detail", { instrument: "NVDA" }], ["get_journal_review", {}], ["get_portfolio_performance", { period: "all", benchmark: "EUNL" }]]);
+const [dashboard, live, holding, review, performance] = sample.results;
+// A fresh store has no recorded values, so no time-weighted return and nothing to compare; the benchmark choice is accepted.
+if (performance.isError || performance.structuredContent?.kind !== "performance" || performance.structuredContent.benchmark) throw new Error(`Performance with a benchmark failed: ${JSON.stringify(performance).slice(0, 300)}`);
 // The journal review reads the sample fills; a fresh store has no notes on them.
 if (review.isError || review.structuredContent?.kind !== "journal_review" || !(review.structuredContent.fills > 0) || review.structuredContent.withNote !== 0) throw new Error(`Journal review failed: ${JSON.stringify(review).slice(0, 300)}`);
 // One holding: its position, the sample stop-loss, a year of fills and the simulated daily closes ending at the last price.

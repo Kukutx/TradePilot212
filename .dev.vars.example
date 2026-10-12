@@ -44,6 +44,9 @@ DIGEST_HOUR_UTC=
 QUOTE_PROVIDER=stooq
 QUOTE_API_KEY=
 QUOTE_SYMBOLS=
+# The fund the time-weighted return is compared with on the Performance tab: a Trading 212 ticker or a
+# US symbol (default SPY, the S&P 500). Map non-US listings in QUOTE_SYMBOLS. none turns it off.
+BENCHMARK=
 
 # Optional: the only OAuth redirect hosts clients may register, comma separated, e.g.
 # chatgpt.com,.claude.ai (a leading dot covers the domain and its subdomains). Empty allows any

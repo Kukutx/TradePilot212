@@ -281,10 +281,22 @@ function performance(data: PerformanceSummary): string[] {
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num(data.trades.turnover)}.`,
     ...valueHistoryLines(data.valueHistory),
     ...(data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : []),
+    ...benchmarkLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
     ...data.notes,
   ];
+}
+
+/** The benchmark over the same days, and how far ahead or behind the time-weighted return is. */
+function benchmarkLines(data: PerformanceSummary): string[] {
+  const { benchmark, timeWeighted } = data;
+  if (!timeWeighted) return [];
+  if (!benchmark) return data.benchmarkProblem ? [`No benchmark comparison: ${data.benchmarkProblem}`] : [];
+  const name = `${benchmark.shortName ?? benchmark.ticker}${benchmark.name ? ` (${benchmark.name})` : ""}`;
+  const gap = (timeWeighted.return - benchmark.return) * 100;
+  const currency = benchmark.currencyCode && benchmark.currencyCode !== data.accountCurrency ? ` It is in ${benchmark.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
+  return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${num(Math.abs(gap), 1)} percentage points ${gap >= 0 ? "ahead of" : "behind"} it.${currency}`];
 }
 
 function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[] {

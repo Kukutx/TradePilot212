@@ -702,6 +702,19 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .lineArea { fill: color-mix(in srgb, var(--tp-chart) 12%, transparent); }
 .linePath { fill: none; stroke: var(--tp-chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .lineZero { stroke: var(--tp-muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+.lineCompare, .legendCompare { fill: none; stroke: var(--tp-muted); stroke-width: 2; stroke-dasharray: 6 4; stroke-linejoin: round; stroke-linecap: round; }
+.legendMain { stroke: var(--tp-chart); stroke-width: 2; }
+.lineFocus .compareDot { fill: var(--tp-muted); }
+.lineTip.withCompare { width: 190px; }
+.lineTip .tipSeries { display: flex; align-items: center; gap: 6px; color: var(--tp-text); }
+.lineTip .tipSeries strong { margin-left: auto; }
+.swatch { flex: none; width: 10px; height: 3px; border-radius: 2px; background: var(--tp-chart); }
+.swatch.compare { background: repeating-linear-gradient(90deg, var(--tp-muted) 0 4px, transparent 4px 6px); }
+.lineLegend { margin-top: 4px; }
+.benchmarkRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; }
+.benchmarkRow .panelNote { flex: 1 1 260px; margin: 0; }
+.benchmarkPicker { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; }
+.benchmarkPicker select { max-width: 220px; min-height: 34px; padding: 4px 8px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); color: var(--tp-text); font: inherit; }
 .chartControls { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 10px; }
 .chartControls .segmented button { min-height: 32px; padding: 0 10px; }
 .lineFocus line { stroke: var(--tp-border-strong); stroke-width: 1; }
