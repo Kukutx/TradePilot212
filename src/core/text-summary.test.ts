@@ -119,6 +119,14 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toMatch(/- Cash: [\d.]+% now, target 10%/);
     expect(text).toMatch(/No target \(kept by a rebalance\): .*MSFT_US_EQ/);
     expect(text).toMatch(/- AAPL_US_EQ is [\d.]+% against a 50.0% target/);
+    expect(text).not.toContain("At the targets");
+    // With risk by holding, what volatility the targets would give.
+    const analysis = await services.targets.withDrift(await services.insights.allocation("demo"));
+    const volatility = { now: 0.182, atTargets: 0.151, account: { now: 0.164, atTargets: 0.143 } };
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, volatility } }))
+      .toContain("- At the targets, the holdings measured would move 15.1% a year together (18.2% now); the account, cash counted as not moving, 14.3% (16.4% now). From the weeks of risk by holding; past volatility, not a forecast.");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, volatility: { now: 0.182, atTargets: 0.151, leftOut: ["EIMI_EQ"] } } }))
+      .toContain("(18.2% now); not measured, so left out: EIMI_EQ. From");
   });
 
   it("gives a day's-move alert's change since the previous close", async () => {

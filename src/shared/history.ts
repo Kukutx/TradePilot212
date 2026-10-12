@@ -227,6 +227,44 @@ export interface AllocationDrift {
   sellUntargeted?: boolean;
   /** When the targets were saved. */
   savedAt: string;
+  /** The holdings measured for risk by holding, at these targets: present with risk by holding, from 2.50. */
+  volatility?: TargetVolatility;
+}
+
+/**
+ * The volatility a year the targets would give, from the weeks risk by holding reads. A holding without a target is
+ * kept at its weight today, or sold when the targets sell the holdings without one.
+ */
+export interface TargetVolatility {
+  /** The holdings measured, together, today: risk.volatility. */
+  now: number;
+  /** The same holdings, together, at the targets. */
+  atTargets: number;
+  /**
+   * The account's, cash counted as not moving: today and at the targets. Only when every holding, and every target,
+   * with a weight is measured, and the targets with the holdings kept beside them come to no more than the account.
+   */
+  account?: { now: number; atTargets: number };
+  /** Holdings and targets with a weight, today or at the targets, that are not measured: left out of `now` and `atTargets`. */
+  leftOut?: string[];
+}
+
+/** The holdings measured for risk by holding and a year's covariance of their weekly returns, in the same order. */
+export interface HoldingCovariance {
+  tickers: string[];
+  matrix: number[][];
+}
+
+/** The widget's read of the holdings' covariance, for the risk at the targets typed in; never shown to the model. */
+export interface HoldingCovariancePayload {
+  kind: "holding_covariance";
+  environment: TradingEnvironment;
+  covariance?: HoldingCovariance;
+  /** The weekly returns read and the last weekly close, as risk by holding gives them. */
+  weeks?: number;
+  to?: string;
+  /** Why there is none. */
+  problem?: string;
 }
 
 export interface MoneyBucket { key: string; amount: number }

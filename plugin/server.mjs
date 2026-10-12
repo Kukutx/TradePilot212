@@ -38976,7 +38976,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.49.0"
+  version: "2.50.0"
 };
 
 // src/shared/holding-risk.ts
@@ -39019,7 +39019,7 @@ function jumps(weeks) {
   const closes2 = [...weeks].sort(([a], [b]) => a - b).map(([, week]) => week.close);
   return closes2.some((close, index) => index > 0 && Math.abs(Math.log(close / closes2[index - 1])) > JUMP);
 }
-function holdingRiskOf(inputs, today, totalValue) {
+function holdingRiskOf(inputs, today, totalValue, onCovariance) {
   const valued = inputs.filter((input2) => input2.value > 0 && Number.isFinite(input2.value));
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input2) => sum + input2.value, 0));
   const read = valued.map((input2) => ({ ...input2, weeks: weeklyCloses(input2.points, today) }));
@@ -39065,6 +39065,7 @@ function holdingRiskOf(inputs, today, totalValue) {
   const largest = measured.map((input2, i) => ({ ticker: input2.ticker, i, value: input2.value })).sort((a, b) => b.value - a.value).slice(0, MATRIX_SIZE);
   const correlation = (i, j2) => i === j2 ? 1 : own2[i] > 0 && own2[j2] > 0 ? round10(Math.max(-1, Math.min(1, covariance[i][j2] / (own2[i] * own2[j2]))), 4) : 0;
   const dateOf = (week) => measured.map((input2) => input2.weeks.get(week).date).sort().at(-1);
+  onCovariance?.({ tickers: measured.map((input2) => input2.ticker), matrix: covariance });
   return {
     from: dateOf(common[0]),
     to: dateOf(common[n]),
@@ -39155,6 +39156,49 @@ function parityOf(covariance, weights, own2) {
     parity[i] = (1 - kept) * x[k] / sum;
   });
   return parity;
+}
+var OVER_ACCOUNT = 5e-4;
+function riskAtWeights(covariance, weights) {
+  const x = covariance.tickers.map((ticker) => Math.max(0, weights.get(ticker) ?? 0));
+  const weight2 = x.reduce((sum, value) => sum + value, 0);
+  if (!(weight2 > 0) || !Number.isFinite(weight2)) return void 0;
+  const w = x.map((value) => value / weight2);
+  const withMix = covariance.matrix.map((row) => row.reduce((sum, cell, j2) => sum + cell * w[j2], 0));
+  const variance = Math.max(0, withMix.reduce((sum, cell, i) => sum + cell * w[i], 0));
+  const volatility = Math.sqrt(variance);
+  return {
+    volatility,
+    scaled: volatility * weight2,
+    weight: weight2,
+    shares: new Map(covariance.tickers.map((ticker, i) => [ticker, variance > 0 ? w[i] * withMix[i] / variance : 0]))
+  };
+}
+function targetRiskOf(covariance, holdings, targets, sellUntargeted, cashWeight = 0) {
+  const today = new Map(holdings.filter((holding2) => holding2.weight > 0).map((holding2) => [holding2.ticker, holding2.weight]));
+  const after = /* @__PURE__ */ new Map();
+  for (const [ticker, weight2] of today) after.set(ticker, targets.get(ticker) ?? (sellUntargeted ? 0 : weight2));
+  for (const [ticker, weight2] of targets) if (!after.has(ticker)) after.set(ticker, weight2);
+  const now = riskAtWeights(covariance, today);
+  const atTargets = riskAtWeights(covariance, after);
+  if (!now || !atTargets) return void 0;
+  const measured = new Set(covariance.tickers);
+  const unmeasured = (weights) => [...weights].filter(([ticker, weight2]) => weight2 > 0 && !measured.has(ticker)).map(([ticker]) => ticker);
+  const leftOut = [.../* @__PURE__ */ new Set([...unmeasured(today), ...unmeasured(after)])];
+  const whole = !leftOut.length && atTargets.weight + Math.max(0, cashWeight) <= 1 + OVER_ACCOUNT;
+  return { now, atTargets, ...whole ? { account: { now: now.scaled, atTargets: atTargets.scaled } } : {}, leftOut };
+}
+function withTargetVolatility(analysis, covariance) {
+  const { drift } = analysis;
+  if (!drift || !covariance) return analysis;
+  const risk = targetRiskOf(covariance, analysis.holdings, new Map(drift.rows.map((row) => [row.ticker, row.target])), !!drift.sellUntargeted, drift.cash.target);
+  if (!risk) return analysis;
+  const volatility = {
+    now: round10(risk.now.volatility),
+    atTargets: round10(risk.atTargets.volatility),
+    ...risk.account ? { account: { now: round10(risk.account.now), atTargets: round10(risk.account.atTargets) } } : {},
+    ...risk.leftOut.length ? { leftOut: risk.leftOut } : {}
+  };
+  return { ...analysis, drift: { ...drift, volatility } };
 }
 function equalRiskTargets(analysis) {
   const rows2 = analysis.risk?.rows ?? [];
@@ -39597,8 +39641,13 @@ function driftLines(drift) {
   return section(`Against targets (largest drift ${num2(drift.maxDrift * 100, 1)} points; notices above ${num2(drift.threshold * 100, 1)} points)`, [
     ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
-    ...drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []
+    ...drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : [],
+    ...drift.volatility ? [targetVolatilityLine(drift.volatility)] : []
   ]);
+}
+function targetVolatilityLine(volatility) {
+  const { account, leftOut } = volatility;
+  return `- At the targets, the holdings measured would move ${pct(volatility.atTargets)} a year together (${pct(volatility.now)} now)` + (account ? `; the account, cash counted as not moving, ${pct(account.atTargets)} (${pct(account.now)} now)` : "") + (leftOut?.length ? `; not measured, so left out: ${leftOut.join(", ")}` : "") + ". From the weeks of risk by holding; past volatility, not a forecast.";
 }
 function targetAllocation(data) {
   if (!data.targets) return [data.cleared === void 0 ? `No ${env(data.environment)} targets are saved.` : data.cleared ? `${env(data.environment)} targets cleared.` : `No ${env(data.environment)} targets were saved.`];
@@ -41287,7 +41336,7 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
     return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0].problem}` };
   }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding2) => sum + holding2.value, 0));
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding2) => sum + holding2.value, 0), deps.onCovariance);
   return {
     ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} weekly returns are needed), their closes jump as across a change of unit, or they did not move.` },
     ...missing.length ? { riskMissing: missing } : {}
@@ -41410,6 +41459,7 @@ function badWeekText(mix) {
   if (!mix) return "";
   return mix.badWeek < 0 ? `, a bad week one in 20 ${(mix.badWeek * 100).toFixed(mix.badWeek > -5e-4 ? 2 : 1)}%` : ", today's mix fell in fewer than one week in 20";
 }
+var COVARIANCE_BUDGET_MS = 12e3;
 function result(data, text) {
   const detail = describePayload(data);
   return {
@@ -41508,6 +41558,15 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
     return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
   };
+  const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs } = {}) => {
+    let read;
+    const analysis = await insights.allocation(environment, limits, (positions) => {
+      read = positions;
+    });
+    const holdings = only ? analysis.holdings.filter((holding2) => only.has(holding2.ticker)) : analysis.holdings;
+    const risk = read ? await readHoldingRisk({ priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {} }, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
+    return { ...analysis, ...risk };
+  };
   G(
     server2,
     "TradePilot 212 trading dashboard",
@@ -41598,7 +41657,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, and with risk by holding drift.volatility: the holdings measured, together, today and at the targets, and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -41611,12 +41670,11 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment, ...limits }) => {
       try {
-        let read;
-        const analysis = await insights.allocation(environment, limits, (positions) => {
-          read = positions;
-        });
-        const risk = read ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
-        const data = { ...await targetAllocations.withDrift({ ...analysis, ...risk }), credentials: credentialStatus(config3), writeEnabled: canWrite };
+        let covariance;
+        const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => {
+          covariance = found;
+        } });
+        const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config3), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -42150,7 +42208,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "manage_target_allocation",
     {
       title: "Target Allocation",
-      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target. Never places orders.",
+      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target. With a quote provider, drift.volatility gives the volatility a year the targets would give, beside today's (as analyze_portfolio_allocation). Never places orders.",
       inputSchema: external_exports.object({
         action: external_exports.enum(["get", "set", "clear"]),
         environment: environmentWithDefault,
@@ -42183,7 +42241,11 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         const webhookHint = config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         let analysis;
         try {
-          analysis = await targetAllocations.withDrift(await insights.allocation(environment));
+          let covariance;
+          const read = await allocationWithRisk(environment, {}, { onCovariance: (found) => {
+            covariance = found;
+          } });
+          analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error62) {
           const reason = error62 instanceof Error ? error62.message : String(error62);
           return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
@@ -42719,6 +42781,35 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       try {
         const data = { ...await holdingDetail(holdingDeps, environment, instrument), writeEnabled: canWrite };
         return result(data, `Opened ${data.ticker}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  j(
+    server2,
+    "app_get_holding_covariance",
+    {
+      title: "Holdings' covariance",
+      description: "App-only: the covariance of the holdings measured for risk by holding, for the risk at the target weights typed in the widget.",
+      inputSchema: external_exports.object({
+        environment: environmentEnum,
+        // The holdings the widget's risk by holding measured: the covariance is read for them alone, so it is theirs
+        // over the same weeks, also when a read since measured more or fewer.
+        tickers: external_exports.array(external_exports.string().min(1)).min(2).max(500).optional()
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { visibility: ["app"] } }
+    },
+    async ({ environment, tickers }) => {
+      try {
+        let covariance;
+        const analysis = await allocationWithRisk(environment, {}, { onCovariance: (found) => {
+          covariance = found;
+        }, ...tickers ? { only: new Set(tickers) } : {}, budgetMs: COVARIANCE_BUDGET_MS });
+        const exact2 = (value) => Math.round(value * 1e10) / 1e10 || 0;
+        const data = covariance && analysis.risk ? { kind: "holding_covariance", environment, covariance: { tickers: covariance.tickers, matrix: covariance.matrix.map((row) => row.map(exact2)) }, weeks: analysis.risk.weeks, to: analysis.risk.to } : { kind: "holding_covariance", environment, problem: analysis.riskProblem ?? "The holdings' risk could not be measured." };
+        return result(data, data.covariance ? `Covariance of ${data.covariance.tickers.length} holdings over ${data.weeks} weeks.` : `No covariance: ${data.problem}`);
       } catch (error62) {
         return toolError(error62);
       }

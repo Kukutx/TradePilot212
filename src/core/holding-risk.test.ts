@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createServices } from "../app/services.js";
 import type { Instrument, Position } from "../shared/contracts.js";
-import type { HoldingWeight } from "../shared/history.js";
-import { MAX_PARITY_TARGETS } from "../shared/holding-risk.js";
+import type { AllocationAnalysis, HoldingCovariancePayload, HoldingWeight } from "../shared/history.js";
+import { MAX_PARITY_TARGETS, riskAtWeights } from "../shared/holding-risk.js";
 import type { PricePoint } from "../shared/prices.js";
 import { createConfig } from "./config.js";
 import { readHoldingRisk } from "./holding-risk.js";
@@ -201,6 +201,45 @@ describe("the allocation tool's risk by holding", () => {
     expect(text).toMatch(/Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: [+-][\d.]+%, up in \d+ of \d+ weeks\. A bad week, one in 20: -[\d.]+% or worse, about [\d.]+ EUR of today's [\d.]+ EUR measured/);
     expect(text).toMatch(/Equal-risk weights, at which each holding measured brings the same share of their risk .*: together [\d.]+% a year against [\d.]+% at today's weights/);
     expect(text).toMatch(/To plan the move, call plan_portfolio_rebalance with targets \w+_\w+ 0\.\d+/);
+    await client.close();
+  });
+
+  it("gives the volatility at the saved targets, and the covariance only to the widget", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const services = sample();
+    const server = createMcpServer(services, services.config, async () => "<html></html>", new Set(["trade:read"]));
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    const saved = await client.callTool({ name: "manage_target_allocation", arguments: { action: "set", environment: "demo", targets: [{ instrument: "AAPL_US_EQ", weight: 0.5 }, { instrument: "KO_US_EQ", weight: 0.4 }], sellUntargeted: true } });
+    const savedDrift = (saved.structuredContent as { drift?: AllocationAnalysis["drift"] }).drift;
+    // Sold, the holdings without a target leave AAPL and KO, both measured: the whole account can be measured too.
+    expect(savedDrift?.volatility).toMatchObject({ now: expect.any(Number), atTargets: expect.any(Number), account: { now: expect.any(Number), atTargets: expect.any(Number) } });
+    expect(JSON.stringify(saved.content)).toMatch(/At the targets, the holdings measured would move [\d.]+% a year together \([\d.]+% now\); the account, cash counted as not moving, [\d.]+%/);
+    const outcome = await client.callTool({ name: "analyze_portfolio_allocation", arguments: { environment: "demo" } });
+    const data = outcome.structuredContent as AllocationAnalysis;
+    expect(data.drift?.volatility).toEqual(savedDrift?.volatility);
+    expect(data.drift!.volatility!.now).toBeCloseTo(data.risk!.volatility, 5);
+    // The covariance is long, and only the widget asks for it.
+    for (const shown of [outcome, saved]) expect(JSON.stringify([shown.structuredContent, shown.content])).not.toMatch(/covariance|matrix":\[\[0\.0/);
+    const tools = await client.listTools();
+    expect(tools.tools.find((tool) => tool.name === "app_get_holding_covariance")?._meta).toMatchObject({ ui: { visibility: ["app"] } });
+    const read = (await client.callTool({ name: "app_get_holding_covariance", arguments: { environment: "demo" } })).structuredContent as HoldingCovariancePayload;
+    expect(read).toMatchObject({ kind: "holding_covariance", environment: "demo", weeks: data.risk!.weeks, to: data.risk!.to });
+    expect([...read.covariance!.tickers].sort()).toEqual(data.risk!.rows.map((row) => row.ticker).sort());
+    const matrix = read.covariance!.matrix;
+    matrix.forEach((row, i) => row.forEach((cell, j) => expect(cell).toBe(matrix[j]![i]!)));
+    // From it, the widget gives today's volatility again.
+    const today = riskAtWeights(read.covariance!, new Map(data.holdings.map((holding) => [holding.ticker, holding.weight])))!;
+    expect(today.volatility).toBeCloseTo(data.risk!.volatility, 5);
+    // Asked for the holdings on screen, it measures those alone, over the weeks they share.
+    const two = data.risk!.rows.slice(0, 2).map((row) => row.ticker);
+    const some = (await client.callTool({ name: "app_get_holding_covariance", arguments: { environment: "demo", tickers: two } })).structuredContent as HoldingCovariancePayload;
+    expect(some.covariance!.tickers.sort()).toEqual([...two].sort());
+    const index = (payload: HoldingCovariancePayload, ticker: string) => payload.covariance!.tickers.indexOf(ticker);
+    expect(some.covariance!.matrix[index(some, two[0]!)]![index(some, two[1]!)]).toBeCloseTo(read.covariance!.matrix[index(read, two[0]!)]![index(read, two[1]!)]!, 10);
     await client.close();
   });
 });

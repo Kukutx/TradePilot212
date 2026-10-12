@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, IncomeSummary, PerformanceSummary, ReturnPoint, TimeWeightedReturn, ValuePoint } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, HoldingCovariancePayload, IncomeSummary, PerformanceSummary, ReturnPoint, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
@@ -10,7 +10,7 @@ import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
 import { HoldingMixPanel } from "../components/holding-mix";
 import { HoldingParityPanel, type EqualRiskPlan } from "../components/holding-parity";
-import { TargetEditor, type TargetPreset, type TargetSave } from "../components/target-editor";
+import { TargetEditor, type MeasuredRisk, type TargetPreset, type TargetSave } from "../components/target-editor";
 import { HoldingRiskPanel } from "../components/holding-risk";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
@@ -113,6 +113,13 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
         )}
       </div>
       <p className="panelNote">{fill(t("driftNote"), { points: points.format(drift.threshold * 100).replace(/^\+/, "") })}</p>
+      {drift.volatility && (
+        <p className="panelNote driftVolatility">
+          {fill(t("driftVolatility"), { at: pct(drift.volatility.atTargets, locale), now: pct(drift.volatility.now, locale) })}
+          {drift.volatility.account && <>{locale === "zh-CN" ? "" : " "}{fill(t("driftVolatilityAccount"), { at: pct(drift.volatility.account.atTargets, locale), now: pct(drift.volatility.account.now, locale) })}</>}
+          {drift.volatility.leftOut?.length ? <>{locale === "zh-CN" ? "" : " "}{fill(t("targetsRiskLeftOut"), { list: drift.volatility.leftOut.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") })}</> : null}
+        </p>
+      )}
       <ul className="driftList" aria-label={t("driftTitle")}>
         {rows.map((row) => {
           const over = Math.abs(row.drift) > drift.threshold + 1e-9;
@@ -144,13 +151,15 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   );
 }
 
-export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, busy }: {
+export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, onReadCovariance, busy }: {
   data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void;
   /** Drafts the rebalance to the equal-risk weights as a basket to review; only with order tools. */
   onPlanEqualRisk?: (plan: EqualRiskPlan) => void;
   /** Save or remove the target weights; each resolves true once done. Targets never trade. */
   onSaveTargets?: (save: TargetSave) => Promise<boolean>;
   onClearTargets?: () => Promise<boolean>;
+  /** Reads the holdings' covariance, for the risk at the targets typed in. */
+  onReadCovariance?: (measured: MeasuredRisk) => Promise<HoldingCovariancePayload>;
   busy?: boolean;
 }) {
   // The target form, open on the saved targets or filled from a preset.
@@ -189,7 +198,8 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
       {onSaveTargets && editing ? (
         // Opened again from another button (Use as targets while editing), it starts afresh from that.
         <TargetEditor key={editing} data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(busy === undefined ? {} : { busy })} {...(editing === "saved" ? {} : { start: editing })}
-          onSave={onSaveTargets} {...(data.drift && onClearTargets ? { onClear: onClearTargets } : {})} onClose={() => { setEditing(null); setRefocus(true); }} />
+          onSave={onSaveTargets} {...(data.drift && onClearTargets ? { onClear: onClearTargets } : {})} {...(data.risk && onReadCovariance ? { onReadCovariance } : {})}
+          onClose={() => { setEditing(null); setRefocus(true); }} />
       ) : data.drift ? (
         <DriftPanel drift={data.drift} spareCash={(data.availableCash ?? data.cash) - data.drift.cash.target * data.totalValue} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(onInvestCash ? { onInvestCash } : {})}
           {...(onSaveTargets ? { onEdit: () => setEditing("saved") } : {})} focusEdit={refocus} {...(busy === undefined ? {} : { busy })} />

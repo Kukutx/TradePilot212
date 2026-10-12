@@ -4,7 +4,7 @@
 // currency, so currency moves are not in them.
 
 import { drawdownOf } from "./drawdown.js";
-import type { AllocationAnalysis, HoldingMix, HoldingRisk, HoldingRiskRow, ReturnPoint } from "./history.js";
+import type { AllocationAnalysis, HoldingCovariance, HoldingMix, HoldingRisk, HoldingRiskRow, ReturnPoint, TargetVolatility } from "./history.js";
 import type { PricePoint } from "./prices.js";
 
 /** No more weekly returns than this, together, say too little to read a volatility or a correlation from. */
@@ -89,9 +89,11 @@ function jumps(weeks: WeeklyInput["weeks"]): boolean {
  * whose weeks do not line up with the rest's when no more than MIN_WEEKS are shared, and one whose closes jump
  * (`jumps`). The others are weighed among themselves; `totalValue` is the value of all the holdings, those without
  * closes included, for the share measured. Undefined when fewer than two holdings, or no more than MIN_WEEKS weeks
- * together, are left, or nothing moved.
+ * together, are left, or nothing moved. `onCovariance` is handed the holdings measured and their covariance a year,
+ * which is not in the result: it is long, and the volatility at any weights is worked out from it (riskAtWeights).
  */
-export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number): (HoldingRisk & { mix: HoldingMix }) | undefined {
+export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number, onCovariance?: (covariance: HoldingCovariance) => void):
+  (HoldingRisk & { mix: HoldingMix }) | undefined {
   const valued = inputs.filter((input) => input.value > 0 && Number.isFinite(input.value));
   // The holdings' value, those without closes included, for the share measured.
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input) => sum + input.value, 0));
@@ -145,6 +147,7 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   const correlation = (i: number, j: number) => (i === j ? 1 : own[i]! > 0 && own[j]! > 0 ? round(Math.max(-1, Math.min(1, covariance[i]![j]! / (own[i]! * own[j]!))), 4) : 0);
   // A week is dated by the latest of the holdings' last closes in it.
   const dateOf = (week: number) => measured.map((input) => input.weeks.get(week)!.date).sort().at(-1)!;
+  onCovariance?.({ tickers: measured.map((input) => input.ticker), matrix: covariance });
   return {
     from: dateOf(common[0]!),
     to: dateOf(common[n]!),
@@ -259,6 +262,94 @@ export function parityOf(covariance: number[][], weights: number[], own: number[
   const parity = [...weights];
   moving.forEach((i, k) => { parity[i] = (1 - kept) * x[k]! / sum; });
   return parity;
+}
+
+/**
+ * Weights more than this over the account (0.05 points) are not a whole account: targets, the holdings kept beside
+ * them and the cash target come to more than it, so a rebalance cannot reach them all.
+ */
+export const OVER_ACCOUNT = 0.0005;
+
+/** The holdings measured at some weights: their volatility a year together, and each one's share of it. */
+export interface RiskAtWeights {
+  /** Weighed among themselves. */
+  volatility: number;
+  /** The volatility the weights give as they are: the account's, when they are its shares and nothing else held moves. */
+  scaled: number;
+  /** What the holdings measured weigh together, as the weights were given. */
+  weight: number;
+  /** Each holding's share of their variance, by ticker; below 0 for one that offsets the rest. */
+  shares: Map<string, number>;
+}
+
+/**
+ * The holdings measured at `weights` (by ticker; a ticker not measured, or without a weight, counts as none). Undefined
+ * when the holdings measured weigh nothing.
+ */
+export function riskAtWeights(covariance: HoldingCovariance, weights: ReadonlyMap<string, number>): RiskAtWeights | undefined {
+  const x = covariance.tickers.map((ticker) => Math.max(0, weights.get(ticker) ?? 0));
+  const weight = x.reduce((sum, value) => sum + value, 0);
+  if (!(weight > 0) || !Number.isFinite(weight)) return undefined;
+  const w = x.map((value) => value / weight);
+  const withMix = covariance.matrix.map((row) => row.reduce((sum, cell, j) => sum + cell * w[j]!, 0));
+  const variance = Math.max(0, withMix.reduce((sum, cell, i) => sum + cell * w[i]!, 0));
+  const volatility = Math.sqrt(variance);
+  return {
+    volatility,
+    scaled: volatility * weight,
+    weight,
+    shares: new Map(covariance.tickers.map((ticker, i) => [ticker, variance > 0 ? w[i]! * withMix[i]! / variance : 0])),
+  };
+}
+
+/** The holdings measured today and at a set of targets, and what is left out. */
+export interface TargetRisk {
+  now: RiskAtWeights;
+  atTargets: RiskAtWeights;
+  /**
+   * The account's volatility, cash counted as not moving, when every holding and target with a weight is measured and
+   * at the targets they and the cash target come to no more than the account (with holdings kept beside the targets,
+   * they can come to more).
+   */
+  account?: { now: number; atTargets: number };
+  /** Holdings and targets with a weight, today or at the targets, that are not measured. */
+  leftOut: string[];
+}
+
+/**
+ * The holdings measured, today and at `targets` (shares of the account by ticker), with `cashWeight` the cash target:
+ * a holding without a target keeps its weight today, or none when the targets sell the holdings without one.
+ * Undefined when the holdings measured weigh nothing today or at the targets.
+ */
+export function targetRiskOf(covariance: HoldingCovariance, holdings: ReadonlyArray<{ ticker: string; weight: number }>,
+  targets: ReadonlyMap<string, number>, sellUntargeted: boolean, cashWeight = 0): TargetRisk | undefined {
+  const today = new Map(holdings.filter((holding) => holding.weight > 0).map((holding) => [holding.ticker, holding.weight]));
+  const after = new Map<string, number>();
+  for (const [ticker, weight] of today) after.set(ticker, targets.get(ticker) ?? (sellUntargeted ? 0 : weight));
+  for (const [ticker, weight] of targets) if (!after.has(ticker)) after.set(ticker, weight);
+  const now = riskAtWeights(covariance, today);
+  const atTargets = riskAtWeights(covariance, after);
+  if (!now || !atTargets) return undefined;
+  const measured = new Set(covariance.tickers);
+  const unmeasured = (weights: Map<string, number>) => [...weights].filter(([ticker, weight]) => weight > 0 && !measured.has(ticker)).map(([ticker]) => ticker);
+  const leftOut = [...new Set([...unmeasured(today), ...unmeasured(after)])];
+  const whole = !leftOut.length && atTargets.weight + Math.max(0, cashWeight) <= 1 + OVER_ACCOUNT;
+  return { now, atTargets, ...(whole ? { account: { now: now.scaled, atTargets: atTargets.scaled } } : {}), leftOut };
+}
+
+/** The analysis with its drift's volatility at the targets, when both the targets and the covariance are there. */
+export function withTargetVolatility<T extends Pick<AllocationAnalysis, "drift" | "holdings">>(analysis: T, covariance: HoldingCovariance | undefined): T {
+  const { drift } = analysis;
+  if (!drift || !covariance) return analysis;
+  const risk = targetRiskOf(covariance, analysis.holdings, new Map(drift.rows.map((row) => [row.ticker, row.target])), !!drift.sellUntargeted, drift.cash.target);
+  if (!risk) return analysis;
+  const volatility: TargetVolatility = {
+    now: round(risk.now.volatility),
+    atTargets: round(risk.atTargets.volatility),
+    ...(risk.account ? { account: { now: round(risk.account.now), atTargets: round(risk.account.atTargets) } } : {}),
+    ...(risk.leftOut.length ? { leftOut: risk.leftOut } : {}),
+  };
+  return { ...analysis, drift: { ...drift, volatility } };
 }
 
 /** What equalRiskTargets gives plan_portfolio_rebalance, and what the plan sells. */

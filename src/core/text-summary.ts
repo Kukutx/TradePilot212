@@ -375,7 +375,16 @@ function driftLines(drift: AllocationDrift): string[] {
     ...rows(drift.rows, (row) => `${row.ticker}: ${pct(row.current)} now, target ${pct(row.target)}, ${points(row.drift)}`),
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
     ...(drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
+    ...(drift.volatility ? [targetVolatilityLine(drift.volatility)] : []),
   ]);
+}
+
+function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {
+  const { account, leftOut } = volatility;
+  return `- At the targets, the holdings measured would move ${pct(volatility.atTargets)} a year together (${pct(volatility.now)} now)`
+    + (account ? `; the account, cash counted as not moving, ${pct(account.atTargets)} (${pct(account.now)} now)` : "")
+    + (leftOut?.length ? `; not measured, so left out: ${leftOut.join(", ")}` : "")
+    + ". From the weeks of risk by holding; past volatility, not a forecast.";
 }
 
 function targetAllocation(data: { environment: TradingEnvironment; targets?: TargetAllocation; drift?: AllocationDrift; cleared?: boolean }): string[] {

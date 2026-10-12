@@ -3,7 +3,7 @@
 // time, for a few seconds at most; the rest are read on in the background and measured on the next read.
 
 import type { Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
-import type { AllocationAnalysis, HoldingWeight } from "../shared/history.js";
+import type { AllocationAnalysis, HoldingCovariance, HoldingWeight } from "../shared/history.js";
 import { holdingRiskOf, MIN_WEEKS, type HoldingRiskInput } from "../shared/holding-risk.js";
 import { asStructuredError } from "./errors.js";
 import { eachLimited, settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
@@ -22,6 +22,8 @@ export interface HoldingRiskDeps {
   priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
   /** How long the reads are waited for; the default suits a tool call. */
   budgetMs?: number;
+  /** Handed the holdings measured and their covariance, which the result leaves out (holdingRiskOf). */
+  onCovariance?: (covariance: HoldingCovariance) => void;
 }
 
 type Missing = NonNullable<AllocationAnalysis["riskMissing"]>[number];
@@ -73,7 +75,7 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
     return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0]!.problem}` };
   }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0));
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0), deps.onCovariance);
   return {
     ...(risk ? { risk } : { riskProblem: inputs.length < 2
       ? "Fewer than two holdings have daily closes to measure."

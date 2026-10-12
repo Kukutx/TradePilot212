@@ -2,10 +2,10 @@
 // filled from today's weights, equal weights or the equal-risk weights. Saved targets drive the drift panel, the
 // rebalance to targets and the scheduler's drift notices; they never trade.
 
-import { useEffect, useId, useRef, useState } from "react";
-import type { AllocationAnalysis } from "../../shared/history";
-import { equalRiskTargets } from "../../shared/holding-risk";
-import type { SupportedLocale } from "../i18n";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload, HoldingRisk } from "../../shared/history";
+import { equalRiskTargets, OVER_ACCOUNT, targetRiskOf, type TargetRisk } from "../../shared/holding-risk";
+import { localeTag, type SupportedLocale } from "../i18n";
 import { parseAmount, pct } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, type Translator } from "../lib/messages";
@@ -24,7 +24,7 @@ export interface TargetSave {
 
 export type TargetPreset = "today" | "equal" | "parity";
 
-type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk">;
+type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk"> & { timestamp?: string };
 
 export interface TargetForm {
   /** Percent typed for each ticker; empty for no target. */
@@ -144,6 +144,116 @@ export function readForm(form: TargetForm, tickers: string[] = Object.keys(form.
   };
 }
 
+/** The targets typed that the server would keep, as shares of the account, for the risk at them. */
+export function typedTargets(form: TargetForm, tickers: string[]): Map<string, number> {
+  const typed = new Map<string, number>();
+  for (const ticker of tickers) {
+    const value = parseAmount(form.weights[ticker] ?? "");
+    if (Number.isFinite(value) && value <= 100 && serverShare(value / 100) > 0) typed.set(ticker, serverShare(value / 100));
+  }
+  return typed;
+}
+
+/** The holdings' covariance as the form reads it: on its way, read, not to be had, or read for other holdings or weeks. */
+export type CovarianceState = { state: "reading" } | { state: "read"; covariance: HoldingCovariance } | { state: "none" } | { state: "stale" };
+
+/** What the risk by holding on screen measured: the covariance must be for the same. */
+export type MeasuredRisk = Pick<HoldingRisk, "rows" | "to" | "weeks">;
+
+/**
+ * What the covariance is read for: the risk on screen, and when it was read, so a Refresh reads it again (a read that
+ * fell short then gets another go; one that fits comes from the App's cache).
+ */
+export function covarianceKey(data: Pick<Data, "risk" | "timestamp">): string {
+  const { risk } = data;
+  return risk ? `${data.timestamp ?? ""}|${risk.to}|${risk.weeks}|${risk.rows.map((row) => row.ticker).sort().join(",")}` : "";
+}
+
+/** Whether a covariance read is for the holdings and the weeks of the risk on screen. */
+export function covarianceFits(payload: HoldingCovariancePayload, risk: MeasuredRisk): boolean {
+  const tickers = payload.covariance?.tickers ?? [];
+  const shown = new Set(risk.rows.map((row) => row.ticker));
+  return tickers.length === shown.size && tickers.every((ticker) => shown.has(ticker)) && payload.weeks === risk.weeks && payload.to === risk.to;
+}
+
+/** Reads the covariance and hands the form what it shows, unless the form has closed or moved on (`open`). */
+export async function loadCovariance(read: () => Promise<HoldingCovariancePayload>, risk: MeasuredRisk, open: () => boolean, show: (state: CovarianceState) => void): Promise<void> {
+  let next: CovarianceState;
+  try {
+    const payload = await read();
+    next = !payload.covariance ? { state: "none" } : covarianceFits(payload, risk) ? { state: "read", covariance: payload.covariance } : { state: "stale" };
+  } catch {
+    next = { state: "none" };
+  }
+  if (open()) show(next);
+}
+
+/**
+ * The risk at the targets typed, with the cash share they leave or the one typed; or why there is none: a share typed
+ * is not one the server keeps, or no holding measured has a share at the targets.
+ */
+export function riskOfForm(covariance: HoldingCovariance, holdings: Data["holdings"], form: TargetForm, tickers: string[]): TargetRisk | "invalid" | "unmeasured" {
+  const read = readForm(form, tickers);
+  // The cash share counts toward the whole account: one that is not a share is no whole account either.
+  if (read.invalid.length || read.problem === "cash") return "invalid";
+  return targetRiskOf(covariance, holdings, typedTargets(form, tickers), form.sell, read.cash / 100) ?? "unmeasured";
+}
+
+const RISK_STATUS = {
+  reading: "targetsRiskReading",
+  none: "targetsRiskNone",
+  stale: "targetsRiskStale",
+  invalid: "targetsRiskInvalid",
+  unmeasured: "targetsRiskUnmeasured",
+} as const;
+
+/** The volatility a year now and at the targets typed, with what is left out. */
+export function TargetRiskSummary({ risk, state, weeks, parity, book, locale, t }: {
+  /** Worked out from the form once the covariance is read. */
+  risk?: TargetRisk | "invalid" | "unmeasured"; state: CovarianceState;
+  /** The weekly returns of risk by holding, which the covariance is read over. */
+  weeks: number;
+  /** Filled from the equal-risk weights, whose shares of the risk here are near, not quite, equal. */
+  parity?: boolean;
+  book?: InstrumentBook; locale: SupportedLocale; t: Translator;
+}) {
+  const titleId = useId();
+  const points = useMemo(() => new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" }), [locale]);
+  const figures = state.state === "read" && typeof risk === "object" ? risk : undefined;
+  const status = state.state !== "read" ? RISK_STATUS[state.state] : typeof risk === "string" ? RISK_STATUS[risk] : undefined;
+  const gap = locale === "zh-CN" ? "" : " ";
+  const line = (label: string, now: number, at: number) => (
+    <tr>
+      <th scope="row">{label}</th>
+      <td>{pct(now, locale, 1)}</td>
+      <td><strong>{pct(at, locale, 1)}</strong>{Math.abs(at - now) >= 0.0005 && <small className="targetRiskChange">{fill(t("targetsRiskChange"), { points: points.format((at - now) * 100) })}</small>}</td>
+    </tr>
+  );
+  return (
+    <div className="targetRisk" role="group" aria-labelledby={titleId} aria-busy={state.state === "reading" || undefined}>
+      <h3 id={titleId} className="targetRiskTitle">{t("targetsRiskTitle")}</h3>
+      {/* Said when it changes (read, or not to be worked out), not at each figure typed. */}
+      <p role="status" className={status ? "panelNote" : "visuallyHidden"}>{t(status ?? "targetsRiskReady")}</p>
+      {figures && (
+        <>
+          <table className="targetRiskTable" aria-labelledby={titleId}>
+            <thead><tr><th scope="col">{t("targetsRiskMeasure")}</th><th scope="col">{t("targetsRiskNow")}</th><th scope="col">{t("targetsRiskAt")}</th></tr></thead>
+            <tbody>
+              {line(t("targetsRiskHoldings"), figures.now.volatility, figures.atTargets.volatility)}
+              {figures.account && line(t("targetsRiskAccount"), figures.account.now, figures.account.atTargets)}
+            </tbody>
+          </table>
+          <p className="panelNote">
+            {fill(t("targetsRiskNote"), { weeks: String(weeks) })}
+            {figures.leftOut.length > 0 && <>{gap}{fill(t("targetsRiskLeftOut"), { list: figures.leftOut.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") })}</>}
+            {parity && <>{gap}{t("targetsRiskParity")}</>}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 const PROBLEM_KEYS = {
   weight: "targetsProblemWeight",
   cash: "targetsProblemCash",
@@ -153,7 +263,7 @@ const PROBLEM_KEYS = {
   over: "targetsProblemOver",
 } as const;
 
-export function TargetEditor({ data, book, locale, t, busy, start, onSave, onClear, onClose }: {
+export function TargetEditor({ data, book, locale, t, busy, start, onSave, onClear, onReadCovariance, onClose }: {
   data: Data; book?: InstrumentBook; locale: SupportedLocale; t: Translator; busy?: boolean;
   /** A preset to fill the form with as it opens, instead of the saved targets. */
   start?: TargetPreset;
@@ -161,6 +271,8 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   onSave: (save: TargetSave) => Promise<boolean>;
   /** Removes the saved targets; only when there are some. */
   onClear?: () => Promise<boolean>;
+  /** Reads the holdings' covariance for the holdings measured, for the risk at the targets typed in; only with risk by holding. */
+  onReadCovariance?: (measured: MeasuredRisk) => Promise<HoldingCovariancePayload>;
   onClose: () => void;
 }) {
   const [form, setForm] = useState<TargetForm>(() => {
@@ -170,7 +282,19 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const [filled, setFilled] = useState<TargetPreset | undefined>(start);
   const [touched, setTouched] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  // The risk by holding on screen, which the covariance is read for: again when a refresh measures other holdings or weeks.
+  const measured = onReadCovariance ? data.risk : undefined;
+  const measuredKey = measured ? covarianceKey(data) : "";
+  const [covariance, setCovariance] = useState<CovarianceState | undefined>(measured ? { state: "reading" } : undefined);
   const errorId = useId();
+  // Read as the form opens; the risk at the targets is then worked out as they are typed.
+  useEffect(() => {
+    if (!measured || !onReadCovariance) { setCovariance(undefined); return undefined; }
+    let open = true;
+    setCovariance({ state: "reading" });
+    void loadCovariance(() => onReadCovariance(measured), measured, () => open, setCovariance);
+    return () => { open = false; };
+  }, [measuredKey]);
   // Opened from a button, perhaps further down the page: brought into sight, with the focus on its heading.
   const panel = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -182,6 +306,11 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const rows = targetRows(data);
   const read = readForm(form, rows.map((row) => row.ticker));
   const left = 100 - read.total - read.cash;
+  // Kept, the holdings without a target take their share today beside the targets and the cash.
+  const typed = typedTargets(form, rows.map((row) => row.ticker));
+  const kept = form.sell ? 0 : rows.filter((row) => row.held && !typed.has(row.ticker)).reduce((sum, row) => sum + row.current, 0) * 100;
+  const keptOver = !read.problem && kept > 0 && read.total + read.cash + kept > 100 + OVER_ACCOUNT * 100;
+  const risk = covariance?.state === "read" ? riskOfForm(covariance.covariance, data.holdings, form, rows.map((row) => row.ticker)) : undefined;
   const share = (value: number) => pct(value / 100, locale, 1);
   const crowded = rows.filter((row) => row.held).length > MAX_TARGETS;
   const problemKey = read.problem === "many" && form.sell ? "targetsProblemManySold" : read.problem && PROBLEM_KEYS[read.problem];
@@ -222,12 +351,18 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
               return (
                 <li key={row.ticker}>
                   <span className="barLabel"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
-                  <span className="targetNow">{row.held ? fill(t("targetsNow"), { share: pct(row.current, locale, 1) }) : t("targetsNotHeld")}</span>
+                  <span className="targetNow">
+                    <span>{row.held ? fill(t("targetsNow"), { share: pct(row.current, locale, 1) }) : t("targetsNotHeld")}</span>
+                    {typeof risk === "object" && risk.now.shares.has(row.ticker) && (() => {
+                      const shares = { now: pct(risk.now.shares.get(row.ticker)!, locale, 0), at: pct(risk.atTargets.shares.get(row.ticker)!, locale, 0) };
+                      return <span className="targetRiskShare"><span className="visuallyHidden">{fill(t("targetsRiskShareLabel"), shares)}</span><span aria-hidden="true">{fill(t("targetsRiskShare"), shares)}</span></span>;
+                    })()}
+                  </span>
                   <span className={`field targetField${wrong ? " invalid" : ""}`}>
                     <span className="fieldControl withUnit">
                       <input aria-label={fill(t("targetsWeightLabel"), { name: label.detail ? `${label.name} (${label.detail})` : label.name })} inputMode="decimal" autoComplete="off" placeholder="0"
                         {...(wrong ? { "aria-invalid": true, "aria-describedby": errorId } : {})}
-                        value={form.weights[row.ticker] ?? ""} onChange={(event) => setForm({ ...form, weights: { ...form.weights, [row.ticker]: event.target.value } })} />
+                        value={form.weights[row.ticker] ?? ""} onChange={(event) => { setForm({ ...form, weights: { ...form.weights, [row.ticker]: event.target.value } }); setFilled(undefined); }} />
                       <span className="fieldUnit" aria-hidden="true">%</span>
                     </span>
                   </span>
@@ -252,8 +387,10 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
           </label>
           <p className={`targetTotal${read.problem === "over" ? " over" : ""}`}>
             {fill(t("targetsTotal"), { targets: share(read.total), cash: share(read.cash), total: share(read.total + read.cash) })}
-            {left >= 0.05 && !read.problem && <> {fill(t(form.sell ? "targetsLeftSold" : "targetsLeftKept"), { share: share(left) })}</>}
+            {left >= 0.05 && !read.problem && <>{locale === "zh-CN" ? "" : " "}{fill(t(form.sell ? "targetsLeftSold" : "targetsLeftKept"), { share: share(left) })}</>}
           </p>
+          {keptOver && <p className="panelNote targetKeptOver">{fill(t("targetsKeptOver"), { kept: share(kept), total: share(read.total + read.cash + kept) })}</p>}
+          {covariance && measured && <TargetRiskSummary {...(risk ? { risk } : {})} state={covariance} weeks={measured.weeks} parity={filled === "parity"} {...(book ? { book } : {})} locale={locale} t={t} />}
           {shown && read.problem !== "cash" && read.problem !== "threshold" && <p className="fieldError targetError" id={errorId} role="alert">{shown}</p>}
           <div className="alertFormActions">
             {onClear && <button type="button" className="secondaryButton targetClear" onClick={() => void clear()}>{t(confirmClear ? "targetsClearConfirm" : "targetsClear")}</button>}
