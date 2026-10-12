@@ -46,6 +46,7 @@ export function createServices(input: ServiceDependencies) {
     afterBasket: (planId, result) => automation.recordRun(planId, result),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
+    afterWrite: (environment) => insights.forgetHistory(environment),
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });

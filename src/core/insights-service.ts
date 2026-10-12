@@ -107,6 +107,8 @@ export function parseWindow(input: { from?: string; to?: string; period?: Histor
 
 export class InsightsService {
   private readonly historyCache = new Map<string, { expiresAt: number; value: Collected<unknown> }>();
+  /** Bumped by each order or cancellation sent, so a read that was under way then is not kept. */
+  private readonly historyGeneration = new Map<TradingEnvironment, number>();
   private exchangeCache = new Map<TradingEnvironment, { expiresAt: number; exchanges: Exchange[] }>();
 
   constructor(private readonly deps: InsightsDeps) {}
@@ -114,6 +116,12 @@ export class InsightsService {
   private client(environment: TradingEnvironment) {
     requireCredentials(this.deps.config, environment);
     return new Trading212Client(environment, this.deps.config, this.deps.fetcher);
+  }
+
+  /** Read the account's history afresh next time: an order or a cancellation was just sent. */
+  forgetHistory(environment: TradingEnvironment): void {
+    this.historyGeneration.set(environment, (this.historyGeneration.get(environment) ?? 0) + 1);
+    for (const key of this.historyCache.keys()) if (key.startsWith(`${environment}:`)) this.historyCache.delete(key);
   }
 
   /** Walk newest-first history pages until the window start or the page budget is reached. */
@@ -126,6 +134,7 @@ export class InsightsService {
     const cached = this.historyCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as Collected<HistoryItemOf<K>>;
 
+    const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);
     const items: HistoryItemOf<K>[] = [];
     let next: string | undefined;
@@ -140,7 +149,7 @@ export class InsightsService {
       if (page === pages - 1) truncated = true;
     }
     const value = { items, truncated };
-    this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
+    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
     return value;
   }
 

@@ -21,7 +21,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
 - a page per holding: position and share of the account, a price ladder of the last price, average cost, open stops and limits and alert levels, the last year of fills and dividends, and its trade journal
-- a trade journal: why you made each trade, written with the order or later on its fill, and what came of it looking back, kept in TradePilot and tied to the Trading 212 order ([docs/JOURNAL.md](./docs/JOURNAL.md))
+- a trade journal: why you made each trade, written with the order or later on its fill, and what came of it looking back, kept in TradePilot and tied to the Trading 212 order; a Journal tab sets each reason against how the trade has gone since and shows per tag how often your reasons went your way ([docs/JOURNAL.md](./docs/JOURNAL.md))
 - performance, dividend/interest income, trading costs, trade history (including cancelled and rejected orders), itemised dividends and cash movements, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - order follow-up from the chat: one order's status and fills, and a cancellation opened in the widget for you to confirm
 - market-hours awareness, including a warning when a Market order would queue until the next open
@@ -34,7 +34,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - Trading 212 pies: value, return, dividends, goal progress and drift from target for every slice; create, update, duplicate and delete pies after confirmation ([docs/PIES.md](./docs/PIES.md))
 - price alerts on holdings or any quoted instrument (above / below a price, trailing drop from the high, gain or loss against average cost), checked every minute
 - a built-in sample account (`TRADEPILOT_SAMPLE_DATA=true`) for trying everything without an API key ([docs/TRY_IT.md](./docs/TRY_IT.md))
-- quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans and rebalancing
+- quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans, rebalancing and the journal review
 - optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments

@@ -345,6 +345,40 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .inlineLink { padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .inlineLink:hover { color: var(--tp-text); }
 .inlineLink:disabled { cursor: default; opacity: .6; }
+/* Journal review: how each noted trade has gone since, and per tag how often the reasons went your way. */
+.reviewEdgeNote { margin: -6px 4px 0; font-size: 12px; }
+.reviewTags { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.reviewTag { display: grid; grid-template-columns: minmax(0, 1fr) minmax(64px, 30%) 64px; grid-template-areas: "name track edge" "facts track edge"; align-items: center; gap: 2px 12px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--tp-text); font: inherit; text-align: left; cursor: pointer; }
+button.reviewTag:hover:not(:disabled) { background: var(--tp-bg-soft); }
+.reviewTag.static { cursor: default; }
+.viewToolbar.reviewToolbar { flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.reviewFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13px; font-weight: 650; }
+.reviewTag.active { border-color: var(--tp-border-strong); background: var(--tp-bg-soft); }
+.reviewTagName { grid-area: name; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.reviewTagFacts { grid-area: facts; color: var(--tp-muted); font-size: 12px; }
+.reviewTagEdge { grid-area: edge; font-size: 14px; font-weight: 720; font-variant-numeric: tabular-nums; text-align: right; }
+.edgeTrack { grid-area: track; position: relative; height: 8px; border-radius: 999px; background: var(--tp-bg-soft); }
+button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack { background: var(--tp-bg); }
+.edgeTrack::before { content: ""; position: absolute; left: calc(50% - 1px); top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--tp-border-strong); }
+.edgeFill { position: absolute; top: 0; bottom: 0; background: var(--tp-muted); }
+.edgeFill.positive { border-radius: 0 999px 999px 0; background: var(--tp-green); }
+.edgeFill.negative { border-radius: 999px 0 0 999px; background: var(--tp-red); }
+.reviewFilterName { color: var(--tp-muted); font-weight: 650; }
+.journalNote.due { border-color: color-mix(in srgb, var(--tp-amber) 45%, var(--tp-border)); }
+.inlineLink.reviewName, .reviewName { color: var(--tp-text); font-size: 13px; font-weight: 700; text-decoration-color: var(--tp-border-strong); }
+.inlineLink.reviewName:hover { text-decoration-color: currentColor; }
+.reviewOutcome { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.edgeBadge { padding: 2px 8px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 12px; font-weight: 700; }
+.edgeBadge.positive { background: var(--tp-green-soft); }
+.edgeBadge.negative { background: var(--tp-red-soft); }
+.dueCount { color: var(--tp-amber-text); }
+.reviewTrade .alertForm { margin: 2px 0 0; }
+@container (max-width: 420px) {
+  /* The bar gets its own line under the tag, full width, so the facts stay on one line. */
+  .reviewTag { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name edge" "facts edge" "track track"; gap: 2px 10px; }
+  .edgeTrack { margin-top: 6px; }
+}
+.reviewFootnotes { display: grid; gap: 4px; margin: 12px 0 0; padding-left: 18px; color: var(--tp-muted); font-size: 12px; line-height: 1.5; }
 .confirmationThesis { margin-top: 12px; }
 .panelTotal { color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .orderRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--tp-border); }

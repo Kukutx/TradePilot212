@@ -33,6 +33,90 @@ export interface JournalPayload {
   total: number;
 }
 
+/** A trade at least this many days old, with a reason but no look back yet, is due for one. */
+export const REVIEW_AFTER_DAYS = 30;
+/** A smaller edge, either way, reads as unchanged and does not count as going your way. */
+export const EDGE_FLAT = 0.0005;
+/** Instruments not held that one review asks the quote provider about, one at a time, newest trades first. */
+export const MAX_REVIEW_QUOTES = 8;
+
+/** A tag as a filter: trimmed, without a leading '#', cut like a stored tag; undefined when nothing is left. */
+export function journalTagFilter(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : journalTags([value])?.[0];
+}
+
+/** A note on a filled order, with how the trade has gone since. */
+export interface JournalTrade {
+  entry: JournalEntry;
+  ticker: string;
+  name?: string;
+  side: "buy" | "sell";
+  /** Shares filled, always positive. */
+  quantity: number;
+  /** The fill price, in the instrument's currency. */
+  price: number;
+  priceCurrency?: string;
+  filledAt: string;
+  /** Whole days since the fill. */
+  days: number;
+  /** The price now: the position's when held, else the quote provider's. Absent when neither has one. */
+  priceNow?: number;
+  /** The change from the fill price to now, as a fraction. FX and costs are left out. */
+  move?: number;
+  /** The move in the trade's favour: the change for a buy, its opposite for a sell. */
+  edge?: number;
+  /** What Trading 212 booked as realised on a sell, in the account currency. */
+  realisedProfitLoss?: number;
+  /** It has a reason, no look back yet, and the fill is at least REVIEW_AFTER_DAYS old. */
+  due?: true;
+}
+
+/** How the trades of one tag (or all of them, or those without a tag) have gone. */
+export interface JournalTagStats {
+  /** Absent for all trades, and for the trades whose note has no tag (listed last, after the tags). */
+  tag?: string;
+  trades: number;
+  /** Trades with a price now; the rest of the figures are worked out from these. */
+  priced: number;
+  /** Priced trades whose edge is above EDGE_FLAT. */
+  inFavour: number;
+  /** The mean edge of the priced trades, each counting once whatever its size. */
+  averageEdge?: number;
+  /** Realised P/L booked on the sells, in the account currency. */
+  realisedProfitLoss: number;
+}
+
+export interface JournalReview {
+  kind: "journal_review";
+  environment: TradingEnvironment;
+  /** The window the fills are from; no `from` is all time. */
+  period: { from?: string; to: string };
+  accountCurrency?: string;
+  /** Set when only the notes with this tag were reviewed. */
+  tag?: string;
+  /** Fills in the window, and how many of them have a note. */
+  fills: number;
+  withNote: number;
+  overall: JournalTagStats;
+  tags: JournalTagStats[];
+  /** Trades whose note has a look back, and trades due for one. */
+  reviewed: number;
+  due: number;
+  /** Newest first, at most 50; `tradesTotal` counts them all. */
+  trades: JournalTrade[];
+  tradesTotal: number;
+  /** Notes on orders that are not among the window's fills with a price: still open, cancelled, or filled before it. */
+  unmatched: number;
+  /** Notes on an instrument rather than an order, and on orders whose result was unclear. */
+  withoutOrder: number;
+  /** Tickers with no price now, or a quote far from the fill price that looks like another unit; their trades count without an edge. */
+  unpriced: string[];
+  /** Tickers not priced because the review already asked the quote provider about MAX_REVIEW_QUOTES others. */
+  notQuoted: string[];
+  truncated: boolean;
+  timestamp: string;
+}
+
 /** Cut to `max` characters without splitting one that takes two UTF-16 units. */
 function cut(value: string, max: number): string {
   return value.length <= max ? value : Array.from(value).slice(0, max).join("");

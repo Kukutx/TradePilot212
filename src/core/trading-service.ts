@@ -108,6 +108,8 @@ export interface TradingServiceDeps {
   afterOrder?: (draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }) => Promise<string | undefined>;
   /** Called when the check of an unclear order finds it, to settle the note `afterOrder` saved for it. */
   afterVerification?: (journalEntryId: string, orderId?: string) => Promise<void>;
+  /** Called once an order or a cancellation was sent, whatever came of it, so history read before is read again. */
+  afterWrite?: (environment: TradingEnvironment) => void;
   /** Optional webhook for notable events; it filters the types itself and never throws. */
   notify?: Notifier;
   /** Optional external quotes for instruments that are not held (Trading 212 has no quote endpoint). */
@@ -1392,7 +1394,7 @@ export class TradingService {
   private async submit(draft: OrderDraft, baselineQuantity: number, accountNotional: number | undefined): Promise<OrderExecutionResult> {
     let order: unknown;
     try {
-      order = await this.client(draft.environment).placeOrder(draft);
+      order = await this.client(draft.environment).placeOrder(draft).finally(() => this.wrote(draft.environment));
     } catch (error) {
       // An order that may have gone through still counts toward today's limits.
       if (error instanceof ExecutionStatusUnknownError) await this.recordUsage(draft.environment, accountNotional);
@@ -1634,7 +1636,7 @@ export class TradingService {
   /** Cancel the surviving order of a protective pair. One request per call; the caller decides on retries. */
   async cancelLinkedOrder(environment: TradingEnvironment, orderId: string, reason: string, options: { quiet?: boolean } = {}): Promise<"cancelled" | "gone" | "unknown" | "rejected"> {
     try {
-      await this.client(environment).cancelOrder(orderId);
+      await this.client(environment).cancelOrder(orderId).finally(() => this.wrote(environment));
       await this.recordActivity("protective_sibling_cancelled", environment, { orderId, outcome: reason.slice(0, 200) });
       return "cancelled";
     } catch (error) {
@@ -1658,7 +1660,7 @@ export class TradingService {
   async executeCancel(confirmationId: string, options: { liveAcknowledged?: boolean } = {}): Promise<OrderExecutionResult> {
     const pending = await this.takePending(confirmationId, "cancel", !!options.liveAcknowledged);
     try {
-      const order = await this.client(pending.environment).cancelOrder(pending.orderId);
+      const order = await this.client(pending.environment).cancelOrder(pending.orderId).finally(() => this.wrote(pending.environment));
       await this.recordActivity("cancel_submitted", pending.environment, { orderId: pending.orderId });
       return { kind: "order_execution", environment: pending.environment, ok: true, status: "submitted", order, message: `${pending.environment.toUpperCase()} cancellation submitted` };
     } catch (error) {
@@ -1669,6 +1671,15 @@ export class TradingService {
       }
       await this.recordActivity("cancel_rejected", pending.environment, { orderId: pending.orderId });
       return { kind: "order_execution", environment: pending.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Something was sent to Trading 212: history read before it is out of date. */
+  private wrote(environment: TradingEnvironment): void {
+    try {
+      this.deps.afterWrite?.(environment);
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot after-write hook failed", error: error instanceof Error ? error.message : String(error) }));
     }
   }
 
