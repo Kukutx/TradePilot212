@@ -140,7 +140,38 @@ describe("risk by holding", () => {
     expect(mix.worst).toEqual({ date: "2025-11-07", return: expect.closeTo(fall, 6) });
     expect(mix.best).toEqual({ date: "2025-10-31", return: expect.closeTo(Math.exp(0.04) - 1, 6) });
     expect(mix.up).toBe(26);
+    expect(mix.counted).toBe(52);
     expect(mix.drawdown).toMatchObject({ max: expect.closeTo(fall, 6), peak: "2025-10-31", trough: "2025-11-07" });
+  });
+
+  it("takes the third worst of 52 weeks as the bad week one in 20, and the average of the three", () => {
+    // Small moves, then falls of 5%, 4%, 3% and 2% in four weeks of their own.
+    const moves = pattern([0.1, -0.1]).map((move, index) => (index === 10 ? -0.05 : index === 20 ? -0.04 : index === 30 ? -0.03 : index === 40 ? -0.02 : move * 0.01));
+    const { mix } = holdingRiskOf([holding("A", 1000, moves), holding("B", 1000, moves.map((move, index) => (index % 2 ? move : move * 1.5)))], TODAY)!;
+    const week = (index: number) => 0.5 * (Math.exp(moves[index]!) - 1) + 0.5 * (Math.exp(index % 2 ? moves[index]! : moves[index]! * 1.5) - 1);
+    expect(mix.worst.return).toBeCloseTo(week(10), 6);
+    expect(mix.badWeek).toBeCloseTo(week(30), 6);
+    expect(mix.badWeeks).toBeCloseTo((week(10) + week(20) + week(30)) / 3, 6);
+  });
+
+  it("draws a stretch over a week some holding has no close in, but counts it as no week", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    // B has no close in weeks 20 and 21: the three weeks from 19 to 22 are one stretch.
+    const gap = fridays(pattern([1, 1, -1, -1])).filter((_, index) => index !== 20 && index !== 21);
+    const { mix, weeks } = holdingRiskOf([holding("A", 1000, moves), { ticker: "B", value: 1000, points: gap }], TODAY)!;
+    expect(weeks).toBe(50);
+    expect(mix.series).toHaveLength(51);
+    expect(mix.counted).toBe(49);
+    const other = pattern([1, 1, -1, -1]);
+    // Into week k: the moves k - 1 of each, half and half.
+    const into = (k: number) => 0.5 * (Math.exp(moves[k - 1]!) - 1) + 0.5 * (Math.exp(other[k - 1]!) - 1);
+    const single = [...Array.from({ length: 19 }, (_, index) => index + 1), ...Array.from({ length: 30 }, (_, index) => index + 23)].map(into);
+    // The stretch is in the line: week 22 stands where weeks 19 to 22 took it.
+    const stretch = 0.5 * (Math.exp(moves[19]! + moves[20]! + moves[21]!) - 1) + 0.5 * (Math.exp(other[19]! + other[20]! + other[21]!) - 1);
+    expect((1 + mix.series[20]!.return) / (1 + mix.series[19]!.return) - 1).toBeCloseTo(stretch, 5);
+    expect(mix.up).toBe(single.filter((value) => value > 0).length);
+    expect(mix.worst.return).toBeCloseTo(Math.min(...single), 6);
+    expect(mix.best.return).toBeCloseTo(Math.max(...single), 6);
   });
 
   it("weighs each holding's weekly change by today's weight, so a hedge softens the bad weeks", () => {

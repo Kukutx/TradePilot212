@@ -3,15 +3,14 @@
 // view); the tiles give its return, a bad week (one in 20) in percent and in the account currency, its worst and best
 // weeks and its deepest fall.
 
-import type { HoldingRisk } from "../../shared/history";
+import type { HoldingMix } from "../../shared/history";
 import type { SupportedLocale } from "../i18n";
 import { dayLabel, money, pct } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 import { decimalsOf, LineChart, type Grid } from "./charts";
 import { Tile } from "./risk";
 
-export function HoldingMixPanel({ risk, currency, locale, t }: { risk: HoldingRisk; currency: string; locale: SupportedLocale; t: Translator }) {
-  const { mix } = risk;
+export function HoldingMixPanel({ mix, currency, locale, t }: { mix: HoldingMix; currency: string; locale: SupportedLocale; t: Translator }) {
   const signed = (value: number, digits = 1) => pct(value, locale, digits, { signed: true });
   const tone = (value: number) => (value > 0 ? "positive" : value < 0 ? "negative" : undefined);
   const day = (date: string | undefined) => (date ? dayLabel(date, locale) : "");
@@ -24,9 +23,12 @@ export function HoldingMixPanel({ risk, currency, locale, t }: { risk: HoldingRi
         zero flat={0.01} axis={percentAxis}
         data={mix.series.map((point) => ({ key: point.date, label: day(point.date), value: point.return, display: signed(point.return, 2), time: Date.parse(`${point.date}T00:00:00Z`) }))} />
       <div className="riskGrid four">
-        <Tile label={t("holdingMixReturn")} value={signed(mix.return)} tone={tone(mix.return)} sub={fill(t("holdingMixReturnSub"), { up: String(mix.up), weeks: String(risk.weeks) })} />
-        <Tile label={t("holdingMixBadWeek")} value={signed(mix.badWeek)} tone={tone(mix.badWeek)}
-          sub={fill(t("holdingMixBadWeekSub"), { amount: money(Math.max(0, -mix.badWeek) * mix.value, currency, locale, { digits: 0 }), average: signed(mix.badWeeks) })} />
+        <Tile label={t("holdingMixReturn")} value={signed(mix.return)} tone={tone(mix.return)} sub={fill(t("holdingMixReturnSub"), { up: String(mix.up), weeks: String(mix.counted) })} />
+        {mix.badWeek < 0
+          ? <Tile label={t("holdingMixBadWeek")} value={signed(mix.badWeek, mix.badWeek > -0.0005 ? 2 : 1)} tone="negative"
+            sub={fill(t("holdingMixBadWeekSub"), { amount: money(-mix.badWeek * mix.value, currency, locale, { digits: 0 }), value: money(mix.value, currency, locale, { digits: 0 }), average: signed(mix.badWeeks) })} />
+          // Even its worst one week in 20 rose: there is no bad week to put a figure on.
+          : <Tile label={t("holdingMixBadWeek")} value={t("holdingMixBadWeekNone")} sub={fill(t("holdingMixBadWeekNoneSub"), { week: signed(mix.badWeek) })} />}
         <Tile label={t("holdingMixWorst")} value={signed(mix.worst.return)} tone={tone(mix.worst.return)}
           sub={fill(t("holdingMixWorstSub"), { date: day(mix.worst.date), best: signed(mix.best.return), bestDate: day(mix.best.date) })} />
         {fall

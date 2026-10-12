@@ -94,11 +94,11 @@ The Allocation tab's **Risk by holding** panel, and `risk` in `analyze_portfolio
 
 ### Today's mix over the year
 
-Below it, **Today's mix over the year**, and `risk.mix` in `analyze_portfolio_allocation`, say what the holdings measured would have done over the same weeks had they been held at today's weights all along, put back to those weights each week. Each week's return is their weighted change from one weekly close to the next, each in its own currency, so currency moves, fees and taxes are not in it, and dividends only where the quote provider's closes include them. A week the markets were shut runs on to the next close.
+Below it, **Today's mix over the year**, and `risk.mix` in `analyze_portfolio_allocation`, say what the holdings measured would have done over the same weeks had they been held at today's weights all along, put back to those weights each week. Each week's return is their weighted change from one weekly close to the next, each in its own currency, so currency moves, fees and taxes are not in it, and dividends only where the quote provider's closes include them. A week some holding has no close in (its market shut all week, or a gap in the provider's closes) joins the next: the stretch is in the line and the return, but is not counted as a week, so the bad weeks, the worst and best and the weeks up are single weeks only.
 
 - The line is where the mix stood at each weekly close, from 0 at the first; the table view lists it.
 - **Return** is its return over those weeks, with the weeks it rose.
-- **A bad week, 1 in 20** is the weekly return the mix fell to or below in its worst 5% of weeks: the ⌈n/20⌉-th worst of its n weekly returns (the 3rd worst of 52), a historical 95% value at risk. It is also given in the account currency, on the holdings' value today, with the average of those worst weeks (the expected shortfall). It says what a bad week has looked like, not the most the holdings can lose.
+- **A bad week, 1 in 20** is the weekly return the mix fell to or below in its worst 5% of weeks: the ⌈n/20⌉-th worst of its n weekly returns (the 3rd worst of 52), a historical 95% value at risk. It is also given in the account currency, on today's value of the holdings measured (not the cash, nor holdings left out), with the average of those worst weeks (the expected shortfall). It says what a bad week has looked like, not the most the holdings can lose. When even that week rose (the mix fell in fewer than one week in 20), there is no figure: the tile says **No fall**.
 - **Worst week** and the best are dated by the week's last close; **Deepest fall** is the mix's largest fall from a high, as the drawdown above, and when it was made up.
 
 ## Your position

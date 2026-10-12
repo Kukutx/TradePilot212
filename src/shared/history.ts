@@ -170,8 +170,8 @@ export interface HoldingRisk {
   short?: string[];
   /** Holdings left out because their closes jump more than fivefold in a week: a change of unit or a split. */
   jumps?: string[];
-  /** Today's mix of the holdings measured over the same weeks. */
-  mix: HoldingMix;
+  /** Today's mix of the holdings measured over the same weeks; absent from results before 2.47. */
+  mix?: HoldingMix;
 }
 
 /**
@@ -185,15 +185,20 @@ export interface HoldingMix {
   series: ReturnPoint[];
   /** Its return over the weeks read. */
   return: number;
-  /** One week in 20, it fell this much or more: the ⌈n/20⌉-th worst of its n weekly returns (a 95% value at risk). */
+  /**
+   * One week in 20, it fell this much or more: the ⌈n/20⌉-th worst of its n weekly returns (a 95% value at risk). Not
+   * below 0 when it fell in fewer than one week in 20.
+   */
   badWeek: number;
   /** The average of those worst weeks (the expected shortfall). */
   badWeeks: number;
   /** Its worst and best week, dated by the week's last close. */
   worst: ReturnPoint;
   best: ReturnPoint;
-  /** Weeks it rose, of all it was read over. */
+  /** Weeks it rose, of the `counted` single weeks (a return across a week some holding has no close in is not one). */
   up: number;
+  /** The single weeks read: those the bad weeks, the worst and best and the weeks up are counted from. */
+  counted: number;
   drawdown?: Drawdown;
 }
 

@@ -12,6 +12,7 @@ import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import { MAX_ACCOUNT_ALERTS } from "./account-alerts.js";
 import type { PieChangeDraft } from "../shared/pies.js";
+import type { HoldingMix } from "../shared/history.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
 import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
@@ -40,6 +41,13 @@ const ORDER_INSTRUCTIONS = [
   "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
   "Never resend an order whose result is unknown; check it with app_verify_unknown_execution.",
 ].join(" ");
+
+/** Today's mix's bad week, one in 20, for the allocation's one-line summary. */
+function badWeekText(mix: HoldingMix | undefined): string {
+  if (!mix) return "";
+  // Two decimals for a fall that one would round to 0.
+  return mix.badWeek < 0 ? `, a bad week one in 20 ${(mix.badWeek * 100).toFixed(mix.badWeek > -0.0005 ? 2 : 1)}%` : ", today's mix fell in fewer than one week in 20";
+}
 
 /** The text carries the payload's facts too, for hosts that show the model only text. */
 function result(data: unknown, text: string) {
@@ -280,7 +288,7 @@ export function createMcpServer(
           ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error: unknown) => ({ riskProblem: asStructuredError(error).message }))
           : {};
         const data = { ...(await targetAllocations.withDrift({ ...analysis, ...risk })), credentials: credentialStatus(config), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0]!.ticker} the largest share of it (${(data.risk.rows[0]!.risk * 100).toFixed(0)}%), a bad week one in 20 ${(data.risk.mix.badWeek * 100).toFixed(1)}%` : ""}.`);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0]!.ticker} the largest share of it (${(data.risk.rows[0]!.risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
       } catch (error) {
         return toolError(error);
       }

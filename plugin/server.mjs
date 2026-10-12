@@ -39342,14 +39342,15 @@ function holdingRiskLines(data) {
     ...pairs.length >= 6 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : [],
     ...risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : [],
     ...risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : [],
-    mixLine(risk.mix, risk.weeks, data.accountCurrency),
+    ...risk.mix ? [mixLine(risk.mix, data.accountCurrency)] : [],
     ...missing
   ];
 }
-function mixLine(mix, weeks, currency) {
+function mixLine(mix, currency) {
   const { drawdown } = mix;
   const fall = drawdown?.peak && drawdown.trough ? ` Deepest fall ${pct(drawdown.max)}, from ${drawdown.peak} to ${drawdown.trough}, ${drawdown.recovered ? `made up by ${drawdown.recovered}` : "not made up yet"}.` : "";
-  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${weeks} weeks. A bad week, one in 20: ${signedPct(mix.badWeek)} or worse, about ${money3(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money3(Math.round(mix.value), currency)}; ${signedPct(mix.badWeeks)} on average in those weeks. Worst week ${signedPct(mix.worst.return)} to ${mix.worst.date}, best ${signedPct(mix.best.return)} to ${mix.best.date}.${fall}`;
+  const bad = mix.badWeek < 0 ? `A bad week, one in 20: ${pct(mix.badWeek, mix.badWeek > -5e-4 ? 2 : 1)} or worse, about ${money3(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money3(Math.round(mix.value), currency)} measured; ${signedPct(mix.badWeeks)} on average in those weeks. ` : `It fell in fewer than one week in 20 (that week ${signedPct(mix.badWeek)}). `;
+  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${mix.counted} weeks. ` + bad + `Worst week ${signedPct(mix.worst.return)} to ${mix.worst.date}, best ${signedPct(mix.best.return)} to ${mix.best.date}.${fall}`;
 }
 var points = (value) => `${signed(value * 100, 1)} pts`;
 function driftLines(drift) {
@@ -41095,12 +41096,14 @@ function holdingRiskOf(inputs, today, totalValue) {
   };
 }
 function mixOf(measured, weights, common, dateOf, value) {
-  const weekly = common.slice(1).map((week, index) => {
+  const steps = common.slice(1).map((week, index) => {
     const before = common[index];
-    return { date: dateOf(week), return: measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(before).close - 1), 0) };
+    return { date: dateOf(week), weeks: (week - before) / 7, return: measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(before).close - 1), 0) };
   });
+  const single = steps.filter((step) => step.weeks === 1);
+  const weekly = (single.length ? single : steps).map((step) => ({ date: step.date, return: step.return }));
   let level = 1;
-  const series = [{ date: dateOf(common[0]), return: 0 }, ...weekly.map((point2) => {
+  const series = [{ date: dateOf(common[0]), return: 0 }, ...steps.map((point2) => {
     level *= 1 + point2.return;
     return { date: point2.date, return: round15(level - 1) };
   })];
@@ -41117,6 +41120,7 @@ function mixOf(measured, weights, common, dateOf, value) {
     worst: point(sorted[0]),
     best: point(weekly.reduce((top, at) => at.return > top.return ? at : top)),
     up: weekly.filter((at) => at.return > 0).length,
+    counted: weekly.length,
     ...drawdown ? { drawdown } : {}
   };
 }
@@ -41285,6 +41289,10 @@ var ORDER_INSTRUCTIONS = [
   "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
   "Never resend an order whose result is unknown; check it with app_verify_unknown_execution."
 ].join(" ");
+function badWeekText(mix) {
+  if (!mix) return "";
+  return mix.badWeek < 0 ? `, a bad week one in 20 ${(mix.badWeek * 100).toFixed(mix.badWeek > -5e-4 ? 2 : 1)}%` : ", today's mix fell in fewer than one week in 20";
+}
 function result(data, text) {
   const detail = describePayload(data);
   return {
@@ -41492,7 +41500,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         });
         const risk = read ? await readHoldingRisk({ priceHistory }, environment, analysis.holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
         const data = { ...await targetAllocations.withDrift({ ...analysis, ...risk }), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%), a bad week one in 20 ${(data.risk.mix.badWeek * 100).toFixed(1)}%` : ""}.`);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

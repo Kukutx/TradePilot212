@@ -186,7 +186,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
       </section>
 
       <HoldingRiskPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} />
-      {data.risk && <HoldingMixPanel risk={data.risk} currency={currency} locale={locale} t={t} />}
+      {data.risk?.mix && <HoldingMixPanel mix={data.risk.mix} currency={currency} locale={locale} t={t} />}
 
       <div className="twoColumn">
         <section className="dataPanel">

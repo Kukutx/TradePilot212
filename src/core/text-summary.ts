@@ -332,19 +332,22 @@ function holdingRiskLines(data: AllocationAnalysis): string[] {
       : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : []),
     ...(risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : []),
     ...(risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : []),
-    mixLine(risk.mix, risk.weeks, data.accountCurrency),
+    ...(risk.mix ? [mixLine(risk.mix, data.accountCurrency)] : []),
     ...missing,
   ];
 }
 
 /** Today's mix of the holdings measured, over the weeks read: its return, bad weeks and deepest fall. */
-function mixLine(mix: HoldingMix, weeks: number, currency: string): string {
+function mixLine(mix: HoldingMix, currency: string): string {
   const { drawdown } = mix;
   const fall = drawdown?.peak && drawdown.trough
     ? ` Deepest fall ${pct(drawdown.max)}, from ${drawdown.peak} to ${drawdown.trough}, ${drawdown.recovered ? `made up by ${drawdown.recovered}` : "not made up yet"}.`
     : "";
-  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${weeks} weeks. `
-    + `A bad week, one in 20: ${signedPct(mix.badWeek)} or worse, about ${money(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money(Math.round(mix.value), currency)}; ${signedPct(mix.badWeeks)} on average in those weeks. `
+  const bad = mix.badWeek < 0
+    ? `A bad week, one in 20: ${pct(mix.badWeek, mix.badWeek > -0.0005 ? 2 : 1)} or worse, about ${money(Math.round(-mix.badWeek * mix.value), currency)} of today's ${money(Math.round(mix.value), currency)} measured; ${signedPct(mix.badWeeks)} on average in those weeks. `
+    : `It fell in fewer than one week in 20 (that week ${signedPct(mix.badWeek)}). `;
+  return `Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: ${signedPct(mix.return)}, up in ${mix.up} of ${mix.counted} weeks. `
+    + bad
     + `Worst week ${signedPct(mix.worst.return)} to ${mix.worst.date}, best ${signedPct(mix.best.return)} to ${mix.best.date}.${fall}`;
 }
 

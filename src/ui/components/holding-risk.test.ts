@@ -15,12 +15,6 @@ const risk: HoldingRisk = {
   ],
   correlations: { tickers: ["AAPL_US_EQ", "MSFT_US_EQ", "KO_US_EQ"], matrix: [[1, 0.58, -0.15], [0.58, 1, 0.2], [-0.15, 0.2, 1]] },
   short: ["NEW_US_EQ"],
-  mix: {
-    value: 6000, return: 0.12, up: 30, badWeek: -0.034, badWeeks: -0.041,
-    series: [{ date: "2025-10-10", return: 0 }, { date: "2025-10-17", return: 0.02 }, { date: "2025-10-24", return: -0.03 }, { date: "2026-10-09", return: 0.12 }],
-    worst: { date: "2026-04-03", return: -0.052 }, best: { date: "2025-11-14", return: 0.044 },
-    drawdown: { max: -0.098, peak: "2026-02-13", trough: "2026-04-03", recovered: "2026-05-29", current: 0 },
-  },
 };
 const data: Pick<AllocationAnalysis, "risk" | "riskMissing" | "holdings"> = { holdings, risk, riskMissing: [{ ticker: "ODD_US_EQ", reason: "symbol", problem: "No symbol." }] };
 const render = (props: Partial<Parameters<typeof HoldingRiskPanel>[0]>, locale: "en" | "zh-CN" = "en") =>
