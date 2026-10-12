@@ -342,4 +342,26 @@ describe("forward dividends", () => {
     expect(forwardDividends(quarterly, holding, new Date("2026-10-01T00:00:00Z")).total).toBe(20);
     expect(forwardDividends(quarterly.slice(-1), holding, new Date("2026-10-01T00:00:00Z")).total).toBe(5);
   });
+
+  it("lays the payments out over this month and the next 11, beside what was paid this month", () => {
+    const holding = (ticker: string, quantity: number) => ({ instrument: { ticker, name: ticker, shortName: ticker, currencyCode: "EUR" }, quantity, quantityAvailableForTrading: quantity, quantityInPies: 0, averagePricePaid: 50, currentPrice: 60 });
+    const quarterly = ["2025-12-01", "2026-03-01", "2026-06-01", "2026-09-01"].map((day) => ({ ticker: "KO_US_EQ", amount: 5, quantity: 10, paidOn: `${day}T00:00:00Z` }));
+    const result = forwardDividends(
+      [...quarterly, { ticker: "VUSA_EQ", amount: 12, quantity: 6, paidOn: "2026-10-03T10:00:00Z" }, { ticker: "SOLD_EQ", amount: 3, quantity: 3, paidOn: "2026-10-05T10:00:00Z" }],
+      [holding("KO_US_EQ", 20), holding("VUSA_EQ", 6)],
+      new Date("2026-10-12T09:00:00Z"),
+    );
+    expect(result.calendar).toHaveLength(12);
+    expect(result.calendar[0]).toEqual({ month: "2026-10", paid: 15, expected: 0 });
+    expect(result.calendar[2]).toEqual({ month: "2026-12", paid: 0, expected: 10 });
+    expect(result.calendar[11]).toEqual({ month: "2027-09", paid: 0, expected: 10 });
+    // Coca-Cola's four quarters at today's 20 shares; the fund paid once, this month, so not again within the calendar.
+    expect(result.upcoming).toEqual([
+      { ticker: "KO_US_EQ", on: "2026-12-01", amount: 10 },
+      { ticker: "KO_US_EQ", on: "2027-03-01", amount: 10 },
+      { ticker: "KO_US_EQ", on: "2027-06-01", amount: 10 },
+      { ticker: "KO_US_EQ", on: "2027-09-01", amount: 10 },
+    ]);
+    expect(result.total).toBe(52);
+  });
 });

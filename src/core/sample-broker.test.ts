@@ -16,6 +16,22 @@ describe("sample data mode", () => {
     expect(credentialStatus(config)).toEqual({ demo: true, live: false, sample: true });
   });
 
+  it("expects the sample holdings' dividends over this month and the next 11", async () => {
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
+    const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
+    const income = await services.insights.income("demo", { to: new Date() });
+    const forward = income.forwardAnnual!;
+    expect(forward.calendar).toHaveLength(12);
+    // Four quarterly payers: each one's year of payments falls in the calendar or was paid this month.
+    expect(new Set(forward.upcoming.map((payment) => payment.ticker))).toEqual(new Set(["AAPL_US_EQ", "KO_US_EQ", "MSFT_US_EQ", "VUSAl_EQ"]));
+    const expected = forward.calendar.reduce((sum, month) => sum + month.expected, 0);
+    expect(expected).toBeCloseTo(forward.upcoming.reduce((sum, payment) => sum + payment.amount, 0), 1);
+    expect(expected + forward.calendar[0]!.paid).toBeGreaterThan(forward.total * 0.7);
+    const text = describePayload({ ...income, credentials: credentialStatus(config), writeEnabled: false });
+    expect(text).toMatch(/Dividend calendar, this month and the next 11 [^\n]*:\n- \d{4}-\d{2}: (paid [\d.]+, )?expected [\d.]+/);
+    expect(text).toMatch(/Next payments \(\d+, dates approximate\):\n- about \d{4}-\d{2}-\d{2}: [\w-]+ [\d.]+/);
+  });
+
   it("serves a working account: dashboard, analytics, pies and a filled order", async () => {
     const outside: string[] = [];
     const passthrough = (async (input: RequestInfo | URL) => {

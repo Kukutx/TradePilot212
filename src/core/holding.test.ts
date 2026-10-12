@@ -85,6 +85,14 @@ describe("holding detail", () => {
     expect(detail.history?.dividends).toHaveLength(4);
     expect(detail.history?.dividendTotal).toBeCloseTo(detail.history!.dividends.reduce((sum, item) => sum + item.amount, 0), 2);
     expect(describePayload(detail)).toMatch(/Dividends since \d{4}-\d{2}-\d{2}: [\d.]+ EUR from 4 payment\(s\), last [\d.]+ EUR on \d{4}-\d{2}-\d{2}\./);
+    // A quarter on from the last payment, four times, at today's quantity.
+    const quantity = detail.position!.quantity;
+    const perShare = detail.history!.dividends[0]!.amount / detail.history!.dividends[0]!.quantity!;
+    expect(detail.history?.dividendFrequency).toBe(4);
+    expect(detail.history?.nextDividends).toHaveLength(4);
+    expect(detail.history!.nextDividends![0]!.on > detail.history!.dividends[0]!.date.slice(0, 10)).toBe(true);
+    for (const payment of detail.history!.nextDividends!) expect(payment.amount).toBeCloseTo(perShare * quantity, 2);
+    expect(describePayload(detail)).toMatch(/Expected next dividends \(quarterly\), at today's quantity, dates approximate: about \d{4}-\d{2}-\d{2} [\d.]+ EUR; /);
   });
 
   it("shows an instrument that is not held, with its open orders", async () => {

@@ -394,6 +394,7 @@ function holding(data: HoldingDetail): string[] {
       ? [
           ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
           `Dividends since ${history.from.slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
+          ...(history.nextDividends ? [`Expected next dividends${history.dividendFrequency ? ` (${FREQUENCY_TEXT[history.dividendFrequency]})` : ""}, at today's quantity, dates approximate: ${history.nextDividends.slice(0, 4).map((payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`} ${money(payment.amount, c)}`).join("; ")}.`] : []),
         ]
       : [`History not read: ${data.historyProblem ?? "unknown error"}.`]),
   ];
@@ -410,11 +411,22 @@ function taxYear(data: TaxYearSummary): string[] {
   ];
 }
 
+const FREQUENCY_TEXT = { 12: "monthly", 4: "quarterly", 2: "twice a year", 1: "once a year" } as const;
+
 function income(data: IncomeSummary): string[] {
   const c = data.accountCurrency;
   return [
     `Period ${data.period.from ? day(data.period.from) : "all history"} to ${day(data.period.to)}: ${money(data.total, c)} (dividends ${num(data.dividends)}, interest ${num(data.interest)}); trailing 12 months ${num(data.trailing12Months)}.`,
     ...(data.forwardAnnual ? [`Expected next 12 months from current holdings: ${num(data.forwardAnnual.total)}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${pct(data.forwardAnnual.yieldOnValue, 2)} of their value)`}; net of withholding tax, from the last year's payments.`] : []),
+    ...(data.forwardAnnual ? section("Dividend calendar, this month and the next 11 (each holding's usual spacing from its last payment, at today's quantity)", rows(
+      data.forwardAnnual.calendar.filter((month) => month.paid || month.expected),
+      (month) => `${month.month}: ${month.paid ? `paid ${num(month.paid)}, ` : ""}expected ${num(month.expected)}`,
+    )) : []),
+    ...(data.forwardAnnual ? section(`Next payments (${data.forwardAnnual.upcoming.length}, dates approximate)`, rows(
+      data.forwardAnnual.upcoming,
+      (payment) => `${payment.on < data.period.to.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`}: ${payment.ticker} ${num(payment.amount)}`,
+      10,
+    )) : []),
     ...section("By instrument", rows(data.byTicker.slice(0, 12), (item) => `${item.key}: ${num(item.amount)}`)),
     ...section("By month", rows(data.byMonth.slice(-12), (item) => `${item.key}: ${num(item.amount)}`)),
     ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),

@@ -73,6 +73,14 @@ export interface HoldingDetail {
     fillsTruncated: boolean;
     /** The same for dividends; dividendTotal and dividendCount then cover only the newer part of the window. */
     dividendsTruncated: boolean;
+    /**
+     * The next 12 months' expected payments of a holding that paid in the window, at the current quantity, in the
+     * account currency: its usual spacing stepped on from its last payment. `on` (YYYY-MM-DD) is about when; one due
+     * this month and not paid yet has an `on` already passed.
+     */
+    nextDividends?: Array<{ on: string; amount: number }>;
+    /** Payments a year, from their spacing; absent from a single payment. */
+    dividendFrequency?: 12 | 4 | 2 | 1;
   };
   /** Why the history is missing, e.g. Trading 212's rate limit; everything else is still current. */
   historyProblem?: string;

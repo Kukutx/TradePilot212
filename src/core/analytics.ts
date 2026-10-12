@@ -17,6 +17,7 @@ import type {
   TimeWeightedReturn,
   ValuePoint,
 } from "../shared/history.js";
+import { addMonths, dividendSchedule, expectedPayments, monthStart, type PaidDividend } from "./dividends.js";
 
 export interface AllocationLimits {
   maxSingleWeight: number;
@@ -379,36 +380,47 @@ export function summarizePerformance(input: {
 /**
  * Next-12-month dividends from each holding's trailing-12-month net payment per share. A holding bought
  * during the year has fewer payments than its schedule, so the payments seen are scaled up to the
- * frequency their spacing implies (monthly, quarterly, half-yearly or yearly).
+ * frequency their spacing implies (monthly, quarterly, half-yearly or yearly). The calendar spreads them
+ * over this month and the next 11 by that spacing, beside what was paid so far this month.
  */
 export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date): NonNullable<IncomeSummary["forwardAnnual"]> {
   const yearAgo = new Date(to.getTime() - 365 * 86_400_000);
-  const payments = new Map<string, Array<{ at: number; perShare: number }>>();
+  const payments = new Map<string, PaidDividend[]>();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
     payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity }]);
   }
-  const perShare = new Map<string, number>();
-  for (const [ticker, list] of payments) {
-    const sum = list.reduce((total, item) => total + item.perShare, 0);
-    const times = list.map((item) => item.at).filter(Number.isFinite).sort((a, b) => a - b);
-    const gaps = times.slice(1).map((time, index) => (time - times[index]!) / 86_400_000).filter((days) => days > 10).sort((a, b) => a - b);
-    const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)]! : undefined;
-    const frequency = gap === undefined ? undefined : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
-    perShare.set(ticker, frequency && list.length < frequency ? sum * frequency / list.length : sum);
-  }
+  const start = monthStart(to.getTime());
+  const end = addMonths(start, 12);
   const byTicker: MoneyBucket[] = [];
+  const upcoming: Array<{ ticker: string; at: number; amount: number }> = [];
   let value = 0;
   for (const position of positions) {
     const ticker = position.instrument?.ticker;
     value += positionValue(position);
-    const rate = ticker ? perShare.get(ticker) : undefined;
-    if (rate && position.quantity > 0) byTicker.push({ key: ticker!, amount: round(rate * position.quantity) });
+    const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : undefined;
+    if (!ticker || !schedule?.annualPerShare || !(position.quantity > 0)) continue;
+    byTicker.push({ key: ticker, amount: round(schedule.annualPerShare * position.quantity) });
+    upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
   }
   byTicker.sort((a, b) => b.amount - a.amount);
+  upcoming.sort((a, b) => a.at - b.at || b.amount - a.amount);
   const total = round(byTicker.reduce((sum, item) => sum + item.amount, 0));
-  return { total, byTicker, yieldOnValue: value > 0 ? Math.round((total / value) * 10_000) / 10_000 : null };
+  const monthKey = (at: number) => new Date(at).toISOString().slice(0, 7);
+  const paid = dividends.filter((item) => inWindow(item.paidOn, { from: new Date(start), to })).reduce((sum, item) => sum + (item.amount ?? 0), 0);
+  const calendar = Array.from({ length: 12 }, (_, index) => {
+    const month = monthKey(addMonths(start, index));
+    const expected = upcoming.filter((payment) => monthKey(payment.at) === month).reduce((sum, payment) => sum + payment.amount, 0);
+    return { month, paid: index === 0 ? round(paid) : 0, expected: round(expected) };
+  });
+  return {
+    total,
+    byTicker,
+    yieldOnValue: value > 0 ? Math.round((total / value) * 10_000) / 10_000 : null,
+    calendar,
+    upcoming: upcoming.map(({ ticker, at, amount }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount })),
+  };
 }
 
 export function summarizeIncome(input: {

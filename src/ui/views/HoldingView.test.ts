@@ -119,4 +119,31 @@ describe("holding price levels", () => {
     const noRate = render({ ...base, position, day: { ...day, profitLoss: undefined, bought: undefined, missing: "fx", problem: "No exchange rate from USD to EUR." } } as unknown as HoldingDetail);
     expect(noRate).toContain('<div class="dayTotal dayLine" title="No exchange rate from USD to EUR."><b><span class="positive">+3.93%</span></b>');
   });
+
+  it("lists the holding's next expected dividends above the ones it paid, a payment due this month and not paid yet as due", () => {
+    const data = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "KO_US_EQ", instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", currencyCode: "USD" },
+      accountCurrency: "EUR", orders: [], alerts: [], journal: [], timestamp: "2026-10-12T09:00:00Z",
+      position: { instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", currencyCode: "USD" }, quantity: 25, quantityAvailableForTrading: 25, quantityInPies: 0, averagePricePaid: 60, currentPrice: 70 },
+      history: {
+        from: "2025-10-12T00:00:00Z", fills: [], dividends: [{ date: "2026-07-01T00:00:00Z", amount: 10.3, currency: "EUR", quantity: 25 }], dividendTotal: 41.2, dividendCount: 4, fillsTruncated: false, dividendsTruncated: false,
+        nextDividends: [{ on: "2026-10-01", amount: 10.3 }, { on: "2027-01-01", amount: 10.3 }, { on: "2027-04-01", amount: 10.3 }, { on: "2027-07-01", amount: 10.3 }],
+        dividendFrequency: 4,
+      },
+    } as unknown as HoldingDetail;
+    const render = (locale: "en" | "zh-CN") => renderToStaticMarkup(createElement(HoldingView, {
+      data, locale, t: createTranslator(locale), writeEnabled: false, busy: false,
+      onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
+    }));
+    const en = render("en");
+    expect(en).toContain('<h3>Expected next<small class="headingDetail"> · Pays quarterly</small></h3>');
+    expect(en).toContain("<strong>due around Oct 1, not paid yet</strong>");
+    expect(en).toContain("<strong>around Jan 1, 2027</strong>");
+    expect(en).toContain('<strong class="historyAmount expectedAmount">≈ €10.30</strong>');
+    expect(en.indexOf("Expected next")).toBeLessThan(en.indexOf("Jul 1, 2026"));
+    const zh = render("zh-CN");
+    expect(zh).toContain("预计下次分红");
+    expect(zh).toContain("每季度派息");
+    expect(zh).toContain("约 €10.30");
+  });
 });

@@ -6,6 +6,7 @@ import type { HoldingDetail } from "../shared/holding.js";
 import type { JournalEntry } from "../shared/journal.js";
 import type { PriceAlerts } from "./alerts.js";
 import { marketStatus } from "./analytics.js";
+import { addMonths, dividendSchedule, expectedPayments, monthStart } from "./dividends.js";
 import { asStructuredError } from "./errors.js";
 import { knownFxRates } from "./fx.js";
 import type { InsightsService } from "./insights-service.js";
@@ -126,6 +127,12 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   // quoted price does not move before the open, so the day of one not held is the last session until it opens.
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
+  // A holding's next dividends: its spacing from the window's payments (newest MAX_DIVIDENDS, a monthly payer's year).
+  const schedule = position && position.quantity > 0 && Array.isArray(history)
+    ? dividendSchedule(history[1].items.flatMap((item) => (item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity }] : [])))
+    : undefined;
+  const calendarStart = monthStart(now.getTime());
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, calendarStart, addMonths(calendarStart, 12)) : [];
   const moved = prices && "prices" in prices
     ? await dayMove({ priceHistory: async () => prices, ...(deps.closes ? { closes: deps.closes } : {}) }, {
         environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {},
@@ -192,6 +199,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             dividendCount: history[1].count,
             fillsTruncated: history[0].truncated,
             dividendsTruncated: history[1].truncated,
+            ...(nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {}),
+            ...(nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}),
           },
         }
       : { historyProblem: history.message }),

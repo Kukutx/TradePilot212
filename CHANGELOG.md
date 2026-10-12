@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.38.0
+
+- A dividend calendar. The Income tab shows this month and the next 11: what was paid so far this month and what each month is expected to bring, from each holding's payments in the last 12 months at the quantity held now, then the payments themselves soonest first, with their approximate dates and amounts. A payment due this month that has not come yet says so.
+- Dates follow each holding's own spacing (monthly, quarterly, half-yearly or yearly), stepped on from its last payment, and a payment is as large as the one a year before it, so a small interim and a large final dividend stay so. Payments a few days apart count as one payday when counting a holding's payments in the year, so the expected total of a holding bought during the year scales up by its paydays rather than by its entries.
+- A holding's page lists its next four expected dividends and how often it pays. `get_income_summary` returns the calendar and the payments (`forwardAnnual.calendar`, `forwardAnnual.upcoming`), `get_holding_detail` returns `nextDividends` and `dividendFrequency`, and both say them in their text.
+
 ## 2.37.0
 
 - A map of the holdings. The dashboard's Positions panel switches between the table and a map: one tile per holding, its area its value, coloured green or red by its move on the day or its return since bought, stronger the further it moved. Each tile shows the symbol, the move and the amount as far as it fits, gives its full description on hover and to screen readers, and opens the holding. The colour scale ends where most holdings' moves do, so one big mover does not wash out the rest; the text stays in the text colour with its sign, and a holding without a figure is hatched. On a phone the map is near square.
