@@ -136,6 +136,12 @@ describe("the allocation tool's risk by holding", () => {
       rows: [{ ticker: "A", weight: 0.5, volatility: 0.2, risk: 0.6, correlation: 0.9 }, { ticker: "B", weight: 0.3, volatility: 0.2, risk: 0.3, correlation: 0.8 }, { ticker: "C", weight: 0.2, volatility: 0.1, risk: 0.1, correlation: 0.4 }],
       correlations: { tickers: ["A", "B", "C"], matrix: [[1, 0.6, 0.1], [0.6, 1, 0.3], [0.1, 0.3, 1]] },
       jumps: ["GBX"],
+      mix: {
+        value: 8000, return: 0.12, up: 30, counted: 52, badWeek: -0.034, badWeeks: -0.041,
+        series: [{ date: "2025-10-10", return: 0 }, { date: "2026-10-09", return: 0.12 }],
+        worst: { date: "2026-04-03", return: -0.052 }, best: { date: "2025-11-14", return: 0.044 },
+        drawdown: { max: -0.098, peak: "2026-02-13", trough: "2026-04-03", current: -0.01, currentPeak: "2026-09-25" },
+      },
     };
     const later = (ticker: string) => ({ ticker, reason: "later" as const, problem: `${ticker} later.` });
     const grouped = describePayload({ ...analysis, risk, riskMissing: [later("D"), later("E"), { ticker: "F", reason: "unit", problem: "Another unit." }] });
@@ -143,6 +149,11 @@ describe("the allocation tool's risk by holding", () => {
     expect(grouped).not.toContain("least alike");
     expect(grouped).toContain("Left out, closes that jump more than fivefold in a week (a change of unit or a split): GBX.");
     expect(grouped).toContain("Risk by holding leaves out D, E (not read in time; they are being read for the next read); F (Another unit).");
+    // A mix that fell in fewer than one week in 20 has no bad week to put a figure on.
+    const calm = describePayload({ ...analysis, risk: { ...risk, mix: { ...risk.mix, badWeek: 0.0019 } } });
+    expect(calm).toContain("up in 30 of 52 weeks. It fell in fewer than one week in 20 (that week +0.2%). Worst week");
+    expect(calm).not.toContain("A bad week");
+    expect(grouped).toContain("Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: +12%, up in 30 of 52 weeks. A bad week, one in 20: -3.4% or worse, about 272 EUR of today's 8000 EUR measured; -4.1% on average in those weeks. Worst week -5.2% to 2026-04-03, best +4.4% to 2025-11-14. Deepest fall -9.8%, from 2026-02-13 to 2026-04-03, not made up yet.");
   });
 
   it("adds the holdings' risk to the allocation and its text", async () => {
@@ -162,6 +173,8 @@ describe("the allocation tool's risk by holding", () => {
     expect(text).toMatch(/Risk by holding \(weekly closes \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}, \d+ weeks, each in its own currency; 100% of the holdings' value\)/);
     expect(text).toMatch(/: \d+% of the risk, \d+% of the value; volatility \d+% a year, correlation with them together 0\.\d\d/);
     expect(text).toMatch(/Most alike: [^;]+; least alike: /);
+    expect(text).toMatch(/a bad week one in 20 -\d+\.\d%/);
+    expect(text).toMatch(/Today's mix over those weeks, at today's weights kept each week, each holding in its own currency: [+-][\d.]+%, up in \d+ of \d+ weeks\. A bad week, one in 20: -[\d.]+% or worse, about [\d.]+ EUR of today's [\d.]+ EUR measured/);
     await client.close();
   });
 });

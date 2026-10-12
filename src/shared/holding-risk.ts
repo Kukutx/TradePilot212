@@ -3,7 +3,8 @@
 // in step, which daily ones do not (a London close is hours before a New York one). They are in each instrument's own
 // currency, so currency moves are not in them.
 
-import type { HoldingRisk, HoldingRiskRow } from "./history.js";
+import { drawdownOf } from "./drawdown.js";
+import type { HoldingMix, HoldingRisk, HoldingRiskRow, ReturnPoint } from "./history.js";
 import type { PricePoint } from "./prices.js";
 
 /** No more weekly returns than this, together, say too little to read a volatility or a correlation from. */
@@ -21,6 +22,8 @@ const FLAT_VARIANCE = 1e-6;
 const COVERAGE = 0.75;
 /** A week's close five times the last, or a fifth of it, is a change of unit (pounds to pence) or a split, not a move. */
 const JUMP = Math.log(5);
+/** A bad week is one as bad as one week in this many: the worst 5%. */
+const BAD_WEEK_ONE_IN = 20;
 
 const DAY_MS = 86_400_000;
 const round = (value: number, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
@@ -76,7 +79,7 @@ function jumps(weeks: WeeklyInput["weeks"]): boolean {
  * closes included, for the share measured. Undefined when fewer than two holdings, or no more than MIN_WEEKS weeks
  * together, are left, or nothing moved.
  */
-export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number): HoldingRisk | undefined {
+export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number): (HoldingRisk & { mix: HoldingMix }) | undefined {
   const valued = inputs.filter((input) => input.value > 0 && Number.isFinite(input.value));
   // The holdings' value, those without closes included, for the share measured.
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input) => sum + input.value, 0));
@@ -126,11 +129,11 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   const largest = measured.map((input, i) => ({ ticker: input.ticker, i, value: input.value }))
     .sort((a, b) => b.value - a.value).slice(0, MATRIX_SIZE);
   const correlation = (i: number, j: number) => (i === j ? 1 : own[i]! > 0 && own[j]! > 0 ? round(Math.max(-1, Math.min(1, covariance[i]![j]! / (own[i]! * own[j]!))), 4) : 0);
-  const first = measured[0]!.weeks.get(common[0]!)!.date;
-  const last = measured.map((input) => input.weeks.get(common[n]!)!.date).sort().at(-1)!;
+  // A week is dated by the latest of the holdings' last closes in it.
+  const dateOf = (week: number) => measured.map((input) => input.weeks.get(week)!.date).sort().at(-1)!;
   return {
-    from: first,
-    to: last,
+    from: dateOf(common[0]!),
+    to: dateOf(common[n]!),
     weeks: n,
     volatility: round(volatility),
     diversification: round(measured.reduce((sum, _, i) => sum + weights[i]! * own[i]!, 0) / volatility, 4),
@@ -139,5 +142,43 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
     correlations: { tickers: largest.map((entry) => entry.ticker), matrix: largest.map((a) => largest.map((b) => correlation(a.i, b.i))) },
     ...(short.length ? { short } : {}),
     ...(jumped.length ? { jumps: jumped.map((input) => input.ticker) } : {}),
+    mix: mixOf(measured, weights, common, dateOf, value),
+  };
+}
+
+/**
+ * Today's mix kept at today's weights each week: its weekly returns, where it stood, its bad weeks and deepest fall.
+ * A return across a week with no close for some holding runs on to the next close: it is in the line and the return,
+ * but is not one week, so it is left out of the bad weeks, the worst and best, and the weeks up.
+ */
+function mixOf(measured: WeeklyInput[], weights: number[], common: number[], dateOf: (week: number) => string, value: number): HoldingMix {
+  const steps = common.slice(1).map((week, index) => {
+    const before = common[index]!;
+    return { date: dateOf(week), weeks: (week - before) / 7, return: measured.reduce((sum, input, i) => sum + weights[i]! * (input.weeks.get(week)!.close / input.weeks.get(before)!.close - 1), 0) };
+  });
+  const single = steps.filter((step) => step.weeks === 1);
+  // Never none: more than MIN_WEEKS returns over at most a year leave single weeks.
+  const weekly: ReturnPoint[] = (single.length ? single : steps).map((step) => ({ date: step.date, return: step.return }));
+  let level = 1;
+  const series: ReturnPoint[] = [{ date: dateOf(common[0]!), return: 0 }, ...steps.map((point) => {
+    level *= 1 + point.return;
+    return { date: point.date, return: round(level - 1) };
+  })];
+  // Worst first; a tie keeps the earlier week.
+  const sorted = [...weekly].sort((a, b) => a.return - b.return || a.date.localeCompare(b.date));
+  const tail = sorted.slice(0, Math.ceil(weekly.length / BAD_WEEK_ONE_IN));
+  const drawdown = drawdownOf(series);
+  const point = (at: ReturnPoint) => ({ date: at.date, return: round(at.return) });
+  return {
+    value: round(value, 2),
+    series,
+    return: round(level - 1),
+    badWeek: round(tail.at(-1)!.return),
+    badWeeks: round(tail.reduce((sum, at) => sum + at.return, 0) / tail.length),
+    worst: point(sorted[0]!),
+    best: point(weekly.reduce((top, at) => (at.return > top.return ? at : top))),
+    up: weekly.filter((at) => at.return > 0).length,
+    counted: weekly.length,
+    ...(drawdown ? { drawdown } : {}),
   };
 }

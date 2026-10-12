@@ -39,7 +39,8 @@ export function moveBins(moves: DailyMove[]): { width: number; bins: MoveBin[] }
   return { width, bins };
 }
 
-function Tile({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
+/** A figure with its label above and a line under it; `tone` colours the figure ("positive", "negative"). */
+export function Tile({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
   return (
     <div className="riskTile">
       <span>{label}</span>

@@ -10,6 +10,7 @@ import { dayLabel, num, pct } from "../lib/format";
 import { instrumentLabel, instrumentText, type InstrumentBook } from "../lib/instruments";
 import { fill, sentences, type Translator } from "../lib/messages";
 import { ViewSwitch } from "./charts";
+import { Tile } from "./risk";
 
 /** At most this many rows of bars: the largest shares of the risk. */
 const MAX_ROWS = 12;
@@ -30,16 +31,6 @@ export function correlationText(value: number, locale: SupportedLocale): string 
 /** The cell's tint: amber for moving together, blue for moving apart, the panel's own colour at 0 (the stylesheet mixes them). */
 export function correlationTint(value: number): { className: string; style: Record<string, string> } {
   return { className: value >= 0 ? "together" : "apart", style: { "--corr": String(Math.round(Math.min(1, Math.abs(value)) * 100) / 100) } };
-}
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="riskTile">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {sub && <small>{sub}</small>}
-    </div>
-  );
 }
 
 function Correlations({ risk, book, locale, t }: { risk: HoldingRisk; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {

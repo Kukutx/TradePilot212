@@ -8,6 +8,7 @@ import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabel
 import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
+import { HoldingMixPanel } from "../components/holding-mix";
 import { HoldingRiskPanel } from "../components/holding-risk";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
@@ -185,6 +186,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
       </section>
 
       <HoldingRiskPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} />
+      {data.risk?.mix && <HoldingMixPanel mix={data.risk.mix} currency={currency} locale={locale} t={t} />}
 
       <div className="twoColumn">
         <section className="dataPanel">
