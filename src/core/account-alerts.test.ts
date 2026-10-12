@@ -15,8 +15,8 @@ const alert = (patch: Partial<AccountAlert>): AccountAlert => ({ id: "a", enviro
 const today = (profitLoss: number | undefined, day = "2026-10-12", patch: Partial<PortfolioToday> = {}): PortfolioToday => ({
   kind: "portfolio_today", environment: "demo", accountCurrency: "GBP",
   moves: [
-    { ticker: "AAPL_US_EQ", quantity: 1, day, ...(profitLoss === undefined ? {} : { profitLoss, base: 4_000 }) },
-    { ticker: "VUSAl_EQ", quantity: 1, day: "2026-10-09", profitLoss: -100, base: 3_000 },
+    { ticker: "AAPL_US_EQ", quantity: 1, day, ...(profitLoss === undefined ? {} : { profitLoss, base: 4_000, value: 4_000 + profitLoss }) },
+    { ticker: "VUSAl_EQ", quantity: 1, day: "2026-10-09", profitLoss: -100, base: 3_000, value: 2_900 },
     { ticker: "MSFT_US_EQ", quantity: 1, day },
   ],
   invested: 10_000 + (profitLoss ?? 0),
@@ -67,7 +67,30 @@ describe("account alert rules", () => {
     const { invested: _, ...unknown } = today(-310);
     expect(accountDayMove(unknown)).toEqual({ problem: "Trading 212 did not report the holdings' value, so the day's move of 1 of 3 holdings cannot be put against the account." });
     expect(accountDayMove({ ...today(-310), moves: [] })).toEqual({ problem: "No holding has a move for the day yet." });
-    expect(accountDayMove({ ...today(-310), invested: 0, moves: [{ ticker: "A", quantity: 0, day: "2026-10-12", profitLoss: 5 }, { ticker: "B", quantity: 1, day: "2026-10-12" }] })).toEqual({ problem: "The holdings have no value to measure the day's move against." });
+    expect(accountDayMove({ ...today(-310), invested: 0, moves: [{ ticker: "A", quantity: 0, day: "2026-10-12", profitLoss: 5, value: 0 }, { ticker: "B", quantity: 1, day: "2026-10-12" }] })).toEqual({ problem: "The holdings have no value to measure the day's move against." });
+  });
+
+  it("measures a day with sales against what was held before them, not the value left", () => {
+    // 100 X held at a close of 100, 90 sold at 101, now at 101; Y, on another exchange, still on the day before.
+    const sold: PortfolioToday = { ...today(0), invested: 11_010, moves: [
+      { ticker: "X", quantity: 10, day: "2026-10-12", profitLoss: 100, base: 10_000, value: 1_010, sold: 90 },
+      { ticker: "Y", quantity: 1, day: "2026-10-09", profitLoss: 0, base: 10_000, value: 10_000 },
+    ] };
+    expect(accountDayMove(sold)).toMatchObject({ change: 100 / 20_000, counted: 1, of: 2 });
+    // S sold out at a loss of 200 on its 10,000; Z, the same day, without a move yet, worth 5,000.
+    const out: PortfolioToday = { ...today(0), invested: 5_000, moves: [
+      { ticker: "S", quantity: 0, day: "2026-10-12", profitLoss: -200, base: 10_000, value: 0, sold: 50 },
+      { ticker: "Z", quantity: 10, day: "2026-10-12", missing: "later" },
+    ] };
+    expect(accountDayMove(out)).toMatchObject({ change: -200 / 15_000, counted: 1, of: 2 });
+  });
+
+  it("does not take a day guessed for want of the exchange schedules", () => {
+    const guessed = (move: PortfolioToday["moves"][number]) => ({ ...move, guessed: true as const });
+    const base = today(-310);
+    expect(accountDayMove({ ...base, moves: base.moves.map(guessed) })).toEqual({ problem: "Trading 212's exchange schedules could not be read, so the trading day of the holdings' moves is not known." });
+    // A known Friday and a guessed Monday: Friday's, with Monday's mover taken as flat.
+    expect(accountDayMove({ ...base, moves: [guessed(base.moves[0]!), base.moves[1]!, base.moves[2]!] })).toMatchObject({ day: "2026-10-09", profitLoss: -100 });
   });
 });
 
@@ -129,6 +152,8 @@ describe("account alerts", () => {
     // A smaller move the day after leaves it armed.
     state.today = today(100, "2026-10-14");
     expect(await at("2026-10-14T15:00:00Z")).toMatchObject([{ action: "waiting" }]);
+    // Armed again, it keeps when it last fired, for the daily digest.
+    expect((await alerts.list())[0]).toMatchObject({ lastTriggeredAt: "2026-10-13T15:00:00.000Z" });
     expect((await alerts.list())[0]?.triggeredAt).toBeUndefined();
   });
 
@@ -151,13 +176,16 @@ describe("account alerts", () => {
     const { alerts, events, state } = setup();
     await alerts.create({ environment: "demo", condition: "day_move", percent: 3 }, new Date("2026-10-12T08:00:00Z"));
     // Monday: the US holding falls 4%.
-    state.today = { ...today(-400), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-12", profitLoss: 0, base: 1_000 }] };
+    state.today = { ...today(-400), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000, value: 9_600 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-12", profitLoss: 0, base: 1_000, value: 1_000 }] };
     expect(await alerts.check(new Date("2026-10-12T20:30:00Z"))).toMatchObject([{ action: "triggered" }]);
     // Tuesday's Tokyo session opens while the US one is still Monday's: only Tokyo's move is Tuesday's.
-    state.today = { ...today(-400), invested: 10_600, moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000 }] };
+    state.today = { ...today(-400), invested: 10_610, moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-12", profitLoss: -400, base: 10_000, value: 9_600 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000, value: 1_010 }] };
     expect(await alerts.check(new Date("2026-10-13T01:00:00Z"))).toMatchObject([{ action: "waiting", message: "The account is +0.09% on 2026-10-13 (+10.00 GBP across 1 of 2 holdings; alert at 3% either way)." }]);
+    // Ten minutes on, the schedules cannot be read: the day is guessed, and nothing fires on it.
+    state.today = { ...today(-400), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-13", guessed: true, profitLoss: -400, base: 10_000, value: 9_600 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", guessed: true, profitLoss: 10, base: 1_000, value: 1_010 }] };
+    expect(await alerts.check(new Date("2026-10-13T01:10:00Z"))).toMatchObject([{ action: "waiting", message: expect.stringContaining("schedules could not be read") }]);
     // Tuesday's US session: a 5% fall is Tuesday's to report.
-    state.today = { ...today(-500), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-13", profitLoss: -500, base: 9_600 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000 }] };
+    state.today = { ...today(-500), moves: [{ ticker: "AAPL_US_EQ", quantity: 1, day: "2026-10-13", profitLoss: -500, base: 9_600, value: 9_100 }, { ticker: "7203_JP_EQ", quantity: 1, day: "2026-10-13", profitLoss: 10, base: 1_000, value: 1_010 }] };
     expect(await alerts.check(new Date("2026-10-13T15:00:00Z"))).toMatchObject([{ action: "triggered" }]);
     expect(events.map((event) => event.outcome)).toEqual([
       "The account is -3.64% on 2026-10-12 (-400.00 GBP across 2 of 2 holdings; alert at 3% either way).",

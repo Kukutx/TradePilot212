@@ -234,6 +234,8 @@ export interface PriceAlert {
   lastCheckedAt?: string;
   triggeredAt?: string;
   triggeredPrice?: number;
+  /** When it last fired before it was armed again (by hand, or a day's move on its next day): the daily digest counts it. */
+  lastTriggeredAt?: string;
   /** day_move: the trading day it fired on; it arms itself again on the next one. */
   triggeredDay?: string;
   /** day_move: the last price's change from the previous close, and that close's date. */
@@ -266,6 +268,8 @@ export interface AccountAlert {
   lastCheckedAt?: string;
   triggeredAt?: string;
   triggeredValue?: number;
+  /** When it last fired before it was armed again (by hand, or a day's move on its next day): the daily digest counts it. */
+  lastTriggeredAt?: string;
   /** day_move: the trading day it fired on; it arms itself again on the next one. */
   triggeredDay?: string;
   /** day_move: the trading day of the last change read. */

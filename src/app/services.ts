@@ -158,7 +158,7 @@ export function createServices(input: ServiceDependencies) {
       ...(instruments.length ? { instruments } : {}),
       usageToday: await trading.usageToday(environment),
       // The currency and the starting amounts of an account alert, from a summary read in the last minute or a new
-      // one; for at most a few seconds, else the currency alone.
+      // one, for at most a few seconds; else the currency alone, from that same read once it is in.
       ...await settleWithin(trading.accountSummary(environment, OVERVIEW_SUMMARY_MS).catch(() => undefined), OVERVIEW_WAIT_MS).then(
         (summary) => (summary
           ? { ...(summary.currency ? { currency: summary.currency } : {}), account: { ...(summary.totalValue !== undefined ? { value: summary.totalValue } : {}), ...(summary.cash?.availableToTrade !== undefined ? { cash: summary.cash.availableToTrade } : {}) } }

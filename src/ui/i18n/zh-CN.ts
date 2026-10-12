@@ -352,6 +352,7 @@ export const zhCN: Record<MessageKey, string> = {
   alertPrice: "价格",
   alertPercent: "百分比",
   alertNote: "备注",
+  amountReadAs: "识别为 {value}",
   alertNoteHint: "选填，会随提醒一起发出。",
   alertValueRequired: "请输入大于 0 的数。",
   alertPercentRange: "请输入小于 {limit} 的百分比。",

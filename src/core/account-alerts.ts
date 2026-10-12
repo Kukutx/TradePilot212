@@ -65,30 +65,40 @@ export interface AccountDayMove {
 
 /**
  * The account's move on its latest trading day, from get_portfolio_today: only the holdings whose move is from that
- * day count, so a holding still on the session before (another exchange, before its open) is not counted twice.
- * With every holding counted on that day, the change is against their base, as get_portfolio_today's total; otherwise
- * against Trading 212's value of the holdings now less that day's moves, the others taken as flat.
+ * day count, so a holding still on the session before (another exchange, before its open) is not counted twice, and
+ * a day taken to be today for want of the exchange's schedule is not one. With every holding counted on that day,
+ * the change is against their base, as get_portfolio_today's total; otherwise against that base plus Trading 212's
+ * value now of the other holdings, taken as flat.
  */
 export function accountDayMove(today: PortfolioToday): AccountDayMove | { problem: string } {
   const moved = today.moves.filter((move) => move.profitLoss !== undefined && Number.isFinite(move.profitLoss));
-  const day = moved.map((move) => move.day).sort().at(-1);
-  if (!day) return { problem: "No holding has a move for the day yet." };
-  const onDay = moved.filter((move) => move.day === day);
+  const known = moved.filter((move) => !move.guessed);
+  const day = known.map((move) => move.day).sort().at(-1);
+  if (!day) {
+    return { problem: moved.length ? "Trading 212's exchange schedules could not be read, so the trading day of the holdings' moves is not known." : "No holding has a move for the day yet." };
+  }
+  const onDay = known.filter((move) => move.day === day);
   const profitLoss = onDay.reduce((sum, move) => sum + move.profitLoss!, 0);
   const whole = onDay.length === today.moves.length;
-  if (!whole && today.invested === undefined) {
+  if (!whole && (today.invested === undefined || onDay.some((move) => move.value === undefined))) {
     return { problem: `Trading 212 did not report the holdings' value, so the day's move of ${onDay.length} of ${today.moves.length} holdings cannot be put against the account.` };
   }
-  const base = whole ? onDay.reduce((sum, move) => sum + (move.base ?? 0), 0) : today.invested! - profitLoss;
+  const moving = onDay.reduce((sum, move) => sum + (move.base ?? 0), 0);
+  // The other holdings at their value now: Trading 212's value of all of them, less the day's movers' (none for one sold out).
+  const base = whole ? moving : moving + Math.max(0, today.invested! - onDay.reduce((sum, move) => sum + move.value!, 0));
   if (!(base > 0)) return { problem: "The holdings have no value to measure the day's move against." };
   const closed = today.ended?.[day];
   return { day, change: profitLoss / base, profitLoss: round(profitLoss), counted: onDay.length, of: today.moves.length, ...(closed !== undefined ? { closed } : {}) };
 }
 
-/** An alert without its trigger: armed again. A day's move keeps the day it last fired for, so it counts from the next. */
+/**
+ * An alert without its trigger: armed again. A day's move keeps the day it last fired for, so it counts from the next,
+ * and each keeps when it last fired, for the daily digest.
+ */
 function untriggered(alert: AccountAlert): AccountAlert {
-  const { triggeredAt: _t, triggeredValue: _v, ...rest } = alert;
-  return rest;
+  const { triggeredAt, triggeredValue: _v, ...rest } = alert;
+  const last = triggeredAt ?? alert.lastTriggeredAt;
+  return { ...rest, ...(last ? { lastTriggeredAt: last } : {}) };
 }
 
 export class AccountAlerts {

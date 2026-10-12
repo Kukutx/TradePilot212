@@ -21,6 +21,8 @@ export interface DayMove {
   price?: number;
   /** The trading day the price is from (YYYY-MM-DD): the session in progress, else the last one. */
   day: string;
+  /** The day is taken to be today (UTC), or Friday at a weekend, for want of the exchange's schedule. */
+  guessed?: true;
   /** The last close before that day, and who it is from. */
   previousClose?: PricePoint & { source: string };
   /** The price now against the previous close. */
@@ -32,6 +34,8 @@ export interface DayMove {
   profitLoss?: number;
   /** What the day's profit or loss is measured against: the shares held at the previous close at it, plus the day's buys. */
   base?: number;
+  /** The shares held now at the price now, in the account currency: 0 for an instrument sold out on the day. */
+  value?: number;
   /** Shares bought and sold on the day. */
   bought?: number;
   sold?: number;

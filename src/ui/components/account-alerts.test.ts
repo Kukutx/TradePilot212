@@ -5,6 +5,7 @@ import type { AccountAlert } from "../../shared/automation";
 import { createTranslator } from "../i18n";
 import { parseAmount } from "../lib/format";
 import { AccountAlertForm, AccountAlertList, accountAlertProblem, defaultAccountAlertValue } from "./account-alerts";
+import { readAsHint } from "./alerts";
 
 const alerts: AccountAlert[] = [
   { id: "a1", environment: "demo", condition: "value_below", amount: 9000, currency: "GBP", createdAt: "2026-10-01T00:00:00Z", lastValue: 10250.5, lastCheckedAt: "2026-10-12T10:00:00Z" },
@@ -25,7 +26,9 @@ describe("typed amounts", () => {
     expect(parseAmount("1.250")).toBe(1.25);
     expect(parseAmount(".5")).toBe(0.5);
     expect(parseAmount("-3")).toBe(-3);
-    for (const text of ["", ",", "1,2,3", "1.000,000.5", "12,34,567", "1e3", "abc"]) expect(parseAmount(text)).toBeNaN();
+    expect(parseAmount("1 000.5")).toBe(1_000.5);
+    expect(parseAmount("12'500")).toBe(12_500);
+    for (const text of ["", ",", "1,2,3", "1.000,000.5", "12,34,567", "1e3", "abc", "250 5", "1 0", "1,5 0", "1 000,000 5"]) expect(parseAmount(text)).toBeNaN();
   });
 });
 
@@ -65,8 +68,14 @@ describe("account alerts", () => {
     expect(accountAlertProblem("value_below", "10,000")).toBeUndefined();
     expect(accountAlertProblem("day_move", "1,5")).toBeUndefined();
     expect(accountAlertProblem("value_below", "10,00,0")).toBe("required");
-    const form = renderToStaticMarkup(createElement(AccountAlertForm, { currency: "GBP", now: { value: 10_250 }, t: createTranslator("en"), busy: false, onSave: noop, onCancel: noop }));
+    const form = renderToStaticMarkup(createElement(AccountAlertForm, { currency: "GBP", now: { value: 10_250 }, locale: "en", t: createTranslator("en"), busy: false, onSave: noop, onCancel: noop }));
     expect(form).toContain('value="9740"');
+    // A plain number needs no reading back.
+    expect(form).not.toContain("Read as");
+    expect(readAsHint("10,000", (value) => String(value), createTranslator("en"))).toBe("Read as 10000");
+    expect(readAsHint("250,5", (value) => String(value), createTranslator("zh-CN"))).toBe("识别为 250.5");
+    expect(readAsHint("9740", (value) => String(value), createTranslator("en"))).toBeUndefined();
+    expect(readAsHint("1,2,3", (value) => String(value), createTranslator("en"))).toBeUndefined();
     expect(form).toContain("GBP");
     expect(form).toContain("every ten minutes");
   });

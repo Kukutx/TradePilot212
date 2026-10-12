@@ -149,6 +149,49 @@ describe("the dashboard read", () => {
     await service.getDashboard("demo", 15_000);
     expect(reads).toBe(4);
   });
+
+  it("gives the account summary from a recent summary or dashboard read, or one under way, and none from before a write", async () => {
+    let reads = 0;
+    let release: () => void = () => {};
+    let gate: Promise<void> = Promise.resolve();
+    const inner = fakeFetch();
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/equity/account/summary")) {
+        reads += 1;
+        await gate;
+      }
+      return inner(input, init);
+    }) as typeof fetch;
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher });
+    // A dashboard read gives the next summary and the currency.
+    const board = await service.getDashboard("demo");
+    expect(await service.accountSummary("demo", 30_000)).toBe(board.account);
+    expect(await service.accountCurrency("demo")).toBe(board.account?.currency);
+    expect(reads).toBe(1);
+    // Without a maximum age, a new read; then that one is the newest.
+    const own = await service.accountSummary("demo");
+    expect(reads).toBe(2);
+    expect(await service.accountSummary("demo", 30_000)).toBe(own);
+    // Two callers while a read runs share it; the currency joins it too.
+    await service.cancelLinkedOrder("demo", "42", "test", { quiet: true });
+    gate = new Promise((resolve) => { release = resolve; });
+    const shared = [service.accountSummary("demo", 30_000), service.accountSummary("demo", 30_000)];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    const [a, b] = await Promise.all(shared);
+    expect(b).toBe(a);
+    expect(reads).toBe(3);
+    // A write while a read runs: the read is not kept.
+    gate = new Promise((resolve) => { release = resolve; });
+    const running = service.accountSummary("demo");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.cancelLinkedOrder("demo", "42", "test", { quiet: true });
+    release();
+    await running;
+    await service.accountSummary("demo", 30_000);
+    expect(reads).toBe(5);
+  });
 });
 
 function config(): RuntimeConfig {

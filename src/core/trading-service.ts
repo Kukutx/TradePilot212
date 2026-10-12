@@ -433,19 +433,20 @@ export class TradingService {
     if (known) return known;
     if (!credentialStatus(this.deps.config)[environment]) return undefined;
     try {
-      const currency = (await this.client(environment).getAccountSummary()).currency;
-      if (currency) this.currencies.set(environment, currency);
-      return currency;
+      // Any summary read before, or one under way, gives it.
+      return (await this.accountSummary(environment, Number.POSITIVE_INFINITY)).currency;
     } catch {
       return undefined;
     }
   }
 
   private readonly summaries = new Map<TradingEnvironment, { at: number; account: AccountSummary }>();
+  /** A summary read under way, which a read that takes a recent one joins. */
+  private readonly summaryReading = new Map<TradingEnvironment, Promise<AccountSummary>>();
 
   /**
    * The account summary alone: one request, for the scheduler's daily value record. With `maxAgeMs`, one read in that
-   * time (alone or with the dashboard) is used as it is: Trading 212 allows few summary reads.
+   * time (alone or with the dashboard), or one under way, is used as it is: Trading 212 allows few summary reads.
    */
   async accountSummary(environment: TradingEnvironment, maxAgeMs = 0): Promise<AccountSummary> {
     if (maxAgeMs > 0) {
@@ -454,12 +455,20 @@ export class TradingService {
         .filter((read): read is { at: number; account: AccountSummary } => read !== undefined && Date.now() - read.at <= maxAgeMs)
         .sort((a, b) => b.at - a.at);
       if (reads[0]) return reads[0].account;
+      const pending = this.summaryReading.get(environment);
+      if (pending) return pending;
     }
     const generation = this.writes;
-    const account = await this.client(environment).getAccountSummary();
-    if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
-    if (account.currency) this.currencies.set(environment, account.currency);
-    return account;
+    const read = this.client(environment).getAccountSummary();
+    this.summaryReading.set(environment, read);
+    try {
+      const account = await read;
+      if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
+      if (account.currency) this.currencies.set(environment, account.currency);
+      return account;
+    } finally {
+      if (this.summaryReading.get(environment) === read) this.summaryReading.delete(environment);
+    }
   }
 
   /** The instrument list when it was read in the last ten minutes, without asking Trading 212. */
@@ -637,6 +646,7 @@ export class TradingService {
     try {
       const payload = await read;
       if (this.writes === generation) this.dashboards.set(environment, { at: Date.now(), payload });
+      if (payload.account?.currency) this.currencies.set(environment, payload.account.currency);
       return payload;
     } finally {
       if (this.reading.get(environment) === read) this.reading.delete(environment);
@@ -1754,6 +1764,7 @@ export class TradingService {
     this.writes += 1;
     this.dashboards.delete(environment);
     this.summaries.delete(environment);
+    this.summaryReading.delete(environment);
     this.reading.delete(environment);
     try {
       this.deps.afterWrite?.(environment);

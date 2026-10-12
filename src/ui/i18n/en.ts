@@ -350,6 +350,7 @@ export const en = {
   alertPrice: "Price",
   alertPercent: "Percent",
   alertNote: "Note",
+  amountReadAs: "Read as {value}",
   alertNoteHint: "Optional, sent with the alert.",
   alertValueRequired: "Enter a number above 0.",
   alertPercentRange: "Enter a percent below {limit}.",

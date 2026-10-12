@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AccountAlert, AlertCondition, PriceAlert } from "../../shared/automation";
-import { parseAmount } from "../lib/format";
+import type { SupportedLocale } from "../i18n";
+import { num, parseAmount } from "../lib/format";
 import { alertConditionLabel, fill, type Translator } from "../lib/messages";
 import { Field } from "./common";
 
@@ -13,6 +14,12 @@ export interface AlertRequest {
 }
 
 const round = (value: number) => Math.round(value * 100) / 100;
+
+/** What a typed number was read as, under its field, once it has a separator in it: "10,000" is not 10. */
+export function readAsHint(text: string, display: (value: number) => string, t: Translator): string | undefined {
+  const value = parseAmount(text);
+  return /[.,\s'\u2019]/.test(text.trim()) && Number.isFinite(value) && value > 0 ? fill(t("amountReadAs"), { value: display(value) }) : undefined;
+}
 
 /** The highest percent the server accepts: a gain can exceed 100%, a drop or a loss cannot. */
 export function alertPercentLimit(condition: AlertCondition): number | undefined {
@@ -41,9 +48,11 @@ export function defaultAlertValue(condition: AlertCondition, last: number | unde
  * price), so they are offered only when the instrument is held; the day's move, against the previous
  * close, is offered for any. Alerts notify; they never trade.
  */
-export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
+export function AlertForm({ held, last, currency, locale, t, busy, onSave, onCancel }: {
   held: boolean;
   last?: number;
+  /** For saying what a typed number was read as. */
+  locale?: SupportedLocale;
   currency?: string;
   t: Translator;
   busy: boolean;
@@ -59,6 +68,7 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
   const value = parseAmount(valueText);
   const problem = alertValueProblem(condition, valueText);
   const error = problem === "required" ? t("alertValueRequired") : problem === "range" ? fill(t("alertPercentRange"), { limit: String(alertPercentLimit(condition)) }) : undefined;
+  const readAs = locale ? readAsHint(valueText, (read) => (byPrice ? `${num(read, locale, 6)}${currency ? ` ${currency}` : ""}` : `${num(read, locale, 2)}%`), t) : undefined;
   const submit = () => {
     setTouched(true);
     if (error || busy) return;
@@ -79,7 +89,8 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
             </select>
           )}
         </Field>
-        <Field label={byPrice ? t("alertPrice") : t("alertPercent")} unit={byPrice ? currency : "%"} error={touched ? error : undefined}>
+        <Field label={byPrice ? t("alertPrice") : t("alertPercent")} unit={byPrice ? currency : "%"} error={touched ? error : undefined}
+          {...(readAs ? { hint: readAs } : {})}>
           {(props) => <input {...props} data-focus-id="alert-value" inputMode="decimal" autoComplete="off" value={valueText} onChange={(event) => setValueText(event.target.value)} />}
         </Field>
         <Field label={t("alertNote")} hint={t("alertNoteHint")}>

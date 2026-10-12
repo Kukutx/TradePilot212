@@ -7,7 +7,7 @@ import type { AccountAlert, AccountAlertCondition } from "../../shared/automatio
 import type { SupportedLocale } from "../i18n";
 import { amount, dateTime, dayLabel, num, parseAmount, pct } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
-import { AlertActions } from "./alerts";
+import { AlertActions, readAsHint } from "./alerts";
 import { Field } from "./common";
 
 export interface AccountAlertRequest {
@@ -49,8 +49,10 @@ export function accountAlertProblem(condition: AccountAlertCondition, text: stri
   return condition === "day_move" && value >= 100 ? "range" : undefined;
 }
 
-export function AccountAlertForm({ currency, now, t, busy, onSave, onCancel }: {
+export function AccountAlertForm({ currency, now, locale, t, busy, onSave, onCancel }: {
   currency?: string;
+  /** For saying what a typed number was read as. */
+  locale?: SupportedLocale;
   /** The account's value and free cash now, for starting amounts. */
   now: { value?: number; cash?: number };
   t: Translator;
@@ -65,6 +67,7 @@ export function AccountAlertForm({ currency, now, t, busy, onSave, onCancel }: {
   const byPercent = condition === "day_move";
   const problem = accountAlertProblem(condition, valueText);
   const error = problem === "required" ? t("alertValueRequired") : problem === "range" ? fill(t("alertPercentRange"), { limit: "100" }) : undefined;
+  const readAs = locale ? readAsHint(valueText, (read) => (byPercent ? `${num(read, locale, 2)}%` : amount(read, currency, locale)), t) : undefined;
   const submit = () => {
     setTouched(true);
     if (error || busy) return;
@@ -86,7 +89,8 @@ export function AccountAlertForm({ currency, now, t, busy, onSave, onCancel }: {
             </select>
           )}
         </Field>
-        <Field label={byPercent ? t("alertPercent") : t("accountAlertAmount")} unit={byPercent ? "%" : currency} error={touched ? error : undefined}>
+        <Field label={byPercent ? t("alertPercent") : t("accountAlertAmount")} unit={byPercent ? "%" : currency} error={touched ? error : undefined}
+          {...(readAs ? { hint: readAs } : {})}>
           {(props) => <input {...props} data-focus-id="account-alert-value" inputMode="decimal" autoComplete="off" value={valueText} onChange={(event) => setValueText(event.target.value)} />}
         </Field>
         <Field label={t("alertNote")} hint={t("alertNoteHint")}>
@@ -138,7 +142,7 @@ export function AccountAlertList({ alerts, currency, now, locale, t, busy, onSav
         {onSave && !adding && <button type="button" className="secondaryButton compactButton" onClick={() => setAdding(true)}>{t("addAlert")}</button>}
       </div>
       {adding && onSave && (
-        <AccountAlertForm {...(currency ? { currency } : {})} now={now} t={t} busy={busy}
+        <AccountAlertForm {...(currency ? { currency } : {})} now={now} locale={locale} t={t} busy={busy}
           onCancel={() => setAdding(false)}
           onSave={(request) => void onSave(request).then((saved) => { if (saved) setAdding(false); })} />
       )}

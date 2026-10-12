@@ -313,8 +313,10 @@ describe("daily digest", () => {
     await services.store.put("alert:p2", { ...fired("p2", "2026-10-09T09:00:00Z"), ticker: "VUSA_EQ", condition: "below", price: 1 });
     await services.store.put("account-alert:a1", { ...fired("a1", "2026-10-11T06:00:00Z"), condition: "cash_below", amount: 5_000 });
     await services.store.put("account-alert:a2", { ...fired("a2", "2026-10-11T06:00:00Z", "live"), condition: "cash_below", amount: 5_000 });
+    // A day's move armed again on its next day (in the same tick, before the digest) still counts.
+    await services.store.put("account-alert:a3", { id: "a3", environment: "demo", createdAt: "2026-10-01T00:00:00Z", condition: "day_move", percent: 2, lastTriggeredAt: "2026-10-10T20:00:00Z", triggeredDay: "2026-10-10" });
     expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
-    expect(services.hooks[0]).toMatch(/· 2 alert\(s\) triggered in the last day/);
+    expect(services.hooks[0]).toMatch(/· 3 alert\(s\) triggered in the last day/);
   });
 
   it("sends once per day at the configured hour and reports the change since the last one", async () => {
