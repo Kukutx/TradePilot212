@@ -35708,29 +35708,37 @@ var TradingService = class {
     if (known) return known;
     if (!credentialStatus(this.deps.config)[environment]) return void 0;
     try {
-      const currency = (await this.client(environment).getAccountSummary()).currency;
-      if (currency) this.currencies.set(environment, currency);
-      return currency;
+      return (await this.accountSummary(environment, Number.POSITIVE_INFINITY)).currency;
     } catch {
       return void 0;
     }
   }
   summaries = /* @__PURE__ */ new Map();
+  /** A summary read under way, which a read that takes a recent one joins. */
+  summaryReading = /* @__PURE__ */ new Map();
   /**
    * The account summary alone: one request, for the scheduler's daily value record. With `maxAgeMs`, one read in that
-   * time (alone or with the dashboard) is used as it is: Trading 212 allows few summary reads.
+   * time (alone or with the dashboard), or one under way, is used as it is: Trading 212 allows few summary reads.
    */
   async accountSummary(environment, maxAgeMs = 0) {
     if (maxAgeMs > 0) {
       const board = this.dashboards.get(environment);
-      const reads = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : void 0].filter((read) => read !== void 0 && Date.now() - read.at <= maxAgeMs).sort((a, b) => b.at - a.at);
+      const reads = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : void 0].filter((read2) => read2 !== void 0 && Date.now() - read2.at <= maxAgeMs).sort((a, b) => b.at - a.at);
       if (reads[0]) return reads[0].account;
+      const pending = this.summaryReading.get(environment);
+      if (pending) return pending;
     }
     const generation = this.writes;
-    const account = await this.client(environment).getAccountSummary();
-    if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
-    if (account.currency) this.currencies.set(environment, account.currency);
-    return account;
+    const read = this.client(environment).getAccountSummary();
+    this.summaryReading.set(environment, read);
+    try {
+      const account = await read;
+      if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
+      if (account.currency) this.currencies.set(environment, account.currency);
+      return account;
+    } finally {
+      if (this.summaryReading.get(environment) === read) this.summaryReading.delete(environment);
+    }
   }
   /** The instrument list when it was read in the last ten minutes, without asking Trading 212. */
   cachedInstruments(environment) {
@@ -35875,6 +35883,7 @@ var TradingService = class {
     try {
       const payload = await read;
       if (this.writes === generation) this.dashboards.set(environment, { at: Date.now(), payload });
+      if (payload.account?.currency) this.currencies.set(environment, payload.account.currency);
       return payload;
     } finally {
       if (this.reading.get(environment) === read) this.reading.delete(environment);
@@ -36880,6 +36889,7 @@ var TradingService = class {
     this.writes += 1;
     this.dashboards.delete(environment);
     this.summaries.delete(environment);
+    this.summaryReading.delete(environment);
     this.reading.delete(environment);
     try {
       this.deps.afterWrite?.(environment);
@@ -38809,22 +38819,27 @@ function evaluateAccountAlert(alert, account) {
 }
 function accountDayMove(today) {
   const moved = today.moves.filter((move) => move.profitLoss !== void 0 && Number.isFinite(move.profitLoss));
-  const day2 = moved.map((move) => move.day).sort().at(-1);
-  if (!day2) return { problem: "No holding has a move for the day yet." };
-  const onDay = moved.filter((move) => move.day === day2);
+  const known = moved.filter((move) => !move.guessed);
+  const day2 = known.map((move) => move.day).sort().at(-1);
+  if (!day2) {
+    return { problem: moved.length ? "Trading 212's exchange schedules could not be read, so the trading day of the holdings' moves is not known." : "No holding has a move for the day yet." };
+  }
+  const onDay = known.filter((move) => move.day === day2);
   const profitLoss = onDay.reduce((sum, move) => sum + move.profitLoss, 0);
   const whole = onDay.length === today.moves.length;
-  if (!whole && today.invested === void 0) {
+  if (!whole && (today.invested === void 0 || onDay.some((move) => move.value === void 0))) {
     return { problem: `Trading 212 did not report the holdings' value, so the day's move of ${onDay.length} of ${today.moves.length} holdings cannot be put against the account.` };
   }
-  const base = whole ? onDay.reduce((sum, move) => sum + (move.base ?? 0), 0) : today.invested - profitLoss;
+  const moving = onDay.reduce((sum, move) => sum + (move.base ?? 0), 0);
+  const base = whole ? moving : moving + Math.max(0, today.invested - onDay.reduce((sum, move) => sum + move.value, 0));
   if (!(base > 0)) return { problem: "The holdings have no value to measure the day's move against." };
   const closed = today.ended?.[day2];
   return { day: day2, change: profitLoss / base, profitLoss: round9(profitLoss), counted: onDay.length, of: today.moves.length, ...closed !== void 0 ? { closed } : {} };
 }
 function untriggered(alert) {
-  const { triggeredAt: _t, triggeredValue: _v, ...rest } = alert;
-  return rest;
+  const { triggeredAt, triggeredValue: _v, ...rest } = alert;
+  const last = triggeredAt ?? alert.lastTriggeredAt;
+  return { ...rest, ...last ? { lastTriggeredAt: last } : {} };
 }
 var AccountAlerts = class {
   constructor(deps) {
@@ -40015,7 +40030,7 @@ function sessionFinder(exchanges, now) {
   const byId = new Map(exchanges.flatMap((exchange) => (exchange.workingSchedules ?? []).map((schedule) => [schedule.id, schedule.timeEvents])));
   return (instrument) => {
     const events = instrument?.workingScheduleId === void 0 ? void 0 : byId.get(instrument.workingScheduleId);
-    return sessionOf(events, now, instrument?.extendedHours === true) ?? { day: fallbackDay(now) };
+    return sessionOf(events, now, instrument?.extendedHours === true) ?? { day: fallbackDay(now), guessed: true };
   };
 }
 var fillsFrom = (session) => session.previousClose ?? Date.parse(`${session.day}T00:00:00Z`);
@@ -40031,7 +40046,8 @@ function dayIdentity(input2) {
     ...currency ? { currencyCode: currency } : {},
     quantity: position?.quantity ?? 0,
     ...price ? { price } : {},
-    day: session.day
+    day: session.day,
+    ...session.guessed ? { guessed: true } : {}
   };
 }
 async function dayMove(deps, context, input2) {
@@ -40073,12 +40089,14 @@ async function dayMove(deps, context, input2) {
   const inAccount = (amount2) => accountCurrency && currency ? toAccountCurrency(amount2, currency, accountCurrency, rates) : void 0;
   const profitLoss = !owned || figures.profitLoss === void 0 ? void 0 : inAccount(figures.profitLoss);
   const base = owned ? inAccount(figures.base) : void 0;
+  const value = !owned ? void 0 : identity.quantity === 0 ? 0 : price ? inAccount(identity.quantity * price) : void 0;
   return {
     ...identity,
     previousClose,
     ...figures.change !== void 0 ? { change: figures.change } : {},
     ...profitLoss !== void 0 ? { profitLoss: round11(profitLoss, 2) } : {},
     ...base !== void 0 ? { base: round11(base, 2) } : {},
+    ...value !== void 0 ? { value: round11(value, 2) } : {},
     ...figures.bought ? { bought: figures.bought } : {},
     ...figures.sold ? { sold: figures.sold } : {},
     ...owned && figures.profitLoss !== void 0 && profitLoss === void 0 ? { missing: "fx", problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` } : {}
@@ -42633,12 +42651,13 @@ function evaluateAlert(alert, position, dayClose) {
   }
 }
 function pickTickFields(alert) {
-  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate } = alert;
-  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate }).filter(([, value]) => value !== void 0));
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate, lastTriggeredAt } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate, lastTriggeredAt }).filter(([, value]) => value !== void 0));
 }
 function untriggered2(alert) {
-  const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
-  return rest;
+  const { triggeredAt, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
+  const last = triggeredAt ?? alert.lastTriggeredAt;
+  return { ...rest, ...last ? { lastTriggeredAt: last } : {} };
 }
 var firedFor = (alert, day2) => day2 !== void 0 && alert.triggeredDay !== void 0 && day2 <= alert.triggeredDay;
 var PriceAlerts = class {
@@ -43179,7 +43198,8 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS14);
+        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS14;
+        const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
@@ -43586,7 +43606,7 @@ function createServices(input2) {
       ...instruments.length ? { instruments } : {},
       usageToday: await trading.usageToday(environment),
       // The currency and the starting amounts of an account alert, from a summary read in the last minute or a new
-      // one; for at most a few seconds, else the currency alone.
+      // one, for at most a few seconds; else the currency alone, from that same read once it is in.
       ...await settleWithin(trading.accountSummary(environment, OVERVIEW_SUMMARY_MS).catch(() => void 0), OVERVIEW_WAIT_MS).then(
         (summary) => summary ? { ...summary.currency ? { currency: summary.currency } : {}, account: { ...summary.totalValue !== void 0 ? { value: summary.totalValue } : {}, ...summary.cash?.availableToTrade !== void 0 ? { cash: summary.cash.availableToTrade } : {} } } : trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}, () => ({}))
       ),
