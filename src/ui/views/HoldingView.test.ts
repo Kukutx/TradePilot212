@@ -50,6 +50,32 @@ describe("holding price levels", () => {
     expect(priceLevels(data, createTranslator("zh-CN"), "zh-CN").map((level) => level.label)).toEqual(["买入限价 · 3", "提醒：低于或等于"]);
   });
 
+  it("draws a day's-move alert as two levels either side of the previous close, once the close is known", () => {
+    const data = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "TSLA_US_EQ", instrument: { ticker: "TSLA_US_EQ", currencyCode: "USD" },
+      orders: [], alerts: [alert({ ticker: "TSLA_US_EQ", condition: "day_move", percent: 4 }), alert({ id: "fired", ticker: "TSLA_US_EQ", condition: "day_move", percent: 2, triggeredAt: "2026-10-09T15:00:00Z" })],
+      day: { ticker: "TSLA_US_EQ", quantity: 0, day: "2026-10-09", previousClose: { date: "2026-10-08", close: 250, source: "stooq" }, change: 0.01 },
+      timestamp: "2026-10-09T16:00:00Z",
+    } as unknown as HoldingDetail;
+    const levels = priceLevels(data, createTranslator("en"), "en");
+    expect(levels.map((level) => [level.price, level.label])).toEqual([[260, "Alert: day's move +4% from the close"], [240, "Alert: day's move -4% from the close"]]);
+    expect(priceLevels({ ...data, day: undefined }, createTranslator("en"), "en")).toEqual([]);
+  });
+
+  it("says a day's-move alert that fired arms itself again on the next trading day", () => {
+    const data = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "TSLA_US_EQ", instrument: { ticker: "TSLA_US_EQ", currencyCode: "USD" },
+      orders: [], journal: [], timestamp: "2026-10-09T16:00:00Z",
+      alerts: [alert({ ticker: "TSLA_US_EQ", condition: "day_move", percent: 2, triggeredAt: "2026-10-09T15:00:00Z", triggeredPrice: 256.1, triggeredDay: "2026-10-09" })],
+    } as unknown as HoldingDetail;
+    const html = renderToStaticMarkup(createElement(HoldingView, {
+      data, locale: "zh-CN", t: createTranslator("zh-CN"), writeEnabled: false, busy: false,
+      onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
+    }));
+    expect(html).toContain("<strong>当日涨跌幅达到 2%</strong>");
+    expect(html).toContain("下一个交易日自动重新启用");
+  });
+
   it("draws the price chart from the closes, or says in the viewer's language why there is none", () => {
     const base = {
       kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "AAPL_US_EQ", instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" },

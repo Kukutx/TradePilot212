@@ -209,9 +209,10 @@ export interface ProtectiveLink {
 /**
  * A price alert on a holding, checked every scheduler tick against the broker's last position price
  * (Trading 212 has no quote endpoint, so only held instruments have a price). Alerts notify; they
- * never place orders.
+ * never place orders. day_move fires when the price is a percent or more above or below the previous
+ * close, once per trading day.
  */
-export type AlertCondition = "above" | "below" | "trailing_drop" | "gain_percent" | "loss_percent";
+export type AlertCondition = "above" | "below" | "trailing_drop" | "gain_percent" | "loss_percent" | "day_move";
 
 export interface PriceAlert {
   id: string;
@@ -220,7 +221,10 @@ export interface PriceAlert {
   condition: AlertCondition;
   /** Price for above/below, in the instrument currency. */
   price?: number;
-  /** Percent for trailing_drop (from the highest price seen), gain_percent and loss_percent (from the average cost). */
+  /**
+   * Percent for trailing_drop (from the highest price seen), gain_percent and loss_percent (from the average cost),
+   * and day_move (either way from the previous close).
+   */
   percent?: number;
   /** Highest price seen since the alert was armed; trailing_drop only. */
   highWatermark?: number;
@@ -230,6 +234,11 @@ export interface PriceAlert {
   lastCheckedAt?: string;
   triggeredAt?: string;
   triggeredPrice?: number;
+  /** day_move: the trading day it fired on; it arms itself again on the next one. */
+  triggeredDay?: string;
+  /** day_move: the last price's change from the previous close, and that close's date. */
+  lastDayChange?: number;
+  lastCloseDate?: string;
 }
 
 /**

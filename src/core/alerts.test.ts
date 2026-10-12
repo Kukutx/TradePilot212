@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import type { PriceAlert } from "../shared/automation.js";
 import { createServices } from "../app/services.js";
-import { evaluateAlert } from "./alerts.js";
+import { evaluateAlert, PriceAlerts } from "./alerts.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
 import { notificationText } from "./notify.js";
 import { MemoryStateStore } from "./state-store.js";
@@ -27,7 +27,7 @@ function setup(env: RuntimeEnv = {}) {
   }) as typeof fetch;
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", ...env });
   const store = new MemoryStateStore();
-  return { ...createServices({ config, store, fetcher }), store, price, webhooks };
+  return { ...createServices({ config, store, fetcher }), config, store, price, webhooks };
 }
 
 describe("price alert rules", () => {
@@ -48,6 +48,17 @@ describe("price alert rules", () => {
     expect(evaluateAlert(alert({ condition: "gain_percent", percent: 20 }), { currentPrice: 120, averagePricePaid: 100 }).fired).toBe(true);
     expect(evaluateAlert(alert({ condition: "loss_percent", percent: 10 }), { currentPrice: 91, averagePricePaid: 100 }).fired).toBe(false);
     expect(evaluateAlert(alert({ condition: "loss_percent", percent: 10 }), { currentPrice: 90, averagePricePaid: 100 }).fired).toBe(true);
+  });
+
+  it("measures a day's move either way from the previous close", () => {
+    const dayMove = alert({ condition: "day_move", percent: 5 });
+    const close = { day: "2026-10-12", close: 100, date: "2026-10-09", change: 0 };
+    const at = (currentPrice: number) => evaluateAlert(dayMove, { currentPrice, averagePricePaid: 0 }, close);
+    expect(at(105)).toMatchObject({ fired: true, message: "VUSA_EQ is at 105, +5.00% since the close on 2026-10-09 (100; alert at 5% either way)." });
+    expect(at(95).fired).toBe(true);
+    expect(at(104.9).fired).toBe(false);
+    expect(at(95.1).fired).toBe(false);
+    expect(evaluateAlert(dayMove, { currentPrice: 200, averagePricePaid: 0 })).toMatchObject({ fired: false, message: "VUSA_EQ has no previous close." });
   });
 });
 
@@ -97,8 +108,89 @@ describe("price alert scheduler", () => {
     expect(rearmed.highWatermark).toBeUndefined();
   });
 
+  it("fires a day's move once a trading day and arms it again on the next", async () => {
+    const services = setup();
+    const day = { value: "2026-10-12", close: 100 };
+    const reads: Array<{ ticker: string; price: number; quoted: boolean }> = [];
+    const alerts = new PriceAlerts({
+      config: services.config, store: services.store, trading: services.trading,
+      dayClose: async (_environment, instrument, price, quoted) => {
+        reads.push({ ticker: instrument.ticker, price, quoted });
+        return { day: day.value, close: day.close, date: "2026-10-09", change: price / day.close - 1 };
+      },
+      tradingDay: async () => day.value,
+    });
+    const saved = await alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move", percent: 5, note: "check the news" });
+    const stored = async () => (await alerts.list())[0]!;
+
+    expect((await alerts.check())[0]).toMatchObject({ action: "waiting", message: expect.stringMatching(/\+0\.00% since the close on 2026-10-09/) });
+    expect(await stored()).toMatchObject({ lastDayChange: 0, lastCloseDate: "2026-10-09", lastPrice: 100 });
+    expect(reads).toEqual([{ ticker: "VUSA_EQ", price: 100, quoted: false }]);
+
+    services.price.value = 106;
+    expect((await alerts.check())[0]).toMatchObject({ action: "triggered" });
+    expect(await stored()).toMatchObject({ triggeredPrice: 106, triggeredDay: "2026-10-12", lastDayChange: 0.06 });
+    const events = await services.trading.getActivity("demo");
+    expect(events.find((event) => event.type === "price_alert_triggered")?.outcome).toMatch(/\+6\.00% since the close.*check the news/);
+
+    // The same trading day: no report and no price read, however far it moves.
+    services.price.value = 80;
+    expect(await alerts.check()).toEqual([]);
+    expect(reads).toHaveLength(2);
+
+    // The next trading day: armed again, and it fires again on that day's move.
+    day.value = "2026-10-13";
+    day.close = 106;
+    services.price.value = 90;
+    expect((await alerts.check())[0]).toMatchObject({ action: "triggered" });
+    expect(await stored()).toMatchObject({ triggeredPrice: 90, triggeredDay: "2026-10-13" });
+
+    // A quiet day after it: armed, with the fire cleared.
+    day.value = "2026-10-14";
+    day.close = 90;
+    services.price.value = 91;
+    expect((await alerts.check())[0]).toMatchObject({ action: "waiting" });
+    const quiet = await stored();
+    expect(quiet.triggeredAt).toBeUndefined();
+    expect(quiet.triggeredDay).toBeUndefined();
+    expect(quiet).toMatchObject({ lastPrice: 91, note: "check the news", id: saved.id });
+  });
+
+  it("leaves a session that closed before the alert was set to the next one", async () => {
+    const services = setup();
+    const ended = Date.parse("2026-10-09T20:00:00Z");
+    const day = { value: "2026-10-09" };
+    const alerts = new PriceAlerts({
+      config: services.config, store: services.store, trading: services.trading,
+      dayClose: async (_environment, _instrument, price) => ({ day: day.value, close: 90, date: "2026-10-08", change: price / 90 - 1, ...(day.value === "2026-10-09" ? { ended } : {}) }),
+    });
+    await alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move", percent: 5 }, new Date("2026-10-10T09:00:00Z"));
+    expect((await alerts.check(new Date("2026-10-10T09:05:00Z")))[0]).toMatchObject({ action: "waiting", message: "VUSA_EQ's 2026-10-09 session closed before the alert was set; it counts from the next one." });
+    // Its move is still shown on the alert.
+    expect((await alerts.list())[0]).toMatchObject({ lastDayChange: 0.111111, lastCloseDate: "2026-10-08", lastPrice: 100 });
+    expect((await alerts.list())[0]!.triggeredAt).toBeUndefined();
+    // Monday's session is on: the same move fires.
+    day.value = "2026-10-12";
+    expect((await alerts.check(new Date("2026-10-12T14:00:00Z")))[0]).toMatchObject({ action: "triggered" });
+  });
+
+  it("waits when a day's move has no previous close", async () => {
+    const services = setup();
+    const alerts = new PriceAlerts({ config: services.config, store: services.store, trading: services.trading });
+    await alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move", percent: 3 });
+    expect((await alerts.check())[0]).toMatchObject({ action: "waiting", message: "No quote provider is configured." });
+    const missing = new PriceAlerts({
+      config: services.config, store: services.store, trading: services.trading,
+      dayClose: async () => ({ missing: "lag", problem: "Closes end on 2026-10-08." }),
+    });
+    expect((await missing.check())[0]).toMatchObject({ action: "waiting", message: "Closes end on 2026-10-08." });
+    expect((await alerts.list())[0]!.lastCheckedAt).toBeUndefined();
+  });
+
   it("validates alert inputs", async () => {
     const services = setup();
+    await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move", percent: 100 })).rejects.toThrow(/below 100/);
+    await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move" })).rejects.toThrow(/above 0/);
     await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "above" })).rejects.toThrow(/positive price/);
     await expect(services.alerts.create({ environment: "demo", instrument: "VUSA", condition: "trailing_drop", percent: 150 })).rejects.toThrow(/below 100/);
     await expect(services.alerts.delete("missing")).rejects.toMatchObject({ code: "ALERT_NOT_FOUND" });

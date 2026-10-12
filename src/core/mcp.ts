@@ -920,13 +920,13 @@ export function createMcpServer(
     "manage_price_alerts",
     {
       title: "Manage Price Alerts",
-      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost; day_move (the price is a percent or more above or below its previous close, the day's move as the dashboard shows it; it fires once per trading day and arms itself again on the next; a session that closed before the alert was set does not count). The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
       inputSchema: z.object({
         action: z.enum(["create", "delete", "rearm"]),
         alertId: z.string().optional().describe("Required for delete and rearm"),
         environment: environmentWithDefault,
         instrument: z.string().min(1).optional(),
-        condition: z.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+        condition: z.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent", "day_move"]).optional(),
         price: z.number().positive().optional(),
         percent: z.number().positive().optional(),
         note: z.string().max(200).optional(),

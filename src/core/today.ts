@@ -42,6 +42,8 @@ export interface Session {
   previous?: string;
   /** When the session before it closed (ms): the day's fills are the ones from then on. */
   previousClose?: number;
+  /** When the session itself closed (ms), after-hours included for an instrument traded then; absent while it is on. */
+  ended?: number;
 }
 
 /**
@@ -67,7 +69,14 @@ export function sessionOf(events: ScheduleEvent[] | undefined, now: Date, extend
   const day = isoDay(open);
   const previous = opens.filter((event) => isoDay(event.time) < day).pop();
   const closed = sorted.filter((event) => event.type === "CLOSE" && event.time < open).pop();
-  return { day, ...(previous ? { previous: isoDay(previous.time) } : {}), ...(closed ? { previousClose: closed.time } : {}) };
+  const following = opens.find((event) => event.time > open)?.time ?? Infinity;
+  const ending = sorted.filter((event) => event.time > open && event.time < following && (event.type === "CLOSE" || (extendedHours && event.type === "AFTER_HOURS_CLOSE"))).pop();
+  return {
+    day,
+    ...(previous ? { previous: isoDay(previous.time) } : {}),
+    ...(closed ? { previousClose: closed.time } : {}),
+    ...(ending && ending.time <= at ? { ended: ending.time } : {}),
+  };
 }
 
 /** Without a schedule: today, or the Friday before on a weekend (UTC). */
@@ -238,6 +247,40 @@ export async function dayMove(deps: Pick<TodayDeps, "priceHistory" | "closes">, 
       ? { missing: "fx" as const, problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` }
       : {}),
   };
+}
+
+/** The trading day an instrument's price is from: a quote's is the regular session's, Trading 212's may be extended hours'. */
+export async function daySessionOf(
+  deps: Pick<TodayDeps, "schedules">,
+  environment: TradingEnvironment,
+  instrument: Pick<Instrument, "workingScheduleId" | "extendedHours">,
+  quoted: boolean,
+  now = new Date(),
+): Promise<Session> {
+  const exchanges = deps.schedules ? await settleWithin(deps.schedules(environment).catch((): Exchange[] => []), LIST_WAIT_MS) : undefined;
+  return sessionFinder(exchanges ?? [], now)(quoted ? { ...instrument, extendedHours: false } : instrument);
+}
+
+/** A price against its previous close: the trading day, the close and its date, and the change. */
+export type DayClose = { day: string; close: number; date: string; change: number; ended?: number } | { missing: DayMove["missing"]; problem: string };
+
+/**
+ * One price's change from its previous close, as the dashboard's day works it out: from Trading 212's price of a
+ * holding (which moves in the pre-market for an instrument traded then) or from a quote (which does not).
+ */
+export async function dayCloseOf(
+  deps: Pick<TodayDeps, "priceHistory" | "closes" | "schedules">,
+  environment: TradingEnvironment,
+  instrument: Instrument,
+  price: number,
+  quoted: boolean,
+  now = new Date(),
+): Promise<DayClose> {
+  const session = await daySessionOf(deps, environment, instrument, quoted, now);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS);
+  const move = await dayMove(deps, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
+  if (!move.previousClose || move.change === undefined) return { missing: move.missing ?? "data", problem: move.problem ?? `No previous close for ${instrument.ticker}.` };
+  return { day: session.day, close: move.previousClose.close, date: move.previousClose.date, change: move.change, ...(session.ended === undefined ? {} : { ended: session.ended }) };
 }
 
 /** An instrument's fills since its session's previous close, from fill records as Trading 212's history gives them. */

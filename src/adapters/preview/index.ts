@@ -188,6 +188,11 @@ async function seedSample(): Promise<void> {
     const outcome = await client.callTool({ name, arguments: input });
     if (outcome.isError) console.warn(`Could not seed ${name}:`, JSON.stringify(outcome.content).slice(0, 200));
   }
+  // Day's-move alerts set last week, and one alert check, so the alerts show their last prices and the day's move.
+  const lastWeek = new Date(Date.now() - 7 * 86_400_000);
+  await services.alerts.create({ environment: "demo", instrument: "AAPL", condition: "day_move", percent: 3, note: "Big day" }, lastWeek);
+  await services.alerts.create({ environment: "demo", instrument: "NVDA", condition: "day_move", percent: 5 }, lastWeek);
+  await services.alerts.check().catch((error: unknown) => console.warn("Could not check the alerts:", error));
 }
 
 /** Journal notes on the two newest sample Apple buys and one without an order, so the holding page shows the journal. */

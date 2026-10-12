@@ -14,7 +14,7 @@ import { createPriceHistory } from "../core/price-history.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker, createSampleQuotes } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
-import { DAY_ORDER_PAGES, portfolioToday } from "../core/today.js";
+import { DAY_ORDER_PAGES, dayCloseOf, daySessionOf, portfolioToday } from "../core/today.js";
 import { TargetAllocations } from "../core/targets.js";
 import { ValueHistory } from "../core/value-history.js";
 import { Watchlist } from "../core/watchlist.js";
@@ -58,7 +58,12 @@ export function createServices(input: ServiceDependencies) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
-  const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
+  const alerts = new PriceAlerts({
+    config: deps.config, store: deps.store, trading,
+    // A day's-move alert sets the price against its previous close as the dashboard's day does.
+    dayClose: (environment, instrument, price, quoted, now) => dayCloseOf({ priceHistory, closes, schedules }, environment, instrument, price, quoted, now),
+    tradingDay: async (environment, instrument, quoted, now) => (await daySessionOf({ schedules }, environment, instrument, quoted, now)).day,
+  });
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });

@@ -28,16 +28,19 @@ describe("the trading day of a price", () => {
 
   it("is the session in progress, or the one that closed last, after hours and over the weekend", () => {
     expect(at("2026-10-14T15:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
-    expect(at("2026-10-14T22:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
-    expect(at("2026-10-10T12:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-14T22:00:00Z")).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z"), ended: closedAt("2026-10-14T20:00:00Z") });
+    expect(at("2026-10-10T12:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
     // Monday before the pre-market still shows Friday's move.
-    expect(at("2026-10-12T05:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-12T05:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
+    // One traded after hours moves until they close.
+    expect(at("2026-10-14T22:00:00Z", true)).toEqual({ day: "2026-10-14", previous: "2026-10-13", previousClose: closedAt("2026-10-13T20:00:00Z") });
+    expect(at("2026-10-10T12:00:00Z", true)?.ended).toBe(closedAt("2026-10-10T00:00:00Z"));
   });
 
   it("belongs to the day that opens next in the pre-market, for an instrument traded in it", () => {
     expect(at("2026-10-12T09:00:00Z", true)).toEqual({ day: "2026-10-12", previous: "2026-10-09", previousClose: closedAt("2026-10-09T20:00:00Z") });
     // Trading 212's price of one not traded before the open is still Friday's.
-    expect(at("2026-10-12T09:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z") });
+    expect(at("2026-10-12T09:00:00Z")).toEqual({ day: "2026-10-09", previous: "2026-10-08", previousClose: closedAt("2026-10-08T20:00:00Z"), ended: closedAt("2026-10-09T20:00:00Z") });
   });
 
   it("has no answer without an opening to go by, and then takes today or the Friday before a weekend", () => {

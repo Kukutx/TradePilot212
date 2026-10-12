@@ -35,6 +35,7 @@ const CONDITION_KEY: Record<AlertCondition, MessageKey> = {
   trailing_drop: "alertTrailing",
   gain_percent: "alertGain",
   loss_percent: "alertLoss",
+  day_move: "alertDayMove",
 };
 
 /** "At or above", "Drop from high of" …, followed in the UI by the price or percent. */

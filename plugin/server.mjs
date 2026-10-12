@@ -38421,7 +38421,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.35.0"
+  version: "2.36.0"
 };
 
 // src/shared/prices.ts
@@ -38895,8 +38895,9 @@ function planLine(plan) {
 }
 function alertLine(alert, instrument) {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
-  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}${unit}` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
-  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}${unit}` : ", armed"}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
+  const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}${unit}` : alert.condition === "day_move" ? `day's move of ${num2(alert.percent)}% either way` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
+  const day2 = alert.condition === "day_move" ? `${alert.lastDayChange === void 0 ? "" : `, ${signedPct(alert.lastDayChange)} since the close on ${alert.lastCloseDate ?? "?"}`}${alert.triggeredAt ? `; fired for ${alert.triggeredDay ?? "the day"}, armed again on the next trading day` : ""}` : "";
+  return `${alert.ticker}${instrument?.name ? ` (${instrument.name})` : ""} ${condition} (${alert.id}, ${env(alert.environment)})${alert.lastPrice === void 0 ? "" : `, last ${num2(alert.lastPrice, 6)}${unit}`}${alert.triggeredAt ? `, triggered ${minute(alert.triggeredAt)} at ${num2(alert.triggeredPrice, 6)}${unit}` : ", armed"}${day2}${alert.note ? ` \u2014 ${alert.note}` : ""}`;
 }
 function linkLine(link) {
   return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;
@@ -39259,7 +39260,14 @@ function sessionOf(events, now, extendedHours = false) {
   const day2 = isoDay2(open2);
   const previous = opens.filter((event) => isoDay2(event.time) < day2).pop();
   const closed = sorted.filter((event) => event.type === "CLOSE" && event.time < open2).pop();
-  return { day: day2, ...previous ? { previous: isoDay2(previous.time) } : {}, ...closed ? { previousClose: closed.time } : {} };
+  const following = opens.find((event) => event.time > open2)?.time ?? Infinity;
+  const ending = sorted.filter((event) => event.time > open2 && event.time < following && (event.type === "CLOSE" || extendedHours && event.type === "AFTER_HOURS_CLOSE")).pop();
+  return {
+    day: day2,
+    ...previous ? { previous: isoDay2(previous.time) } : {},
+    ...closed ? { previousClose: closed.time } : {},
+    ...ending && ending.time <= at ? { ended: ending.time } : {}
+  };
 }
 function fallbackDay(now) {
   const weekday2 = now.getUTCDay();
@@ -39365,6 +39373,17 @@ async function dayMove(deps, context, input2) {
     ...figures.sold ? { sold: figures.sold } : {},
     ...owned && figures.profitLoss !== void 0 && profitLoss === void 0 ? { missing: "fx", problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` } : {}
   };
+}
+async function daySessionOf(deps, environment, instrument, quoted2, now = /* @__PURE__ */ new Date()) {
+  const exchanges = deps.schedules ? await settleWithin(deps.schedules(environment).catch(() => []), LIST_WAIT_MS) : void 0;
+  return sessionFinder(exchanges ?? [], now)(quoted2 ? { ...instrument, extendedHours: false } : instrument);
+}
+async function dayCloseOf(deps, environment, instrument, price, quoted2, now = /* @__PURE__ */ new Date()) {
+  const session = await daySessionOf(deps, environment, instrument, quoted2, now);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS6) * DAY_MS6 - 365 * DAY_MS6);
+  const move = await dayMove(deps, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
+  if (!move.previousClose || move.change === void 0) return { missing: move.missing ?? "data", problem: move.problem ?? `No previous close for ${instrument.ticker}.` };
+  return { day: session.day, close: move.previousClose.close, date: move.previousClose.date, change: move.change, ...session.ended === void 0 ? {} : { ended: session.ended } };
 }
 function fillsOfDay(items, ticker, session) {
   const start = fillsFrom(session);
@@ -40879,13 +40898,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "manage_price_alerts",
     {
       title: "Manage Price Alerts",
-      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost. The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost; day_move (the price is a percent or more above or below its previous close, the day's move as the dashboard shows it; it fires once per trading day and arms itself again on the next; a session that closed before the alert was set does not count). The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
       inputSchema: external_exports.object({
         action: external_exports.enum(["create", "delete", "rearm"]),
         alertId: external_exports.string().optional().describe("Required for delete and rearm"),
         environment: environmentWithDefault,
         instrument: external_exports.string().min(1).optional(),
-        condition: external_exports.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent"]).optional(),
+        condition: external_exports.enum(["above", "below", "trailing_drop", "gain_percent", "loss_percent", "day_move"]).optional(),
         price: external_exports.number().positive().optional(),
         percent: external_exports.number().positive().optional(),
         note: external_exports.string().max(200).optional()
@@ -41564,9 +41583,18 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
 // src/core/alerts.ts
 var MAX_ALERTS = 50;
 var alertKey = (id) => `alert:${id}`;
-function evaluateAlert(alert, position) {
+function evaluateAlert(alert, position, dayClose) {
   const price = position.currentPrice;
   switch (alert.condition) {
+    case "day_move": {
+      if (!dayClose) return { fired: false, message: `${alert.ticker} has no previous close.` };
+      const change = (price / dayClose.close - 1) * 100;
+      return {
+        // A hair under the percent from rounding still counts.
+        fired: Math.abs(change) >= alert.percent - 1e-9,
+        message: `${alert.ticker} is at ${price}, ${change >= 0 ? "+" : ""}${change.toFixed(2)}% since the close on ${dayClose.date} (${dayClose.close}; alert at ${alert.percent}% either way).`
+      };
+    }
     case "above":
       return { fired: price >= alert.price, message: `${alert.ticker} is at ${price}, at or above ${alert.price}.` };
     case "below":
@@ -41587,8 +41615,12 @@ function evaluateAlert(alert, position) {
   }
 }
 function pickTickFields(alert) {
-  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice } = alert;
-  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice }).filter(([, value]) => value !== void 0));
+  const { lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate } = alert;
+  return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate }).filter(([, value]) => value !== void 0));
+}
+function untriggered(alert) {
+  const { triggeredAt: _t, triggeredPrice: _p, triggeredDay: _d, highWatermark: _h, ...rest } = alert;
+  return rest;
 }
 var PriceAlerts = class {
   constructor(deps) {
@@ -41630,18 +41662,21 @@ var PriceAlerts = class {
   }
   /** Arm a triggered alert again; a trailing alert restarts from the next price it sees. */
   async rearm(id) {
-    const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...alert } = await this.get(id);
+    const alert = untriggered(await this.get(id));
     await this.deps.store.put(alertKey(id), alert);
     return alert;
   }
-  /** One scheduler tick: one positions read per environment, then every armed alert is evaluated. */
+  /**
+   * One scheduler tick: one positions read per environment, then every armed alert is evaluated, and each day's-move
+   * alert that fired on an earlier trading day is armed again and evaluated.
+   */
   async check(now = /* @__PURE__ */ new Date()) {
-    const armed = (await this.list()).filter((alert) => !alert.triggeredAt);
-    if (!armed.length) return [];
+    const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move" && alert.triggeredDay);
+    if (!due.length) return [];
     const credentials = credentialStatus(this.deps.config);
     const reports = [];
     const positions = /* @__PURE__ */ new Map();
-    for (const alert of armed) {
+    for (const alert of due) {
       if (!credentials[alert.environment]) continue;
       if (!positions.has(alert.environment)) {
         try {
@@ -41655,40 +41690,62 @@ var PriceAlerts = class {
         reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
         continue;
       }
-      let position = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
-      if (!position?.currentPrice) {
-        let quote;
-        try {
-          const instrument = alert.condition === "gain_percent" || alert.condition === "loss_percent" ? void 0 : (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
-          quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
-        } catch (error62) {
-          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error62).message });
-          continue;
+      const holding2 = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      let position = holding2;
+      let instrument;
+      const quoted2 = !position?.currentPrice;
+      try {
+        if (alert.condition !== "gain_percent" && alert.condition !== "loss_percent" && (quoted2 || alert.condition === "day_move")) {
+          const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+          instrument = listed ? { ...holding2?.instrument ?? {}, ...listed } : holding2?.instrument;
         }
-        if (!quote) {
-          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
-          continue;
+        if (alert.triggeredDay && instrument && this.deps.tradingDay && await this.deps.tradingDay(alert.environment, instrument, quoted2, now) === alert.triggeredDay) continue;
+        if (quoted2) {
+          const quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
+          if (!quote) {
+            reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
+            continue;
+          }
+          position = { currentPrice: quote.price, averagePricePaid: 0 };
         }
-        position = { currentPrice: quote.price, averagePricePaid: 0 };
+      } catch (error62) {
+        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error62).message });
+        continue;
       }
-      const outcome = evaluateAlert(alert, position);
+      const price = position.currentPrice;
+      let dayClose;
+      if (alert.condition === "day_move") {
+        const read = !instrument ? { missing: "data", problem: `Trading 212 does not list ${alert.ticker} at the moment.` } : this.deps.dayClose ? await this.deps.dayClose(alert.environment, instrument, price, quoted2, now).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message })) : { missing: "provider", problem: "No quote provider is configured." };
+        if ("missing" in read) {
+          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: read.problem });
+          continue;
+        }
+        if (alert.triggeredAt && alert.triggeredDay === read.day) continue;
+        dayClose = read;
+      }
+      const rearmed = alert.triggeredAt !== void 0;
+      const base = rearmed ? untriggered(alert) : alert;
+      const before = dayClose?.ended !== void 0 && Date.parse(alert.createdAt) >= dayClose.ended;
+      const outcome = before ? { fired: false, message: `${alert.ticker}'s ${dayClose.day} session closed before the alert was set; it counts from the next one.` } : evaluateAlert(base, position, dayClose);
       const updated = {
-        ...alert,
-        lastPrice: position.currentPrice,
+        ...base,
+        lastPrice: price,
         lastCheckedAt: now.toISOString(),
         ...outcome.highWatermark === void 0 ? {} : { highWatermark: outcome.highWatermark },
-        ...outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: position.currentPrice } : {}
+        ...dayClose ? { lastDayChange: Math.round(dayClose.change * 1e6) / 1e6, lastCloseDate: dayClose.date } : {},
+        ...outcome.fired ? { triggeredAt: now.toISOString(), triggeredPrice: price, ...dayClose ? { triggeredDay: dayClose.day } : {} } : {}
       };
-      if (outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== position.currentPrice) {
+      if (rearmed || outcome.fired || updated.highWatermark !== alert.highWatermark || alert.lastPrice !== price || alert.lastCloseDate !== updated.lastCloseDate) {
         const current = await this.deps.store.get(alertKey(alert.id));
-        if (!current || current.createdAt !== alert.createdAt || current.triggeredAt) continue;
-        await this.deps.store.put(alertKey(alert.id), { ...current, ...pickTickFields(updated) });
+        if (!current || current.createdAt !== alert.createdAt) continue;
+        if (current.triggeredAt && !(rearmed && current.triggeredAt === alert.triggeredAt)) continue;
+        await this.deps.store.put(alertKey(alert.id), { ...rearmed ? untriggered(current) : current, ...pickTickFields(updated) });
       }
       if (outcome.fired) {
         await this.deps.trading.recordActivity("price_alert_triggered", alert.environment, {
           ticker: alert.ticker,
           alertId: alert.id,
-          price: position.currentPrice,
+          price,
           outcome: `${outcome.message}${alert.note ? ` ${alert.note}` : ""}`.slice(0, 200)
         });
         reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "triggered", message: outcome.message });
@@ -42330,7 +42387,14 @@ function createServices(input2) {
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
-  const alerts = new PriceAlerts({ config: deps.config, store: deps.store, trading });
+  const alerts = new PriceAlerts({
+    config: deps.config,
+    store: deps.store,
+    trading,
+    // A day's-move alert sets the price against its previous close as the dashboard's day does.
+    dayClose: (environment, instrument, price, quoted2, now) => dayCloseOf({ priceHistory, closes: closes2, schedules }, environment, instrument, price, quoted2, now),
+    tradingDay: async (environment, instrument, quoted2, now) => (await daySessionOf({ schedules }, environment, instrument, quoted2, now)).day
+  });
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });

@@ -86,6 +86,16 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toMatch(/- AAPL_US_EQ is [\d.]+% against a 50.0% target/);
   });
 
+  it("gives a day's-move alert's change since the previous close", async () => {
+    const services = sample();
+    // Set a week ago, so the last session counts whenever the test runs.
+    await services.alerts.create({ environment: "demo", instrument: "AAPL_US_EQ", condition: "day_move", percent: 3 }, new Date(Date.now() - 7 * 86_400_000));
+    const [report] = await services.alerts.check();
+    expect(report?.message).toMatch(/AAPL_US_EQ is at [\d.]+, [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2}/);
+    const text = describePayload(await services.automationOverview("demo"));
+    expect(text).toMatch(/AAPL_US_EQ \(Apple[^)]*\) day's move of 3% either way \(alt_[\w-]+, DEMO\), last [\d.]+ USD(, triggered [^,]+ at [\d.]+ USD)?(, armed)?, [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2}/);
+  });
+
   it("returns nothing for payloads the summary already covers", () => {
     expect(describePayload({ kind: "unknown" })).toBe("");
     expect(describePayload(null)).toBe("");
