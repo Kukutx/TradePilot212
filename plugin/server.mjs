@@ -34946,9 +34946,10 @@ var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result
 function stopOutcome(position, guard) {
   const wallet = position.walletImpact;
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
+  const sale = (level) => level.limitPrice ?? level.stopPrice;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
+  if (guard.levels.some((level) => !(sale(level) < position.currentPrice))) return void 0;
   const rate = value / (position.quantity * position.currentPrice);
-  const sale = (level) => Math.min(level.stopPrice, level.limitPrice ?? level.stopPrice);
   const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : void 0;
   return { drop, ...pnl === void 0 ? {} : { pnlAtStop: pnl * guard.coverage - drop } };

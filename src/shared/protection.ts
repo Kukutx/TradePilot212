@@ -37,16 +37,18 @@ export interface StopOutcome {
 /**
  * What the stops mean once the price has fallen through every one, each selling its shares at its own
  * price, converted at the rate the broker's valuation of the holding implies. A stop-limit is costed at
- * its limit when that is lower, the least it can sell for. Undefined without that valuation, or when the
- * highest stop is not below the last price (it would trigger at once). A gap can fill a stop lower, or
- * leave a stop-limit unfilled, so this is what the stops promise rather than what a fall guarantees.
+ * its limit: once triggered it becomes a Limit order that fills there or better. Undefined without that
+ * valuation, or when a stop or limit is not below the last price (the stop would trigger at once, or the
+ * limit sells above the price). A gap can fill a stop lower, or leave a stop-limit unfilled, so this is
+ * what the stops promise rather than what a fall guarantees.
  */
 export function stopOutcome(position: Position, guard: StopProtection): StopOutcome | undefined {
   const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown } | undefined;
   const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : undefined;
+  const sale = (level: StopLevel) => level.limitPrice ?? level.stopPrice;
   if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return undefined;
+  if (guard.levels.some((level) => !(sale(level) < position.currentPrice))) return undefined;
   const rate = value / (position.quantity * position.currentPrice);
-  const sale = (level: StopLevel) => Math.min(level.stopPrice, level.limitPrice ?? level.stopPrice);
   const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : undefined;
   return { drop, ...(pnl === undefined ? {} : { pnlAtStop: pnl * guard.coverage - drop }) };

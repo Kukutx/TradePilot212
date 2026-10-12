@@ -80,9 +80,12 @@ describe("stop-loss protection", () => {
     // A stop-limit sells at its limit or better, so 10 shares stopped at 110 with a limit of 105 cost (125 - 105) x 10 x 0.8.
     const stopLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 105 }])!;
     expect(stopOutcome(held, stopLimit)).toEqual({ drop: 160, pnlAtStop: -10 });
-    // A limit above the stop sells at the limit or better, so the stop stays the lower bound.
+    // A limit above the stop still fills at the limit or better: (125 - 112) x 10 x 0.8.
     const highLimit = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 112 }])!;
-    expect(stopOutcome(held, highLimit)?.drop).toBe(120);
+    expect(stopOutcome(held, highLimit)?.drop).toBeCloseTo(104, 8);
+    // A limit at or above the last price would not sell on a fall at all, so there is no outcome to show.
+    const aboveLast = stopProtection(held, [{ ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -10, stopPrice: 110, limitPrice: 126 }])!;
+    expect(stopOutcome(held, aboveLast)).toBeUndefined();
   });
 
   it("sums coverage across the portfolio in the account currency", () => {
