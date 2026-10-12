@@ -92,6 +92,31 @@ describe("rebalance planner", () => {
     expect(amount.cashAfter).toBeGreaterThanOrEqual(1000);
   });
 
+  it("says buys are scaled only when the cash falls short of the buys, not of their fee", () => {
+    const valued: Position[] = [{ ...held("SPY", 2, 500, "USD"), walletImpact: { currency: "EUR", currentValue: 800 } }];
+    // 2000 free, SPY 2000 under: the cash covers the buy but not its fee.
+    const fee = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.28 }]);
+    expect(fee.noteDetails?.map((note) => note.code)).not.toContain("buys_scaled");
+    expect(fee.notes.join(" ")).toMatch(/The buys leave room for it/);
+    expect(fee.totals!.bought + fee.totals!.fxFee).toBeLessThanOrEqual(2000);
+    // 2200 under: scaled, and never said as 100%.
+    const short = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.3 }]);
+    expect(short.notes.join(" ")).toMatch(/Buys are scaled to 90% because/);
+  });
+
+  it("charges no fee on pence in a pound account and says only the cash is net of it on a sell", () => {
+    const pounds = { currency: "GBP", totalValue: 10_000, cash: { availableToTrade: 2000 } };
+    const plan = planRebalance("demo", pounds, [held("VUSA", 80, 75, "GBX")], [{ ticker: "VUSA", weight: 0.5 }], {}, () => "GBX");
+    expect(plan.totals).toMatchObject({ converted: 0, fxFee: 0 });
+    expect(plan.noteDetails?.map((note) => note.code)).not.toContain("fx_fee");
+    // Selling a dollar holding down, with no buy: the note does not speak of buys.
+    const dollars: Position[] = [{ ...held("SPY", 10, 500, "USD"), walletImpact: { currency: "EUR", currentValue: 4000 } }];
+    const sold = planRebalance("demo", account, dollars, [{ ticker: "SPY", weight: 0.2 }], { sellUntargeted: true, quantityDecimals: 0 });
+    expect(sold.trades.map((trade) => [trade.side, trade.ticker])).toEqual([["sell", "SPY"]]);
+    expect(sold.notes.join(" ")).toMatch(/none on a trade paid from or into a balance in that currency\. The cash after is net of it\./);
+    expect(sold.cashAfter).toBe(Math.round((2000 + sold.totals!.sold - sold.totals!.fxFee) * 100) / 100);
+  });
+
   it("invests only spare cash in buy-only mode, most to the furthest below", () => {
     // EQ is 2000 over its 4000 target and is not sold; BOND is 2000 under and NEW 1000 under.
     const targets = [{ ticker: "EQ", weight: 0.4 }, { ticker: "BOND", weight: 0.4 }, { ticker: "NEW", weight: 0.1, referencePrice: 10 }];

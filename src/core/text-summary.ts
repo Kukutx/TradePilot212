@@ -381,19 +381,26 @@ function driftLines(drift: AllocationDrift): string[] {
   ]);
 }
 
-/** What converting the part in other currencies costs, as a clause: empty when nothing is converted or no fee is set. */
+/** What converting the part in other currencies costs, as a clause starting "; ", or that none of it is converted. */
 function fxFeeClause(totals: TradeTotals): string {
   if (!(totals.converted > 0)) return "; none of it in another currency";
   const unknown = totals.unknownCurrency ? ` (${totals.unknownCurrency} in a currency not known, counted as converted)` : "";
   return totals.fxFeeRate > 0
-    ? `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, about ${money(totals.fxFee, totals.currency)} in Trading 212's ${num(totals.fxFeeRate * 100, 2)}% conversion fee, none on a trade paid from or into a balance in that currency`
+    ? `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, about ${money(totals.fxFee, totals.currency)} in Trading 212's ${num(totals.fxFeeRate * 100, 3)}% conversion fee, none on a trade paid from or into a balance in that currency`
     : `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, no conversion fee counted (FX_FEE_RATE is 0)`;
 }
 
 function driftTradesLine(totals: TradeTotals): string {
-  if (!(totals.bought > 0) && !(totals.sold > 0)) return "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency.";
+  if (!(totals.bought > 0) && !(totals.sold > 0)) {
+    return totals.buysScaled !== undefined
+      ? "- A rebalance to the targets would buy nothing: no cash is free above the cash target, and nothing is to be sold to pay for the buys."
+      : "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency or within the rounding of a target.";
+  }
   const trades = [totals.bought > 0 ? `buy about ${money(totals.bought, totals.currency)}` : "", totals.sold > 0 ? `sell about ${money(totals.sold, totals.currency)}` : ""].filter(Boolean).join(" and ");
-  return `- A rebalance all the way to the targets would ${trades}${fxFeeClause(totals)}. By weight; whole shares and the cash on hand can trade less.`;
+  const scaled = totals.buysScaled === undefined ? "" : totals.bought > 0
+    ? ` The cash to spare, with what the sells raise, pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys.`
+    : " The cash to spare, with what the sells raise, pays for none of the buys.";
+  return `- A rebalance to the targets would ${trades}${fxFeeClause(totals)}.${scaled} By weight; whole shares can trade a little less.`;
 }
 
 function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {
@@ -679,6 +686,12 @@ function cashHistory(data: { items: Array<{ date: string; type: string; amount: 
   ];
 }
 
+function basketTotalsLine(totals: TradeTotals): string {
+  const bought = `${money(totals.bought, totals.currency)}`;
+  const sold = `${money(totals.sold, totals.currency)}`;
+  return totals.bought > 0 && totals.sold > 0 ? `Buys ${bought}, sells ${sold}.` : totals.bought > 0 ? `Buys ${bought}.` : `Sells ${sold}.`;
+}
+
 function basketDraft(data: BasketDraftPayload & { rebalance?: RebalancePlan }): string[] {
   const plan = data.rebalance;
   const skipped = plan?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
@@ -688,7 +701,7 @@ function basketDraft(data: BasketDraftPayload & { rebalance?: RebalancePlan }): 
     `${data.title} (${data.purpose}, ${env(data.environment)}):`,
     ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === undefined ? "" : ` ≈ ${money(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
     ...(plan ? [`Total value ${money(plan.totalValue, plan.accountCurrency)}; cash ${num(plan.cashBefore)} before, ${num(plan.cashAfter)} after.`] : []),
-    ...(plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [`Buys ${money(plan.totals.bought, plan.totals.currency)}, sells ${money(plan.totals.sold, plan.totals.currency)}.`] : []),
+    ...(plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [basketTotalsLine(plan.totals)] : []),
     ...section("Skipped", rows(skipped, (line) => line)),
     ...section("Notes", rows(notes, (line) => line)),
   ];

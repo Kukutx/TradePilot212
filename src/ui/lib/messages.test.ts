@@ -73,7 +73,7 @@ describe("rebalance notes", () => {
     expect(notes).toEqual(expect.arrayContaining(["1 个没有设目标的持仓保持不变。", "USD 的汇率取自券商对你持仓的估值。"]));
     expect(notes.find((note) => note.includes("缩减"))).toMatch(/€.*\d+%/);
     // Apple and Coca-Cola are in dollars: the fee is on those trades only.
-    expect(notes.find((note) => note.includes("换汇费"))).toMatch(/^这些交易中有 €[\d,.]+ 涉及其他货币，按 0\.15% 的换汇费计约 €[\d,.]+；/);
+    expect(notes.find((note) => note.includes("汇兑费"))).toMatch(/^这些交易中有 €[\d,.]+ 涉及其他货币，按 0\.15% 的汇兑费计约 €[\d,.]+；/);
     expect(notes.every((note) => !/[a-z]{5,}/.test(note))).toBe(true);
     expect(plan.skipped.map((item) => rebalanceSkipText(item, zh))).toEqual(["没有价格：未持有，报价源也取不到。"]);
   });

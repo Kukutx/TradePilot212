@@ -35,7 +35,7 @@ const floorTo = (value: number, digits: number) => {
 };
 const money = (value: number) => Math.round(value * 100) / 100;
 const share = (value: number) => Math.round(value * 10_000) / 10_000;
-/** A fee rate as a percent with no trailing zeros: 0.0015 is "0.15%". */
+/** A fee rate as a percent with no trailing zeros, to three decimals as the widget shows it: 0.0015 is "0.15%". */
 const feePercent = (rate: number) => `${Number((rate * 100).toFixed(3))}%`;
 
 interface Line {
@@ -170,8 +170,10 @@ export function planRebalance(
   if (buyOnly) note("buy_only", `Nothing is sold: up to ${money(budget)} ${accountCurrency} of the cash above the reserve goes to the targets below their weight, most to the furthest below.`, { budget: money(budget), currency: accountCurrency });
   if (options.investAmount !== undefined && options.investAmount > available + 0.005) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
-  // In buy-only mode the buy_only note already gives the amount being invested.
-  if (!buyOnly && wantedCash > 0 && scale < 1) note("buys_scaled", `Buys are scaled to ${(scale * 100).toFixed(0)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  // In buy-only mode the buy_only note already gives the amount being invested. Short of only the conversion fee, the
+  // buys are a hair smaller (the fee note says so), not scaled down.
+  const shortOfBuys = budget + 0.005 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
+  if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
   for (const { line, gap } of shortfalls) {
     const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
     const value = quantity * line.price / line.fx;
@@ -195,7 +197,7 @@ export function planRebalance(
   }
   const totals = tradeTotals(trades, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE);
   if (totals.converted > 0 && totals.fxFeeRate > 0) {
-    note("fx_fee", `Trades in other currencies come to ${totals.converted} ${accountCurrency}; Trading 212's ${feePercent(totals.fxFeeRate)} conversion fee on them is about ${totals.fxFee} ${accountCurrency}, none on a trade paid from or into a balance in that currency. The buys leave room for it and the cash after is net of it.`,
+    note("fx_fee", `Trades in other currencies come to ${totals.converted} ${accountCurrency}; Trading 212's ${feePercent(totals.fxFeeRate)} conversion fee on them is about ${totals.fxFee} ${accountCurrency}, none on a trade paid from or into a balance in that currency. ${totals.bought > 0 ? "The buys leave room for it and the cash after is net of it." : "The cash after is net of it."}`,
       { converted: totals.converted, fee: totals.fxFee, rate: totals.fxFeeRate, currency: accountCurrency });
   }
   if (!trades.length) {

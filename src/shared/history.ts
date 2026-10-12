@@ -240,9 +240,9 @@ export interface AllocationDrift {
   /** The holdings measured for risk by holding, at these targets: present with risk by holding, from 2.50. */
   volatility?: TargetVolatility;
   /**
-   * What a rebalance all the way to these targets would buy and sell, by the change in each weight times the account's
-   * value, and the conversion fee on the part in other currencies: from 2.52. Holdings without a target count only
-   * when the targets sell them.
+   * What a rebalance to these targets would buy and sell, by the change in each weight times the account's value with
+   * the buys fitted to the cash as the planner fits them, and the conversion fee on the part in other currencies: from
+   * 2.52. Holdings without a target count only when the targets sell them.
    */
   rebalance?: TradeTotals;
 }

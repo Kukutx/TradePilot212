@@ -6,7 +6,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Instrument } from "../../shared/contracts";
 import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload, HoldingRisk } from "../../shared/history";
 import { equalRiskTargets, OVER_ACCOUNT, targetRiskOf, type TargetRisk } from "../../shared/holding-risk";
-import { DEFAULT_FX_FEE_RATE, tradeTotals, weightTrades, type TradeTotals } from "../../shared/trade-cost";
+import { DEFAULT_FX_FEE_RATE, knownCurrency, rebalanceEstimate, type TradeTotals } from "../../shared/trade-cost";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { parseAmount, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -46,13 +46,31 @@ const downText = (share: number) => percentText(Math.max(0, Math.floor(share * 1
 /** A share as the server keeps it: four decimals (0.01%). */
 const serverShare = (share: number) => Math.round(share * 10_000) / 10_000;
 
+/**
+ * Shares as the form shows them, each to the nearest 0.01%, so a rebalance to them moves as little as the rounding
+ * allows; while together they would come to more than `room`, the ones rounded up the most are rounded down instead.
+ */
+function nearestTexts(shares: ReadonlyMap<string, number>, room: number): Map<string, string> {
+  const exact = [...shares].map(([ticker, share]) => ({ ticker, units: Math.max(0, share) * 10_000 }));
+  const steps = new Map(exact.map((item) => [item.ticker, Math.round(item.units)]));
+  const limit = Math.floor(Math.max(0, room) * 10_000 + 1e-6);
+  let total = [...steps.values()].reduce((sum, value) => sum + value, 0);
+  const up = exact.filter((item) => steps.get(item.ticker)! > item.units + 1e-9).sort((a, b) => (a.units % 1) - (b.units % 1));
+  for (const item of up) {
+    if (total <= limit) break;
+    steps.set(item.ticker, steps.get(item.ticker)! - 1);
+    total -= 1;
+  }
+  return new Map([...steps].map(([ticker, value]) => [ticker, percentText(value / 10_000)]));
+}
+
 /** A row of the form; `currency` is the instrument's quote currency, when known. */
 export interface TargetRow { ticker: string; name?: string; current: number; held: boolean; currency?: string }
 /** An instrument not held in the form: a saved target, or one added from the search. */
 export interface AwayRow { ticker: string; name?: string; currency?: string }
 
 const heldRows = (data: Pick<Data, "holdings">): TargetRow[] => data.holdings.filter((holding) => holding.value > 0).sort((a, b) => b.value - a.value)
-  .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true, ...(holding.currency ? { currency: holding.currency } : {}) }));
+  .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true, ...(knownCurrency(holding.currency) ? { currency: holding.currency } : {}) }));
 
 /** The saved targets not held, as the form opens. */
 export function savedAway(data: Pick<Data, "holdings" | "drift">): AwayRow[] {
@@ -129,7 +147,10 @@ export function presetForm(preset: TargetPreset, data: Data, cashText: string, a
     }
   }
   const parity = preset === "parity" ? parityShares(data) : undefined;
-  return { weights: fillWith((row) => parity?.get(row.ticker) ?? row.current), cash: downText(data.cashWeight) };
+  // Today's weights to the nearest 0.01%, so they trade nothing worth the name; within what the cash and the rest leave.
+  const cash = Math.max(0, Math.floor(data.cashWeight * 10_000 + 1e-9) / 10_000);
+  const texts = nearestTexts(new Map(rows.filter((row) => chosen.has(row.ticker)).map((row) => [row.ticker, parity?.get(row.ticker) ?? row.current])), 1 - cash - rest);
+  return { weights: Object.fromEntries(rows.map((row) => [row.ticker, texts.get(row.ticker) ?? ""])), cash: downText(data.cashWeight) };
 }
 
 export type TargetProblem = "weight" | "cash" | "threshold" | "none" | "many" | "over";
@@ -181,19 +202,22 @@ export function typedTargets(form: TargetForm, tickers: string[]): Map<string, n
 
 /**
  * What a rebalance to the weights typed would trade, as the drift panel works it out for the saved ones: each row from
- * its share today to the one typed, and the holdings left without a target kept, or sold with `sell`. Only with the
- * account's value and currency.
+ * its share today to the one typed, and the holdings left without a target kept, or sold with `sell`; the buys fitted
+ * to the cash above the cash share typed (or left) and what the sells raise. Only with the account's value and currency.
  */
-export function formTrades(form: TargetForm, rows: readonly TargetRow[], data: Pick<Data, "totalValue" | "accountCurrency" | "fxFeeRate">): TradeTotals | undefined {
+export function formTrades(form: TargetForm, rows: readonly TargetRow[], data: Pick<Data, "totalValue" | "accountCurrency" | "fxFeeRate" | "cash" | "availableCash">): TradeTotals | undefined {
   if (!data.accountCurrency || !(data.totalValue > 0)) return undefined;
-  const typed = typedTargets(form, rows.map((row) => row.ticker));
+  const tickers = rows.map((row) => row.ticker);
+  const typed = typedTargets(form, tickers);
+  const cashShare = readForm(form, tickers).cash / 100;
+  const freeCash = data.availableCash ?? data.cash;
   const moves = rows.map((row) => ({
     ticker: row.ticker,
     current: row.current,
     target: typed.get(row.ticker) ?? (row.held && !form.sell ? row.current : 0),
     ...(row.currency ? { currency: row.currency } : {}),
   }));
-  return tradeTotals(weightTrades(moves, data.totalValue), data.accountCurrency, data.fxFeeRate ?? DEFAULT_FX_FEE_RATE);
+  return rebalanceEstimate(moves, data.totalValue, data.accountCurrency, data.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash - cashShare * data.totalValue);
 }
 
 /**

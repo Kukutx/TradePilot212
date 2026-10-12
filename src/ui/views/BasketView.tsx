@@ -9,6 +9,7 @@ import type {
   RebalanceTrade,
 } from "../../shared/automation";
 import type { ExecutionVerificationResult, OrderNotice } from "../../shared/contracts";
+import { tradeTotals, type TradeTotals } from "../../shared/trade-cost";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { DetailRow, Icon, InstrumentName, useDialog } from "../components/common";
 import { amount, dateTime, money, notional, pct, qty, time } from "../lib/format";
@@ -157,16 +158,28 @@ function withoutSkipped(all: string[], plan?: RebalancePlan): string[] {
   return notes.filter((note) => !skipped.has(note) && !note.startsWith(`Skipped ${plan.skipped.length} instrument(s)`));
 }
 
-function RebalanceSummary({ plan, book, t, locale }: { plan: RebalancePlan; book?: InstrumentBook; t: Translator; locale: SupportedLocale }) {
+/**
+ * What the trades still in the basket come to, and the cash after them: the plan's own figures while every trade is
+ * there, worked out again from the ones left once some are taken out (the fee at the plan's rate).
+ */
+export function basketTotals(plan: RebalancePlan, kept: readonly RebalanceTrade[]): { totals?: TradeTotals; cashAfter: number } {
+  if (kept.length === plan.trades.length) return { ...(plan.totals ? { totals: plan.totals } : {}), cashAfter: plan.cashAfter };
+  const totals = tradeTotals(kept, plan.accountCurrency, plan.totals?.fxFeeRate ?? 0);
+  // The fee comes off what a sell raises and on top of what a buy costs.
+  const cashAfter = Math.round((plan.cashBefore + totals.sold - totals.bought - totals.fxFee) * 100) / 100;
+  return { ...(plan.totals ? { totals } : {}), cashAfter };
+}
+
+function RebalanceSummary({ plan, kept, book, t, locale }: { plan: RebalancePlan; kept: readonly RebalanceTrade[]; book?: InstrumentBook; t: Translator; locale: SupportedLocale }) {
   // What the trades come to, and the conversion fee on the ones in other currencies (its note says when there is none).
-  const { totals } = plan;
+  const { totals, cashAfter } = basketTotals(plan, kept);
   return (
     <section className="rebalanceSummary" aria-label={t("rebalanceSummary")}>
       <span className="policyTitle">{t("rebalanceSummary")}</span>
       <div className="confirmationRows">
         <DetailRow label={t("totalValue")} value={money(plan.totalValue, plan.accountCurrency, locale)} />
         <DetailRow label={t("cashBefore")} value={money(plan.cashBefore, plan.accountCurrency, locale)} />
-        <DetailRow label={t("cashAfter")} value={money(plan.cashAfter, plan.accountCurrency, locale)} />
+        <DetailRow label={t("cashAfter")} value={money(cashAfter, plan.accountCurrency, locale)} />
         {totals && totals.bought > 0 && <DetailRow label={t("rebalanceBought")} value={money(totals.bought, plan.accountCurrency, locale)} />}
         {totals && totals.sold > 0 && <DetailRow label={t("rebalanceSold")} value={money(totals.sold, plan.accountCurrency, locale)} />}
         {totals && totals.converted > 0 && totals.fxFeeRate > 0 && <DetailRow label={t("rebalanceFxFee")} value={money(totals.fxFee, plan.accountCurrency, locale)} />}
@@ -228,7 +241,7 @@ export function BasketView({
     <main className="transactionStage">
       <section className={`transactionPanel basketPanel ${live ? "liveTransaction" : ""}`} aria-labelledby="basket-title">
         <BasketHeader environment={payload.environment} basket={basket} count={legs.length} book={book} t={t} locale={locale} onClose={onClose} headingProps={{ id: "basket-title" }} />
-        {payload.rebalance && <RebalanceSummary plan={payload.rebalance} book={book} t={t} locale={locale} />}
+        {payload.rebalance && <RebalanceSummary plan={payload.rebalance} kept={legs.map(tradeFor).filter((trade): trade is RebalanceTrade => !!trade)} book={book} t={t} locale={locale} />}
         {legs.length === 0 ? <div className="emptyState compact">{t("basketEmpty")}</div> : (
           <ol className="basketLegList">
             {legs.map((leg, index) => (
