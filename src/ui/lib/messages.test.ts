@@ -16,6 +16,7 @@ import {
   formatProblem,
   instrumentTypeLabel,
   legReason,
+  purposeLabel,
   legSkipText,
   noticeText,
   orderStatusLabel,
@@ -159,6 +160,21 @@ describe("server-written basket text", () => {
     const dca = { purpose: "dca" as const, title: "Monthly", legs: [] };
     const sized = basketNoteText("Sized from each holding's last broker price, or an external quote for legs not held yet; 100 EUR VUSAl_EQ, 50 EUR AAPL_US_EQ.", dca, zh, "zh-CN", { VUSAl_EQ: { name: "Vanguard S&P 500 UCITS ETF" } });
     expect(sized).toBe("按各持仓的券商最新价计算数量，尚未持有的使用外部报价：€100.00 Vanguard S&P 500 UCITS ETF、€50.00 AAPL。");
+  });
+
+  it("translates the stop basket the server drafts for unprotected holdings", () => {
+    // The exact sentences src/core/trading-service.ts writes; automation.test.ts pins the same text.
+    const stops = { purpose: "protective" as const, title: "Stop-losses for unprotected holdings", legs: [protective.legs[0]!] };
+    expect(basketTitle(stops, zh)).toBe("为未保护的持仓设置止损");
+    expect(purposeLabel(stops.purpose, zh, stops.legs)).toBe(zh("stopLoss"));
+    expect(purposeLabel(protective.purpose, zh, protective.legs)).toBe(zh("basketPurposeProtective"));
+    expect(legReason({ ...stops.legs[0]!, reason: "Matches the existing stop" }, stops, zh)).toBe("与现有止损同价");
+    expect(legReason({ ...stops.legs[0]!, reason: "8% below the last price" }, stops, zh)).toBe("比现价低 8%");
+    expect(basketNoteText("Each order stays at Trading 212 until it triggers or you cancel it.", stops, zh, "zh-CN")).toBe(zh("stopsNoteStays"));
+    expect(basketNoteText("A holding that already has a stop gets one at the same price for its uncovered shares; the others start 8% below the last price.", stops, zh, "zh-CN"))
+      .toBe("已有止损的持仓，未覆盖的部分沿用同一止损价；其余持仓的止损价设在现价下方 8%。");
+    expect(basketNoteText("3 more holding(s) without a full stop were left out; a basket holds at most 20 orders.", stops, zh, "zh-CN"))
+      .toBe("另有 3 只没有完整止损的持仓未列入，一个篮子最多 20 张订单。");
   });
 
   it("counts a basket result from its legs", () => {

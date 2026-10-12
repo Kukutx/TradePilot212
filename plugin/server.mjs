@@ -34942,6 +34942,73 @@ var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
+// src/shared/protection.ts
+function stopOutcome(position, guard) {
+  const wallet = position.walletImpact;
+  const value = typeof wallet?.currentValue === "number" && Number.isFinite(wallet.currentValue) ? wallet.currentValue : void 0;
+  const sale = (level) => level.limitPrice ?? level.stopPrice;
+  if (!value || !(position.quantity > 0) || !(guard.stopPrice < position.currentPrice)) return void 0;
+  if (guard.unsized || !guard.levels.length) return void 0;
+  const rate = value / (position.quantity * position.currentPrice);
+  const drop = guard.levels.reduce((sum, level) => sum + (position.currentPrice - sale(level)) * level.quantity, 0) * rate;
+  const pnl = typeof wallet?.unrealizedProfitLoss === "number" && Number.isFinite(wallet.unrealizedProfitLoss) ? wallet.unrealizedProfitLoss : void 0;
+  return { drop, ...pnl === void 0 ? {} : { pnlAtStop: pnl * guard.coverage - drop } };
+}
+function isSellStop(order) {
+  if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
+  return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
+}
+function sellsOnFall(order) {
+  return !(typeof order.limitPrice === "number" && typeof order.stopPrice === "number" && order.limitPrice > order.stopPrice);
+}
+function stopProtection(position, orders) {
+  const ticker = position.instrument.ticker;
+  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order) && sellsOnFall(order));
+  if (!stops.length || !(position.quantity > 0)) return void 0;
+  const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
+  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
+  const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
+  const byPrice = /* @__PURE__ */ new Map();
+  for (const order of stops) {
+    const limit = typeof order.limitPrice === "number" && order.limitPrice > 0 ? order.limitPrice : void 0;
+    const key = `${order.stopPrice}|${limit ?? ""}`;
+    const level = byPrice.get(key) ?? { stopPrice: order.stopPrice, quantity: 0, ...limit === void 0 ? {} : { limitPrice: limit } };
+    byPrice.set(key, { ...level, quantity: level.quantity + remaining(order) });
+  }
+  const levels = [];
+  let left = covered;
+  for (const level of [...byPrice.values()].sort((a, b) => b.stopPrice - a.stopPrice || (b.limitPrice ?? Infinity) - (a.limitPrice ?? Infinity))) {
+    const take = Number(Math.min(level.quantity, left).toFixed(8));
+    if (take > 0) levels.push({ ...level, quantity: take });
+    left = Number((left - take).toFixed(8));
+  }
+  const unsized = stops.filter((order) => String(order.strategy ?? "").toUpperCase() === "VALUE" || typeof order.quantity !== "number" || order.quantity === 0).length;
+  const last = position.currentPrice;
+  return {
+    ticker,
+    stopPrice,
+    ...last > 0 ? { gap: (stopPrice - last) / last } : {},
+    covered,
+    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
+    orders: stops.length,
+    levels,
+    ...unsized ? { unsized } : {}
+  };
+}
+var SUGGESTED_STOP_DROP = 0.08;
+var STOPS_BASKET_TITLE = "Stop-losses for unprotected holdings";
+function roundPrice(price) {
+  return price >= 1 ? Math.round(price * 100) / 100 : Number(price.toPrecision(4));
+}
+function suggestedStop(position, guard, drop = SUGGESTED_STOP_DROP) {
+  if (!(position.currentPrice > 0)) return void 0;
+  const uncovered = Number((position.quantity - (guard?.covered ?? 0)).toFixed(8));
+  const quantity = Math.min(uncovered, position.quantityAvailableForTrading);
+  if (!(quantity > 0)) return void 0;
+  const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - drop));
+  return { quantity, stopPrice };
+}
+
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
   const account = accountCurrency.toUpperCase();
@@ -35994,6 +36061,55 @@ var TradingService = class {
         "Both orders stay at Trading 212 until they fill or you cancel them.",
         ...legs.length === 2 ? [this.deps.config.protectiveLinking ? "TradePilot links the two orders: about a minute after one fills, it cancels the other. Trading 212 may reject the second if the first already reserves the shares; then only the first is placed." : "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares."] : [],
         "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price."
+      ]
+    };
+  }
+  /**
+   * One Good-Till-Cancel sell stop for every holding whose free shares no pending sell stop covers yet,
+   * largest uncovered value first, as a basket the user confirms once. Each stop matches the holding's
+   * existing stop, or starts `dropPercent` below the last price. Trading 212 triggers them; nothing runs here.
+   */
+  async stopsBasket(environment, input2 = {}) {
+    requireCredentials(this.deps.config, environment);
+    const drop = (input2.dropPercent ?? SUGGESTED_STOP_DROP * 100) / 100;
+    const [snapshot, orders] = await Promise.all([this.snapshot(environment), this.client(environment).getOrders()]);
+    const only = input2.tickers?.length ? new Set(input2.tickers.map((query) => resolveInstrumentFromList(snapshot.instruments, query).ticker)) : void 0;
+    const accountCurrency = snapshot.account.currency ?? "";
+    const rates = knownFxRates(snapshot.positions, accountCurrency);
+    const exposure = (position, quantity) => {
+      const wallet = position.walletImpact?.currentValue;
+      if (typeof wallet === "number" && Number.isFinite(wallet)) return wallet * (quantity / position.quantity);
+      return toAccountCurrency(quantity * position.currentPrice, position.instrument.currencyCode, accountCurrency, rates) ?? -1;
+    };
+    const missing = [...only ?? []].filter((ticker) => !snapshot.positions.some((position) => position.instrument.ticker === ticker && position.quantity > 0));
+    if (missing.length) fail("NO_AVAILABLE_POSITION", `There is no ${missing.join(", ")} position to protect`);
+    const candidates2 = snapshot.positions.flatMap((position) => {
+      if (only && !only.has(position.instrument.ticker)) return [];
+      const guard = stopProtection(position, orders);
+      const stop = suggestedStop(position, guard, drop);
+      return stop ? [{ position, stop, matched: guard !== void 0 && stop.stopPrice === guard.stopPrice, exposure: exposure(position, stop.quantity) }] : [];
+    }).sort((a, b) => b.exposure - a.exposure);
+    if (!candidates2.length) {
+      fail("NO_AVAILABLE_POSITION", `${only ? "None of those holdings has" : "No holding has"} shares free to sell that a pending stop-loss does not already cover`);
+    }
+    const percent = Number((drop * 100).toFixed(2));
+    const legs = candidates2.slice(0, MAX_BASKET_LEGS).map(({ position, stop, matched }) => ({
+      draft: { environment, ticker: position.instrument.ticker, side: "sell", type: "stop", quantity: stop.quantity, stopPrice: stop.stopPrice, timeValidity: "GOOD_TILL_CANCEL" },
+      // The widget translates these two reasons (src/ui/lib/messages.ts legReason).
+      reason: matched ? "Matches the existing stop" : `${percent}% below the last price`
+    }));
+    const left = candidates2.length - legs.length;
+    return {
+      kind: "basket_draft",
+      environment,
+      purpose: "protective",
+      title: STOPS_BASKET_TITLE,
+      legs,
+      notes: [
+        "Each order stays at Trading 212 until it triggers or you cancel it.",
+        `A holding that already has a stop gets one at the same price for its uncovered shares; the others start ${percent}% below the last price.`,
+        "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+        ...left > 0 ? [`${left} more holding(s) without a full stop were left out; a basket holds at most ${MAX_BASKET_LEGS} orders.`] : []
       ]
     };
   }
@@ -37802,31 +37918,8 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.25.0"
+  version: "2.26.0"
 };
-
-// src/shared/protection.ts
-function isSellStop(order) {
-  if (typeof order.stopPrice !== "number" || !(order.stopPrice > 0)) return false;
-  return String(order.side ?? "").toUpperCase() === "SELL" || typeof order.quantity === "number" && order.quantity < 0;
-}
-function stopProtection(position, orders) {
-  const ticker = position.instrument.ticker;
-  const stops = orders.filter((order) => order.ticker === ticker && isSellStop(order));
-  if (!stops.length || !(position.quantity > 0)) return void 0;
-  const remaining = (order) => Math.max(0, Math.abs(order.quantity ?? 0) - Math.abs(order.filledQuantity ?? 0));
-  const covered = Math.min(position.quantity, Number(stops.reduce((sum, order) => sum + remaining(order), 0).toFixed(8)));
-  const stopPrice = Math.max(...stops.map((order) => order.stopPrice));
-  const last = position.currentPrice;
-  return {
-    ticker,
-    stopPrice,
-    ...last > 0 ? { gap: (stopPrice - last) / last } : {},
-    covered,
-    coverage: covered >= position.quantity ? 1 : covered / position.quantity,
-    orders: stops.length
-  };
-}
 
 // src/core/text-summary.ts
 var MAX_ROWS = 30;
@@ -37900,13 +37993,25 @@ function activityLine(event) {
   const details = [event.side, event.quantity === void 0 ? void 0 : num2(event.quantity, 8), event.ticker, event.orderType, event.orderId ? `order ${event.orderId}` : void 0, event.planId ? `plan ${event.planId}` : void 0, event.outcome].filter((item) => item !== void 0 && item !== "").join(" ");
   return `${minute(event.timestamp)} ${event.type}${details ? `: ${details}` : ""}`;
 }
-function protectionLines(positions, orders) {
+function stopText(position, guard, currency) {
+  const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
+  const prices = [...new Set(guard.levels.map((level) => level.stopPrice))];
+  const several = prices.length > 1;
+  const range = several ? ` down to ${num2(Math.min(...prices), 6)}` : "";
+  const limitLevels = guard.levels.filter((level) => level.limitPrice !== void 0);
+  const limit = limitLevels[0]?.limitPrice;
+  const limits = limit === void 0 ? "" : limitLevels.length > 1 ? " (stop-limits sell at their limit or better, or not at all after a gap)" : ` (stop-limit: sells at ${num2(limit, 6)} or better, or not at all after a gap)`;
+  const outcome = stopOutcome(position, guard);
+  const when = `${several ? "if every stop triggers" : "if it triggers"}${limit === void 0 ? "" : " and fills"}`;
+  const cost = outcome ? `; ${when}: ${money2(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
+  const share3 = !guard.unsized ? `${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)})` : `${guard.covered > 0 ? `at least ${num2(guard.covered, 8)}` : "an unknown number"} of ${num2(position.quantity, 8)} (${guard.unsized} stop(s) placed by amount)`;
+  return `${guard.ticker} ${share3} from ${num2(guard.stopPrice, 6)}${range}${limits}${gap}${cost}`;
+}
+function protectionLines(positions, orders, currency) {
   if (!positions.length) return [];
   const guarded = positions.flatMap((position) => {
     const guard = stopProtection(position, orders);
-    if (!guard) return [];
-    const gap = guard.gap === void 0 ? "" : `, ${pct(Math.abs(guard.gap))} ${guard.gap < 0 ? "below" : "above"} the last price`;
-    return [`${guard.ticker} ${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)}) from ${num2(guard.stopPrice, 6)}${gap}`];
+    return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
   return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
@@ -37922,7 +38027,7 @@ function portfolio(data) {
     ...data.account ? [accountLine(data.environment, data.account)] : [],
     ...valueHistoryLines(data.valueTrend),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
-    ...protectionLines(holdings, data.orders),
+    ...protectionLines(holdings, data.orders, data.account?.currency),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine))
   ];
@@ -37980,6 +38085,10 @@ function valueHistoryLines(points2) {
     `Account value recorded on ${points2.length} day(s): ${num2(first.totalValue)} on ${first.date} to ${num2(last.totalValue)} on ${last.date} (${signed(change)}${first.totalValue ? `, ${signed(change / first.totalValue * 100, 1)}%` : ""}; includes deposits and withdrawals). Low ${num2(low.totalValue)} on ${low.date}, high ${num2(high.totalValue)} on ${high.date}.`
   ];
 }
+function holdingStopLine(position, orders, currency) {
+  const guard = stopProtection(position, orders);
+  return guard ? `Stop-loss: ${stopText(position, guard, currency)}.` : "Stop-loss: none.";
+}
 function holding(data) {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -37990,6 +38099,7 @@ function holding(data) {
     ...credentialsLine(data.environment, data.credentials),
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight2}.` : `Not held${data.targetWeight === void 0 ? "" : `; target ${pct(data.targetWeight)}`}.`,
+    ...data.position ? [holdingStopLine(data.position, data.orders, c)] : [],
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...history ? [
@@ -39309,6 +39419,29 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         try {
           const data = { ...await trading.withInstruments(await trading.protectiveBasket(environment, instrument, input2)), credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Drafted ${data.legs.length} protective order(s) for review. Nothing has been sent.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    j(
+      server2,
+      "review_portfolio_stops",
+      {
+        title: "Review Stop-Losses for Unprotected Holdings",
+        description: `Draft one Good-Till-Cancel Stop sell for every holding whose shares free to sell no pending sell stop covers yet, as one basket the user confirms once (largest first, up to ${MAX_BASKET_LEGS}). A holding that already has a stop below the price gets the same stop price for its uncovered shares; the others get dropPercent below the last price. Review-only; never places an order. Use review_protective_orders for one holding with a chosen price or a take-profit.`,
+        inputSchema: external_exports.object({
+          environment: environmentWithDefault,
+          dropPercent: external_exports.number().min(1).max(50).optional().describe("Percent below the last price for holdings without a stop (default 8)"),
+          tickers: external_exports.array(external_exports.string().min(1)).min(1).max(MAX_BASKET_LEGS).optional().describe("Only these holdings; default every holding")
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, ...input2 }) => {
+        try {
+          const data = { ...await trading.withInstruments(await trading.stopsBasket(environment, input2)), credentials: credentialStatus(config3), writeEnabled: true };
+          return result(data, `Drafted ${data.legs.length} stop-loss order(s) for review. Nothing has been sent.`);
         } catch (error62) {
           return toolError(error62);
         }

@@ -13,8 +13,8 @@ const positions: Position[] = [
   { instrument: instruments[1]!, quantity: 100, quantityAvailableForTrading: 100, quantityInPies: 0, averagePricePaid: 5, currentPrice: 5 },
 ];
 
-/** A fake Trading 212: records every write, and fails writes for tickers listed in `failures`. */
-function broker(failures: Record<string, number> = {}) {
+/** A fake Trading 212: records every write, fails writes for tickers listed in `failures`, and lists `orders` as pending. */
+function broker(failures: Record<string, number> = {}, orders: unknown[] = [], held: Position[] = positions) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -25,16 +25,17 @@ function broker(failures: Record<string, number> = {}) {
       const status = failures[String(body.ticker)];
       return status ? json({ code: "Rejected" }, status) : json({ id: writes.length, ...body });
     }
-    if (url.endsWith("/equity/metadata/instruments")) return json(instruments);
-    if (url.endsWith("/equity/positions")) return json(positions);
+    if (url.endsWith("/equity/metadata/instruments")) return json([...instruments, ...held.map((position) => position.instrument).filter((instrument) => !instruments.includes(instrument))]);
+    if (url.endsWith("/equity/positions")) return json(held);
     if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 5000, cash: { availableToTrade: 1500 } });
+    if (url.endsWith("/equity/orders")) return json(orders);
     return json([]);
   }) as typeof fetch;
   return { fetcher, writes };
 }
 
-function setup(env: RuntimeEnv = {}, failures: Record<string, number> = {}) {
-  const fake = broker(failures);
+function setup(env: RuntimeEnv = {}, failures: Record<string, number> = {}, orders: unknown[] = [], held: Position[] = positions) {
+  const fake = broker(failures, orders, held);
   const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", T212_LIVE_API_KEY: "k", T212_LIVE_API_SECRET: "s", ...env });
   const store = new MemoryStateStore();
   return { ...createServices({ config, store, fetcher: fake.fetcher }), writes: fake.writes, store };
@@ -137,6 +138,52 @@ describe("protective orders and rebalance drafts", () => {
     expect(draft.legs.map((leg) => [leg.draft.type, leg.draft.quantity, leg.draft.timeValidity])).toEqual([["stop", 30, "GOOD_TILL_CANCEL"], ["limit", 30, "GOOD_TILL_CANCEL"]]);
     await expect(trading.protectiveBasket("demo", "VUSA", { stopLossPrice: 110 })).rejects.toThrow(/below the current price/);
     await expect(trading.protectiveBasket("demo", "EQQQ", { stopLossPrice: 1 })).rejects.toThrow(/no tradable/);
+  });
+
+  it("drafts one stop per holding without a full stop, largest first, and sends them as sell stops", async () => {
+    const { trading, writes } = setup();
+    const draft = await trading.stopsBasket("demo");
+    expect(draft.purpose).toBe("protective");
+    // The widget recognises these sentences to translate them (src/ui/lib/messages.test.ts).
+    expect(draft.notes).toEqual([
+      "Each order stays at Trading 212 until it triggers or you cancel it.",
+      "A holding that already has a stop gets one at the same price for its uncovered shares; the others start 8% below the last price.",
+      "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.",
+    ]);
+    expect(draft.legs.map((leg) => [leg.draft.ticker, leg.draft.type, leg.draft.quantity, leg.draft.stopPrice, leg.draft.timeValidity])).toEqual([
+      ["VUSA_EQ", "stop", 30, 92, "GOOD_TILL_CANCEL"],
+      ["AGGH_EQ", "stop", 100, 4.6, "GOOD_TILL_CANCEL"],
+    ]);
+    expect((await trading.stopsBasket("demo", { dropPercent: 10, tickers: ["AGGH"] })).legs.map((leg) => [leg.draft.ticker, leg.draft.stopPrice])).toEqual([["AGGH_EQ", 4.5]]);
+    const preview = await trading.prepareBasket({ environment: "demo", purpose: draft.purpose, title: draft.title, drafts: draft.legs.map((leg) => leg.draft) });
+    expect((await trading.executeBasket(preview.token)).status).toBe("submitted");
+    expect(writes.map((write) => [write.path, write.body.ticker, write.body.quantity, write.body.stopPrice])).toEqual([
+      ["/api/v0/equity/orders/stop", "VUSA_EQ", -30, 92],
+      ["/api/v0/equity/orders/stop", "AGGH_EQ", -100, 4.6],
+    ]);
+  });
+
+  it("ranks holdings by account-currency value and puts one it cannot convert last", async () => {
+    // 1000 pence-quoted shares at 250 GBX: 250000 in the quote currency, but no valuation and no GBP rate to convert it.
+    const lgen: Position = { instrument: { ticker: "LGENl_EQ", name: "Legal & General", shortName: "LGEN", currencyCode: "GBX", type: "STOCK" }, quantity: 1000, quantityAvailableForTrading: 1000, quantityInPies: 0, averagePricePaid: 240, currentPrice: 250 };
+    const { trading } = setup({}, {}, [], [lgen, ...positions]);
+    expect((await trading.stopsBasket("demo")).legs.map((leg) => leg.draft.ticker)).toEqual(["VUSA_EQ", "AGGH_EQ", "LGENl_EQ"]);
+  });
+
+  it("covers only the shares an existing stop leaves, at that stop's price, and says when nothing is left", async () => {
+    const partly = setup({}, {}, [{ id: 7, ticker: "VUSA_EQ", type: "STOP", side: "SELL", quantity: -10, stopPrice: 95 }]);
+    expect((await partly.trading.stopsBasket("demo")).legs.map((leg) => [leg.draft.ticker, leg.draft.quantity, leg.draft.stopPrice, leg.reason])).toEqual([
+      ["VUSA_EQ", 20, 95, "Matches the existing stop"],
+      ["AGGH_EQ", 100, 4.6, "8% below the last price"],
+    ]);
+    const full = setup({}, {}, [
+      { id: 7, ticker: "VUSA_EQ", type: "STOP", side: "SELL", quantity: -30, stopPrice: 95 },
+      { id: 8, ticker: "AGGH_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -100, stopPrice: 4.5, limitPrice: 4.4 },
+    ]);
+    await expect(full.trading.stopsBasket("demo")).rejects.toThrow(/No holding has shares free to sell that a pending stop-loss does not already cover/);
+    await expect(full.trading.stopsBasket("demo", { tickers: ["VUSA"] })).rejects.toThrow(/None of those holdings has shares free to sell/);
+    // A ticker that is not held is named rather than skipped.
+    await expect(partly.trading.stopsBasket("demo", { tickers: ["EQQQ"] })).rejects.toThrow(/no EQQQ_EQ position to protect/);
   });
 
   it("turns a rebalance plan into a basket draft", async () => {

@@ -4,6 +4,7 @@ import type { PieChangePreview, PieChangeResult, PieInstrumentIssue } from "../.
 import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { amount, dateTime, money, num, pct, qty } from "./format";
 import { instrumentLabel, type InstrumentBook } from "./instruments";
+import { STOPS_BASKET_TITLE } from "../../shared/protection";
 
 export type Translator = (key: MessageKey) => string;
 
@@ -393,6 +394,7 @@ export function basketTitle(basket: BasketShape, t: Translator, book?: Instrumen
   const title = basket.title.trim();
   if (basket.purpose === "rebalance" && (title === "Rebalance" || !title)) return t("basketTitleRebalance");
   if (basket.purpose === "rebalance" && title === "Invest cash by targets") return t("basketTitleInvestCash");
+  if (basket.purpose === "protective" && title === STOPS_BASKET_TITLE) return t("basketTitleStops");
   if (basket.purpose === "protective" && (title.startsWith("Protect ") || !title)) {
     const leg = basket.legs[0];
     const name = leg ? instrumentLabel(leg.draft.ticker, book, leg.instrument).name : title.slice("Protect ".length);
@@ -405,6 +407,10 @@ export function basketTitle(basket: BasketShape, t: Translator, book?: Instrumen
 /** Why a leg is in the basket, from its purpose and order type rather than the server's sentence. */
 export function legReason(leg: BasketLeg, basket: Pick<BasketDraftPayload, "purpose" | "title">, t: Translator): string | undefined {
   if (basket.purpose === "protective") {
+    // The portfolio stop basket says why each stop sits where it does.
+    if (leg.reason === "Matches the existing stop") return t("stopsReasonMatch");
+    const drop = /^(\d+(?:\.\d+)?)% below the last price$/.exec(leg.reason ?? "");
+    if (drop) return fill(t("stopsReasonDrop"), { percent: `${drop[1]}%` });
     if (leg.draft.type === "stop") return t("stopLoss");
     if (leg.draft.type === "limit") return t("takeProfit");
   }
@@ -417,6 +423,7 @@ const PROTECTIVE_NOTES: Record<string, MessageKey> = {
   "TradePilot links the two orders: about a minute after one fills, it cancels the other. Trading 212 may reject the second if the first already reserves the shares; then only the first is placed.": "protectiveNoteLinked",
   "They are not linked: when one fills, cancel the other. Trading 212 may reject the second if the first already reserves the shares.": "protectiveNoteUnlinked",
   "A Stop order becomes a Market order when triggered, so a gap can fill it below the stop price.": "protectiveNoteGap",
+  "Each order stays at Trading 212 until it triggers or you cancel it.": "stopsNoteStays",
 };
 
 /** A basket note in the widget's language. Plan and protective notes are recognised by their wording and rebuilt from their values. */
@@ -425,6 +432,10 @@ export function basketNoteText(note: string, basket: BasketShape, t: Translator,
     const key = PROTECTIVE_NOTES[note];
     if (key === "protectiveNoteStays" && basket.legs.length === 1) return t("protectiveNoteStaysOne");
     if (key) return t(key);
+    const price = /^A holding that already has a stop gets one at the same price for its uncovered shares; the others start (\d+(?:\.\d+)?)% below the last price\.$/.exec(note);
+    if (price) return fill(t("stopsNotePrice"), { percent: num(Number(price[1]), locale, 2) });
+    const left = /^(\d+) more holding\(s\) without a full stop were left out; a basket holds at most (\d+) orders\.$/.exec(note);
+    if (left) return fill(t("stopsNoteLeft"), { count: num(Number(left[1]), locale), max: num(Number(left[2]), locale) });
   }
   if (basket.purpose === "dca") {
     const legs = (text: string) => [...text.matchAll(/(\d+(?:\.\d+)?) ([A-Z]{3}) ([^\s,]+)/g)]
@@ -505,10 +516,12 @@ export function executionText(kind: ExecutionKind, environment: TradingEnvironme
   return fill(t(kind === "cancel" ? "execCancelSubmitted" : "execOrderSubmitted"), { env: envLabel(environment, t) });
 }
 
-export function purposeLabel(purpose: BasketPurpose, t: Translator): string {
+/** What a basket is for. A protective basket of only stops (or only take-profits) says just that. */
+export function purposeLabel(purpose: BasketPurpose, t: Translator, legs: BasketLeg[] = []): string {
+  const types = new Set(legs.map((leg) => (leg.draft.type === "stop_limit" ? "stop" : leg.draft.type)));
   switch (purpose) {
     case "rebalance": return t("basketPurposeRebalance");
-    case "protective": return t("basketPurposeProtective");
+    case "protective": return types.size === 1 && types.has("stop") ? t("stopLoss") : types.size === 1 && types.has("limit") ? t("takeProfit") : t("basketPurposeProtective");
     case "dca": return t("basketPurposeDca");
     default: return t("basketPurposeCustom");
   }

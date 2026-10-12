@@ -117,7 +117,7 @@ function BasketHeader({
   headingProps?: { id: string };
 }) {
   const title = basketTitle(basket, t, book);
-  const purpose = purposeLabel(basket.purpose, t);
+  const purpose = purposeLabel(basket.purpose, t, basket.legs);
   return (
     <div className="transactionHeader">
       <div>
@@ -211,7 +211,8 @@ export function BasketView({
   onClose: () => void;
   onVerify: (verificationId: string) => void;
 }) {
-  const basket: BasketShape = { purpose: payload.purpose, title: payload.title, legs: payload.legs };
+  // The legs still in the basket, so removing one relabels it ("Stop-loss" once only the stop is left).
+  const basket: BasketShape = { purpose: payload.purpose, title: payload.title, legs };
   if (result) return <BasketResultView result={result} basket={basket} verifications={verifications} busy={busy} book={book} locale={locale} t={t} onClose={onClose} onVerify={onVerify} />;
   if (preview) return <BasketConfirmation preview={preview} basket={basket} rebalance={payload.rebalance} busy={busy} book={book} locale={locale} t={t} onBack={onBack} onConfirm={onConfirm} />;
 
@@ -278,21 +279,23 @@ function BasketConfirmation({
   const legNotices = (notices: OrderNotice[]) => notices.filter((notice) => notice.code !== "LIVE_FUNDS");
   const blocked = preview.legs.some((leg) => leg.policy.some((check) => check.status === "block"));
   const tradeFor = (leg: BasketLeg) => rebalance?.trades.find((trade) => trade.ticker === leg.draft.ticker && trade.side === leg.draft.side);
-  const shape: BasketShape = { ...basket, legs: preview.legs };
+  // The review rebuilds the legs from their drafts alone; keep the reason each leg had in the draft basket.
+  const legs = withDraftReasons(preview.legs, basket.legs);
+  const shape: BasketShape = { ...basket, legs };
   const accountCurrency = rebalance?.accountCurrency ?? preview.accountCurrency;
   return (
     <main className="transactionStage">
       <section ref={dialog.panel} className={`transactionPanel confirmationPanel basketPanel ${live ? "liveTransaction" : ""}`} {...dialog.props}>
         <div className="confirmationHero">
           <span className={`environmentTag ${preview.environment}`}>{envLabel(preview.environment, t)}</span>
-          <span className="sectionEyebrow">{t("finalConfirmation")} · {purposeLabel(preview.purpose, t)}</span>
+          <span className="sectionEyebrow">{t("finalConfirmation")} · {purposeLabel(preview.purpose, t, preview.legs)}</span>
           <h2 id={dialog.headingId} ref={dialog.heading} tabIndex={-1}>{live ? t("realBasket") : t("demoBasket")}</h2>
           <strong className="confirmationAmount basketCount">{countText("orders", preview.legs.length, t, locale)}</strong>
           <span className="basketSubtitle">{basketTitle(shape, t, book)}</span>
         </div>
         {liveFunds && <div className="notice warning compactNotice basketLiveNotice">{noticeText(liveFunds, t, locale)}</div>}
         <ol className="basketLegList">
-          {preview.legs.map((leg, index) => (
+          {legs.map((leg, index) => (
             <li className="basketLeg" key={`${leg.draft.ticker}-${leg.draft.side}-${index}`}>
               <LegRow leg={leg} trade={tradeFor(leg)} accountCurrency={accountCurrency} book={book} t={t} locale={locale} />
               <LegFacts leg={leg} trade={tradeFor(leg)} basket={shape} accountCurrency={accountCurrency} book={book} t={t} locale={locale} />
@@ -314,6 +317,15 @@ function BasketConfirmation({
       </section>
     </main>
   );
+}
+
+/** Preview legs with the reason their draft leg gave, matched by instrument, side and order type (the review reorders sells first). */
+export function withDraftReasons<T extends BasketLeg>(legs: T[], drafts: BasketLeg[]): T[] {
+  return legs.map((leg) => {
+    if (leg.reason) return leg;
+    const reason = drafts.find((draft) => draft.draft.ticker === leg.draft.ticker && draft.draft.side === leg.draft.side && draft.draft.type === leg.draft.type)?.reason;
+    return reason ? { ...leg, reason } : leg;
+  });
 }
 
 const RESULT_GLYPH = { submitted: "✓", rejected: "✕", unknown: "?", skipped: "–" } as const;

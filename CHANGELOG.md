@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.26.0
+
+- Stop-losses for the whole portfolio in one step. `review_portfolio_stops` drafts one Good-Till-Cancel sell stop for every holding with shares that are free to sell and that no pending stop covers. They open as one basket that you review and confirm once:
+  - a holding that already has a stop gets one at the same price for its uncovered shares;
+  - the others start 8% below the last price, or `dropPercent` below it;
+  - `tickers` limits the basket to some holdings. The largest come first, up to 20 orders.
+- The dashboard's holdings panel opens with a coverage line, such as "2 of 5 holdings fully covered by stop-losses · Unprotected €3,210 (41% of holdings)". When order tools are on, it has **Add stop-losses** (or **Protect the rest**), which opens that basket.
+- Each stop in the basket says why it sits where it does ("Same price as the existing stop" or "8% below the last price"). A protective basket of only stops is labelled **Stop-loss**, not "Stop-loss / take-profit", and so is a stop-loss / take-profit pair once you remove the take-profit.
+- What a stop-loss means if it triggers. A holding's page now has a line under its stop, such as "If it triggers: -€49.45 from now · P/L then +€99.82". It shows how much the covered shares would lose from the last price down to the stop, and the P/L they would still have then, in the account currency, converted at the rate the broker's valuation implies. A gap can still fill a stop lower or leave a stop-limit unfilled.
+  - With stops at several prices, each order's shares are costed at its own stop and the line reads "If every stop triggers"; the text summary says "from 118 down to 100".
+  - A stop-limit is costed at its limit, where it sells or better once triggered, and the page and text summary say so. One whose limit is above its stop does not count as a stop-loss at all, since its sell sits above the price that triggered it.
+  - A stop placed by amount in the Trading 212 app has no share count. Its holding shows no outcome and "Covers at least …" or "Placed by amount; shares not known", and the dashboard leaves out the uncovered value.
+- The text summaries carry the same figures. The dashboard's "Stop-loss orders" line and a new "Stop-loss" line in the holding summary give them to hosts that show only text, and to the model.
+- Layout fixes:
+  - The holdings table no longer cuts off its stop-loss column in English at about 1000px. The column now shows only from about 1040px, and below that the stop appears under the holding's name, where it wraps instead of widening the table.
+  - On 360px phones the holding cards no longer run past the right edge.
+  - At 320px the header controls wrap onto a second row.
+
 ## 2.25.0
 
 - A stop-loss from the holding page. When order tools are on and some shares of a holding have no sell stop, the line above the price ladder has **Add a stop-loss** (or **Cover the rest** when a stop covers part of it). It opens the order editor with a good-till-cancelled sell stop:

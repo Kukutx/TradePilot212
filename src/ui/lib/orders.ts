@@ -63,7 +63,10 @@ export function stopGuardText(guard: StopProtection, position: Position, locale:
   return fill(t(guard.gap < 0 ? "stopBelow" : "stopAbove"), { price, percent: pct(Math.abs(guard.gap), locale, 1) });
 }
 
-/** How much of the holding the sell stops would sell. */
+/** How much of the holding the sell stops would sell; a stop placed by amount leaves the shares unknown. */
 export function stopCoverageText(guard: StopProtection, position: Position, locale: SupportedLocale, t: Translator): string {
-  return guard.coverage >= 1 ? t("stopCoversAll") : fill(t("stopCovers"), { covered: qty(guard.covered, locale), quantity: qty(position.quantity, locale) });
+  if (guard.coverage >= 1) return t("stopCoversAll");
+  const values = { covered: qty(guard.covered, locale), quantity: qty(position.quantity, locale) };
+  if (guard.unsized) return guard.covered > 0 ? fill(t("stopCoversAtLeast"), values) : t("stopCoversUnknown");
+  return fill(t("stopCovers"), values);
 }

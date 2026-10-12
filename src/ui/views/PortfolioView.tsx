@@ -1,7 +1,8 @@
+import { Fragment } from "react";
 import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
-import { stopProtection } from "../../shared/protection";
+import { portfolioProtection, stopProtection } from "../../shared/protection";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Sparkline } from "../components/charts";
 import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
@@ -15,17 +16,22 @@ export function PortfolioView({
   locale,
   t,
   writeEnabled,
+  busy = false,
   onCancel,
   onOpen,
+  onProtectAll,
 }: {
   payload: DashboardPayload;
   book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
   writeEnabled: boolean;
+  busy?: boolean;
   onCancel: (orderId: string) => void;
   /** Opens one holding's detail. */
   onOpen?: (ticker: string) => void;
+  /** Drafts a stop for every holding without a full one, as a basket to review; nothing is sent from here. */
+  onProtectAll?: () => void;
 }) {
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
@@ -50,13 +56,14 @@ export function PortfolioView({
 
       <section className="dataPanel">
         <SectionHeader title={t("positions")} count={payload.positions.length} />
+        <ProtectionBar positions={payload.positions} orders={payload.orders} currency={currency} locale={locale} t={t} busy={busy} {...(onProtectAll ? { onProtectAll } : {})} />
         {payload.positions.length === 0 ? (
           <div className="emptyState compact">{t("noPositions")}</div>
         ) : (
           <>
             <div className="desktopTableWrap">
               <table className="positionsTable">
-                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th><th className="optionalColumn">{t("stopLoss")}</th></tr></thead>
+                <thead><tr><th>{t("symbol")}</th><th>{t("quantity")}</th><th>{t("currentPrice")}</th><th className="optionalColumn">{t("averagePrice")}</th><th>{t("positionValue")}</th><th>{t("pnl")}</th><th className="optionalColumn">{t("availableToSell")}</th><th className="optionalColumn stopColumn">{t("stopLoss")}</th></tr></thead>
                 <tbody>
                   {payload.positions.map((position) => {
                     const positionPnl = walletNumber(position, "unrealizedProfitLoss");
@@ -74,7 +81,7 @@ export function PortfolioView({
                         <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}</td>
                         <td className="optionalColumn">{qty(position.quantityAvailableForTrading, locale)}</td>
-                        <td className="optionalColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
+                        <td className="optionalColumn stopColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
                       </tr>
                     );
                   })}
@@ -97,6 +104,38 @@ export function PortfolioView({
 
       <ActivityPanel activity={payload.activity ?? []} book={book} locale={locale} t={t} />
     </main>
+  );
+}
+
+/** Stop-loss coverage across the holdings, with one basket for the rest when order tools are on. */
+function ProtectionBar({ positions, orders, currency, locale, t, busy, onProtectAll }: {
+  positions: Position[];
+  orders: PendingOrder[];
+  currency: string;
+  locale: SupportedLocale;
+  t: Translator;
+  busy: boolean;
+  onProtectAll?: () => void;
+}) {
+  const summary = portfolioProtection(positions, orders);
+  if (!summary.holdings) return null;
+  const full = summary.covered === summary.holdings;
+  const parts = full ? [t("protectionAll")] : [
+    fill(t("protectionSummary"), { covered: num(summary.covered, locale), holdings: num(summary.holdings, locale) }),
+    ...(summary.unprotectedValue === undefined ? [] : [fill(t("protectionUnprotected"), { value: money(summary.unprotectedValue, currency, locale), share: pct(summary.unprotectedShare, locale, 0) })]),
+  ];
+  return (
+    <div className="protectionBar">
+      <span className="guardText">
+        {/* Each part wraps as a whole where it can, so a narrow screen breaks the line at the "·"; the mark stays with the first. */}
+        {parts.map((part, index) => (
+          <Fragment key={index}>{index > 0 && " · "}<span className="guardPart">{index === 0 && <span className="positionGuardMark" aria-hidden="true" />}{part}</span></Fragment>
+        ))}
+      </span>
+      {onProtectAll && summary.protectable > 0 && (
+        <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onProtectAll}>{summary.covered + summary.partial ? t("protectRest") : t("addStopLosses")}</button>
+      )}
+    </div>
   );
 }
 

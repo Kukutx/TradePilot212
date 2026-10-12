@@ -1025,6 +1025,30 @@ export function createMcpServer(
 
     registerAppTool(
       server,
+      "review_portfolio_stops",
+      {
+        title: "Review Stop-Losses for Unprotected Holdings",
+        description: `Draft one Good-Till-Cancel Stop sell for every holding whose shares free to sell no pending sell stop covers yet, as one basket the user confirms once (largest first, up to ${MAX_BASKET_LEGS}). A holding that already has a stop below the price gets the same stop price for its uncovered shares; the others get dropPercent below the last price. Review-only; never places an order. Use review_protective_orders for one holding with a chosen price or a take-profit.`,
+        inputSchema: z.object({
+          environment: environmentWithDefault,
+          dropPercent: z.number().min(1).max(50).optional().describe("Percent below the last price for holdings without a stop (default 8)"),
+          tickers: z.array(z.string().min(1)).min(1).max(MAX_BASKET_LEGS).optional().describe("Only these holdings; default every holding"),
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, ...input }) => {
+        try {
+          const data = { ...(await trading.withInstruments(await trading.stopsBasket(environment, input))), credentials: credentialStatus(config), writeEnabled: true };
+          return result(data, `Drafted ${data.legs.length} stop-loss order(s) for review. Nothing has been sent.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
       "review_order_basket",
       {
         title: "Review an Order Basket",
