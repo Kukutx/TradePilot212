@@ -201,6 +201,43 @@ export interface Drawdown {
   currentPeak?: string;
 }
 
+/** One day's move: the return from the reading the day before to that day's. */
+export interface DailyMove {
+  date: string;
+  return: number;
+}
+
+/** The time-weighted return's day-to-day risk (`src/shared/risk.ts`). */
+export interface Risk {
+  /** The first and last day it is read over: stretches that end today are left out, as the day is not over. */
+  from: string;
+  to: string;
+  /** Stretches between readings it is read over (a reading at the weekend joins the next), and the weekdays they cover. */
+  stretches: number;
+  days: number;
+  /** The standard deviation of the moves, per weekday, times √261: a year's worth. */
+  volatility: number;
+  /** One-weekday stretches that rose, and that fell, by 0.005% or more; ones that moved less (holidays) are in neither. */
+  up: number;
+  down: number;
+  /** The largest rise and fall of a one-weekday stretch. */
+  best?: DailyMove;
+  worst?: DailyMove;
+  /** The return a year at the rate over these days, from a year of them, and it over the volatility (from 0.5% a year). */
+  annualized?: number;
+  ratio?: number;
+}
+export interface BenchmarkRisk {
+  volatility: number;
+  /**
+   * How much the return moved for each 1% the benchmark moved, over the benchmark's day before, the same day and the
+   * day after; from 60 stretches, and when the benchmark moves 0.5% a year or more.
+   */
+  beta?: number;
+  /** -1 to 1: how closely the two moved together, over the same days. */
+  correlation?: number;
+}
+
 /**
  * Return over the days TradePilot recorded the account value, with deposits and withdrawals taken out:
  * how the money that was invested did, whatever was paid in or taken out along the way.
@@ -219,6 +256,8 @@ export interface TimeWeightedReturn {
   /** Its return in each calendar month and year those days touch (UTC dates), oldest first. */
   months?: CalendarReturn[];
   years?: CalendarReturn[];
+  /** How much it moved from day to day, from 20 stretches between readings. */
+  risk?: Risk;
 }
 
 /** An instrument to compare the return with. */
@@ -243,6 +282,8 @@ export interface BenchmarkReturn extends BenchmarkOption {
   series: ReturnPoint[];
   /** Its deepest fall from a high over the same days. */
   drawdown?: Drawdown;
+  /** Its volatility over the same stretches, and how the return moved with it. */
+  risk?: BenchmarkRisk;
 }
 
 /** One instrument's gain over a period, in the account currency. */

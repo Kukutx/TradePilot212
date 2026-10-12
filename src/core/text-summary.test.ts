@@ -88,6 +88,17 @@ describe("text summaries for hosts that only show text", () => {
     expect(describePayload(performance)).toContain("Over these days it never fell below an earlier high.");
     const fell = { ...performance, timeWeighted: { ...performance.timeWeighted!, drawdown: { max: -0.0825, peak: "2026-08-01", trough: "2026-08-20", current: -0.031, currentPeak: "2026-08-01" } } };
     expect(describePayload(fell)).toContain("Largest fall from a high (time-weighted): -8.3%, from the high on 2026-08-01 to the low on 2026-08-20, not made up yet. Now 3.1% below the high of 2026-08-01.");
+    // Three readings are too few for a volatility; with one, the risk is told with the benchmark's.
+    expect(describePayload(performance)).not.toContain("volatility");
+    const risky = {
+      ...performance,
+      timeWeighted: { ...performance.timeWeighted!, risk: { from: "2026-04-01", to: "2026-09-18", stretches: 120, days: 122, volatility: 0.1234, up: 50, down: 35, best: { date: "2026-08-03", return: 0.021 }, worst: { date: "2026-08-20", return: -0.034 }, annualized: 0.18, ratio: 1.46 } },
+      benchmark: { ticker: "SPY_US_EQ", shortName: "SPY", source: "stooq", return: 0.05, series: [], risk: { volatility: 0.151, beta: 0.71, correlation: 0.83 } },
+    };
+    expect(describePayload(risky)).toContain("Risk from 2026-04-01 to 2026-09-18, 122 weekdays (120 stretches between readings; today is left out until it is over): volatility 12.3% a year (SPY 15.1%). Return +18% a year at this rate, 1.46 times the volatility. Beta 0.71 and correlation 0.83 to SPY, counting its day before and after too. Best day +2.1% on 2026-08-03, worst -3.4% on 2026-08-20. Up on 50 of the 85 days it moved.");
+    // A return that only rose still has its best day, and one day is a day.
+    const rose = { ...risky, timeWeighted: { ...risky.timeWeighted, risk: { ...risky.timeWeighted.risk, up: 1, down: 0, worst: undefined } } };
+    expect(describePayload(rose)).toContain("Best day +2.1% on 2026-08-03. Up on the one day it moved.");
   });
 
   it("summarizes a tax year with gains and losses apart and says it is not a tax calculation", async () => {

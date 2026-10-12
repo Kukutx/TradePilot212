@@ -6,6 +6,7 @@ import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import type { BenchmarkOption, BenchmarkReturn, PerformanceSummary, ReturnPoint } from "../shared/history.js";
 import type { PricePoint } from "../shared/prices.js";
 import { drawdownOf } from "../shared/drawdown.js";
+import { benchmarkRiskOf } from "../shared/risk.js";
 import type { RuntimeConfig } from "./config.js";
 import { settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
@@ -30,9 +31,10 @@ const US_FUNDS: Record<string, string> = {
 
 /**
  * The benchmark's return on each day of `series`, from its close on or before that day against its close on or
- * before the first day. Undefined when its closes start after the first day (a week's slack for holidays).
+ * before the first day. Undefined when its closes start after the first day (a week's slack for holidays). Its risk
+ * is read over the return's risk's days, up to and including `through`, and only with one.
  */
-export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[]): Pick<BenchmarkReturn, "return" | "series" | "drawdown"> | undefined {
+export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[], through?: string): Pick<BenchmarkReturn, "return" | "series" | "drawdown" | "risk"> | undefined {
   const first = series[0];
   if (!first || series.length < 2) return undefined;
   let index = -1;
@@ -44,7 +46,8 @@ export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[]): P
   if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS) return undefined;
   const out = series.map((point) => ({ date: point.date, return: round(closeOn(point.date)!.close / base.close - 1) }));
   const drawdown = drawdownOf(out);
-  return { return: out[out.length - 1]!.return, series: out, ...(drawdown ? { drawdown } : {}) };
+  const risk = through ? benchmarkRiskOf(series, out, through) : undefined;
+  return { return: out[out.length - 1]!.return, series: out, ...(drawdown ? { drawdown } : {}), ...(risk ? { risk } : {}) };
 }
 
 /**
@@ -121,7 +124,7 @@ export async function compareWithBenchmark(deps: BenchmarkDeps, environment: Tra
   }).catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: error instanceof Error ? error.message : String(error) }));
   const tried = { ...offered, benchmarkChoice: instrument.ticker };
   if (!("prices" in read)) return { ...tried, benchmarkMissing: read.missing, benchmarkProblem: read.problem };
-  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points);
+  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points, summary.timeWeighted.risk?.to);
   if (!compared) {
     return {
       ...tried,

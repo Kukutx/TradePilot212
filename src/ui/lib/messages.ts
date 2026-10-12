@@ -12,6 +12,11 @@ export function fill(template: string, values: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
 }
 
+/** Sentences one after another, leaving out empty ones: Chinese sets them without a space between. */
+export function sentences(locale: SupportedLocale, parts: Array<string | false | undefined>): string {
+  return parts.filter(Boolean).join(locale === "zh-CN" ? "" : " ");
+}
+
 /** Picks the singular or plural message for a count with Intl.PluralRules, then fills {count}. */
 export function plural(count: number, locale: SupportedLocale, one: string, other: string, values: Record<string, string> = {}): string {
   const rule = new Intl.PluralRules(localeTag(locale)).select(count);

@@ -8,7 +8,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, CalendarReturn, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -324,6 +324,7 @@ function performance(data: PerformanceSummary): string[] {
     ...drawdownLines(data.timeWeighted?.drawdown),
     ...calendarLines(data.timeWeighted),
     ...benchmarkLines(data),
+    ...riskLines(data),
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
@@ -358,6 +359,25 @@ function calendarLines(returns: PerformanceSummary["timeWeighted"]): string[] {
     `Time-weighted return by month: ${returns.months.slice(-24).map(item).join(", ")}.`,
     ...(returns.years?.length ? [`By year: ${returns.years.map(item).join(", ")}.`] : []),
   ];
+}
+
+/** How much the time-weighted return moved from day to day, its best and worst days, and how it moved with the benchmark. */
+function riskLines(data: PerformanceSummary): string[] {
+  const risk = data.timeWeighted?.risk;
+  if (!risk) return [];
+  const bench = data.benchmark?.risk;
+  const name = data.benchmark ? data.benchmark.shortName ?? data.benchmark.ticker : "";
+  const moved = risk.up + risk.down;
+  const day = (move: DailyMove) => `${signed(move.return * 100, 2)}% on ${move.date}`;
+  const days = [risk.best && `best day ${day(risk.best)}`, risk.worst && `worst ${day(risk.worst)}`].filter(Boolean).join(", ");
+  return [[
+    `Risk from ${risk.from} to ${risk.to}, ${risk.days} weekdays (${risk.stretches} stretches between readings; today is left out until it is over): volatility ${num(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num(bench.volatility * 100, 1)}%)` : ""}.`,
+    ...(risk.ratio !== undefined && risk.annualized !== undefined ? [`Return ${signed(risk.annualized * 100, 1)}% a year at this rate, ${num(risk.ratio, 2)} times the volatility.`] : []),
+    ...(bench?.beta !== undefined ? [`Beta ${num(bench.beta, 2)}${bench.correlation !== undefined ? ` and correlation ${num(bench.correlation, 2)}` : ""} to ${name}, counting its day before and after too.`]
+      : bench ? [`Beta and correlation to ${name} need 60 stretches and a benchmark that moves.`] : []),
+    ...(days ? [`${days[0]!.toUpperCase()}${days.slice(1)}.`] : []),
+    ...(moved > 1 ? [`Up on ${risk.up} of the ${moved} days it moved.`] : moved ? [`${risk.up ? "Up" : "Down"} on the one day it moved.`] : []),
+  ].join(" ")];
 }
 
 /** The time-weighted return's deepest fall from a high, and where it stands against its high now. */

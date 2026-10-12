@@ -1235,3 +1235,26 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
   .monthlyWrap { display: none; }
   .monthlyCompact { display: block; }
 }
+
+/* ---- Risk: tiles, then how many days moved by how much ---- */
+.riskGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 2px 0 16px; }
+.riskTile { min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
+.riskTile span { display: block; margin-bottom: 5px; color: var(--tp-muted); font-size: 12px; }
+.riskTile strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 720; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.riskTile small { display: block; margin-top: 3px; overflow-wrap: anywhere; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.riskMoves h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
+.moveChart { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding-top: 18px; border-bottom: 1px solid var(--tp-border); }
+.moveColumn { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.moveBar { width: 100%; min-height: 0; border-radius: 4px 4px 0 0; }
+.moveColumn.up .moveBar { background: color-mix(in srgb, var(--tp-green) 75%, var(--tp-bg-soft)); }
+.moveColumn.down .moveBar { background: color-mix(in srgb, var(--tp-red) 75%, var(--tp-bg-soft)); }
+.moveColumn:hover .moveBar { filter: brightness(1.12); }
+.moveCount { position: absolute; top: -16px; color: var(--tp-text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.moveAxis { position: relative; display: flex; justify-content: space-between; height: 18px; margin-top: 4px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.moveZero { position: absolute; top: 0; transform: translateX(-50%); }
+@media (forced-colors: active) {
+  .moveBar { background: CanvasText !important; }
+}
+@container (max-width: 640px) {
+  .riskGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

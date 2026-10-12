@@ -177,10 +177,11 @@ const weekday = (day: number) => { const weekdayIndex = new Date(day * DAY_MS).g
 export function samplePriceHistory(ticker: string, input: { from: Date; to: Date; last: number; anchors: PriceAnchor[] }): PriceHistory {
   const days: number[] = [];
   for (let day = dayOf(input.from.getTime()); day <= dayOf(input.to.getTime()); day++) if (weekday(day)) days.push(day);
-  const random = seeded(seedOf(ticker));
-  const normal = () => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+  // Each day's move is drawn from the ticker and the day alone, so a later start leaves the days after it the same.
+  const seed = seedOf(ticker);
+  const normal = (day: number) => { const random = seeded(seed ^ Math.imul(day, 0x9e3779b1)); return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); };
   const walk = [0];
-  for (let index = 1; index < days.length; index++) walk.push(walk[index - 1]! + SAMPLE_DAILY_MOVE * normal());
+  for (let index = 1; index < days.length; index++) walk.push(walk[index - 1]! + SAMPLE_DAILY_MOVE * normal(days[index]!));
   // Fixed log prices by day index; a later anchor on the same day wins, and the last price fixes the last day.
   const fixed = new Map<number, number>();
   const indexOf = (time: number) => { const day = dayOf(time); let found = -1; for (let index = 0; index < days.length && days[index]! <= day; index++) found = index; return found; };
