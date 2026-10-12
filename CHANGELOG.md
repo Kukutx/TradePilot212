@@ -3,8 +3,8 @@
 ## 2.44.0
 
 - Risk. The Performance tab has a **Risk** panel: the time-weighted return's volatility a year (and the benchmark's), its return a year over its volatility (from a year of readings), its beta and correlation to the benchmark, its best and worst days, and how many of the days it moved it rose. Below them, **Daily moves** counts how many days it moved by how much, falls in red and rises in green, each bar with its range and count in its hover text and the table view.
-- `get_portfolio_performance` gives the same as `timeWeighted.risk` and `benchmark.risk`, and says them in its text. Stretches count the weekdays they cover, with a weekend joined to its Monday and readings days apart counting as that many; holidays are left out of the day counts, and today until it is over. Beta is fitted to the benchmark's day before, the same day and the day after, so readings taken before the benchmark's close still line up.
-- The preview's sample account now moves with its benchmark fund on weekdays, a little more than it, and stays still at weekends, so its risk, drawdown and monthly returns read like a real account's. Each sample close's daily move is drawn from its ticker and day, so it stays the same as the year's start rolls on.
+- `get_portfolio_performance` gives the same as `timeWeighted.risk` and `benchmark.risk`, and says them in its text. Stretches count the weekdays they cover, with a weekend joined to its Monday and readings days apart counting as that many; holidays are left out of the day counts, and today until it is over. Beta is fitted to the benchmark's day before, the same day and the day after, so readings taken before the benchmark's close still line up; beta and correlation need 60 stretches and a benchmark that moves.
+- The preview's sample account now moves with its benchmark fund on weekdays, a little more than it, and stays still at weekends, so its risk, drawdown and monthly returns read like a real account's. Each sample close's daily move is drawn from its ticker and day, so the account and its fund keep moving together after midnight.
 
 ## 2.43.0
 

@@ -229,10 +229,13 @@ export interface Risk {
 }
 export interface BenchmarkRisk {
   volatility: number;
-  /** How much the return moved for each 1% the benchmark moved, over the benchmark's day before, the same day and the day after. */
-  beta: number;
+  /**
+   * How much the return moved for each 1% the benchmark moved, over the benchmark's day before, the same day and the
+   * day after; from 60 stretches, and when the benchmark moves 0.5% a year or more.
+   */
+  beta?: number;
   /** -1 to 1: how closely the two moved together, over the same days. */
-  correlation: number;
+  correlation?: number;
 }
 
 /**

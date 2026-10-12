@@ -37009,6 +37009,7 @@ function calendarReturns(series, unit, today) {
 
 // src/shared/risk.ts
 var MIN_STRETCHES = 20;
+var MIN_BETA_STRETCHES = 60;
 var MIN_ANNUAL_DAYS = 365;
 var MIN_RATIO_VOLATILITY = 5e-3;
 var FLAT = 5e-5;
@@ -37016,12 +37017,18 @@ var WEEKDAYS_A_YEAR = 261;
 var DAY_MS = 864e5;
 var round6 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
 var dayNumber = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS;
+var weekdayOf = (day2) => ((day2 + 3) % 7 + 7) % 7;
+var weekdayOn = (date5) => {
+  const day2 = dayNumber(date5);
+  const back = Math.max(0, weekdayOf(day2) - 4);
+  return back && Number.isFinite(day2) ? new Date((day2 - back) * DAY_MS).toISOString().slice(0, 10) : date5;
+};
 function weekdaysBetween(from, to) {
   const start = dayNumber(from), end = dayNumber(to);
   if (!(end > start)) return 0;
   const weeks = Math.floor((end - start) / 7);
   let count = weeks * 5;
-  for (let day2 = start + weeks * 7 + 1; day2 <= end; day2++) if (((day2 + 4) % 7 + 7) % 7 % 6 !== 0) count++;
+  for (let day2 = start + weeks * 7 + 1; day2 <= end; day2++) if (weekdayOf(day2) < 5) count++;
   return count;
 }
 function stretchesOf(series) {
@@ -37031,13 +37038,13 @@ function stretchesOf(series) {
     const days = weekdaysBetween(start.date, point.date);
     if (!(days > 0)) continue;
     const ratio2 = (1 + point.return) / (1 + start.return);
-    if (ratio2 > 0) out.push({ from: start.date, date: point.date, days, log: Math.log(ratio2), move: ratio2 - 1 });
+    if (Number.isFinite(ratio2) && ratio2 > 0) out.push({ from: start.date, date: point.date, day: weekdayOn(point.date), days, log: Math.log(ratio2), move: ratio2 - 1 });
     start = point;
   }
   return out;
 }
 var settled = (stretches, today) => today ? stretches.filter((stretch) => stretch.date < today) : stretches;
-var movedDays = (stretches) => stretches.filter((stretch) => stretch.days === 1 && Math.abs(stretch.move) >= FLAT).map((stretch) => ({ date: stretch.date, return: round6(stretch.move) }));
+var movedDays = (stretches) => stretches.filter((stretch) => stretch.days === 1 && Math.abs(stretch.move) >= FLAT).map((stretch) => ({ date: stretch.day, return: round6(stretch.move) }));
 function perDay(stretches) {
   const days = stretches.reduce((sum, stretch) => sum + stretch.days, 0);
   const mean = stretches.reduce((sum, stretch) => sum + stretch.log, 0) / days;
@@ -37090,29 +37097,39 @@ function leastSquares(rows2) {
   }
   return matrix.map((row, index) => row[size] / row[index]);
 }
-function benchmarkRiskOf(series, benchmark2, today) {
-  const theirs = new Map(settled(stretchesOf(benchmark2), today).map((stretch) => [stretch.date, stretch]));
-  const pairs = settled(stretchesOf(series), today).flatMap((stretch) => {
+function longRun(stretches, mean, variance) {
+  const off = (stretch) => stretch.log - mean * stretch.days;
+  const lagged = stretches.reduce((sum, stretch, index) => {
+    const before = stretches[index - 1];
+    return before && before.date === stretch.from ? sum + off(stretch) * off(before) / Math.sqrt(stretch.days * before.days) : sum;
+  }, 0) / (stretches.length - 1);
+  return variance + 2 * lagged > 0 ? variance + 2 * lagged : variance;
+}
+function benchmarkRiskOf(series, benchmark2, through) {
+  const upTo = (stretches) => through ? stretches.filter((stretch) => stretch.date <= through) : stretches;
+  const theirs = new Map(upTo(stretchesOf(benchmark2)).map((stretch) => [stretch.date, stretch]));
+  const pairs = upTo(stretchesOf(series)).flatMap((stretch) => {
     const other = theirs.get(stretch.date);
     return other && other.from === stretch.from ? [{ ours: stretch, theirs: other }] : [];
   });
   if (pairs.length < MIN_STRETCHES) return void 0;
   const ours = perDay(pairs.map((pair) => pair.ours));
   const bench = perDay(pairs.map((pair) => pair.theirs));
-  if (!(bench.variance > 0) || !(ours.variance > 0)) return void 0;
+  if (!(bench.variance > 0)) return void 0;
+  const volatility = Math.sqrt(bench.variance * WEEKDAYS_A_YEAR);
+  const plain = { volatility: round6(volatility) };
+  if (pairs.length < MIN_BETA_STRETCHES || volatility < MIN_RATIO_VOLATILITY || !(ours.variance > 0)) return plain;
   const move = (pair) => pair.theirs.log - bench.mean * pair.theirs.days;
   const rows2 = pairs.flatMap((pair, index) => {
     const before = pairs[index - 1], after = pairs[index + 1];
     return before && after && before.ours.date === pair.ours.from && after.ours.from === pair.ours.date ? [{ target: pair.ours.log - ours.mean * pair.ours.days, inputs: [move(before), move(pair), move(after)], weight: 1 / pair.ours.days }] : [];
   });
-  const fit = rows2.length >= MIN_STRETCHES ? leastSquares(rows2) : void 0;
-  if (!fit) return void 0;
+  const fit = rows2.length >= MIN_BETA_STRETCHES - 2 ? leastSquares(rows2) : void 0;
+  if (!fit) return plain;
   const beta = fit.reduce((sum, value) => sum + value, 0);
-  return {
-    volatility: round6(Math.sqrt(bench.variance * WEEKDAYS_A_YEAR)),
-    beta: round6(beta, 2),
-    correlation: round6(Math.max(-1, Math.min(1, beta * Math.sqrt(bench.variance / ours.variance))), 2)
-  };
+  const spread = Math.sqrt(longRun(pairs.map((pair) => pair.theirs), bench.mean, bench.variance) / longRun(pairs.map((pair) => pair.ours), ours.mean, ours.variance));
+  if (!Number.isFinite(beta) || !Number.isFinite(spread)) return plain;
+  return { ...plain, beta: round6(beta, 2), correlation: round6(Math.max(-1, Math.min(1, beta * spread)), 2) };
 }
 
 // src/core/dividends.ts
@@ -39161,7 +39178,7 @@ function riskLines(data) {
   return [[
     `Risk from ${risk.from} to ${risk.to}, ${risk.days} weekdays (${risk.stretches} stretches between readings; today is left out until it is over): volatility ${num2(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num2(bench.volatility * 100, 1)}%)` : ""}.`,
     ...risk.ratio !== void 0 && risk.annualized !== void 0 ? [`Return ${signed(risk.annualized * 100, 1)}% a year at this rate, ${num2(risk.ratio, 2)} times the volatility.`] : [],
-    ...bench ? [`Beta ${num2(bench.beta, 2)} and correlation ${num2(bench.correlation, 2)} to ${name}, counting its day before and after too.`] : [],
+    ...bench?.beta !== void 0 ? [`Beta ${num2(bench.beta, 2)}${bench.correlation !== void 0 ? ` and correlation ${num2(bench.correlation, 2)}` : ""} to ${name}, counting its day before and after too.`] : bench ? [`Beta and correlation to ${name} need 60 stretches and a benchmark that moves.`] : [],
     ...days ? [`${days[0].toUpperCase()}${days.slice(1)}.`] : [],
     ...moved > 1 ? [`Up on ${risk.up} of the ${moved} days it moved.`] : moved ? [`${risk.up ? "Up" : "Down"} on the one day it moved.`] : []
   ].join(" ")];
@@ -40718,7 +40735,7 @@ var US_FUNDS = {
   VT: "Vanguard Total World Stock ETF",
   URTH: "iShares MSCI World ETF"
 };
-function benchmarkReturns(series, points2, today) {
+function benchmarkReturns(series, points2, through) {
   const first = series[0];
   if (!first || series.length < 2) return void 0;
   let index = -1;
@@ -40730,7 +40747,7 @@ function benchmarkReturns(series, points2, today) {
   if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS12) return void 0;
   const out = series.map((point) => ({ date: point.date, return: round14(closeOn(point.date).close / base.close - 1) }));
   const drawdown = drawdownOf(out);
-  const risk = benchmarkRiskOf(series, out, today);
+  const risk = through ? benchmarkRiskOf(series, out, through) : void 0;
   return { return: out[out.length - 1].return, series: out, ...drawdown ? { drawdown } : {}, ...risk ? { risk } : {} };
 }
 function benchmarkInstrument(instruments, query) {
@@ -40786,7 +40803,7 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   }).catch((error62) => ({ missing: "data", problem: error62 instanceof Error ? error62.message : String(error62) }));
   const tried = { ...offered, benchmarkChoice: instrument.ticker };
   if (!("prices" in read)) return { ...tried, benchmarkMissing: read.missing, benchmarkProblem: read.problem };
-  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points, now.toISOString().slice(0, 10));
+  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points, summary.timeWeighted.risk?.to);
   if (!compared) {
     return {
       ...tried,
@@ -41030,7 +41047,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and, from 60 stretches, the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,

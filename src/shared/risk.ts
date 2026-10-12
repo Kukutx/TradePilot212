@@ -8,9 +8,11 @@ import type { BenchmarkRisk, DailyMove, ReturnPoint, Risk } from "./history.js";
 
 /** Fewer stretches than this say too little to read a volatility from. */
 export const MIN_STRETCHES = 20;
+/** A beta and a correlation are noisier than a volatility: fewer stretches than this say too little for them. */
+export const MIN_BETA_STRETCHES = 60;
 /** A shorter span gives no return a year, as for the money-weighted return. */
 const MIN_ANNUAL_DAYS = 365;
-/** Below this volatility a year the account is as good as cash, and the return over it says nothing. */
+/** Below this volatility a year the account (or benchmark) is as good as cash: a ratio or beta over it says nothing. */
 const MIN_RATIO_VOLATILITY = 0.005;
 /** A day that moved less than this did not move: the markets were shut (a holiday). */
 export const FLAT = 0.00005;
@@ -20,6 +22,14 @@ const WEEKDAYS_A_YEAR = 261;
 const DAY_MS = 86_400_000;
 const round = (value: number, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
 const dayNumber = (date: string) => Date.parse(`${date}T00:00:00Z`) / DAY_MS;
+/** Monday 0 … Sunday 6. Day 0, 1 January 1970, was a Thursday. */
+const weekdayOf = (day: number) => (((day + 3) % 7) + 7) % 7;
+/** The last weekday on or before a date: a stretch read at the weekend moved on the Friday. */
+const weekdayOn = (date: string) => {
+  const day = dayNumber(date);
+  const back = Math.max(0, weekdayOf(day) - 4);
+  return back && Number.isFinite(day) ? new Date((day - back) * DAY_MS).toISOString().slice(0, 10) : date;
+};
 
 /** The weekdays after `from`, up to and including `to`. */
 function weekdaysBetween(from: string, to: string): number {
@@ -27,14 +37,16 @@ function weekdaysBetween(from: string, to: string): number {
   if (!(end > start)) return 0;
   const weeks = Math.floor((end - start) / 7);
   let count = weeks * 5;
-  // Day 0, 1 January 1970, was a Thursday.
-  for (let day = start + weeks * 7 + 1; day <= end; day++) if ((((day + 4) % 7) + 7) % 7 % 6 !== 0) count++;
+  for (let day = start + weeks * 7 + 1; day <= end; day++) if (weekdayOf(day) < 5) count++;
   return count;
 }
 
-interface Stretch { from: string; date: string; days: number; log: number; move: number }
+interface Stretch { from: string; date: string; day: string; days: number; log: number; move: number }
 
-/** Each stretch between two readings: its first and last date, its weekdays, and its move as a log and a fraction. */
+/**
+ * Each stretch between two readings: its first and last date, the weekday it ends on (a reading at the weekend after
+ * a missed Friday ends on the Friday), its weekdays, and its move as a log and a fraction.
+ */
 function stretchesOf(series: ReturnPoint[]): Stretch[] {
   const out: Stretch[] = [];
   let start = series[0]!;
@@ -43,7 +55,7 @@ function stretchesOf(series: ReturnPoint[]): Stretch[] {
     // A reading at the weekend (or not after the one before) joins the next stretch.
     if (!(days > 0)) continue;
     const ratio = (1 + point.return) / (1 + start.return);
-    if (ratio > 0) out.push({ from: start.date, date: point.date, days, log: Math.log(ratio), move: ratio - 1 });
+    if (Number.isFinite(ratio) && ratio > 0) out.push({ from: start.date, date: point.date, day: weekdayOn(point.date), days, log: Math.log(ratio), move: ratio - 1 });
     start = point;
   }
   return out;
@@ -53,7 +65,7 @@ function stretchesOf(series: ReturnPoint[]): Stretch[] {
 const settled = (stretches: Stretch[], today?: string) => (today ? stretches.filter((stretch) => stretch.date < today) : stretches);
 
 const movedDays = (stretches: Stretch[]): DailyMove[] =>
-  stretches.filter((stretch) => stretch.days === 1 && Math.abs(stretch.move) >= FLAT).map((stretch) => ({ date: stretch.date, return: round(stretch.move) }));
+  stretches.filter((stretch) => stretch.days === 1 && Math.abs(stretch.move) >= FLAT).map((stretch) => ({ date: stretch.day, return: round(stretch.move) }));
 
 /** The moves of the one-weekday stretches that moved, up to `to` (the risk's last day), oldest first: what the daily-moves chart counts. */
 export function dailyMoves(series: ReturnPoint[], to?: string): DailyMove[] {
@@ -119,24 +131,41 @@ function leastSquares(rows: Array<{ target: number; inputs: number[]; weight: nu
   return matrix.map((row, index) => row[size]! / row[index]!);
 }
 
+/** The per-weekday variance with the covariance of each stretch with the one before twice over: how far moves spread over many days. */
+function longRun(stretches: Stretch[], mean: number, variance: number): number {
+  const off = (stretch: Stretch) => stretch.log - mean * stretch.days;
+  const lagged = stretches.reduce((sum, stretch, index) => {
+    const before = stretches[index - 1];
+    return before && before.date === stretch.from ? sum + (off(stretch) * off(before)) / Math.sqrt(stretch.days * before.days) : sum;
+  }, 0) / (stretches.length - 1);
+  // Moves that mostly undo the day before would leave nothing: then the plain variance.
+  return variance + 2 * lagged > 0 ? variance + 2 * lagged : variance;
+}
+
 /**
- * The benchmark's volatility, and the return's beta and correlation to it, over the stretches both have (its series
- * is on the return's days), leaving out stretches that end on `today`; undefined with fewer than 20, or when either
- * never moved. The return's readings can come at any time of day, often before the benchmark's close, so a day's
- * reading can hold part of the benchmark's day before (or, for a benchmark on a later market, after). So each of the
+ * The benchmark's volatility, and the return's beta and correlation to it, over the stretches both have up to and
+ * including `through` (the return's risk's last day; its series is on the return's days); undefined with fewer than
+ * 20, or when the benchmark never moved. Beta and correlation need 60 and a benchmark that moves (0.5% a year or
+ * more). The return's readings can come at any time of day, often before the benchmark's close, so a day's reading
+ * can hold part of the benchmark's day before (or, for a benchmark on a later market, after). So each of the
  * return's stretches is fitted to the benchmark's stretch before, the same one and the one after, and beta is the sum
- * of the three (a Dimson beta); correlation is that beta times the benchmark's volatility over the return's.
+ * of the three (a Dimson beta). Correlation is that beta times the benchmark's spread over the return's, each over
+ * many days (its variance with twice its covariance with the day before), so moves that carry over a day count once.
  */
-export function benchmarkRiskOf(series: ReturnPoint[], benchmark: ReturnPoint[], today?: string): BenchmarkRisk | undefined {
-  const theirs = new Map(settled(stretchesOf(benchmark), today).map((stretch) => [stretch.date, stretch]));
-  const pairs = settled(stretchesOf(series), today).flatMap((stretch) => {
+export function benchmarkRiskOf(series: ReturnPoint[], benchmark: ReturnPoint[], through?: string): BenchmarkRisk | undefined {
+  const upTo = (stretches: Stretch[]) => (through ? stretches.filter((stretch) => stretch.date <= through) : stretches);
+  const theirs = new Map(upTo(stretchesOf(benchmark)).map((stretch) => [stretch.date, stretch]));
+  const pairs = upTo(stretchesOf(series)).flatMap((stretch) => {
     const other = theirs.get(stretch.date);
     return other && other.from === stretch.from ? [{ ours: stretch, theirs: other }] : [];
   });
   if (pairs.length < MIN_STRETCHES) return undefined;
   const ours = perDay(pairs.map((pair) => pair.ours));
   const bench = perDay(pairs.map((pair) => pair.theirs));
-  if (!(bench.variance > 0) || !(ours.variance > 0)) return undefined;
+  if (!(bench.variance > 0)) return undefined;
+  const volatility = Math.sqrt(bench.variance * WEEKDAYS_A_YEAR);
+  const plain = { volatility: round(volatility) };
+  if (pairs.length < MIN_BETA_STRETCHES || volatility < MIN_RATIO_VOLATILITY || !(ours.variance > 0)) return plain;
   type Pair = (typeof pairs)[number];
   const move = (pair: Pair) => pair.theirs.log - bench.mean * pair.theirs.days;
   // Each stretch with a stretch on either side, weighted by its weekdays as for the variance.
@@ -146,12 +175,10 @@ export function benchmarkRiskOf(series: ReturnPoint[], benchmark: ReturnPoint[],
       ? [{ target: pair.ours.log - ours.mean * pair.ours.days, inputs: [move(before), move(pair), move(after)], weight: 1 / pair.ours.days }]
       : [];
   });
-  const fit = rows.length >= MIN_STRETCHES ? leastSquares(rows) : undefined;
-  if (!fit) return undefined;
+  const fit = rows.length >= MIN_BETA_STRETCHES - 2 ? leastSquares(rows) : undefined;
+  if (!fit) return plain;
   const beta = fit.reduce((sum, value) => sum + value, 0);
-  return {
-    volatility: round(Math.sqrt(bench.variance * WEEKDAYS_A_YEAR)),
-    beta: round(beta, 2),
-    correlation: round(Math.max(-1, Math.min(1, beta * Math.sqrt(bench.variance / ours.variance))), 2),
-  };
+  const spread = Math.sqrt(longRun(pairs.map((pair) => pair.theirs), bench.mean, bench.variance) / longRun(pairs.map((pair) => pair.ours), ours.mean, ours.variance));
+  if (!Number.isFinite(beta) || !Number.isFinite(spread)) return plain;
+  return { ...plain, beta: round(beta, 2), correlation: round(Math.max(-1, Math.min(1, beta * spread)), 2) };
 }

@@ -32,9 +32,9 @@ const US_FUNDS: Record<string, string> = {
 /**
  * The benchmark's return on each day of `series`, from its close on or before that day against its close on or
  * before the first day. Undefined when its closes start after the first day (a week's slack for holidays). Its risk
- * leaves out stretches that end on `today`, as the return's does.
+ * is read over the return's risk's days, up to and including `through`, and only with one.
  */
-export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[], today?: string): Pick<BenchmarkReturn, "return" | "series" | "drawdown" | "risk"> | undefined {
+export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[], through?: string): Pick<BenchmarkReturn, "return" | "series" | "drawdown" | "risk"> | undefined {
   const first = series[0];
   if (!first || series.length < 2) return undefined;
   let index = -1;
@@ -46,7 +46,7 @@ export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[], to
   if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS) return undefined;
   const out = series.map((point) => ({ date: point.date, return: round(closeOn(point.date)!.close / base.close - 1) }));
   const drawdown = drawdownOf(out);
-  const risk = benchmarkRiskOf(series, out, today);
+  const risk = through ? benchmarkRiskOf(series, out, through) : undefined;
   return { return: out[out.length - 1]!.return, series: out, ...(drawdown ? { drawdown } : {}), ...(risk ? { risk } : {}) };
 }
 
@@ -124,7 +124,7 @@ export async function compareWithBenchmark(deps: BenchmarkDeps, environment: Tra
   }).catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: error instanceof Error ? error.message : String(error) }));
   const tried = { ...offered, benchmarkChoice: instrument.ticker };
   if (!("prices" in read)) return { ...tried, benchmarkMissing: read.missing, benchmarkProblem: read.problem };
-  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points, now.toISOString().slice(0, 10));
+  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points, summary.timeWeighted.risk?.to);
   if (!compared) {
     return {
       ...tried,

@@ -76,7 +76,7 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
         {risk.ratio !== undefined && risk.annualized !== undefined && (
           <Tile label={t("riskRatio")} value={num(risk.ratio, locale, 2)} sub={fill(t("riskRatioSub"), { value: pct(risk.annualized, locale, 1, { signed: true }) })} />
         )}
-        {bench && <Tile label={fill(t("riskBeta"), { name })} value={num(bench.beta, locale, 2)} sub={fill(t("riskCorrelation"), { value: num(bench.correlation, locale, 2) })} />}
+        {bench?.beta !== undefined && <Tile label={fill(t("riskBeta"), { name })} value={num(bench.beta, locale, 2)} {...(bench.correlation !== undefined ? { sub: fill(t("riskCorrelation"), { value: num(bench.correlation, locale, 2) }) } : {})} />}
         {risk.best && <Tile label={t("riskBest")} value={pct(risk.best.return, locale, 2, { signed: true })} sub={day(risk.best)} tone="positive" />}
         {risk.worst && <Tile label={t("riskWorst")} value={pct(risk.worst.return, locale, 2, { signed: true })} sub={day(risk.worst)} tone="negative" />}
         {moved > 0 && <Tile label={t("riskUpDays")} value={fill(t("riskUpDaysValue"), { up: String(risk.up), total: String(moved) })} sub={fill(t("riskUpDaysSub"), { share: pct(risk.up / moved, locale, 0) })} />}
@@ -89,7 +89,7 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
               <tbody>{histogram.bins.map((bin) => <tr key={bin.from}><td>{range(bin)}</td><td>{bin.count}</td></tr>)}</tbody></table>
           ) : (
             <>
-              <div className="moveChart" role="img" aria-label={fill(t("riskMovesSummary"), { count: String(moved), low: edge(histogram.bins[0]!.from), high: highEnd, most: most ? range(most) : "" })}>
+              <div className="moveChart" role="img" aria-label={plural(moved, locale, t("riskMovesSummaryOne"), t("riskMovesSummary"), { low: edge(histogram.bins[0]!.from), high: highEnd, most: most ? range(most) : "" })}>
                 {histogram.bins.map((bin) => (
                   <div key={bin.from} className={`moveColumn ${bin.from < 0 ? "down" : "up"}`} title={binTitle(bin)}>
                     {bin === most && <span className="moveCount">{bin.count}</span>}
@@ -106,7 +106,7 @@ export function RiskPanel({ returns, benchmark, locale, t }: { returns: TimeWeig
           )}
         </div>
       )}
-      <p className="panelNote">{sentences(locale, [t("riskNote"), risk.ratio !== undefined ? t("riskNoteRatio") : risk.annualized === undefined && t("riskNoteNoRatio"), bench && fill(t("riskNoteBenchmark"), { name })])}</p>
+      <p className="panelNote">{sentences(locale, [t("riskNote"), risk.ratio !== undefined ? t("riskNoteRatio") : risk.annualized === undefined && t("riskNoteNoRatio"), bench && fill(t(bench.beta !== undefined ? "riskNoteBenchmark" : "riskNoteNoBeta"), { name })])}</p>
     </figure>
   );
 }

@@ -373,7 +373,8 @@ function riskLines(data: PerformanceSummary): string[] {
   return [[
     `Risk from ${risk.from} to ${risk.to}, ${risk.days} weekdays (${risk.stretches} stretches between readings; today is left out until it is over): volatility ${num(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num(bench.volatility * 100, 1)}%)` : ""}.`,
     ...(risk.ratio !== undefined && risk.annualized !== undefined ? [`Return ${signed(risk.annualized * 100, 1)}% a year at this rate, ${num(risk.ratio, 2)} times the volatility.`] : []),
-    ...(bench ? [`Beta ${num(bench.beta, 2)} and correlation ${num(bench.correlation, 2)} to ${name}, counting its day before and after too.`] : []),
+    ...(bench?.beta !== undefined ? [`Beta ${num(bench.beta, 2)}${bench.correlation !== undefined ? ` and correlation ${num(bench.correlation, 2)}` : ""} to ${name}, counting its day before and after too.`]
+      : bench ? [`Beta and correlation to ${name} need 60 stretches and a benchmark that moves.`] : []),
     ...(days ? [`${days[0]!.toUpperCase()}${days.slice(1)}.`] : []),
     ...(moved > 1 ? [`Up on ${risk.up} of the ${moved} days it moved.`] : moved ? [`${risk.up ? "Up" : "Down"} on the one day it moved.`] : []),
   ].join(" ")];

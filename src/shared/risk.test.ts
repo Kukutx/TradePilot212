@@ -60,6 +60,16 @@ describe("risk", () => {
     expect(dailyMoves(series).every((move) => ![0, 6].includes(new Date(move.date).getUTCDay()))).toBe(true);
   });
 
+  it("dates a move read at the weekend after a missed Friday on the Friday", () => {
+    const series = seriesOf(alternate(0.01, 24));
+    // No reading on Friday 16 January; one on Saturday 17 January, 5% up from Thursday.
+    const friday = series.findIndex((point) => point.date === "2026-01-16");
+    series[friday] = { date: "2026-01-17", return: (1 + series[friday - 1]!.return) * 1.05 - 1 };
+    const risk = riskOf(series)!;
+    expect(risk.best).toEqual({ date: "2026-01-16", return: 0.05 });
+    expect(dailyMoves(series).every((move) => ![0, 6].includes(new Date(move.date).getUTCDay()))).toBe(true);
+  });
+
   it("counts a stretch of several weekdays as that many, and only one-weekday stretches as days", () => {
     // Readings two weekdays apart moving ±1.41% (in logs): the same variance a day as ±1% each day.
     const apart = riskOf(seriesOf(alternate(0.01 * Math.SQRT2), 2))!;
@@ -117,8 +127,8 @@ describe("benchmark risk", () => {
     // With moves of its own beside the benchmark's: close to the 1.1 and 0.96 they were drawn with.
     const own = normals(1000, 3).map((value) => 0.003 * value);
     const mixed = benchmarkRiskOf(seriesOf(draws.map((value, index) => 1.1 * value + own[index]!)), benchmark)!;
-    expect(Math.abs(mixed.beta - 1.1)).toBeLessThan(0.05);
-    expect(Math.abs(mixed.correlation - 0.96)).toBeLessThan(0.03);
+    expect(Math.abs(mixed.beta! - 1.1)).toBeLessThan(0.05);
+    expect(Math.abs(mixed.correlation! - 0.96)).toBeLessThan(0.03);
   });
 
   it("lines up readings taken before the benchmark's close", () => {
@@ -139,5 +149,25 @@ describe("benchmark risk", () => {
     const ours = seriesOf(alternate(0.01));
     expect(benchmarkRiskOf(ours, seriesOf(alternate(0)))).toBeUndefined();
     expect(benchmarkRiskOf(seriesOf(alternate(0.01, 19)), seriesOf(alternate(0.01, 19)))).toBeUndefined();
+  });
+
+  it("gives only the benchmark's volatility under 60 stretches, or against a benchmark as good as cash", () => {
+    const short = seriesOf(draws.slice(0, 59));
+    expect(benchmarkRiskOf(short, short)).toEqual({ volatility: riskOf(short)!.volatility });
+    expect(benchmarkRiskOf(seriesOf(draws.slice(0, 60)), seriesOf(draws.slice(0, 60)))).toMatchObject({ beta: 1, correlation: 1 });
+    // A money-market fund accruing 3.5% a year, to the cent: an unrelated account would read a beta in the hundreds.
+    let price = 100;
+    const fund = [{ date: weekdayOf(0), return: 0 }, ...Array.from({ length: 100 }, (_, index) => {
+      price = Math.round(price * (1 + 0.035 / 261) * 100) / 100;
+      return { date: weekdayOf(index + 1), return: price / 100 - 1 };
+    })];
+    const risk = benchmarkRiskOf(seriesOf(normals(100, 5).map((value) => 0.01 * value)), fund)!;
+    expect(risk.volatility).toBeLessThan(0.005);
+    expect(risk.beta).toBeUndefined();
+  });
+
+  it("reads only the stretches up to the return's last day", () => {
+    const through = weekdayOf(80);
+    expect(benchmarkRiskOf(benchmark, benchmark, through)!.volatility).toBeCloseTo(riskOf(benchmark.slice(0, 81))!.volatility, 6);
   });
 });
