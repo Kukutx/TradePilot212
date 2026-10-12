@@ -68,6 +68,15 @@ The Performance tab's **Monthly returns** grid, and `timeWeighted.months` and `t
 - The grid draws a partial or extended month with a dashed outline and its value in italics, its days in its hover text. The first month with only one recorded day has no return and is left out; the month after it is then extended.
 - Each row is a year, latest first, with the year's own return at its end. Cells are tinted green for a gain and red for a loss, as the holdings map is: at full strength from the scale's end (2%, 5%, 10% or 20%, the smallest that four in five months stay within), with the value written in each cell. On a narrow screen each year is a grid of four months a row.
 
+## Risk
+
+The Performance tab's **Risk** panel, and `timeWeighted.risk` and `benchmark.risk` in `get_portfolio_performance`, say how much the time-weighted return moved from day to day. It shows from 20 stretches between readings. Because it is read from the time-weighted return, deposits and withdrawals are not moves.
+
+- **Volatility** is the standard deviation of the moves (in logs) per calendar day, times √365. A stretch between readings several days apart (the server was off) counts as that many days: its move's variance is divided by its length. Weekends are recorded days that hardly move, so a calendar year's worth comes out as a trading year's would.
+- **Return ÷ volatility** is the return a year at the rate over these days, over the volatility, with no risk-free rate taken off. It needs 90 days, since a return a year from fewer says little.
+- **Beta** to the benchmark is how far the return moved for each 1% the benchmark moved, and **correlation**, from -1 to 1, how closely the two moved together, over the same stretches. The benchmark is in its own currency, so its currency's moves against the account's are in them.
+- **Best and worst day**, **days up**, and the **Daily moves** chart count only one-day stretches, and only the ones that moved by 0.001% or more, so weekends and holidays are in none of them. The chart's bars are 0.25%, 0.5%, 1%, 2%, 5% or 10% wide, the narrowest that keeps it to 16 bars, and never straddle 0.
+
 ## Your position
 
 The holding page's **Your position** chart draws the holding's value at each of its daily closes beside a dashed line of the net put in: the shares held at the first close at that close, plus what each buy since cost, less what each sell paid, at their fill prices. The gap between the two lines is what the price did for the position, whatever was bought or sold; the text of `get_holding_detail` gives the same. Sells for more than was put in take the net put in below zero, and the scale then shows zero.

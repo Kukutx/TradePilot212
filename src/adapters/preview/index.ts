@@ -221,21 +221,53 @@ async function seedJournal(): Promise<void> {
   }
 }
 
-/** Six months of made-up daily values ending at today's sample value, so the performance tab shows its chart. */
+/**
+ * Six months of made-up daily values ending at today's sample value, so the performance tab shows its chart: the
+ * benchmark fund's daily moves, a little more of them, plus the account's own, a dip two thirds of the way in, and the
+ * 500 taken out ninety days ago. Weekends do not move, as an account of shares does not, so its risk reads like one.
+ */
 async function seedValueHistory(): Promise<void> {
   const account = await services.trading.accountSummary("demo");
   const total = account.totalValue ?? 0;
   if (!(total > 0)) return;
   const days = 180;
+  const day = 86_400_000;
   const today = Date.now();
+  // The fund's simulated closes, read as the comparison reads them (a year back from the start of today).
+  const fund = (await services.trading.instruments("demo")).find((item) => item.ticker === config.benchmark);
+  const read = fund
+    ? await services.priceHistory({ instrument: fund, from: new Date(Math.floor(today / day) * day - 365 * day), quote: services.trading.externalQuote(fund).then((quote) => quote?.price).catch(() => undefined) })
+    : undefined;
+  const closes = read && "prices" in read ? read.prices.points : [];
+  const market = (date: string) => Math.log(closes.filter((point) => point.date <= date).at(-1)?.close ?? 1);
+  // A seeded walk, so every start of the preview draws the same days.
+  let seed = 212;
+  const random = () => { seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648; return seed / 2_147_483_648; };
+  const normal = () => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+  const dates = Array.from({ length: days }, (_, index) => new Date(today - (days - 1 - index) * day));
+  const weekend = (at: Date) => at.getUTCDay() === 0 || at.getUTCDay() === 6;
+  const walk = [0];
+  for (let index = 1; index < days; index++) {
+    const date = dates[index]!.toISOString().slice(0, 10), before = dates[index - 1]!.toISOString().slice(0, 10);
+    walk.push(walk[index - 1]! + (weekend(dates[index]!) ? 0 : 1.1 * (market(date) - market(before)) + 0.004 * normal()));
+  }
+  // A 12% rise over the six months whatever the fund did, spread over the weekdays, and the dip; today's is the value now.
+  const weekdays = dates.slice(1).filter((at) => !weekend(at)).length;
+  const drift = (Math.log(1.12) - walk[days - 1]!) / weekdays;
+  // The dip moves on weekdays only, holding over a weekend.
+  const path: number[] = [];
+  let drifted = 0, dip = 0;
   for (let index = 0; index < days; index++) {
-    const progress = index / (days - 1);
-    // A steady climb with a wobble and a dip two thirds of the way in; the last point is today's value.
-    const wobble = index === days - 1 ? 0 : 0.018 * Math.sin(index / 6) + 0.01 * Math.sin(index / 1.7) - 0.05 * Math.exp(-(((progress - 0.66) / 0.05) ** 2));
+    if (index === 0 || !weekend(dates[index]!)) dip = -0.04 * Math.exp(-(((index / (days - 1) - 0.66) / 0.04) ** 2));
+    if (index > 0 && !weekend(dates[index]!)) drifted += drift;
+    path.push(walk[index]! + drifted + dip);
+  }
+  for (let index = 0; index < days; index++) {
+    const offset = path[index]! - path[days - 1]!;
     // The sample account took out 500 ninety days ago, so the days before held that much more.
     const ago = days - 1 - index;
-    const value = round(total * (0.8 + 0.2 * progress + wobble) + (ago > 90 ? 500 : 0));
-    const at = new Date(today - ago * 86_400_000);
+    const value = round(total * Math.exp(offset) + (ago > 90 ? 500 : 0));
+    const at = dates[index]!;
     await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
   }
 }

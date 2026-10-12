@@ -9,6 +9,7 @@ import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
 import { MonthlyReturns } from "../components/monthly-returns";
+import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -414,6 +415,12 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
       {data.valueHistory && data.valueHistory.length >= 2 && (
         <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} data={data} currency={currency} locale={locale} t={t} busy={busy}
           {...(onBenchmark ? { onBenchmark } : {})} />
+      )}
+
+      {data.timeWeighted?.risk && (
+        <section className="dataPanel">
+          <RiskPanel returns={data.timeWeighted} {...(data.benchmark ? { benchmark: data.benchmark } : {})} locale={locale} t={t} />
+        </section>
       )}
 
       {/* Two months or more, one of them the whole month: a 1m window's two part-months say no more than its chart. */}

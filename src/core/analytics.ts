@@ -19,6 +19,7 @@ import type {
 } from "../shared/history.js";
 import { drawdownOf } from "../shared/drawdown.js";
 import { calendarReturns } from "../shared/returns.js";
+import { riskOf } from "../shared/risk.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
 
 export interface AllocationLimits {
@@ -232,11 +233,13 @@ export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: numb
   const drawdown = drawdownOf(series);
   // Today's reading is the latest of a day not over yet, so the month and year it ends are not over either.
   const today = now.toISOString().slice(0, 10);
+  const risk = riskOf(series);
   return {
     return: round(growth - 1, 6), from: readings[0]!.point.date, to: readings[readings.length - 1]!.point.date, netFlows: round(netFlows), series,
     ...(drawdown ? { drawdown } : {}),
     months: calendarReturns(series, "month", today),
     years: calendarReturns(series, "year", today),
+    ...(risk ? { risk } : {}),
   };
 }
 

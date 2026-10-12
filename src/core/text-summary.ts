@@ -324,6 +324,7 @@ function performance(data: PerformanceSummary): string[] {
     ...drawdownLines(data.timeWeighted?.drawdown),
     ...calendarLines(data.timeWeighted),
     ...benchmarkLines(data),
+    ...riskLines(data),
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
@@ -358,6 +359,22 @@ function calendarLines(returns: PerformanceSummary["timeWeighted"]): string[] {
     `Time-weighted return by month: ${returns.months.slice(-24).map(item).join(", ")}.`,
     ...(returns.years?.length ? [`By year: ${returns.years.map(item).join(", ")}.`] : []),
   ];
+}
+
+/** How much the time-weighted return moved from day to day, its best and worst days, and how it moved with the benchmark. */
+function riskLines(data: PerformanceSummary): string[] {
+  const risk = data.timeWeighted?.risk;
+  if (!risk) return [];
+  const bench = data.benchmark?.risk;
+  const name = data.benchmark ? data.benchmark.shortName ?? data.benchmark.ticker : "";
+  const moved = risk.up + risk.down;
+  return [[
+    `Risk over ${risk.days} days (${risk.stretches} stretches between readings): volatility ${num(risk.volatility * 100, 1)}% a year${bench ? ` (${name} ${num(bench.volatility * 100, 1)}%)` : ""}.`,
+    ...(risk.ratio !== undefined && risk.annualized !== undefined ? [`Return ${signed(risk.annualized * 100, 1)}% a year at this rate, ${num(risk.ratio, 2)} times the volatility.`] : []),
+    ...(bench ? [`Beta ${num(bench.beta, 2)} and correlation ${num(bench.correlation, 2)} to ${name}.`] : []),
+    ...(risk.best && risk.worst ? [`Best day ${signed(risk.best.return * 100, 2)}% on ${risk.best.date}, worst ${signed(risk.worst.return * 100, 2)}% on ${risk.worst.date}.`] : []),
+    ...(moved ? [`Up on ${risk.up} of the ${moved} days it moved.`] : []),
+  ].join(" ")];
 }
 
 /** The time-weighted return's deepest fall from a high, and where it stands against its high now. */

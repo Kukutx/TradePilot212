@@ -201,6 +201,39 @@ export interface Drawdown {
   currentPeak?: string;
 }
 
+/** One day's move: the return from the reading the day before to that day's. */
+export interface DailyMove {
+  date: string;
+  return: number;
+}
+
+/** The time-weighted return's day-to-day risk (`src/shared/risk.ts`). */
+export interface Risk {
+  /** Stretches between readings it is read over, and the calendar days they cover. */
+  stretches: number;
+  days: number;
+  /** The standard deviation of the moves, per calendar day, times √365: a year's worth. */
+  volatility: number;
+  /** One-day stretches that rose, and that fell, by 0.001% or more; ones that moved less (weekends, holidays) are in neither. */
+  up: number;
+  down: number;
+  /** The largest rise and fall of a one-day stretch. */
+  best?: DailyMove;
+  worst?: DailyMove;
+  /** The return a year at the rate over these days, and it over the volatility: only from 90 days. */
+  annualized?: number;
+  ratio?: number;
+}
+
+/** How the return moved with a benchmark's over the same stretches. */
+export interface BenchmarkRisk {
+  volatility: number;
+  /** How much the return moved for each 1% the benchmark moved. */
+  beta: number;
+  /** -1 to 1: how closely the two moved together. */
+  correlation: number;
+}
+
 /**
  * Return over the days TradePilot recorded the account value, with deposits and withdrawals taken out:
  * how the money that was invested did, whatever was paid in or taken out along the way.
@@ -219,6 +252,8 @@ export interface TimeWeightedReturn {
   /** Its return in each calendar month and year those days touch (UTC dates), oldest first. */
   months?: CalendarReturn[];
   years?: CalendarReturn[];
+  /** How much it moved from day to day, from 20 stretches between readings. */
+  risk?: Risk;
 }
 
 /** An instrument to compare the return with. */
@@ -243,6 +278,8 @@ export interface BenchmarkReturn extends BenchmarkOption {
   series: ReturnPoint[];
   /** Its deepest fall from a high over the same days. */
   drawdown?: Drawdown;
+  /** Its volatility over the same stretches, and how the return moved with it. */
+  risk?: BenchmarkRisk;
 }
 
 /** One instrument's gain over a period, in the account currency. */

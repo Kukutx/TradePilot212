@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.44.0
+
+- Risk. The Performance tab has a **Risk** panel: the time-weighted return's volatility a year (and the benchmark's), its return a year over its volatility (from 90 days), its beta and correlation to the benchmark, its best and worst days, and how many of the days it moved it rose. Below them, **Daily moves** counts how many days it moved by how much, falls in red and rises in green, each bar with its range and count in its hover text and the table view.
+- `get_portfolio_performance` gives the same as `timeWeighted.risk` and `benchmark.risk`, and says them in its text. Readings days apart count as that many days of variance, and days that did not move (weekends, holidays) are left out of the days.
+- The preview's sample account now moves with its benchmark fund on weekdays, a little more than it, and stays still at weekends, so its risk, drawdown and monthly returns read like a real account's.
+
 ## 2.43.0
 
 - Your position. The holding page draws the holding's value at each daily close beside a dashed line of the net put in (the shares held at the first close at that close, plus buys less sells at their fill prices). The gap is what the price did for the position, whatever was traded; the note gives it in the account currency.
