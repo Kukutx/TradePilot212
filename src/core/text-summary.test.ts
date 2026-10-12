@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
+import { readAttribution } from "./attribution.js";
 import { createConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
@@ -47,6 +48,22 @@ describe("text summaries for hosts that only show text", () => {
     expect(performance.annualizedReturn).toBeTypeOf("number");
     expect(performance.byTicker.map((item) => item.ticker)).toContain("VUSAl_EQ");
     expect(describePayload(performance)).toMatch(/Annualized return \(money-weighted, since \d{4}-\d{2}-\d{2}\) [+-]?\d/);
+  });
+
+  it("says each instrument's gain over the period and the ones it could not value", async () => {
+    const services = sample();
+    const window = { from: new Date(Date.now() - 365 * 86_400_000), to: new Date() };
+    const performance = await services.insights.performance("demo", window);
+    const attributed = await readAttribution({ config: { sampleData: true }, trading: services.trading, insights: services.insights, priceHistory: services.priceHistory }, "demo", window);
+    const text = describePayload({ ...performance, ...attributed });
+    expect(text).toMatch(/Gain by instrument since the close before \d{4}-\d{2}-\d{2}: [+-]\d[\d.]* in all/);
+    // 40 held now, 6 bought over the year: 34 at the start.
+    expect(text).toMatch(/- VUSAl_EQ: [+-]\d[\d.]* \([+-][\d.]+%\), start [\d.]+ \(34 at [\d.]+ on \d{4}-\d{2}-\d{2}\), now [\d.]+, bought [\d.]+, dividends [\d.]+/);
+    expect(text).not.toContain("Not valued");
+    const all = await readAttribution({ config: { sampleData: true }, trading: services.trading, insights: services.insights, priceHistory: services.priceHistory }, "demo", { to: window.to });
+    expect(describePayload({ ...performance, ...all })).toContain("Gain by instrument over all history: ");
+    expect(describePayload({ ...performance, ...all })).toContain("(Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends)");
+    expect(describePayload({ ...performance, attributionProblem: "Only today's holdings are known." })).toContain("No gains by instrument: Only today's holdings are known.");
   });
 
   it("gives the time-weighted return over recorded days with the withdrawal taken out", async () => {

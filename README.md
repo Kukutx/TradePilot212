@@ -43,6 +43,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - expected dividend income for the next 12 months from each holding's trailing payments, as a dividend calendar (paid this month and expected per month) with each payment's approximate date, and a holding's next payments on its page
 - an account value chart from TradePilot's own daily record (Trading 212's API has no value history)
 - your time-weighted return against an index fund's over the same days, the S&P 500 by default or any ETF you hold or watch, as a second line on the return chart with the gap in percentage points ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
+- where a period's gain came from: each instrument's gain over 1 month, 3 months, this year, 12 months or all history (value now against its value at the start, its buys, sells and dividends), as bars either side of zero ([docs/ANALYTICS.md](./docs/ANALYTICS.md#gain-by-instrument))
 - an annualized money-weighted return (XIRR) and a tax-year summary with realised gains and losses kept apart, dividends, interest and costs ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - a Claude Code plugin with a local stdio server and review, brief, risk, journal, order follow-up, rebalance and tax-year skills ([docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md))
 - a local preview of the widget on the sample account (`pnpm preview`), with language, theme and screen-width switches ([docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally))

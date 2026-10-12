@@ -208,6 +208,49 @@ export interface BenchmarkReturn extends BenchmarkOption {
   series: ReturnPoint[];
 }
 
+/** One instrument's gain over a period, in the account currency. */
+export interface HoldingGain {
+  ticker: string;
+  /** Shares at the start (today's, less those bought since, plus those sold since) and now. */
+  startQuantity: number;
+  quantity: number;
+  /** The close the start is valued at, in the instrument's currency and unit, and its day; none when nothing was held. */
+  startClose?: { date: string; price: number };
+  /** The shares held at the start at that close, at today's exchange rate; 0 when none were held. */
+  startValue: number;
+  /** Now, as Trading 212 values the holding; 0 once sold. */
+  value: number;
+  /** What its buys took from the account and its sells paid in (Trading 212's net amounts), and its dividends. */
+  bought: number;
+  sold: number;
+  dividends: number;
+  /**
+   * value − startValue − bought + sold + dividends; over all history, Trading 212's realised P/L on the sells, its
+   * unrealised P/L on what is held and the dividends, which also covers shares bought before the history read.
+   */
+  gain: number;
+  /** The gain on the money at work, startValue + bought; none when that is nothing. */
+  return?: number;
+}
+
+/** Where a period's gain came from, instrument by instrument. */
+export interface GainAttribution {
+  /** The first day counted (YYYY-MM-DD): what was held is valued at the close before it. None for all history. */
+  from?: string;
+  /** "start": the gain from the value at the start; "cost": over all history, from what each holding cost. */
+  basis: "start" | "cost";
+  to: string;
+  /** Largest gain first. */
+  holdings: HoldingGain[];
+  /** The holdings' gains added up. */
+  total: number;
+  /**
+   * Instruments left out of it: no close before the start (the reason as for the price chart, or "later" when the read
+   * ran out of time), shares that do not add up ("quantity": a split, or shares moved in), or no exchange rate ("rate").
+   */
+  missing: Array<{ ticker: string; reason: PricesMissing | "later" | "quantity" | "rate"; problem: string }>;
+}
+
 export interface PerformanceSummary {
   kind: "performance";
   environment: TradingEnvironment;
@@ -244,6 +287,11 @@ export interface PerformanceSummary {
   benchmarkProblem?: string;
   /** The instruments it can be compared with: the default, then the ETFs held and on the watchlist. */
   benchmarkOptions?: BenchmarkOption[];
+  /** Each instrument's gain over the period; absent with `attributionProblem` when it cannot be worked out. */
+  attribution?: GainAttribution;
+  attributionProblem?: string;
+  /** Why there is none: a period that ends before now, a history cut short at its page limit, or a read that failed. */
+  attributionMissing?: "period" | "history" | "data";
   notes: string[];
   timestamp: string;
 }

@@ -32702,10 +32702,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round12 = 0;
+    let round13 = 0;
     while (true) {
-      round12 += 1;
-      if (round12 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round13 += 1;
+      if (round13 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34232,8 +34232,9 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
     });
   };
+  const traded = ["AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ", "KO_US_EQ", "VUSAl_EQ"].map((ticker) => instrumentOf(ticker));
   for (let index = 13; index >= 0; index--) {
-    const instrument = INSTRUMENTS[index % 5];
+    const instrument = traded[index % traded.length];
     const sell = index % 4 === 3;
     addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
   }
@@ -37640,7 +37641,8 @@ var InsightsService = class {
    * `readValues` gives the account values TradePilot recorded in the window for one Trading 212 account, for
    * the value chart and the time-weighted return.
    */
-  async performance(environment, window, maxPages, readValues) {
+  /** `onHistory` is handed the orders and dividends read, for a caller that needs them too (gains by instrument). */
+  async performance(environment, window, maxPages, readValues, onHistory) {
     const client = this.client(environment);
     const account = await client.getAccountSummary();
     const values = readValues ? await readValues(typeof account.id === "number" ? account.id : void 0).catch(() => []) : [];
@@ -37648,6 +37650,7 @@ var InsightsService = class {
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
     const transactions = await this.collect(environment, "transactions", window, maxPages);
+    onHistory?.({ orders, dividends });
     return summarizePerformance({
       environment,
       account,
@@ -38561,7 +38564,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.39.0"
+  version: "2.40.0"
 };
 
 // src/shared/prices.ts
@@ -38844,9 +38847,22 @@ function performance(data) {
     ...valueHistoryLines(data.valueHistory),
     ...data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num2(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : [],
     ...benchmarkLines(data),
+    ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
     ...data.notes
+  ];
+}
+function attributionLines(data) {
+  const attribution = data.attribution;
+  if (!attribution) return data.attributionProblem ? [`No gains by instrument: ${data.attributionProblem}`] : [];
+  const since = attribution.from ? `since the close before ${attribution.from}` : "over all history";
+  return [
+    ...section(
+      `Gain by instrument ${since}: ${signed(attribution.total)} in all (${attribution.basis === "start" ? "value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate" : "Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends"})`,
+      rows(attribution.holdings, (holding2) => `${holding2.ticker}: ${signed(holding2.gain)}${holding2.return === void 0 ? "" : ` (${signed(holding2.return * 100, 1)}%)`}, start ${num2(holding2.startValue)}${holding2.startClose ? ` (${num2(holding2.startQuantity, 8)} at ${num2(holding2.startClose.price, 6)} on ${holding2.startClose.date})` : ""}, now ${num2(holding2.value)}${holding2.bought ? `, bought ${num2(holding2.bought)}` : ""}${holding2.sold ? `, sold ${num2(holding2.sold)}` : ""}${holding2.dividends ? `, dividends ${num2(holding2.dividends)}` : ""}`)
+    ),
+    ...attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []
   ];
 }
 function benchmarkLines(data) {
@@ -40135,12 +40151,233 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
   };
 }
 
-// src/core/benchmark.ts
+// src/core/attribution.ts
 var DAY_MS10 = 864e5;
-var START_SLACK_DAYS = 7;
+var CONCURRENCY3 = 4;
+var READ_BUDGET_MS3 = 5e3;
 var LIST_WAIT_MS2 = 3e3;
+var STALE_CLOSE_DAYS = 10;
+var NO_SHARES = 1e-6;
+var round9 = (value) => Math.round(value * 100) / 100;
+var dayOf2 = (time3) => new Date(time3).toISOString().slice(0, 10);
+var emptyFlows = () => ({ boughtQuantity: 0, soldQuantity: 0, bought: 0, sold: 0, dividends: 0, boughtLocal: 0, soldLocal: 0, rated: { local: 0, account: 0 }, anchors: [], realized: 0 });
+function holdingFlows(orders, dividends, from, to) {
+  const flows = /* @__PURE__ */ new Map();
+  const of = (ticker) => {
+    let entry = flows.get(ticker);
+    if (!entry) flows.set(ticker, entry = emptyFlows());
+    return entry;
+  };
+  const within2 = (value) => {
+    const at = Date.parse(value ?? "");
+    return Number.isFinite(at) && (from === void 0 || at >= from) && at <= to;
+  };
+  for (const item of orders) {
+    const fill = item.fill;
+    const ticker = item.order?.ticker ?? item.order?.instrument?.ticker;
+    if (!fill || !ticker || !within2(fill.filledAt ?? item.order?.createdAt)) continue;
+    const quantity = Math.abs(fill.quantity ?? item.order?.filledQuantity ?? 0);
+    if (!(quantity > 0)) continue;
+    const sell = (item.order?.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
+    const entry = of(ticker);
+    const net = fill.walletImpact?.netValue;
+    const local = fill.price && fill.price > 0 ? quantity * fill.price : void 0;
+    if (sell) entry.soldQuantity += quantity;
+    else entry.boughtQuantity += quantity;
+    if (typeof net === "number" && Number.isFinite(net)) {
+      if (sell) entry.sold += Math.abs(net);
+      else entry.bought += Math.abs(net);
+      if (local) {
+        entry.rated.local += local;
+        entry.rated.account += Math.abs(net);
+      }
+    } else if (local) {
+      if (sell) entry.soldLocal += local;
+      else entry.boughtLocal += local;
+    }
+    if (fill.price && fill.price > 0 && fill.filledAt) entry.anchors.push({ at: fill.filledAt, price: fill.price });
+    entry.realized += fill.walletImpact?.realisedProfitLoss ?? 0;
+  }
+  for (const item of dividends) {
+    const ticker = item.ticker ?? item.instrument?.ticker;
+    if (!ticker || !item.amount || !within2(item.paidOn)) continue;
+    of(ticker).dividends += item.amount;
+  }
+  return flows;
+}
+function closeBefore(points2, day2) {
+  let found;
+  for (const point of points2) if (point.date < day2 && point.close > 0) found = point;
+  if (!found) return void 0;
+  return Date.parse(`${day2}T00:00:00Z`) - Date.parse(`${found.date}T00:00:00Z`) <= STALE_CLOSE_DAYS * DAY_MS10 ? found : void 0;
+}
+function allTimeGains(input2) {
+  const held = new Map(input2.positions.filter((position) => position.instrument?.ticker && position.quantity > 0).map((position) => [position.instrument.ticker, position]));
+  const holdings = [];
+  const missing = [];
+  for (const ticker of /* @__PURE__ */ new Set([...held.keys(), ...input2.flows.keys()])) {
+    const position = held.get(ticker);
+    const flows = input2.flows.get(ticker) ?? emptyFlows();
+    const wallet = position?.walletImpact;
+    if (position && (typeof wallet?.unrealizedProfitLoss !== "number" || typeof wallet.currentValue !== "number")) {
+      missing.push({ ticker, reason: "data", problem: `Trading 212 gave no value or unrealised P/L for ${ticker}.` });
+      continue;
+    }
+    const unrealized = position ? wallet.unrealizedProfitLoss : 0;
+    const gain = flows.realized + unrealized + flows.dividends;
+    holdings.push({
+      ticker,
+      startQuantity: 0,
+      quantity: position?.quantity ?? 0,
+      startValue: 0,
+      value: round9(position ? wallet.currentValue : 0),
+      bought: round9(flows.bought),
+      sold: round9(flows.sold),
+      dividends: round9(flows.dividends),
+      gain: round9(gain)
+    });
+  }
+  holdings.sort((a, b) => b.gain - a.gain);
+  return { basis: "cost", to: new Date(input2.to).toISOString(), holdings, total: round9(holdings.reduce((sum, holding2) => sum + holding2.gain, 0)), missing };
+}
+function attributeGains(input2) {
+  const held = new Map(input2.positions.filter((position) => position.instrument?.ticker && position.quantity > 0).map((position) => [position.instrument.ticker, position]));
+  const tickers = [.../* @__PURE__ */ new Set([...held.keys(), ...input2.flows.keys()])];
+  const holdings = [];
+  const missing = [];
+  for (const ticker of tickers) {
+    const position = held.get(ticker);
+    const flows = input2.flows.get(ticker) ?? emptyFlows();
+    const quantity = position?.quantity ?? 0;
+    let startQuantity = quantity - flows.boughtQuantity + flows.soldQuantity;
+    if (Math.abs(startQuantity) < NO_SHARES) startQuantity = 0;
+    if (startQuantity < 0) {
+      missing.push({ ticker, reason: "quantity", problem: `${ticker}'s shares do not add up: ${quantity} now, ${flows.boughtQuantity} bought and ${flows.soldQuantity} sold since the start. A split, or shares moved in or out, changes the count without a fill.` });
+      continue;
+    }
+    const currency = input2.currencies.get(ticker) ?? (position?.instrument?.currencyCode ?? "");
+    const rate = input2.rates[currency.toUpperCase()] ?? (flows.rated.account > 0 ? flows.rated.local / flows.rated.account : void 0);
+    const needsRate = startQuantity > 0 || flows.boughtLocal > 0 || flows.soldLocal > 0 || position && typeof position.walletImpact?.currentValue !== "number";
+    if (needsRate && !(rate && rate > 0)) {
+      missing.push({ ticker, reason: "rate", problem: `No exchange rate from ${currency || "its currency"} to the account currency is known for ${ticker}.` });
+      continue;
+    }
+    let startValue = 0;
+    let startClose;
+    if (startQuantity > 0) {
+      const close = input2.closes.get(ticker);
+      if (!close || "missing" in close) {
+        missing.push({ ticker, reason: close?.missing ?? "data", problem: close?.problem ?? `No close for ${ticker} before the start.` });
+        continue;
+      }
+      startClose = close;
+      startValue = startQuantity * close.close / rate;
+    }
+    const wallet = position?.walletImpact;
+    const value = !position ? 0 : typeof wallet?.currentValue === "number" ? wallet.currentValue : position.quantity * position.currentPrice / rate;
+    const bought = flows.bought + (flows.boughtLocal ? flows.boughtLocal / rate : 0);
+    const sold = flows.sold + (flows.soldLocal ? flows.soldLocal / rate : 0);
+    const gain = value - startValue - bought + sold + flows.dividends;
+    const atWork = startValue + bought;
+    holdings.push({
+      ticker,
+      startQuantity,
+      quantity,
+      ...startClose ? { startClose: { date: startClose.date, price: startClose.close } } : {},
+      startValue: round9(startValue),
+      value: round9(value),
+      bought: round9(bought),
+      sold: round9(sold),
+      dividends: round9(flows.dividends),
+      gain: round9(gain),
+      ...atWork > 0 ? { return: Math.round(gain / atWork * 1e4) / 1e4 } : {}
+    });
+  }
+  holdings.sort((a, b) => b.gain - a.gain);
+  return {
+    from: dayOf2(input2.from),
+    basis: "start",
+    to: new Date(input2.to).toISOString(),
+    holdings,
+    total: round9(holdings.reduce((sum, holding2) => sum + holding2.gain, 0)),
+    missing
+  };
+}
+async function readAttribution(deps, environment, window, maxPages, now = /* @__PURE__ */ new Date()) {
+  const from = window.from ? Math.floor(window.from.getTime() / DAY_MS10) * DAY_MS10 : void 0;
+  const to = Math.min(window.to.getTime(), now.getTime());
+  if (window.to.getTime() < now.getTime() - 5 * 6e4) {
+    return { attributionMissing: "period", attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
+  }
+  const [dashboard, orders, dividends] = await Promise.all([
+    deps.trading.getDashboard(environment, 15e3),
+    deps.history?.orders ?? deps.insights.collect(environment, "orders", window, maxPages),
+    deps.history?.dividends ?? deps.insights.collect(environment, "dividends", window, maxPages)
+  ]);
+  if (orders.truncated || dividends.truncated) {
+    return {
+      attributionMissing: "history",
+      attributionProblem: `The ${orders.truncated ? "order" : "dividend"} history stops at the page limit before the start, so ${orders.truncated ? "the shares held then are not known" : "some dividends would be left out"}; raise maxPages.`
+    };
+  }
+  const accountCurrency = dashboard.account?.currency ?? "";
+  if (!accountCurrency) return { attributionMissing: "data", attributionProblem: "Trading 212 did not give the account currency." };
+  const positions = dashboard.positions;
+  const flows = holdingFlows(orders.items, dividends.items, from, to);
+  if (from === void 0) return { attribution: allTimeGains({ to, positions, flows }) };
+  const held = new Map(positions.flatMap((position) => position.instrument?.ticker && position.quantity > 0 ? [[position.instrument.ticker, position]] : []));
+  const starting = [.../* @__PURE__ */ new Set([...held.keys(), ...flows.keys()])].filter((ticker) => {
+    const entry = flows.get(ticker);
+    return (held.get(ticker)?.quantity ?? 0) - (entry?.boughtQuantity ?? 0) + (entry?.soldQuantity ?? 0) > NO_SHARES;
+  });
+  const sold = [...flows.keys()].filter((ticker) => !held.has(ticker));
+  const instruments = starting.some((ticker) => !held.has(ticker)) || sold.length ? await settleWithin(deps.trading.instruments(environment).catch(() => []), LIST_WAIT_MS2) ?? [] : [];
+  const listed = new Map(instruments.map((instrument) => [instrument.ticker, instrument]));
+  const currencies = /* @__PURE__ */ new Map();
+  for (const ticker of [...held.keys(), ...flows.keys()]) {
+    const instrument = held.get(ticker)?.instrument;
+    const order = orders.items.find((item) => (item.order?.ticker ?? item.order?.instrument?.ticker) === ticker)?.order;
+    const currency = listed.get(ticker)?.currencyCode ?? instrument?.currencyCode ?? instrument?.currency ?? order?.instrument?.currency ?? order?.currency;
+    if (currency) currencies.set(ticker, currency);
+  }
+  const closes2 = /* @__PURE__ */ new Map();
+  if (starting.length) {
+    const day2 = dayOf2(from);
+    const readFrom = new Date(Math.min(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10, from - (STALE_CLOSE_DAYS + 1) * DAY_MS10));
+    const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS3);
+    const read = async (ticker) => {
+      const position = held.get(ticker);
+      const instrument = listed.get(ticker) ?? position?.instrument;
+      if (!instrument) return { missing: "data", problem: `Trading 212 does not list ${ticker} at the moment.` };
+      if (!deps.priceHistory) return { missing: "provider", problem: "No quote provider is configured, so there are no closes to value the start at." };
+      const anchors = flows.get(ticker)?.anchors ?? [];
+      const result2 = await deps.priceHistory({
+        instrument,
+        from: readFrom,
+        ...position?.currentPrice ? { last: position.currentPrice } : {},
+        // The sample account draws an instrument it no longer holds through the provider's price, and each path through
+        // its own fills, as the holding page draws it.
+        ...deps.config.sampleData ? position ? {} : { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) } : { fills: Promise.resolve(anchors) }
+      }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+      if (!("prices" in result2)) return result2;
+      const close = closeBefore(result2.prices.points, day2);
+      return close ?? { missing: "data", problem: `${result2.prices.source} has no close for ${result2.prices.symbol ?? ticker} in the ${STALE_CLOSE_DAYS} days before ${day2}.` };
+    };
+    const later = async (ticker) => ({ missing: "later", problem: `${ticker}'s closes are asked for on the next read: this one ran out of time.` });
+    const results = await eachLimited(starting, CONCURRENCY3, deadline, read, later);
+    starting.forEach((ticker, index) => closes2.set(ticker, results[index]));
+  }
+  return {
+    attribution: attributeGains({ from, to, positions, flows, closes: closes2, currencies, rates: knownFxRates(positions, accountCurrency) })
+  };
+}
+
+// src/core/benchmark.ts
+var DAY_MS11 = 864e5;
+var START_SLACK_DAYS = 7;
+var LIST_WAIT_MS3 = 3e3;
 var MAX_OPTIONS = 8;
-var round9 = (value) => Math.round(value * 1e6) / 1e6;
+var round10 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
   SPY: "SPDR S&P 500 ETF",
   VOO: "Vanguard S&P 500 ETF",
@@ -40157,8 +40394,8 @@ function benchmarkReturns(series, points2) {
     return index >= 0 ? points2[index] : void 0;
   };
   const base = closeOn(first.date);
-  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS10) return void 0;
-  const out = series.map((point) => ({ date: point.date, return: round9(closeOn(point.date).close / base.close - 1) }));
+  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS11) return void 0;
+  const out = series.map((point) => ({ date: point.date, return: round10(closeOn(point.date).close / base.close - 1) }));
   return { return: out[out.length - 1].return, series: out };
 }
 function benchmarkInstrument(instruments, query) {
@@ -40184,8 +40421,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const wanted = choice?.trim() || deps.config.benchmark;
   const none = !wanted || /^none$/i.test(wanted);
   const [instruments, positions, watched] = await Promise.all([
-    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS2),
-    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS2),
+    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS3),
+    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS3),
     deps.watchlist?.list(environment).catch(() => []) ?? []
   ]);
   const listed = new Map((instruments ?? []).map((instrument2) => [instrument2.ticker, instrument2]));
@@ -40205,8 +40442,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
   if (none) return { ...offered, benchmarkChoice: "none" };
   if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
-  const yearAgo = Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10;
-  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS10));
+  const yearAgo = Math.floor(now.getTime() / DAY_MS11) * DAY_MS11 - 365 * DAY_MS11;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS11));
   const read = await deps.priceHistory({
     instrument,
     from,
@@ -40458,7 +40695,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,
@@ -40470,10 +40707,23 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     async ({ environment, period, from, to, maxPages, benchmark: benchmark2 }) => {
       try {
         const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
-        const summary = await insights.performance(environment, window, maxPages, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }));
-        const compared = await compareWithBenchmark({ config: config3, trading, watchlist: watchlist2, priceHistory }, environment, summary, benchmark2);
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared };
-        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        let history;
+        const summary = await insights.performance(
+          environment,
+          window,
+          maxPages,
+          (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }),
+          (read) => {
+            history = read;
+          }
+        );
+        const [compared, attributed] = await Promise.all([
+          compareWithBenchmark({ config: config3, trading, watchlist: watchlist2, priceHistory }, environment, summary, benchmark2),
+          // Gains by instrument are optional: a read that fails leaves them out and says why.
+          readAttribution({ config: config3, trading, insights, priceHistory, ...history ? { history } : {} }, environment, window, maxPages).catch((error62) => ({ attributionMissing: "data", attributionProblem: asStructuredError(error62).message }))
+        ]);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared, ...attributed };
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding2) => `${holding2.ticker} ${holding2.gain >= 0 ? "+" : ""}${num2(holding2.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42082,13 +42332,13 @@ var TradeJournal = class {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS11 = 864e5;
+var DAY_MS12 = 864e5;
 var watchKey2 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS11).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS12).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -42195,7 +42445,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS11);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS12);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -42203,16 +42453,16 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS12 = 864e5;
-var round10 = (value) => Math.round(value * 100) / 100;
-var signed2 = (value) => `${value >= 0 ? "+" : ""}${round10(value)}`;
-var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round10(value * 100)}%`;
+var DAY_MS13 = 864e5;
+var round11 = (value) => Math.round(value * 100) / 100;
+var signed2 = (value) => `${value >= 0 ? "+" : ""}${round11(value)}`;
+var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round11(value * 100)}%`;
 var MOVERS = 3;
 var EXPECTED_DIVIDENDS = 3;
 var RECEIVED_DIVIDENDS = 5;
-var WEEK_MS = 7 * DAY_MS12;
-var LATE_DIVIDEND_MS = 3 * DAY_MS12;
-var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS12;
+var WEEK_MS = 7 * DAY_MS13;
+var LATE_DIVIDEND_MS = 3 * DAY_MS13;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS13;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -42221,7 +42471,7 @@ function dividendsSince(mark, now) {
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
   if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
-  return { since: now.getTime() - DAY_MS12, known: false };
+  return { since: now.getTime() - DAY_MS13, known: false };
 }
 function dividendMark(dividends, now) {
   const from = now.getTime() - LATE_DIVIDEND_MS;
@@ -42241,13 +42491,13 @@ function digestDividends(dividends, positions, window, now) {
     if (!ticker || !item.amount || !(at > window.since && at <= now.getTime()) || seen.has(dividendKey(item))) continue;
     received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
   }
-  const today = Math.floor(now.getTime() / DAY_MS12) * DAY_MS12;
+  const today = Math.floor(now.getTime() / DAY_MS13) * DAY_MS13;
   const day2 = new Date(today).toISOString().slice(0, 10);
   const weekAgo = new Date(today - WEEK_MS).toISOString().slice(0, 10);
   const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(now.getTime()), today - WEEK_MS), today + WEEK_MS, now);
   const expected = upcoming.filter((payment) => payment.on >= weekAgo).map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day2 }));
   return {
-    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round10(amount2) })),
+    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round11(amount2) })),
     // Coming first: one due and not paid may never come, and should not crowd out the week's.
     expected: [...expected.filter((payment) => !payment.due), ...expected.filter((payment) => payment.due)]
   };
@@ -42268,22 +42518,22 @@ function digestDay(today) {
 }
 function digestText(input2) {
   const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round10(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round11(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
   const day2 = input2.day;
   return [
-    `Total ${round10(input2.totalValue)} ${input2.currency}${change}`,
+    `Total ${round11(input2.totalValue)} ${input2.currency}${change}`,
     day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} instruments` : ""}` : void 0,
     // One sold out on the day has no price to compare: its sells' amount instead.
     day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(", ")}` : void 0,
-    `cash ${round10(input2.cash)}`,
+    `cash ${round11(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
     input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
-    input2.dividends?.received.length ? `dividends ${round10(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round10(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
-    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round10(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
+    input2.dividends?.received.length ? `dividends ${round11(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round11(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
+    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round11(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
     input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
     input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
   ].filter(Boolean).join(" \xB7 ");
@@ -42306,7 +42556,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS12, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS13, now.getTime());
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
@@ -42322,7 +42572,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS12);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS13);
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
@@ -42547,7 +42797,7 @@ var ProtectiveLinks = class {
 var HOUR_MS2 = 36e5;
 var KEEP_MS = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
-var round11 = (value) => Math.round(value * 100) / 100;
+var round12 = (value) => Math.round(value * 100) / 100;
 var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
 function within(point, bound, side) {
   if (!bound) return true;
@@ -42579,9 +42829,9 @@ var ValueHistory = class {
       const read = new Date(now.getTime() + Date.now() - started);
       const point = {
         date: read.toISOString().slice(0, 10),
-        totalValue: round11(account.totalValue),
-        ...typeof account.cash?.availableToTrade === "number" ? { cash: round11(account.cash.availableToTrade) } : {},
-        ...typeof account.investments?.currentValue === "number" ? { invested: round11(account.investments.currentValue) } : {},
+        totalValue: round12(account.totalValue),
+        ...typeof account.cash?.availableToTrade === "number" ? { cash: round12(account.cash.availableToTrade) } : {},
+        ...typeof account.investments?.currentValue === "number" ? { invested: round12(account.investments.currentValue) } : {},
         at: read.toISOString(),
         ...typeof account.id === "number" ? { account: account.id } : {}
       };

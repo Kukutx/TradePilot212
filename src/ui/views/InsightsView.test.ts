@@ -47,6 +47,12 @@ describe("the performance view's benchmark", () => {
     expect(render({ ...base, benchmarkChoice: "VUSAl_EQ", benchmark: { ticker: "VUSAl_EQ", shortName: "VUSA", currencyCode: "EUR", source: "stooq", return: 0.3, series: [] } }, "zh-CN")).toContain("跑输 VUSA 5.6 个百分点");
   });
 
+  it("says why there are no gains by instrument", () => {
+    expect(render({ ...base, attributionMissing: "period", attributionProblem: "x" })).toContain("need a period that ends now");
+    expect(render({ ...base, attributionMissing: "history", attributionProblem: "x" })).toContain("only the most recent was read");
+    expect(render({ ...base, attributionMissing: "data", attributionProblem: "429" }, "zh-CN")).toContain("这次没能读到按标的拆分的收益");
+  });
+
   it("says why there is no comparison, and keeps the choice", () => {
     const html = render({ ...base, benchmarkChoice: "EUNLd_EQ", benchmarkMissing: "plan", benchmarkProblem: "Finnhub has no daily prices." });
     expect(html).not.toContain('class="lineCompare"');
