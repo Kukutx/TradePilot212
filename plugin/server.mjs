@@ -35423,7 +35423,7 @@ function resolveInstrumentFromList(instruments, query) {
   }
   throw new Error(`No Trading 212 instrument matched ${query}`);
 }
-function validateOrderAgainstSnapshot(draft, instrument, position, account, config3, rates = {}) {
+function validateOrderAgainstSnapshot(draft, instrument, position, account, config3, rates = {}, marketPrice) {
   if (!draft.ticker.trim()) throw new Error("Ticker is required");
   positiveNumber("quantity", draft.quantity);
   if (config3.maxOrderQuantity > 0 && draft.quantity > config3.maxOrderQuantity)
@@ -35436,7 +35436,7 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     throw new Error(`${instrument.ticker} does not support extended-hours execution`);
   if (draft.side === "buy" && instrument.maxOpenQuantity && Math.max(0, position?.quantity ?? 0) + draft.quantity > instrument.maxOpenQuantity + Number.EPSILON)
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
-  const last = position?.currentPrice || draft.referencePrice;
+  const last = position?.currentPrice || marketPrice || draft.referencePrice;
   for (const [name, value] of [["limitPrice", draft.limitPrice], ["stopPrice", draft.stopPrice]]) {
     if (!last || !value || draft.type === "market") continue;
     const ratio2 = value / last;
@@ -35947,14 +35947,13 @@ var TradingService = class {
     let marketPrice = position?.currentPrice || void 0;
     if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => void 0);
-      const valued = draft.type === "market" || draft.type === "stop";
       if (quote) {
         marketPrice = quote.price;
-        if (valued) {
+        if (draft.type === "market" || draft.type === "stop") {
           if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
           draft.referencePriceAt = quote.asOf;
         }
-      } else if (valued && this.deps.quotes?.symbolFor(instrument)) {
+      } else if (this.deps.quotes?.symbolFor(instrument)) {
         fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
     }
@@ -35968,7 +35967,10 @@ var TradingService = class {
     } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
-    return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    if (risky && accountCode && checked.estimatedNotional !== void 0 && checked.accountNotional === void 0)
+      fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...checked };
   }
   async snapshot(environment) {
     const client = this.client(environment);

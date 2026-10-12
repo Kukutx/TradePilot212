@@ -226,6 +226,8 @@ export function validateOrderAgainstSnapshot(
   config: Pick<RuntimeConfig, "maxOrderNotional" | "maxOrderQuantity">,
   /** Instrument-currency units per account-currency unit, from {@link knownFxRates}. */
   rates: FxRates = {},
+  /** The quote of the moment for an instrument you do not hold, when one was read: the last price before a caller's. */
+  marketPrice?: number,
 ) {
   if (!draft.ticker.trim()) throw new Error("Ticker is required");
   positiveNumber("quantity", draft.quantity);
@@ -242,7 +244,7 @@ export function validateOrderAgainstSnapshot(
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
   // A limit or stop ten times away from the last price is almost always a unit slip, such as pounds
   // typed for a fund quoted in pence; it would fill at once or never protect anything.
-  const last = position?.currentPrice || draft.referencePrice;
+  const last = position?.currentPrice || marketPrice || draft.referencePrice;
   for (const [name, value] of [["limitPrice", draft.limitPrice], ["stopPrice", draft.stopPrice]] as const) {
     if (!last || !value || draft.type === "market") continue;
     const ratio = value / last;
@@ -852,24 +854,24 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    // A risk-sized buy of an instrument you do not hold reads the quote of the moment, kept as the market price so
-    // a fall to or under the stop-loss is seen. A Market or Stop also takes it as its reference when it is above
-    // the price it was sized at, so its value and its loss at the stop are not understated, and otherwise dates
-    // the reference by it: the reference has just been checked against the market. When the quote source can
-    // price the instrument but has no quote just now, a Market or Stop is refused rather than checked at an old
-    // price; with no quote source, the price given stands, as for any order.
+    // A risk-sized buy of an instrument you do not hold reads the quote of the moment. It is the market price: the
+    // last price a Stop's trigger and the unit-slip check are compared with, and the price a fall to or under the
+    // stop-loss is seen at. A Market or Stop also takes it as its reference when it is above the price it was
+    // sized at, so its value and its loss at the stop are not understated, and otherwise dates the reference by
+    // it: the reference has just been checked against the market. When the quote source can price the instrument
+    // but has no quote just now, the order is refused rather than checked without one (a Limit too: with the
+    // market under the stop-loss it would fill there); with no quote source, the price given stands, as for any order.
     const risky = !!draft.riskBudget && draft.side === "buy";
     let marketPrice = position?.currentPrice || undefined;
     if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => undefined);
-      const valued = draft.type === "market" || draft.type === "stop";
       if (quote) {
         marketPrice = quote.price;
-        if (valued) {
+        if (draft.type === "market" || draft.type === "stop") {
           if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
           draft.referencePriceAt = quote.asOf;
         }
-      } else if (valued && this.deps.quotes?.symbolFor(instrument)) {
+      } else if (this.deps.quotes?.symbolFor(instrument)) {
         fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
     }
@@ -886,7 +888,11 @@ export class TradingService {
     } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
-    return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    // Its loss at the stop is in the account currency: with no rate to convert it, it can't be checked at all.
+    if (risky && accountCode && checked.estimatedNotional !== undefined && checked.accountNotional === undefined)
+      fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...checked };
   }
 
   private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {

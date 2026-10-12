@@ -267,7 +267,7 @@ describe("flexible order intent", () => {
 });
 
 /** A fake Trading 212 with a GBX ETF and a USD stock in a EUR account, valued as the broker values them. */
-function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[]; unheld?: boolean } = {}): typeof fetch {
+function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[]; unheld?: boolean; held?: { aapl: boolean } } = {}): typeof fetch {
   const vusa: Record<string, unknown> = { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 (Dist)", shortName: "VUSA", currency: "GBX", type: "ETF" };
   const aapl: Record<string, unknown> = { ticker: "AAPL_US_EQ", name: "Apple Inc.", shortName: "AAPL", currency: "USD", type: "STOCK" };
   return (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -283,7 +283,7 @@ function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[]; unhel
     // The positions endpoint names the currency `currency`, not `currencyCode`.
     if (url.endsWith("/equity/positions")) return json([
       { instrument: vusa, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 8000, currentPrice: 8475, walletImpact: { currency: "EUR", currentValue: 1000 } },
-      { instrument: aapl, quantity: 5, quantityAvailableForTrading: 5, quantityInPies: 0, averagePricePaid: 200, currentPrice: 216, walletImpact: { currency: "EUR", currentValue: 1000 } },
+      ...(options.held?.aapl === false ? [] : [{ instrument: aapl, quantity: 5, quantityAvailableForTrading: 5, quantityInPies: 0, averagePricePaid: 200, currentPrice: 216, walletImpact: { currency: "EUR", currentValue: 1000 } }]),
     ]);
     if (url.endsWith("/equity/account/summary")) return json({ currency: "EUR", totalValue: 3000, cash: { availableToTrade: 1000 } });
     if (/\/equity\/orders\/\d+$/.test(url)) return json({ id: 42, ticker: "AAPL_US_EQ", quantity: -5, type: "STOP", stopPrice: 190, status: "NEW" });
@@ -472,6 +472,36 @@ describe("currencies, uncertain results and Live confirmations", () => {
     await expect(service.prepareOrder({ ...market.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "quote" } });
     expect(await service.executeOrder(preview.token)).toMatchObject({ ok: false, error: { code: "RISK_CHECK_UNAVAILABLE" } });
     expect(writes).toEqual([]);
+    // A Limit too: with the market under the stop-loss it would fill there, and without a quote that can't be seen.
+    const limit = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "limit", limitPrice: 212, referencePrice: 216, sizing: risk });
+    await expect(service.prepareOrder({ ...limit.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE" });
+  });
+
+  it("compares a Stop's trigger with the quote, not with a higher price given", async () => {
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "msft.us", fxRate: async () => undefined,
+      quote: async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price: 216, asOf: new Date().toISOString(), source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
+    // Given 230, quoted 216, trigger 220: valued at 230, but the Stop rests above the market.
+    const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 220, referencePrice: 230, referencePriceAt: new Date().toISOString(), sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    const review = await service.prepareOrder({ ...stop.draft });
+    expect(review.draft.referencePrice).toBe(230);
+    expect(review.estimatedNotional).toBeCloseTo(stop.draft.quantity * 230, 6);
+    expect(review.notices.map((notice) => notice.code)).not.toContain("STOP_ALREADY_TRIGGERED");
+    // A trigger ten times the quote is a unit slip, whatever price was given.
+    await expect(service.prepareOrder({ ...stop.draft, stopPrice: 2200, referencePrice: 2300 })).rejects.toMatchObject({ code: "PRICE_OUT_OF_RANGE" });
+  });
+
+  it("refuses a cross-currency risk buy once no rate converts its loss", async () => {
+    const held = { aapl: true };
+    const quotes: QuoteProvider = { name: "finnhub", symbolFor: () => "MSFT", fxRate: async () => undefined, hasFxRates: false,
+      quote: async () => ({ ticker: "MSFT_US_EQ", symbol: "MSFT", price: 216, asOf: new Date().toISOString(), source: "finnhub" as const }) };
+    const service = new TradingService({ config: { ...config(), maxOrderNotional: 0 }, store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true, held }), quotes });
+    // Sized at the 1.08 USD per EUR the Apple holding implies, so the draft carries no rate of its own.
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", sizing: { mode: "risk", amount: 30, stopLossPrice: 200 } });
+    expect(sized.draft.fxRate).toBeUndefined();
+    // With the holding gone and no quote source rate, the loss can't be put in euros, so the review is refused.
+    held.aapl = false;
+    await expect(service.prepareOrder({ ...sized.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "fx_rate", from: "EUR", to: "USD" } });
   });
 
   it("counts a reference above a Stop's trigger, and carries the budget for the review to check", async () => {
