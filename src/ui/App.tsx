@@ -27,6 +27,7 @@ import { ErrorCard, Icon, SkeletonView } from "./components/common";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
+import { intentForAccount } from "./lib/orders";
 import { PortfolioView } from "./views/PortfolioView";
 import { AllocationView, IncomeView, PerformanceView, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
@@ -105,6 +106,9 @@ class ToolCallError extends Error {
     this.name = "ToolCallError";
   }
 }
+
+/** A send refused before anything reached Trading 212 because a risk-sized buy needs a new review. */
+const RISK_RECHECK: ReadonlySet<string> = new Set(["RISK_CHANGED", "RISK_CHECK_UNAVAILABLE"]);
 
 function textFromToolResult(value: Awaited<ReturnType<McpApp["callServerTool"]>>): string {
   return (
@@ -501,6 +505,11 @@ export default function App() {
 
   async function switchEnvironment(next: TradingEnvironment): Promise<void> {
     if (next === environment) return;
+    // A quantity sized from this account's cash, value or holding is worked out again for the other one. The
+    // draft moves only once that works; otherwise it stays on the account it was sized for and the error says why.
+    const intent = base?.kind === "order_draft" ? intentForAccount(draft ?? base.draft, base.resolution, next) : undefined;
+    const resized: { payload?: BasePayload } = {};
+    if (intent && !await run("errorTitleOrderCheck", async () => { resized.payload = await callTool<BasePayload>("review_trading212_order_intent", intent); })) return;
     setEnvironment(next);
     setExecution(null);
     setVerification(null);
@@ -510,6 +519,10 @@ export default function App() {
     setBasketResult(null);
     setInsights({});
     setInsightError(null);
+    if (resized.payload) {
+      showPayload(resized.payload);
+      return;
+    }
     if (draft) setDraft({ ...draft, environment: next });
     if (base?.kind === "order_draft") {
       setBase({ ...base, draft: { ...base.draft, environment: next } });
@@ -549,6 +562,12 @@ export default function App() {
     const sent = await run("errorTitleOrderSend", async () => {
       const confirmationCode = preview["token"];
       const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
+      // A risk-sized buy whose price moved after the review, or could not be read at the send, is not sent. Its
+      // draft stays in the editor, so the next review shows it at the new price; the used confirmation goes.
+      if (!result.ok && result.error && RISK_RECHECK.has(result.error.code)) {
+        setPreview(null);
+        throw new ToolCallError(result.error);
+      }
       setExecution(result);
       setExecutionKind("order");
       setVerification(null);

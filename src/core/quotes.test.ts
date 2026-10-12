@@ -69,6 +69,40 @@ describe("quote providers", () => {
   });
 });
 
+describe("fresh quotes", () => {
+  it("reads past the cache when asked to, and keeps the cache when that read fails", async () => {
+    let close: string | undefined = "250.5";
+    const calls: string[] = [];
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push(url);
+      if (close === undefined) throw new Error("offline");
+      return new Response(`Symbol,Date,Time,Close\r\n${(new URL(url).searchParams.get("s") ?? "").toUpperCase()},2026-10-09,22:00:09,${close}\r\n`);
+    }) as typeof fetch;
+    const provider = createQuoteProvider(createConfig({}), fetcher)!;
+    expect((await provider.quote(aapl))?.price).toBe(250.5);
+    close = "260";
+    expect((await provider.quote(aapl))?.price).toBe(250.5);
+    expect((await provider.quote(aapl, { fresh: true }))?.price).toBe(260);
+    // The fresh read refreshed the cache for everyone else.
+    expect((await provider.quote(aapl))?.price).toBe(260);
+    close = undefined;
+    expect(await provider.quote(aapl, { fresh: true })).toBeUndefined();
+    expect((await provider.quote(aapl))?.price).toBe(260);
+    expect(calls).toHaveLength(3);
+
+    close = "0.79";
+    expect((await provider.fxRate("USD", "GBP"))?.rate).toBe(0.79);
+    close = "0.8";
+    expect((await provider.fxRate("USD", "GBP"))?.rate).toBe(0.79);
+    expect((await provider.fxRate("USD", "GBX", { fresh: true }))?.rate).toBeCloseTo(80, 9);
+    expect((await provider.fxRate("USD", "GBP"))?.rate).toBe(0.8);
+    close = undefined;
+    expect(await provider.fxRate("USD", "GBP", { fresh: true })).toBeUndefined();
+    expect((await provider.fxRate("USD", "GBP"))?.rate).toBe(0.8);
+  });
+});
+
 describe("exchange rates from the quote provider", () => {
   it("reads a pair, treats pence as pounds and caches it", async () => {
     const calls: string[] = [];

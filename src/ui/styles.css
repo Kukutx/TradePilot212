@@ -456,6 +456,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .resolutionCard strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
 .resolutionEdited { grid-column: 1 / -1; grid-template-columns: auto 1fr auto !important; align-items: center; gap: 8px !important; padding-top: 9px; border-top: 1px solid var(--tp-border); }
 .resolutionEdited strong { color: var(--tp-amber); }
+.resolutionRisk { grid-column: 1 / -1; padding-top: 9px; border-top: 1px solid var(--tp-border); }
+.resolutionRisk small { color: var(--tp-muted); font-size: 12px; line-height: 1.4; }
+.resolutionRisk.over strong { color: var(--tp-amber); }
 .resolutionEdited button { min-height: 36px; border: 0; border-radius: 8px; padding: 0 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 12px; font-weight: 700; cursor: pointer; }
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .field { display: grid; gap: 6px; min-width: 0; }

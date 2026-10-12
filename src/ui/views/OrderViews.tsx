@@ -3,10 +3,10 @@ import type { PolicyCheck } from "../../shared/automation";
 import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
-import { dateTime, money, notional, qty, time } from "../lib/format";
+import { amount, dateTime, money, notional, qty, time } from "../lib/format";
 import { instrumentCurrency, type InstrumentBook } from "../lib/instruments";
-import { countText, envLabel, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
-import { summarizeOrder } from "../lib/orders";
+import { countText, envLabel, fill, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
+import { riskAtStop, summarizeOrder } from "../lib/orders";
 
 const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
 
@@ -90,6 +90,7 @@ export function OrderEditor({
   const show = (error: string | undefined, text: string) => (touched || text !== "" ? error : undefined);
   const currency = instrumentCurrency(draft.ticker, book, resolvedInstrument);
   const quantityEdited = resolution ? Math.abs(draft.quantity - resolution.resolvedQuantity) > 1e-8 : false;
+  const risk = riskAtStop(draft, resolution);
   const orderEdited = originalDraft ? (["side", "type", "quantity", "extendedHours", "timeValidity", "limitPrice", "stopPrice", "referencePrice"] as const).some((key) => originalDraft[key] !== draft[key]) : quantityEdited;
 
   const priceInput = (text: string, setText: (text: string) => void, key: "limitPrice" | "stopPrice" | "referencePrice") =>
@@ -117,8 +118,14 @@ export function OrderEditor({
         </div>
         {resolution && (
           <div className="resolutionCard">
-            <div><span>{t("resolvedFromRequest")}</span><strong>{sizingText(resolution.sizing, resolvedInstrument, locale, t)}</strong></div>
+            <div><span>{t("resolvedFromRequest")}</span><strong>{sizingText(resolution.sizing, resolvedInstrument, locale, t, resolution.accountCurrency)}</strong></div>
             <div><span>{t("calculatedQuantity")}</span><strong>{qty(resolution.resolvedQuantity, locale)}</strong></div>
+            {risk && (
+              <div className={`resolutionRisk ${risk.over ? "over" : ""}`} aria-live="polite">
+                <strong>{risk.loss === undefined ? t("riskStopAbove") : fill(t(risk.over ? "riskLossOver" : "riskLoss"), { loss: amount(-risk.loss, resolution.accountCurrency, locale, { signed: true }), budget: amount(risk.budget, resolution.accountCurrency, locale) })}</strong>
+                <small>{risk.cashCapped ? `${t("riskCashCapped")} · ` : ""}{t("riskStopSeparate")}</small>
+              </div>
+            )}
             {orderEdited && <div className="resolutionEdited"><span>{t("manualEdited")}</span><strong>{quantityEdited ? qty(draft.quantity, locale) : t("otherFieldsChanged")}</strong>{quantityEdited && <button type="button" onClick={() => { setQuantityText(String(resolution.resolvedQuantity)); set("quantity", resolution.resolvedQuantity); }}>{t("restoreCalculated")}</button>}</div>}
           </div>
         )}

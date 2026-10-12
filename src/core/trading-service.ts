@@ -15,6 +15,7 @@ import type {
   PendingOrder,
   Position,
   ResolvedOrderIntent,
+  RiskSizing,
   TradeCandidate,
   TradePlanPayload,
   TradingEnvironment,
@@ -32,7 +33,7 @@ import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
-import type { ExternalFxRate, ExternalQuote, QuoteProvider } from "./quotes.js";
+import type { ExternalFxRate, ExternalQuote, QuoteOptions, QuoteProvider } from "./quotes.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 interface PendingBasket {
@@ -44,7 +45,9 @@ interface PendingBasket {
   independentSells: boolean;
   planId?: string;
 }
-type Pending = { kind: "order"; draft: OrderDraft } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
+/** What the preview of a risk-sized buy showed: the loss over budget it named, or that the price was under the stop-loss. */
+type RiskShown = { loss?: number; stopAbove?: true };
+type Pending = { kind: "order"; draft: OrderDraft; risk?: RiskShown } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
 export interface OrderOutcome {
@@ -223,6 +226,8 @@ export function validateOrderAgainstSnapshot(
   config: Pick<RuntimeConfig, "maxOrderNotional" | "maxOrderQuantity">,
   /** Instrument-currency units per account-currency unit, from {@link knownFxRates}. */
   rates: FxRates = {},
+  /** The quote of the moment for an instrument you do not hold, when one was read: the last price before a caller's. */
+  marketPrice?: number,
 ) {
   if (!draft.ticker.trim()) throw new Error("Ticker is required");
   positiveNumber("quantity", draft.quantity);
@@ -239,7 +244,7 @@ export function validateOrderAgainstSnapshot(
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
   // A limit or stop ten times away from the last price is almost always a unit slip, such as pounds
   // typed for a fund quoted in pence; it would fill at once or never protect anything.
-  const last = position?.currentPrice || draft.referencePrice;
+  const last = position?.currentPrice || marketPrice || draft.referencePrice;
   for (const [name, value] of [["limitPrice", draft.limitPrice], ["stopPrice", draft.stopPrice]] as const) {
     if (!last || !value || draft.type === "market") continue;
     const ratio = value / last;
@@ -307,6 +312,65 @@ export function validateOrderAgainstSnapshot(
     ...(account.currency ? { accountCurrency: account.currency } : {}),
     ...(last ? { lastPrice: last } : {}),
   };
+}
+
+/**
+ * A risk-sized buy checked again at the prices of the moment: the loss at its stop-loss, valued as the review
+ * values the order (the limit, or the highest of the trigger, reference and last price). Over the budget it was
+ * sized for, because the price moved or the quantity was changed, it says so before you confirm. So it does
+ * when the order's price, or the market price (`marketPrice`, the holding's or the quote's) for an order that can
+ * fill now, is at or under the stop-loss: the stop would trigger as soon as the buy fills.
+ */
+export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; estimatedNotionalCurrency: string; accountCurrency?: string; marketPrice?: number }): OrderNotice[] {
+  const limit = draft.riskBudget;
+  if (!limit || draft.side !== "buy" || !current.estimatedNotional || current.accountNotional === undefined || !(draft.quantity > 0)) return [];
+  const price = current.estimatedNotional / draft.quantity;
+  const instrumentCurrency = current.estimatedNotionalCurrency;
+  const accountCurrency = current.accountCurrency ?? instrumentCurrency;
+  // A Stop or Stop Limit buy whose trigger is still above the market cannot fill until the price rises to it.
+  const resting = (draft.type === "stop" || draft.type === "stop_limit") && !!draft.stopPrice && !!current.marketPrice && draft.stopPrice > current.marketPrice;
+  const lowest = current.marketPrice && current.marketPrice > 0 && !resting ? Math.min(price, current.marketPrice) : price;
+  if (!(lowest > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round(lowest, 6), currency: instrumentCurrency } }];
+  }
+  const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
+  // A cent of rounding is not over the budget.
+  if (loss <= limit.budget + 0.005) return [];
+  return [{
+    code: "RISK_OVER_BUDGET",
+    message: `At the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency}, this order would now lose about ${loss.toFixed(2)} ${accountCurrency}, more than the ${limit.budget.toFixed(2)} ${accountCurrency} it was sized for: the price has moved or the quantity was changed.`,
+    details: { loss: round(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency },
+  }];
+}
+
+/** The risk notices a preview showed, kept with its confirmation so the send can tell what is new. */
+/** A copy of the draft without its risk budget. */
+function withoutRiskBudget(draft: OrderDraft): OrderDraft {
+  const copy = { ...draft };
+  delete copy.riskBudget;
+  return copy;
+}
+
+function riskShown(notices: OrderNotice[]): { risk?: RiskShown } {
+  const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
+  const loss = typeof over?.details?.loss === "number" ? over.details.loss : undefined;
+  const stopAbove = notices.some((notice) => notice.code === "RISK_STOP_ABOVE_PRICE");
+  return loss === undefined && !stopAbove ? {} : { risk: { ...(loss === undefined ? {} : { loss }), ...(stopAbove ? { stopAbove: true as const } : {}) } };
+}
+
+/**
+ * At the send, a risk-sized buy must lose no more at its stop-loss than the preview said: its budget, or the
+ * larger loss the preview named. A price under the stop-loss the preview did not show stops it too. Either
+ * way nothing is sent, and a new review shows the order at the new price.
+ */
+export function assertRiskAsShown(notices: OrderNotice[], shown: RiskShown | undefined) {
+  for (const notice of notices) {
+    if (notice.code === "RISK_STOP_ABOVE_PRICE" && !shown?.stopAbove)
+      fail("RISK_CHANGED", `${notice.message} The price moved after the review; review the order again.`, notice.details ?? {});
+    const loss = notice.details?.loss;
+    if (notice.code === "RISK_OVER_BUDGET" && typeof loss === "number" && !(shown?.loss !== undefined && loss <= shown.loss + 0.005))
+      fail("RISK_CHANGED", `${notice.message} The review showed ${shown?.loss === undefined ? "no loss over the budget" : `a loss of ${shown.loss.toFixed(2)}`}; review the order again.`, notice.details ?? {});
+  }
 }
 
 /** Warnings for a limit or stop that will not behave the way its price suggests. */
@@ -392,15 +456,15 @@ export class TradingService {
   }
 
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
-  externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
-    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
+  externalQuote(instrument: Instrument, options?: QuoteOptions): Promise<ExternalQuote | undefined> {
+    return this.deps.quotes?.quote(instrument, options) ?? Promise.resolve(undefined);
   }
 
   /**
    * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
    * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
    */
-  async ratesFor(positions: Position[], accountCurrency: string, currencies: Iterable<string>): Promise<{ rates: FxRates; quoted: Map<string, ExternalFxRate> }> {
+  async ratesFor(positions: Position[], accountCurrency: string, currencies: Iterable<string>, options?: QuoteOptions): Promise<{ rates: FxRates; quoted: Map<string, ExternalFxRate> }> {
     const account = accountCurrency.toUpperCase();
     const rates = knownFxRates(positions, account);
     const quoted = new Map<string, ExternalFxRate>();
@@ -408,7 +472,7 @@ export class TradingService {
     if (!account || !provider) return { rates, quoted };
     for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
       if (crossRate(rates, account, currency)) continue;
-      const rate = await provider.fxRate(account, currency);
+      const rate = await provider.fxRate(account, currency, options);
       if (rate) { rates[currency] = rate.rate; quoted.set(currency, rate); }
     }
     return { rates, quoted };
@@ -568,16 +632,27 @@ export class TradingService {
     let requestedNotional: number | undefined;
     let requestedNotionalCurrency: string | undefined;
     let estimatedQuoteNotional: number | undefined;
+    let risk: RiskSizing | undefined;
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : undefined;
     // Amount-based sizing of an instrument you do not hold falls back to the external quote provider.
-    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === undefined
+    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === undefined
       && !position?.currentPrice && intent.type === "market";
-    if (needsPrice) {
+    // A risk-sized buy of one you do not hold reads it too, given a price or not: a Market or Stop can fill near
+    // the quote, and when that is higher the loss at the stop is larger. A Limit keeps it as its reference, in
+    // case its type is changed to one of those in the editor.
+    const needsRiskQuote = sizing.mode === "risk" && intent.side === "buy" && !position?.currentPrice;
+    let quotePrice: number | undefined;
+    let quoteAt: string | undefined;
+    if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
-      if (quote) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
+      if (quote) {
+        quotePrice = quote.price;
+        quoteAt = quote.asOf;
+        if (needsPrice) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
+      }
     }
     /** The given rate, else the one your holdings imply or the quote provider gives; `from` → instrument currency. */
     const fxRate = (from: string, given: number | undefined) => {
@@ -639,6 +714,76 @@ export class TradingService {
       if (referencePrice === undefined && position?.currentPrice !== undefined) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
+    } else if (sizing.mode === "risk") {
+      if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
+      positiveNumber("stopLossPrice", sizing.stopLossPrice);
+      if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
+      // The worst price the buy can fill at, so the loss at the stop is never understated. A Limit or Stop Limit
+      // buy fills at its limit or below. A Market buy, or a Stop whose trigger the price has already passed,
+      // fills near the last price (the holding's, or the quote source's for one you do not hold), so the highest
+      // of that, the price given and a Stop's trigger is taken.
+      const current = position?.currentPrice || quotePrice;
+      const highest = (...prices: Array<number | undefined>) => {
+        const known = prices.filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price > 0);
+        return known.length ? Math.max(...known) : undefined;
+      };
+      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice
+        : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice)
+        : highest(referencePrice, current);
+      positiveNumber("referencePrice", entry);
+      // The draft's reference is a market price: the higher of the price given and the last price, which for a
+      // Market order is its entry. The review values the order and checks the limits at it, also after the type
+      // is changed in the editor, rather than at a lower price given. A Stop's trigger is not one: the review
+      // already values a Stop buy at its trigger when that is higher, and it compares the trigger with the last
+      // price to tell a resting Stop from one that triggers at once. Its time is the holding's or the quote's.
+      const reference = intent.type === "market" ? entry : highest(referencePrice, current);
+      if (reference !== referencePrice) {
+        referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : undefined;
+        referencePrice = reference;
+      }
+      if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
+      // The budget and the cash are in the account currency; without it, neither can be compared with the fall.
+      if (!account.currency) throw new Error("The account currency is unknown, so a risk-sized buy cannot convert its budget or cap it by the cash; pass an amount or a quantity instead");
+      const accountCurrency = account.currency.toUpperCase();
+      const instrumentCurrency = instrument.currencyCode.toUpperCase();
+      let budget: number;
+      let budgetText: string;
+      if (sizing.percent !== undefined) {
+        positiveNumber("percent", sizing.percent);
+        if (sizing.percent > 100) throw new Error("percent cannot exceed 100");
+        const total = account.totalValue;
+        if (!(typeof total === "number" && total > 0)) throw new Error("The account value is unknown, so risk a fixed amount instead of a percentage");
+        budget = total * sizing.percent / 100;
+        budgetText = `${sizing.percent}% of the account value (${budget.toFixed(2)} ${accountCurrency})`;
+      } else {
+        positiveNumber("amount", sizing.amount);
+        budget = sizing.amount!;
+        budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
+      }
+      if (!(budget >= 0.01)) throw new Error(`The risk budget must be at least 0.01 ${accountCurrency}`);
+      let rate = 1;
+      let converted = "";
+      if (accountCurrency !== instrumentCurrency) {
+        const conversion = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        rate = conversion.rate;
+        converted = `, converted at ${round(rate, 6)} ${instrumentCurrency}/${accountCurrency}${conversion.source}`;
+      }
+      const perShareQuote = entry - sizing.stopLossPrice;
+      quantity = floorQuantity(budget * rate / perShareQuote);
+      // Never more than the cash can buy: the budget is what the stop may lose, not what the buy may cost.
+      const cash = account.cash?.availableToTrade;
+      if (typeof cash !== "number" || !Number.isFinite(cash)) throw new Error("The available cash is unknown, so a risk-sized buy cannot be capped; size it by quantity or amount instead");
+      const affordable = floorQuantity(Math.max(0, cash) * rate / entry);
+      const cashCapped = quantity > affordable;
+      if (cashCapped) quantity = affordable;
+      if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
+      estimatedQuoteNotional = entry * quantity;
+      // The budget is a loss, not an amount to spend, so it travels as risk.budget rather than requestedNotional.
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...(typeof current === "number" && current > 0 ? { currentPrice: current } : {}), ...(cashCapped ? { cashCapped } : {}) };
+      const loss = quantity * perShareQuote / rate;
+      note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round(estimatedQuoteNotional, 2)} ${instrumentCurrency}.`
+        + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "")
+        + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");
       const available = position?.quantityAvailableForTrading ?? 0;
@@ -676,7 +821,8 @@ export class TradingService {
     }
 
     // A provider rate travels with the draft, so the confirmation values it the same way.
-    if (givenRate === undefined && external) { givenRate = external.rate; fxRateAt ??= external.asOf; }
+    const rateQuoted = givenRate === undefined && !!external;
+    if (rateQuoted) { givenRate = external!.rate; fxRateAt ??= external!.asOf; }
     const draft: OrderDraft = {
       environment: intent.environment,
       ticker: instrument.ticker,
@@ -691,6 +837,9 @@ export class TradingService {
       ...(referencePriceAt ? { referencePriceAt } : {}),
       ...(givenRate === undefined ? {} : { fxRate: givenRate }),
       ...(fxRateAt ? { fxRateAt } : {}),
+      ...(rateQuoted ? { fxRateQuoted: true } : {}),
+      // The review checks the loss at the stop again, at the prices of the moment.
+      ...(sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round(risk.budget, 2) } } : {}),
     };
 
     // Validate what can be validated now. This remains read-only; no order is submitted.
@@ -705,18 +854,68 @@ export class TradingService {
       ...(requestedNotional === undefined ? {} : { requestedNotional }),
       ...(requestedNotionalCurrency === undefined ? {} : { requestedNotionalCurrency }),
       ...(estimatedQuoteNotional === undefined ? {} : { estimatedQuoteNotional }),
+      ...(risk ? { risk } : {}),
       note,
     };
   }
 
-  private async current(draft: OrderDraft) {
+  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  private async current(draft: OrderDraft, options: { fresh?: boolean } = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    // A risk-sized buy reads the market price of the moment: the holding's, or for an instrument you do not hold,
+    // the quote source's. It is the last price a Stop's trigger and the unit-slip check are compared with, and the
+    // price a fall to or under the stop-loss is seen at. A Market or Stop also takes it as its reference when it is
+    // above the price it was sized at, so its value and its loss at the stop are not understated, and otherwise
+    // dates the reference by it: the reference has just been checked against the market. When the quote source can
+    // price the instrument but has no quote just now, the order is refused rather than checked without one (a Limit
+    // too: with the market under the stop-loss it would fill there); with no quote source, the price given stands,
+    // as for any order.
+    const risky = !!draft.riskBudget && draft.side === "buy";
+    const lookup = { fresh: risky && !!options.fresh };
+    let marketPrice = position?.currentPrice || undefined;
+    let marketAt = marketPrice ? new Date().toISOString() : undefined;
+    if (risky && !marketPrice) {
+      const quote = await this.externalQuote(instrument, lookup).catch(() => undefined);
+      if (quote) {
+        marketPrice = quote.price;
+        marketAt = quote.asOf;
+      } else if (this.deps.quotes?.symbolFor(instrument)) {
+        fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
+      }
+    }
+    if (risky && marketPrice && marketAt && (draft.type === "market" || draft.type === "stop")) {
+      if (marketPrice > (draft.referencePrice ?? 0)) draft.referencePrice = marketPrice;
+      draft.referencePriceAt = marketAt;
+    }
+    // A risk-sized buy also asks for the exchange rate of the moment instead of the one it was sized at, so an
+    // adverse move in the rate counts toward the loss at the stop. When its rate came from the quote source and
+    // the source has none just now, it is refused; with a rate you gave, one your holdings imply, or a source that
+    // never has rates, the review goes on with the draft's rate as before.
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode], lookup);
+    const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : undefined;
+    if (fresh) {
+      draft.fxRate = fresh.rate;
+      draft.fxRateAt = fresh.asOf;
+      draft.fxRateQuoted = true;
+    } else if (risky && draft.fxRate && draft.fxRateQuoted && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    }
+    const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    // With no price at all (no holding, no quote, and no price on the order), neither its loss nor its cost is known.
+    if (risky && checked.estimatedNotional === undefined)
+      fail("RISK_CHECK_UNAVAILABLE", `No price is known for ${instrument.ticker} (you do not hold it, the quote source has none, and the order gives none), so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; give a reference price.`, { missing: "price", ticker: instrument.ticker });
+    // Its loss at the stop is in the account currency: with no currency or no rate to convert it, it can't be checked.
+    if (risky && !accountCode)
+      fail("RISK_CHECK_UNAVAILABLE", "The account currency is unknown just now, so the loss at the stop-loss of this risk-sized buy can't be checked against its budget. Nothing was sent.", { missing: "account_currency" });
+    if (risky && checked.estimatedNotional !== undefined && checked.accountNotional === undefined)
+      fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...checked };
   }
 
   private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
@@ -748,8 +947,8 @@ export class TradingService {
     }
   }
 
-  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number }, market?: MarketStatus): OrderNotice[] {
-    const notices: OrderNotice[] = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency)];
+  private orderNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; cashCheckApplied: boolean; estimatedNotionalCurrency: string; accountCurrency?: string; lastPrice?: number; marketPrice?: number }, market?: MarketStatus): OrderNotice[] {
+    const notices: OrderNotice[] = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency), ...riskNotices(draft, current)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === undefined) {
       notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
@@ -763,6 +962,13 @@ export class TradingService {
       if (fxAgeSeconds !== undefined && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    // A Stop becomes a Market order when it triggers, so a gap through the trigger fills past it.
+    if (draft.type === "stop")
+      notices.push({
+        code: "STOP_SLIPPAGE",
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the highest of its trigger, the reference price and the last price, and a fill above that loses more" : ""}.`,
+        details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" },
+      });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))
       notices.push({
         code: "MARKET_HOURS_UNKNOWN",
@@ -831,7 +1037,7 @@ export class TradingService {
     const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
-    const confirmation = await this.issue({ kind: "order", draft });
+    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
       kind: "order_preview",
@@ -901,10 +1107,12 @@ export class TradingService {
     const draft = pending.draft;
     let current: Awaited<ReturnType<TradingService["current"]>>;
     try {
-      current = await this.current(draft);
+      // A risk-sized buy reads the quote and rate of this moment: a cached one can be older than the review.
+      current = await this.current(draft, { fresh: true });
       // Re-check the policy: the market may have closed or the daily budget filled since review.
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+      assertRiskAsShown(riskNotices(draft, current), pending.risk);
     } catch (error) {
       return this.failedSubmission(draft, 0, error);
     }
@@ -1118,7 +1326,9 @@ export class TradingService {
   }
 
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
-  async prepareBasket(request: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
+  async prepareBasket(raw: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
+    // A basket checks its orders as ordinary ones: a risk-sized buy's budget is checked only when it is reviewed on its own.
+    const request = { ...raw, drafts: raw.drafts.map(withoutRiskBudget) };
     requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);

@@ -99,10 +99,17 @@ describe("stop-loss protection", () => {
     const amd = position({ instrument: { ticker: "AMD_US_EQ", name: "AMD", currencyCode: "USD" } as Position["instrument"], quantity: 10, quantityAvailableForTrading: 10, walletImpact: { currentValue: 1000 } });
     const nvda = position({ walletImpact: { currentValue: 3000 } });
     const stops: PendingOrder[] = [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110 }];
-    // NVDA: 5 of 20 covered, so 2250 of its 3000 is not; AMD has no stop.
-    expect(portfolioProtection([nvda, amd], stops)).toEqual({ holdings: 2, covered: 0, partial: 1, protectable: 2, unprotectedValue: 3250, unprotectedShare: 0.8125 });
+    // NVDA: 5 of 20 covered, so 2250 of its 3000 is not; AMD has no stop. At the stop NVDA's 5 shares lose 15 USD each at 1.2 EUR per USD.
+    expect(portfolioProtection([nvda, amd], stops)).toEqual({ holdings: 2, covered: 0, partial: 1, protectable: 2, unprotectedValue: 3250, unprotectedShare: 0.8125, atStops: 90, atStopsShare: 0.0225 });
     expect(portfolioProtection([nvda, amd], [...stops, { ticker: "NVDA_US_EQ", side: "SELL", quantity: -15, stopPrice: 110 }, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 90 }]))
-      .toEqual({ holdings: 2, covered: 2, partial: 0, protectable: 0, unprotectedValue: 0, unprotectedShare: 0 });
+      .toEqual({ holdings: 2, covered: 2, partial: 0, protectable: 0, unprotectedValue: 0, unprotectedShare: 0, atStops: 640, atStopsShare: 0.16 });
+    expect(portfolioProtection([nvda, amd], [])).not.toHaveProperty("atStops");
+    // A stop-limit counts at its limit, which it only reaches if it fills; the total says it includes one.
+    const limited: PendingOrder[] = [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110, limitPrice: 108 }];
+    expect(portfolioProtection([nvda, amd], limited)).toMatchObject({ atStops: 102, atStopsLimited: true });
+    expect(portfolioProtection([nvda, amd], stops)).not.toHaveProperty("atStopsLimited");
+    // A stop the price is already under has no outcome, so there is no total either.
+    expect(portfolioProtection([nvda, amd], [...stops, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 130 }])).not.toHaveProperty("atStops");
     // A stop placed by amount leaves the holding's coverage unknown, so there is no uncovered value either.
     const byValue: PendingOrder = { ticker: "AMD_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 100 };
     expect(portfolioProtection([nvda, amd], [...stops, byValue])).toEqual({ holdings: 2, covered: 0, partial: 1, unknown: 1, protectable: 2 });
@@ -115,20 +122,23 @@ describe("stop-loss protection", () => {
     const text = describePayload(await services.trading.getDashboard("demo"));
     // The sample account has one sell stop: 5 of 20 NVIDIA at 118.
     // 10.75 USD a share to the stop on 5 shares, at the 0.92 EUR the valuation implies; a quarter of the 597.08 P/L stays.
-    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; if it triggers: -49\.45 EUR from now, P\/L \+99\.82\. No stop on [A-Za-z_, ]+\.$/m);
+    expect(text).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118, 8\.3% below the last price; if it triggers: -49\.45 EUR from now, P\/L \+99\.82\. If every stop triggers, the holdings: -49\.45 EUR from now \(0\.4% of their value\)\. No stop on [A-Za-z_, ]+\.$/m);
     const dashboard = await services.trading.getDashboard("demo");
     // A second stop lower down widens the range, and its 5 shares cost from the last price down to 100.
     const ladder = describePayload({ ...dashboard, orders: [...dashboard.orders, { id: 99, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", quantity: -5, stopPrice: 100, status: "NEW" }] });
     expect(ladder).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 down to 100, 8\.3% below the last price; if every stop triggers: -/m);
     // A stop-limit names its limit and is costed there: 5 shares from 128.75 to 115 at the 0.92 EUR rate.
     const stopLimit = describePayload({ ...dashboard, orders: [{ id: 98, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 115, status: "NEW" }] });
-    expect(stopLimit).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118 \(stop-limit: sells at 115 or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -63\.25 EUR from now/m);
+    expect(stopLimit).toMatch(/^Stop-loss orders: NVDA_US_EQ 5 of 20 \(25%\) from 118 \(stop-limit: sells at 115 or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -63\.25 EUR from now, P\/L \+86\.02\. If every stop triggers and fills, the holdings: -63\.25 EUR/m);
     // Two stop-limits at one stop are one trigger, not a range.
     const twoLimits = describePayload({ ...dashboard, orders: [
       { id: 96, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 115, status: "NEW" },
       { id: 97, ticker: "NVDA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -5, stopPrice: 118, limitPrice: 112, status: "NEW" },
     ] });
     expect(twoLimits).toMatch(/^Stop-loss orders: NVDA_US_EQ 10 of 20 \(50%\) from 118 \(stop-limits sell at their limit or better, or not at all after a gap\), 8\.3% below the last price; if it triggers and fills: -/m);
+    // A stop-limit for something no longer held is not in the total, so the total needs no fill.
+    const stale = describePayload({ ...dashboard, orders: [...dashboard.orders, { id: 94, ticker: "TSLA_US_EQ", type: "STOP_LIMIT", side: "SELL", quantity: -3, stopPrice: 150, limitPrice: 145, status: "NEW" }] });
+    expect(stale).toMatch(/If every stop triggers, the holdings: -49\.45 EUR from now/m);
     // A stop placed by amount has no share count.
     const byAmount = describePayload({ ...dashboard, orders: [{ id: 95, ticker: "NVDA_US_EQ", type: "STOP", side: "SELL", strategy: "VALUE", value: 500, stopPrice: 118, status: "NEW" }] });
     expect(byAmount).toMatch(/^Stop-loss orders: NVDA_US_EQ an unknown number of 20 \(1 stop\(s\) placed by amount\) from 118, 8\.3% below the last price\./m);

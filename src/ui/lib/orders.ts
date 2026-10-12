@@ -1,4 +1,4 @@
-import type { PendingOrder, Position } from "../../shared/contracts";
+import type { OrderDraft, OrderResolution, OrderSizing, PendingOrder, Position, TradingEnvironment } from "../../shared/contracts";
 import type { StopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { amount, money, pct, qty } from "./format";
@@ -69,4 +69,61 @@ export function stopCoverageText(guard: StopProtection, position: Position, loca
   const values = { covered: qty(guard.covered, locale), quantity: qty(position.quantity, locale) };
   if (guard.unsized) return guard.covered > 0 ? fill(t("stopCoversAtLeast"), values) : t("stopCoversUnknown");
   return fill(t("stopCovers"), values);
+}
+
+export interface RiskAtStop {
+  /** What the draft would lose at the stop, in the account currency; absent when the stop is not below the entry. */
+  loss?: number;
+  budget: number;
+  over: boolean;
+  cashCapped: boolean;
+}
+
+/**
+ * For a risk-sized buy, what the draft as edited would lose at the stop: the quantity and the entry (limit,
+ * stop or reference price) can change after sizing, so this follows them at the rate the sizing used.
+ */
+export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | undefined): RiskAtStop | undefined {
+  const risk = resolution?.risk;
+  // Risk sizing is for buys; a draft switched to a sell no longer has a loss at the stop to show.
+  if (!risk || resolution.sizing.mode !== "risk" || draft.side !== "buy") return undefined;
+  const stop = resolution.sizing.stopLossPrice;
+  // As the server sizes and reviews it: the limit, or the highest of the trigger, the reference and the last price.
+  const entry = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice ?? risk.entryPrice
+    : Math.max(...[draft.type === "stop" ? draft.stopPrice : undefined, draft.referencePrice ?? risk.entryPrice, risk.currentPrice]
+      .filter((price): price is number => typeof price === "number" && Number.isFinite(price)));
+  const base = { budget: risk.budget, cashCapped: !!risk.cashCapped };
+  if (!(entry > stop) || !(risk.entryPrice > stop)) return { ...base, over: false };
+  const loss = draft.quantity * (entry - stop) * (risk.perShare / (risk.entryPrice - stop));
+  // A cent of rounding is not over the budget.
+  return { ...base, loss, over: loss > risk.budget + 0.005 };
+}
+
+/** Sizing that reads the account (its cash, value or holding), so another account needs it worked out again. */
+const ACCOUNT_SIZING: ReadonlySet<OrderSizing["mode"]> = new Set(["cash_percent", "position_percent", "all_available", "risk"]);
+
+/**
+ * The intent to size a draft again for another account, or undefined when its quantity carries over (an exact
+ * quantity or an amount). The order's own fields come from the draft as edited, with its dated reference price:
+ * the instrument's price is the same in either account, and the other account still reads its holding or the
+ * quote and takes the higher. An exchange rate does not carry over: it is per unit of the first account's
+ * currency, which the other account may not share.
+ */
+export function intentForAccount(draft: OrderDraft, resolution: OrderResolution | undefined, environment: TradingEnvironment): Record<string, unknown> | undefined {
+  if (!resolution || !ACCOUNT_SIZING.has(resolution.sizing.mode)) return undefined;
+  const sizing: Record<string, unknown> = { ...resolution.sizing };
+  delete sizing.fxRateToInstrumentCurrency;
+  return {
+    environment,
+    instrument: draft.ticker,
+    side: draft.side,
+    type: draft.type,
+    sizing,
+    ...(draft.limitPrice === undefined ? {} : { limitPrice: draft.limitPrice }),
+    ...(draft.stopPrice === undefined ? {} : { stopPrice: draft.stopPrice }),
+    ...(draft.referencePrice === undefined ? {} : { referencePrice: draft.referencePrice }),
+    ...(draft.referencePriceAt === undefined ? {} : { referencePriceAt: draft.referencePriceAt }),
+    ...(draft.timeValidity === undefined ? {} : { timeValidity: draft.timeValidity }),
+    ...(draft.extendedHours === undefined ? {} : { extendedHours: draft.extendedHours }),
+  };
 }

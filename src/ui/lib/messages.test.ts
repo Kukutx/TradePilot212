@@ -26,6 +26,7 @@ import {
   rebalanceNoteText,
   rebalanceSkipText,
   validityLabel,
+  sizingText,
 } from "./messages";
 
 describe("policy messages", () => {
@@ -93,6 +94,19 @@ describe("structured server codes", () => {
     expect(formatProblem({ code: "EXECUTION_BUSY", message: "busy" }, zh, "zh-CN")).toBe("这个账户还有一笔订单正在发送。请稍后再试，本次确认仍然有效。");
   });
 
+  it("says a risk-sized buy was not sent because the price moved after its review", () => {
+    expect(formatProblem({ code: "RISK_CHANGED", message: "x", details: { loss: 56.25, budget: 30, accountCurrency: "EUR", currency: "USD", stopLossPrice: 200 } }, en, "en"))
+      .toBe("The price moved after the review: at the stop-loss this order would now lose about €56.25, more than the review showed. Nothing was sent; review the order again.");
+    expect(formatProblem({ code: "RISK_CHANGED", message: "x", details: { stopLossPrice: 200, price: 190, currency: "USD" } }, zh, "zh-CN"))
+      .toBe("复核之后价格变了，已在止损价 US$200.00 或以下。订单没有发出，请重新复核。");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "fx_rate", from: "EUR", to: "CHF" } }, en, "en"))
+      .toBe("The quote source has no EUR to CHF exchange rate just now, so the loss at the stop-loss can't be checked. Nothing was sent; try again in a moment.");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "quote", ticker: "MSFT_US_EQ" } }, zh, "zh-CN"))
+      .toBe("行情源暂时没有这只标的的价格，无法核对到止损价的亏损。订单没有发出，请稍后再试。");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "account_currency" } }, en, "en")).toMatch(/^Trading 212 did not give the account currency just now/);
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "price", ticker: "MSFT_US_EQ" } }, zh, "zh-CN")).toMatch(/请填写参考价。$/);
+  });
+
   it("words the new order notices from their values", () => {
     expect(noticeText({ code: "STOP_ALREADY_TRIGGERED", message: "x", details: { stopPrice: 200, last: 190, currency: "USD" } }, en, "en"))
       .toBe("The stop price $200.00 has already been reached (last price $190.00), so the order triggers as soon as it is placed.");
@@ -101,6 +115,8 @@ describe("structured server codes", () => {
     expect(noticeText({ code: "PRICE_FAR_FROM_LAST", message: "x", details: { percent: 25, last: 100, currency: "EUR" } }, zh, "zh-CN")).toBe("订单价格比最新价 €100.00 高 25%。");
     expect(noticeText({ code: "MARKET_HOURS_UNKNOWN", message: "x", details: { reason: "no_schedule" } }, zh, "zh-CN")).toContain("没有提供该标的的交易时段");
     expect(noticeText({ code: "MARKET_HOURS_UNKNOWN", message: "Server text." }, en, "en")).toBe("Server text.");
+    expect(noticeText({ code: "STOP_SLIPPAGE", message: "x", details: { side: "sell", riskSized: false } }, en, "en")).toBe("A Stop order becomes a Market order once it triggers, so after a gap it can fill below its trigger price.");
+    expect(noticeText({ code: "STOP_SLIPPAGE", message: "x", details: { side: "buy", riskSized: true } }, zh, "zh-CN")).toBe("止损单触发后按市价成交，价格跳空时可能高于触发价成交。到止损价的亏损按触发价、参考价和最新价中最高的一个计算，成交价更高时亏得更多。");
   });
 
   it("names statuses, types, providers and environments instead of showing codes", () => {
@@ -197,5 +213,13 @@ describe("server-written basket text", () => {
       notices: [],
     } as unknown as PieChangePreview;
     expect(pieNoticeText("Removing AAPL_US_EQ takes it out of the pie.", preview, zh, "zh-CN", { AAPL_US_EQ: { name: "Apple" } })).toContain("移除 Apple");
+  });
+});
+
+describe("risk sizing", () => {
+  it("names the budget and the stop", () => {
+    const apple = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD" };
+    expect(sizingText({ mode: "risk", percent: 1, stopLossPrice: 200 }, apple, "en", createTranslator("en"), "EUR")).toBe("Risk at the stop · 1% of account value · stop $200.00");
+    expect(sizingText({ mode: "risk", amount: 30, stopLossPrice: 200 }, apple, "zh-CN", createTranslator("zh-CN"), "EUR")).toBe("止损风险 · €30.00 · 止损 US$200.00");
   });
 });

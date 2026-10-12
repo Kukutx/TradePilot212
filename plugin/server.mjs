@@ -34498,11 +34498,11 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   const fetchFx = fxFetcher(name, config3.quoteApiKey, fetcher);
   const cache = /* @__PURE__ */ new Map();
   const fxCache = /* @__PURE__ */ new Map();
-  const pairRate = async (from, to) => {
+  const pairRate = async (from, to, fresh = false) => {
     const symbol2 = fxSymbol(name, from, to);
     if (!symbol2) return void 0;
     const cached2 = fxCache.get(symbol2);
-    if (cached2 && cached2.expiresAt > Date.now()) return cached2.rate;
+    if (!fresh && cached2 && cached2.expiresAt > Date.now()) return cached2.rate;
     let rate;
     try {
       const result2 = await fetchFx(symbol2);
@@ -34510,7 +34510,7 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot FX rate failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
     }
-    fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
+    if (rate || !fresh) fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
     return rate;
   };
   const mapping = (instrument) => {
@@ -34527,13 +34527,14 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   return {
     name,
     symbolFor,
-    async quote(instrument) {
+    hasFxRates: fxSymbol(name, "EUR", "USD") !== void 0,
+    async quote(instrument, options) {
       const symbol2 = symbolFor(instrument);
       if (!symbol2) return void 0;
       const factor = mapping(instrument)?.factor ?? 1;
       const key = `${symbol2}*${factor}`;
       const cached2 = cache.get(key);
-      if (cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
+      if (!options?.fresh && cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
       let quote;
       try {
         const result2 = await fetchQuote(symbol2);
@@ -34541,10 +34542,10 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
       } catch (error62) {
         console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
-      cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
+      if (quote || !options?.fresh) cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
     },
-    async fxRate(from, to) {
+    async fxRate(from, to, options) {
       const source = from.toUpperCase();
       const target = to.toUpperCase();
       if (!/^[A-Z]{3}$/.test(source) || !/^[A-Z]{3}$/.test(target) || source === target) return void 0;
@@ -34552,7 +34553,7 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
       const quote = target === "GBX" ? "GBP" : target;
       const scale = (target === "GBX" ? 100 : 1) / (source === "GBX" ? 100 : 1);
       if (base === quote) return { from: source, to: target, rate: scale, asOf: (/* @__PURE__ */ new Date()).toISOString(), source: name };
-      const rate = await pairRate(base, quote);
+      const rate = await pairRate(base, quote, !!options?.fresh);
       return rate ? { ...rate, from: source, to: target, rate: rate.rate * scale } : void 0;
     }
   };
@@ -35008,6 +35009,48 @@ function suggestedStop(position, guard, drop = SUGGESTED_STOP_DROP) {
   const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - drop));
   return { quantity, stopPrice };
 }
+function portfolioProtection(positions, orders) {
+  const held = positions.filter((position) => position.quantity > 0);
+  let covered = 0;
+  let partial2 = 0;
+  let protectable = 0;
+  let unprotected = 0;
+  let total = 0;
+  let valued = true;
+  let unknown2 = 0;
+  let atStops = 0;
+  let stopped = 0;
+  let limited = false;
+  for (const position of held) {
+    const guard = stopProtection(position, orders);
+    if (guard?.coverage === 1) covered += 1;
+    else if (guard?.unsized) unknown2 += 1;
+    else if (guard) partial2 += 1;
+    if (guard) {
+      stopped += 1;
+      const outcome = stopOutcome(position, guard);
+      atStops = outcome && atStops !== void 0 ? atStops + outcome.drop : void 0;
+      if (guard.levels.some((level) => level.limitPrice !== void 0)) limited = true;
+    }
+    if (suggestedStop(position, guard)) protectable += 1;
+    const value = position.walletImpact?.currentValue;
+    if (typeof value !== "number" || !Number.isFinite(value)) valued = false;
+    else {
+      total += value;
+      unprotected += value * (1 - (guard?.coverage ?? 0));
+    }
+  }
+  return {
+    holdings: held.length,
+    covered,
+    partial: partial2,
+    protectable,
+    // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
+    ...valued && !unknown2 && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {},
+    ...unknown2 ? { unknown: unknown2 } : {},
+    ...stopped && atStops !== void 0 ? { atStops, ...valued && total > 0 ? { atStopsShare: atStops / total } : {}, ...limited ? { atStopsLimited: true } : {} } : {}
+  };
+}
 
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
@@ -35380,7 +35423,7 @@ function resolveInstrumentFromList(instruments, query) {
   }
   throw new Error(`No Trading 212 instrument matched ${query}`);
 }
-function validateOrderAgainstSnapshot(draft, instrument, position, account, config3, rates = {}) {
+function validateOrderAgainstSnapshot(draft, instrument, position, account, config3, rates = {}, marketPrice) {
   if (!draft.ticker.trim()) throw new Error("Ticker is required");
   positiveNumber("quantity", draft.quantity);
   if (config3.maxOrderQuantity > 0 && draft.quantity > config3.maxOrderQuantity)
@@ -35393,7 +35436,7 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     throw new Error(`${instrument.ticker} does not support extended-hours execution`);
   if (draft.side === "buy" && instrument.maxOpenQuantity && Math.max(0, position?.quantity ?? 0) + draft.quantity > instrument.maxOpenQuantity + Number.EPSILON)
     throw new Error(`Resulting quantity exceeds Trading 212 maxOpenQuantity (${instrument.maxOpenQuantity})`);
-  const last = position?.currentPrice || draft.referencePrice;
+  const last = position?.currentPrice || marketPrice || draft.referencePrice;
   for (const [name, value] of [["limitPrice", draft.limitPrice], ["stopPrice", draft.stopPrice]]) {
     if (!last || !value || draft.type === "market") continue;
     const ratio2 = value / last;
@@ -35445,6 +35488,45 @@ function validateOrderAgainstSnapshot(draft, instrument, position, account, conf
     ...account.currency ? { accountCurrency: account.currency } : {},
     ...last ? { lastPrice: last } : {}
   };
+}
+function riskNotices(draft, current) {
+  const limit = draft.riskBudget;
+  if (!limit || draft.side !== "buy" || !current.estimatedNotional || current.accountNotional === void 0 || !(draft.quantity > 0)) return [];
+  const price = current.estimatedNotional / draft.quantity;
+  const instrumentCurrency = current.estimatedNotionalCurrency;
+  const accountCurrency = current.accountCurrency ?? instrumentCurrency;
+  const resting = (draft.type === "stop" || draft.type === "stop_limit") && !!draft.stopPrice && !!current.marketPrice && draft.stopPrice > current.marketPrice;
+  const lowest = current.marketPrice && current.marketPrice > 0 && !resting ? Math.min(price, current.marketPrice) : price;
+  if (!(lowest > limit.stopLossPrice)) {
+    return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round3(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round3(lowest, 6), currency: instrumentCurrency } }];
+  }
+  const loss = current.accountNotional * (price - limit.stopLossPrice) / price;
+  if (loss <= limit.budget + 5e-3) return [];
+  return [{
+    code: "RISK_OVER_BUDGET",
+    message: `At the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency}, this order would now lose about ${loss.toFixed(2)} ${accountCurrency}, more than the ${limit.budget.toFixed(2)} ${accountCurrency} it was sized for: the price has moved or the quantity was changed.`,
+    details: { loss: round3(loss, 2), budget: limit.budget, stopLossPrice: limit.stopLossPrice, currency: instrumentCurrency, accountCurrency }
+  }];
+}
+function withoutRiskBudget(draft) {
+  const copy = { ...draft };
+  delete copy.riskBudget;
+  return copy;
+}
+function riskShown(notices) {
+  const over = notices.find((notice) => notice.code === "RISK_OVER_BUDGET");
+  const loss = typeof over?.details?.loss === "number" ? over.details.loss : void 0;
+  const stopAbove = notices.some((notice) => notice.code === "RISK_STOP_ABOVE_PRICE");
+  return loss === void 0 && !stopAbove ? {} : { risk: { ...loss === void 0 ? {} : { loss }, ...stopAbove ? { stopAbove: true } : {} } };
+}
+function assertRiskAsShown(notices, shown) {
+  for (const notice of notices) {
+    if (notice.code === "RISK_STOP_ABOVE_PRICE" && !shown?.stopAbove)
+      fail("RISK_CHANGED", `${notice.message} The price moved after the review; review the order again.`, notice.details ?? {});
+    const loss = notice.details?.loss;
+    if (notice.code === "RISK_OVER_BUDGET" && typeof loss === "number" && !(shown?.loss !== void 0 && loss <= shown.loss + 5e-3))
+      fail("RISK_CHANGED", `${notice.message} The review showed ${shown?.loss === void 0 ? "no loss over the budget" : `a loss of ${shown.loss.toFixed(2)}`}; review the order again.`, notice.details ?? {});
+  }
 }
 function priceNotices(draft, last, currency) {
   if (!last || draft.type === "market") return [];
@@ -35520,14 +35602,14 @@ var TradingService = class {
     return this.namedOrders(environment, [order], instrument ? [{ instrument }] : [])[0];
   }
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
-  externalQuote(instrument) {
-    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
+  externalQuote(instrument, options) {
+    return this.deps.quotes?.quote(instrument, options) ?? Promise.resolve(void 0);
   }
   /**
    * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
    * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
    */
-  async ratesFor(positions, accountCurrency, currencies) {
+  async ratesFor(positions, accountCurrency, currencies, options) {
     const account = accountCurrency.toUpperCase();
     const rates = knownFxRates(positions, account);
     const quoted = /* @__PURE__ */ new Map();
@@ -35535,7 +35617,7 @@ var TradingService = class {
     if (!account || !provider) return { rates, quoted };
     for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
       if (crossRate(rates, account, currency)) continue;
-      const rate = await provider.fxRate(account, currency);
+      const rate = await provider.fxRate(account, currency, options);
       if (rate) {
         rates[currency] = rate.rate;
         quoted.set(currency, rate);
@@ -35669,16 +35751,24 @@ var TradingService = class {
     let requestedNotional;
     let requestedNotionalCurrency;
     let estimatedQuoteNotional;
+    let risk;
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : void 0;
-    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
-    if (needsPrice) {
+    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
+    const needsRiskQuote = sizing.mode === "risk" && intent.side === "buy" && !position?.currentPrice;
+    let quotePrice;
+    let quoteAt;
+    if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
       if (quote) {
-        referencePrice = quote.price;
-        referencePriceAt = quote.asOf;
+        quotePrice = quote.price;
+        quoteAt = quote.asOf;
+        if (needsPrice) {
+          referencePrice = quote.price;
+          referencePriceAt = quote.asOf;
+        }
       }
     }
     const fxRate = (from, given) => {
@@ -35735,6 +35825,60 @@ var TradingService = class {
       if (referencePrice === void 0 && position?.currentPrice !== void 0) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
+    } else if (sizing.mode === "risk") {
+      if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
+      positiveNumber("stopLossPrice", sizing.stopLossPrice);
+      if (sizing.amount === void 0 === (sizing.percent === void 0)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
+      const current = position?.currentPrice || quotePrice;
+      const highest = (...prices) => {
+        const known = prices.filter((price) => typeof price === "number" && Number.isFinite(price) && price > 0);
+        return known.length ? Math.max(...known) : void 0;
+      };
+      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice) : highest(referencePrice, current);
+      positiveNumber("referencePrice", entry);
+      const reference = intent.type === "market" ? entry : highest(referencePrice, current);
+      if (reference !== referencePrice) {
+        referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : void 0;
+        referencePrice = reference;
+      }
+      if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
+      if (!account.currency) throw new Error("The account currency is unknown, so a risk-sized buy cannot convert its budget or cap it by the cash; pass an amount or a quantity instead");
+      const accountCurrency = account.currency.toUpperCase();
+      const instrumentCurrency = instrument.currencyCode.toUpperCase();
+      let budget;
+      let budgetText;
+      if (sizing.percent !== void 0) {
+        positiveNumber("percent", sizing.percent);
+        if (sizing.percent > 100) throw new Error("percent cannot exceed 100");
+        const total = account.totalValue;
+        if (!(typeof total === "number" && total > 0)) throw new Error("The account value is unknown, so risk a fixed amount instead of a percentage");
+        budget = total * sizing.percent / 100;
+        budgetText = `${sizing.percent}% of the account value (${budget.toFixed(2)} ${accountCurrency})`;
+      } else {
+        positiveNumber("amount", sizing.amount);
+        budget = sizing.amount;
+        budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
+      }
+      if (!(budget >= 0.01)) throw new Error(`The risk budget must be at least 0.01 ${accountCurrency}`);
+      let rate = 1;
+      let converted = "";
+      if (accountCurrency !== instrumentCurrency) {
+        const conversion = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        rate = conversion.rate;
+        converted = `, converted at ${round3(rate, 6)} ${instrumentCurrency}/${accountCurrency}${conversion.source}`;
+      }
+      const perShareQuote = entry - sizing.stopLossPrice;
+      quantity = floorQuantity(budget * rate / perShareQuote);
+      const cash = account.cash?.availableToTrade;
+      if (typeof cash !== "number" || !Number.isFinite(cash)) throw new Error("The available cash is unknown, so a risk-sized buy cannot be capped; size it by quantity or amount instead");
+      const affordable = floorQuantity(Math.max(0, cash) * rate / entry);
+      const cashCapped = quantity > affordable;
+      if (cashCapped) quantity = affordable;
+      if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
+      estimatedQuoteNotional = entry * quantity;
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...typeof current === "number" && current > 0 ? { currentPrice: current } : {}, ...cashCapped ? { cashCapped } : {} };
+      const loss = quantity * perShareQuote / rate;
+      note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round3(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round3(estimatedQuoteNotional, 2)} ${instrumentCurrency}.` + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "") + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");
       const available = position?.quantityAvailableForTrading ?? 0;
@@ -35764,7 +35908,8 @@ var TradingService = class {
       estimatedQuoteNotional = pricingReference * quantity;
       note = !conversion ? `${sizing.amount} ${requestedCurrency} target amount resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.` : `${sizing.amount} ${requestedCurrency} converted at ${round3(conversion.rate, 6)} ${instrumentCurrency}/${requestedCurrency}${conversion.source} resolves to approximately ${quantity} share(s) at ${pricingReference} ${instrumentCurrency}.`;
     }
-    if (givenRate === void 0 && external) {
+    const rateQuoted = givenRate === void 0 && !!external;
+    if (rateQuoted) {
       givenRate = external.rate;
       fxRateAt ??= external.asOf;
     }
@@ -35781,7 +35926,10 @@ var TradingService = class {
       ...referencePrice === void 0 ? {} : { referencePrice },
       ...referencePriceAt ? { referencePriceAt } : {},
       ...givenRate === void 0 ? {} : { fxRate: givenRate },
-      ...fxRateAt ? { fxRateAt } : {}
+      ...fxRateAt ? { fxRateAt } : {},
+      ...rateQuoted ? { fxRateQuoted: true } : {},
+      // The review checks the loss at the stop again, at the prices of the moment.
+      ...sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round3(risk.budget, 2) } } : {}
     };
     validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
     return {
@@ -35793,17 +35941,53 @@ var TradingService = class {
       ...requestedNotional === void 0 ? {} : { requestedNotional },
       ...requestedNotionalCurrency === void 0 ? {} : { requestedNotionalCurrency },
       ...estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional },
+      ...risk ? { risk } : {},
       note
     };
   }
-  async current(draft) {
+  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  async current(draft, options = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
-    return { instrument, position, account, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
+    const risky = !!draft.riskBudget && draft.side === "buy";
+    const lookup = { fresh: risky && !!options.fresh };
+    let marketPrice = position?.currentPrice || void 0;
+    let marketAt = marketPrice ? (/* @__PURE__ */ new Date()).toISOString() : void 0;
+    if (risky && !marketPrice) {
+      const quote = await this.externalQuote(instrument, lookup).catch(() => void 0);
+      if (quote) {
+        marketPrice = quote.price;
+        marketAt = quote.asOf;
+      } else if (this.deps.quotes?.symbolFor(instrument)) {
+        fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
+      }
+    }
+    if (risky && marketPrice && marketAt && (draft.type === "market" || draft.type === "stop")) {
+      if (marketPrice > (draft.referencePrice ?? 0)) draft.referencePrice = marketPrice;
+      draft.referencePriceAt = marketAt;
+    }
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode], lookup);
+    const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : void 0;
+    if (fresh) {
+      draft.fxRate = fresh.rate;
+      draft.fxRateAt = fresh.asOf;
+      draft.fxRateQuoted = true;
+    } else if (risky && draft.fxRate && draft.fxRateQuoted && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    }
+    const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    if (risky && checked.estimatedNotional === void 0)
+      fail("RISK_CHECK_UNAVAILABLE", `No price is known for ${instrument.ticker} (you do not hold it, the quote source has none, and the order gives none), so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; give a reference price.`, { missing: "price", ticker: instrument.ticker });
+    if (risky && !accountCode)
+      fail("RISK_CHECK_UNAVAILABLE", "The account currency is unknown just now, so the loss at the stop-loss of this risk-sized buy can't be checked against its budget. Nothing was sent.", { missing: "account_currency" });
+    if (risky && checked.estimatedNotional !== void 0 && checked.accountNotional === void 0)
+      fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
+    return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...checked };
   }
   async snapshot(environment) {
     const client = this.client(environment);
@@ -35831,7 +36015,7 @@ var TradingService = class {
     }
   }
   orderNotices(draft, current, market) {
-    const notices = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency)];
+    const notices = [...priceNotices(draft, current.lastPrice, current.estimatedNotionalCurrency), ...riskNotices(draft, current)];
     if (draft.environment === "live") notices.push({ code: "LIVE_FUNDS", message: "LIVE: confirming this order uses real funds." });
     if (current.estimatedNotional === void 0) {
       notices.push({ code: "NOTIONAL_ESTIMATE_UNAVAILABLE", message: "The order amount cannot be estimated before submission." });
@@ -35845,6 +36029,12 @@ var TradingService = class {
       if (fxAgeSeconds !== void 0 && fxAgeSeconds > REFERENCE_STALE_SECONDS) notices.push({ code: "FX_RATE_STALE", message: "The FX conversion may be stale.", details: { ageSeconds: fxAgeSeconds, staleAfterSeconds: REFERENCE_STALE_SECONDS } });
     }
     if (draft.type === "market") notices.push({ code: "MARKET_SLIPPAGE", message: "Market orders can execute away from the reference price." });
+    if (draft.type === "stop")
+      notices.push({
+        code: "STOP_SLIPPAGE",
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the highest of its trigger, the reference price and the last price, and a fill above that loses more" : ""}.`,
+        details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" }
+      });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))
       notices.push({
         code: "MARKET_HOURS_UNKNOWN",
@@ -35907,7 +36097,7 @@ var TradingService = class {
     const policy2 = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy2, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
-    const confirmation = await this.issue({ kind: "order", draft });
+    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
       kind: "order_preview",
@@ -35972,9 +36162,10 @@ var TradingService = class {
     const draft = pending.draft;
     let current;
     try {
-      current = await this.current(draft);
+      current = await this.current(draft, { fresh: true });
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
+      assertRiskAsShown(riskNotices(draft, current), pending.risk);
     } catch (error62) {
       return this.failedSubmission(draft, 0, error62);
     }
@@ -36173,7 +36364,8 @@ var TradingService = class {
     return markets;
   }
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
-  async prepareBasket(request, options = {}) {
+  async prepareBasket(raw, options = {}) {
+    const request = { ...raw, drafts: raw.drafts.map(withoutRiskBudget) };
     requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
@@ -37918,7 +38110,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.26.0"
+  version: "2.27.0"
 };
 
 // src/core/text-summary.ts
@@ -38014,7 +38206,9 @@ function protectionLines(positions, orders, currency) {
     return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+  const { atStops, atStopsShare, atStopsLimited } = portfolioProtection(positions, orders);
+  const total = atStops === void 0 ? "" : ` If every stop triggers${atStopsLimited ? " and fills" : ""}, the holdings: ${money2(-atStops, currency)} from now${atStopsShare === void 0 ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${total}${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 function portfolio(data) {
   const holdings = [...data.positions].sort((a, b) => {
@@ -38550,7 +38744,9 @@ var orderDraftSchema = external_exports.object({
   referencePrice: external_exports.number().positive().optional(),
   referencePriceAt: external_exports.string().datetime().optional(),
   fxRate: fxRateSchema,
-  fxRateAt: external_exports.string().datetime().optional()
+  fxRateAt: external_exports.string().datetime().optional(),
+  fxRateQuoted: external_exports.boolean().optional().describe("Set by TradePilot when fxRate came from the quote source; pass it back as returned."),
+  riskBudget: external_exports.object({ stopLossPrice: external_exports.number().positive(), budget: external_exports.number().positive() }).optional()
 });
 var orderSizingSchema = external_exports.discriminatedUnion("mode", [
   external_exports.object({ mode: external_exports.literal("quantity"), quantity: external_exports.number().positive() }),
@@ -38562,7 +38758,14 @@ var orderSizingSchema = external_exports.discriminatedUnion("mode", [
   }),
   external_exports.object({ mode: external_exports.literal("cash_percent"), percent: external_exports.number().positive().max(100), fxRateToInstrumentCurrency: external_exports.number().positive().optional() }),
   external_exports.object({ mode: external_exports.literal("position_percent"), percent: external_exports.number().positive().max(100) }),
-  external_exports.object({ mode: external_exports.literal("all_available") })
+  external_exports.object({ mode: external_exports.literal("all_available") }),
+  external_exports.object({
+    mode: external_exports.literal("risk"),
+    stopLossPrice: external_exports.number().positive().describe("Where you would sell if the trade goes wrong, in the instrument's currency"),
+    amount: external_exports.number().positive().optional().describe("Most to lose at the stop, in the account currency"),
+    percent: external_exports.number().positive().max(100).optional().describe("Most to lose at the stop, as a percentage of the account value"),
+    fxRateToInstrumentCurrency: external_exports.number().positive().optional()
+  })
 ]);
 var dateOrDateTime = external_exports.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)) && /T/.test(value), "Use YYYY-MM-DD or an ISO date-time");
 var windowSchema = {
@@ -38925,7 +39128,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
       "review_trading212_order_intent",
       {
         title: "Review Flexible Trading 212 Order",
-        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
+        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Risk sizing buys as many shares as would lose a given amount, or percent of the account value, if the price fell to a stop-loss; it is capped at the available cash, and the stop itself is a separate order (review_protective_orders once the buy fills). Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available; 'buy Apple risking 1% of my account with a stop at 200' => risk percent 1, stopLossPrice 200.",
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           instrument: external_exports.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -38960,7 +39163,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
                 ...resolved.availableToSell === void 0 ? {} : { availableToSell: resolved.availableToSell },
                 ...resolved.requestedNotional === void 0 ? {} : { requestedNotional: resolved.requestedNotional },
                 ...resolved.requestedNotionalCurrency ? { requestedNotionalCurrency: resolved.requestedNotionalCurrency } : {},
-                ...resolved.estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional }
+                ...resolved.estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional },
+                ...resolved.risk ? { risk: resolved.risk } : {}
               },
               note: resolved.note,
               credentials: credentialStatus(config3),
@@ -39456,7 +39660,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           title: external_exports.string().min(1).max(80).default("Order basket"),
-          orders: external_exports.array(orderDraftSchema.omit({ environment: true })).min(1).max(MAX_BASKET_LEGS)
+          // A basket checks its orders as ordinary ones, without a risk budget.
+          orders: external_exports.array(orderDraftSchema.omit({ environment: true, riskBudget: true })).min(1).max(MAX_BASKET_LEGS)
         }),
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
         _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -39696,7 +39901,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
           environment: environmentEnum,
           purpose: external_exports.enum(["rebalance", "protective", "dca", "custom"]),
           title: external_exports.string().min(1).max(80),
-          drafts: external_exports.array(orderDraftSchema).min(1).max(MAX_BASKET_LEGS),
+          drafts: external_exports.array(orderDraftSchema.omit({ riskBudget: true })).min(1).max(MAX_BASKET_LEGS),
           planId: external_exports.string().optional(),
           notes: external_exports.array(external_exports.string().max(500)).max(20).optional()
         }),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { PendingOrder, Position } from "../../shared/contracts";
+import type { OrderDraft, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { createTranslator } from "../i18n";
-import { stopCoverageText, summarizeOrder } from "./orders";
+import { intentForAccount, riskAtStop, stopCoverageText, summarizeOrder } from "./orders";
 
 const apple = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", type: "STOCK" };
 const positions = [{ instrument: apple, quantity: 10, averagePricePaid: 150, currentPrice: 200 }] as unknown as Position[];
@@ -34,5 +34,61 @@ describe("stop coverage", () => {
     expect(stopCoverageText({ ...base, covered: 4, coverage: 0.4, unsized: 1 }, position, "en", t)).toBe("Covers at least 4 of 10");
     expect(stopCoverageText({ ...base, covered: 0, coverage: 0, unsized: 1 }, position, "en", t)).toBe("Placed by amount; shares not known");
     expect(stopCoverageText({ ...base, covered: 4, coverage: 0.4 }, position, "en", t)).toBe("Covers 4 of 10");
+  });
+});
+
+describe("risk at the stop", () => {
+  // Sized for 30 EUR at 216 USD with a stop at 200: 16 USD a share, 14.81 EUR at 1.08.
+  const resolution: OrderResolution = { sizing: { mode: "risk", percent: 1, stopLossPrice: 200 }, resolvedQuantity: 2.025, accountCurrency: "EUR", risk: { budget: 30, entryPrice: 216, perShare: 16 / 1.08 } };
+  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 2.025, referencePrice: 216 };
+
+  it("follows the quantity and entry price as they are edited", () => {
+    expect(riskAtStop(draft, resolution)).toEqual({ loss: expect.closeTo(30, 8), budget: 30, over: false, cashCapped: false });
+    expect(riskAtStop({ ...draft, quantity: 4 }, resolution)).toMatchObject({ loss: expect.closeTo(59.26, 2), over: true });
+    // A limit at 208 halves the fall to the stop.
+    expect(riskAtStop({ ...draft, type: "limit", limitPrice: 208 }, resolution)?.loss).toBeCloseTo(15, 8);
+    expect(riskAtStop({ ...draft, type: "limit", limitPrice: 195 }, resolution)).toEqual({ budget: 30, over: false, cashCapped: false });
+  });
+
+  it("counts a Market or passed Stop buy from the last price when that is higher", () => {
+    const held: OrderResolution = { ...resolution, risk: { ...resolution.risk!, currentPrice: 216 } };
+    // Lowering the reference price does not lower the loss: the order fills near 216.
+    expect(riskAtStop({ ...draft, referencePrice: 205 }, held)?.loss).toBeCloseTo(30, 8);
+    // A Stop at 208 has been passed and fills near 216; one at 224 fills at its trigger.
+    expect(riskAtStop({ ...draft, type: "stop", stopPrice: 208 }, held)?.loss).toBeCloseTo(30, 8);
+    expect(riskAtStop({ ...draft, type: "stop", stopPrice: 224 }, held)?.loss).toBeCloseTo(45, 8);
+    // Sized as a Limit at 212 (12 USD to the stop), then changed to Market: it fills near 216, 16 USD from the stop.
+    const limited: OrderResolution = { ...resolution, risk: { budget: 30, entryPrice: 212, currentPrice: 216, perShare: 12 / 1.08 } };
+    const asLimit: OrderDraft = { ...draft, type: "limit", limitPrice: 212, quantity: 2.7, referencePrice: 216 };
+    expect(riskAtStop(asLimit, limited)?.loss).toBeCloseTo(30, 8);
+    expect(riskAtStop({ ...asLimit, type: "market" }, limited)?.loss).toBeCloseTo(40, 8);
+  });
+
+  it("is only for risk-sized drafts", () => {
+    expect(riskAtStop(draft, undefined)).toBeUndefined();
+    expect(riskAtStop({ ...draft, side: "sell" }, resolution)).toBeUndefined();
+    expect(riskAtStop(draft, { sizing: { mode: "quantity", quantity: 2 }, resolvedQuantity: 2 })).toBeUndefined();
+  });
+});
+
+describe("switching accounts", () => {
+  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "limit", quantity: 7, limitPrice: 208, timeValidity: "DAY", referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" };
+  it("sizes again what depends on the account, with the draft's own prices", () => {
+    const risk: OrderResolution = { sizing: { mode: "risk", percent: 1, stopLossPrice: 200 }, resolvedQuantity: 2 };
+    // The dated reference carries over, for an instrument neither account holds and no quote source prices.
+    expect(intentForAccount(draft, risk, "live")).toEqual({ environment: "live", instrument: "AAPL_US_EQ", side: "buy", type: "limit", sizing: risk.sizing, limitPrice: 208, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z", timeValidity: "DAY" });
+    expect(intentForAccount(draft, { sizing: { mode: "cash_percent", percent: 10 }, resolvedQuantity: 2 }, "live")).toMatchObject({ sizing: { mode: "cash_percent" } });
+  });
+
+  it("leaves out an exchange rate given for the first account's currency", () => {
+    const risk: OrderResolution = { sizing: { mode: "risk", amount: 50, stopLossPrice: 200, fxRateToInstrumentCurrency: 1.08 }, resolvedQuantity: 2 };
+    expect(intentForAccount(draft, risk, "live")?.sizing).toEqual({ mode: "risk", amount: 50, stopLossPrice: 200 });
+    expect(risk.sizing).toHaveProperty("fxRateToInstrumentCurrency", 1.08);
+  });
+
+  it("keeps a quantity or an amount as it is", () => {
+    expect(intentForAccount(draft, { sizing: { mode: "quantity", quantity: 7 }, resolvedQuantity: 7 }, "live")).toBeUndefined();
+    expect(intentForAccount(draft, { sizing: { mode: "notional", amount: 100 }, resolvedQuantity: 0.5 }, "live")).toBeUndefined();
+    expect(intentForAccount(draft, undefined, "live")).toBeUndefined();
   });
 });

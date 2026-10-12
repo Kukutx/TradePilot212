@@ -139,6 +139,17 @@ export function formatProblem(problem: StructuredError, t: Translator, locale: S
     case "BROKER_REQUEST_FAILED": return t("errorBroker");
     case "EXECUTION_STATUS_UNKNOWN": return t("errorUnknownExecution");
     case "EXECUTION_BUSY": return t("errorExecutionBusy");
+    case "RISK_CHANGED": {
+      const account = typeof details.accountCurrency === "string" ? details.accountCurrency : undefined;
+      if (typeof details.loss === "number") return fill(t("errorRiskChangedLoss"), { loss: amount(details.loss, account, locale) });
+      if (typeof details.stopLossPrice === "number") return fill(t("errorRiskChangedStop"), { stop: sum("stopLossPrice") });
+      return problem.message;
+    }
+    case "RISK_CHECK_UNAVAILABLE":
+      if (details.missing === "fx_rate") return fill(t("errorRiskRateUnavailable"), { from: String(details.from ?? ""), to: String(details.to ?? "") });
+      if (details.missing === "account_currency") return t("errorRiskCurrencyUnavailable");
+      if (details.missing === "price") return t("errorRiskPriceUnavailable");
+      return details.missing === "quote" ? t("errorRiskQuoteUnavailable") : problem.message;
     case "POLICY_BLOCKED": return problem.message ? `${t("errorPolicyBlocked")} ${problem.message}` : t("errorPolicyBlocked");
     case "PLAN_NOT_FOUND": return t("errorPlanNotFound");
     case "PIE_NOT_FOUND": return t("errorPieNotFound");
@@ -156,6 +167,7 @@ export function noticeText(notice: OrderNotice, t: Translator, locale: Supported
   switch (notice.code) {
     case "LIVE_FUNDS": return t("liveFundsNotice");
     case "MARKET_SLIPPAGE": return t("marketSlippageNotice");
+    case "STOP_SLIPPAGE": return t(details.side === "sell" ? "noticeStopSlippageSell" : details.riskSized === true ? "noticeStopSlippageRisk" : "noticeStopSlippageBuy");
     case "REFERENCE_PRICE_STALE": {
       const seconds = typeof details.ageSeconds === "number" ? details.ageSeconds : undefined;
       return seconds === undefined ? t("referenceStaleNotice") : `${t("referenceStaleNotice")} ${num(Math.round(seconds / 60), locale, 0)} min`;
@@ -187,6 +199,17 @@ export function noticeText(notice: OrderNotice, t: Translator, locale: Supported
       const last = price("last");
       return limit && last ? fill(t("noticeLimitAtOnce"), { limit, last }) : notice.message;
     }
+    case "RISK_OVER_BUDGET": {
+      const stop = price("stopLossPrice");
+      const account = typeof details.accountCurrency === "string" ? details.accountCurrency : undefined;
+      const loss = typeof details.loss === "number" ? amount(details.loss, account, locale) : undefined;
+      const budget = typeof details.budget === "number" ? amount(details.budget, account, locale) : undefined;
+      return stop && loss && budget ? fill(t("noticeRiskOverBudget"), { stop, loss, budget }) : notice.message;
+    }
+    case "RISK_STOP_ABOVE_PRICE": {
+      const stop = price("stopLossPrice");
+      return stop ? fill(t("noticeRiskStopAbovePrice"), { stop }) : notice.message;
+    }
     case "PRICE_FAR_FROM_LAST": {
       const percent = typeof details.percent === "number" ? details.percent : undefined;
       const last = price("last");
@@ -213,11 +236,16 @@ export function sizingText(
   instrument: Instrument | undefined,
   locale: SupportedLocale,
   t: Translator,
+  accountCurrency?: string,
 ): string {
   if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${qty(sizing.quantity, locale)}`;
   if (sizing.mode === "notional") return `${t("targetAmount")} · ${amount(sizing.amount, sizing.currency ?? instrument?.currencyCode, locale)}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
+  if (sizing.mode === "risk") {
+    const budget = sizing.percent !== undefined ? fill(t("riskOfAccount"), { percent: num(sizing.percent, locale, 2) }) : amount(sizing.amount, accountCurrency, locale);
+    return `${t("riskSizing")} · ${budget} · ${fill(t("riskStopAt"), { price: amount(sizing.stopLossPrice, instrument?.currencyCode, locale) })}`;
+  }
   return t("allAvailableShares");
 }
 
