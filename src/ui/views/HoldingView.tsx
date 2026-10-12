@@ -13,7 +13,7 @@ import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey } from "../i18n";
 import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { alertConditionLabel, fill, instrumentTypeLabel, orderTypeLabel, type Translator } from "../lib/messages";
+import { alertConditionLabel, fill, instrumentTypeLabel, orderTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
 import { alertTarget } from "./AutomationView";
 import { stopCoverageText, stopGuardText } from "../lib/orders";
 import { PendingOrderList } from "./PortfolioView";
@@ -41,7 +41,9 @@ function alertPrice(alert: PriceAlert, position: Position | undefined): number |
 export function priceLevels(data: HoldingDetail, t: Translator, locale: SupportedLocale): PriceLevel[] {
   const position = data.position;
   const levels: PriceLevel[] = [];
-  if (position && position.currentPrice > 0) levels.push({ key: "last", kind: "last", price: position.currentPrice, label: t("levelLast") });
+  // Not held, the quote provider's price stands in for Trading 212's.
+  const last = position && position.currentPrice > 0 ? position.currentPrice : data.quote?.price;
+  if (last && last > 0) levels.push({ key: "last", kind: "last", price: last, label: t("levelLast") });
   if (position && position.averagePricePaid > 0) levels.push({ key: "average", kind: "average", price: position.averagePricePaid, label: t("levelAverage") });
   data.orders.forEach((order, index) => {
     // A stop-limit is placed at its trigger; the limit applies once it fires.
@@ -65,7 +67,7 @@ export function priceLevels(data: HoldingDetail, t: Translator, locale: Supporte
   return levels.sort((a, b) => b.price - a.price);
 }
 
-const MISSING_KEYS: Record<PricesMissing, MessageKey> = {
+export const MISSING_KEYS: Record<PricesMissing, MessageKey> = {
   provider: "pricesMissingProvider",
   plan: "pricesMissingPlan",
   symbol: "pricesMissingSymbol",
@@ -109,6 +111,7 @@ export function HoldingView({
   onRearmAlert,
   onSaveNote,
   onDeleteNote,
+  onWatch,
 }: {
   data: HoldingDetail;
   book?: InstrumentBook;
@@ -131,6 +134,8 @@ export function HoldingView({
   /** Adds a note (on a fill's order when `orderId` is given) or changes one; resolves true once saved. */
   onSaveNote: (request: JournalRequest & { entryId?: string; orderId?: string }) => Promise<boolean>;
   onDeleteNote: (entryId: string) => void;
+  /** Puts the instrument on the watchlist, or takes it off; the watchlist never trades. */
+  onWatch?: (watch: boolean) => void;
 }) {
   const [addingAlert, setAddingAlert] = useState(false);
   // The open journal form: a change to a note, a new note on a fill's order, or (neither) a new note.
@@ -155,6 +160,8 @@ export function HoldingView({
   const pnl = position ? walletNumber(position, "unrealizedProfitLoss") : undefined;
   const cost = value !== undefined && pnl !== undefined ? value - pnl : undefined;
   const levels = priceLevels(data, t, locale);
+  // The price now: Trading 212's for a holding, else the quote provider's when it answered.
+  const lastPrice = position?.currentPrice || data.quote?.price;
   const guard = position ? stopProtection(position, data.orders) : undefined;
   // For a holding, say whether a sell stop protects it; an unheld instrument has nothing to protect.
   const guardNote = !position ? undefined : guard
@@ -176,13 +183,22 @@ export function HoldingView({
   const share = data.weight === undefined ? "—" : data.targetWeight === undefined ? pct(data.weight, locale) : `${pct(data.weight, locale)} / ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`;
   return (
     <main className="contentStack">
-      <nav className="holdingNav"><button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {backLabel ?? t("backToHoldings")}</button></nav>
+      <nav className="holdingNav">
+        <button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {backLabel ?? t("backToHoldings")}</button>
+        {onWatch && (
+          <button type="button" className={`watchToggle${data.watching ? " on" : ""}`} aria-pressed={Boolean(data.watching)} disabled={busy}
+            title={t("watchToggleLabel")} onClick={() => onWatch(!data.watching)}>
+            <span aria-hidden="true">{data.watching ? "★" : "☆"}</span>{data.watching ? t("watchToggleOn") : t("watchToggleAdd")}
+          </button>
+        )}
+      </nav>
 
       <section className="overviewPanel holdingHero">
         <div className="overviewLead">
           {eyebrow && <span className="sectionEyebrow">{eyebrow}</span>}
           <h2 className="holdingName">{label.name}</h2>
           <span className="holdingMeta">{[label.detail || data.ticker, data.instrument.isin].filter(Boolean).join(" · ")}</span>
+          {data.watching && <small className="watchingNote">{fill(t("watchingSince"), { date: dayLabel(data.watching.addedAt, locale) })}{data.watching.note ? ` · ${data.watching.note}` : ""}</small>}
           {position ? (
             <>
               <strong className="heroValue small">{money(value, currency, locale)}</strong>
@@ -190,7 +206,13 @@ export function HoldingView({
                 {t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}{cost && pnl !== undefined ? ` (${pct(pnl / cost, locale, 1, { signed: true })})` : ""}
               </div>
             </>
-          ) : <div className="pnlBadge">{t("notHeld")}{data.targetWeight === undefined ? "" : ` · ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`}</div>}
+          ) : (
+            <>
+              {data.quote && <strong className="heroValue small">{amount(data.quote.price, quote, locale)}</strong>}
+              <div className="pnlBadge">{t("notHeld")}{data.targetWeight === undefined ? "" : ` · ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`}</div>
+              {data.quote && <small className="quoteNote">{data.quote.source === "sample" ? t("quoteFromSample") : fill(t("quoteFrom"), { source: quoteProviderLabel(data.quote.source, t), symbol: data.quote.symbol, time: dateTime(data.quote.asOf, locale) })}</small>}
+            </>
+          )}
           {writeEnabled && (
             <div className="holdingActions">
               <button type="button" className="primaryButton" onClick={() => onTrade("buy")}>{t("buy")}</button>
@@ -225,7 +247,7 @@ export function HoldingView({
       )}
 
       {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
-      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} {...(guardDetail ? { guardDetail } : {})} {...(protect ? { action: protect } : {})} />}
+      {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} {...(lastPrice ? { last: lastPrice } : {})} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} {...(guardDetail ? { guardDetail } : {})} {...(protect ? { action: protect } : {})} />}
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={data.orders.length} />
@@ -238,7 +260,7 @@ export function HoldingView({
           {!addingAlert && <button type="button" className="secondaryButton compactButton" onClick={() => setAddingAlert(true)}>{t("addAlert")}</button>}
         </div>
         {addingAlert && (
-          <AlertForm held={Boolean(position)} {...(position ? { last: position.currentPrice } : {})} {...(quote ? { currency: quote } : {})} t={t} busy={busy}
+          <AlertForm held={Boolean(position)} {...(lastPrice ? { last: lastPrice } : {})} {...(quote ? { currency: quote } : {})} t={t} busy={busy}
             onCancel={() => setAddingAlert(false)}
             onSave={(request) => void onSaveAlert(request).then((saved) => { if (saved) setAddingAlert(false); })} />
         )}

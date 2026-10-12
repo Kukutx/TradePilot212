@@ -43,6 +43,10 @@ export interface HoldingDetail {
   accountCurrency?: string;
   /** Absent when the instrument is not held. */
   position?: Position;
+  /** On the watchlist since `addedAt`, with its note. */
+  watching?: { addedAt: string; note?: string };
+  /** The quote provider's price, when not held and it answered in time ("sample" for the sample account's). */
+  quote?: { price: number; asOf: string; source: string; symbol: string };
   /** Share of total account value (0 to 1). */
   weight?: number;
   /** The saved target weight, when targets are saved and name this instrument. */

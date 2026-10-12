@@ -12,6 +12,8 @@ import type { RuntimeConfig } from "./config.js";
 
 export type QuoteProviderName = "stooq" | "finnhub" | "twelvedata" | "alphavantage" | "none";
 export const QUOTE_PROVIDERS: QuoteProviderName[] = ["stooq", "finnhub", "twelvedata", "alphavantage", "none"];
+/** Where a price came from: a configured provider, or the sample account's simulated prices. */
+export type QuoteSource = QuoteProviderName | "sample";
 
 export interface ExternalQuote {
   ticker: string;
@@ -19,7 +21,7 @@ export interface ExternalQuote {
   price: number;
   /** When the provider says the price is from; otherwise when it was fetched. */
   asOf: string;
-  source: QuoteProviderName;
+  source: QuoteSource;
 }
 
 export interface ExternalFxRate {
@@ -28,7 +30,7 @@ export interface ExternalFxRate {
   /** Units of `to` per 1 unit of `from`. */
   rate: number;
   asOf: string;
-  source: QuoteProviderName;
+  source: QuoteSource;
 }
 
 /** `fresh` asks the provider itself, past the cache: the check made just before an order is sent needs the price of that moment. */
@@ -37,7 +39,7 @@ export interface QuoteOptions {
 }
 
 export interface QuoteProvider {
-  name: QuoteProviderName;
+  name: QuoteSource;
   /** The provider symbol for an instrument, or undefined when it cannot be mapped safely. */
   symbolFor(instrument: Instrument): string | undefined;
   quote(instrument: Instrument, options?: QuoteOptions): Promise<ExternalQuote | undefined>;

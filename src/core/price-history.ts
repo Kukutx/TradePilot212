@@ -18,6 +18,11 @@ export interface PriceHistoryRequest {
   from: Date;
   /** Trading 212's last price, when held: the provider's closes are checked against it for the unit. */
   last?: number;
+  /**
+   * The quote provider's price, when not held (it can still be on its way): where the sample path ends. Coming from
+   * the provider itself, it is no check on the unit.
+   */
+  quote?: Promise<number | undefined>;
   /** The prices of the instrument's open orders and armed alerts: the unit check's reference when it is not held. */
   levels?: Promise<number[]>;
   /** The account's fills of the instrument: the unit check's last resort, and the sample path's anchors. */
@@ -36,6 +41,17 @@ const UNIT_RATIO_FILL = 50;
 /** The holding page waits this long for the closes; a slower answer is cached for the next look. */
 const HISTORY_WAIT_MS = 3000;
 
+/** What `promise` gives within `ms`, else undefined; the promise itself runs on (a provider read fills its cache). */
+export async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+  try {
+    return await Promise.race([promise, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The QUOTE_SYMBOLS factor that brings closes at `last` to Trading 212's `reference`: a power of ten times the one mapped. */
 export function unitFactor(last: number, reference: number, mapped = 1): number {
   return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
@@ -43,13 +59,22 @@ export function unitFactor(last: number, reference: number, mapped = 1): number 
 
 const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuoteProvider; now?: () => Date; waitMs?: number }) {
+export function createPriceHistory(deps: {
+  sampleData: boolean;
+  quotes?: QuoteProvider;
+  /** The sample account's fills of an instrument, for a request that brings none: each view draws the same path. */
+  sampleAnchors?: (instrument: Instrument, from: Date) => Promise<PriceAnchor[]>;
+  now?: () => Date;
+  waitMs?: number;
+}) {
   const now = deps.now ?? (() => new Date());
   return async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
     const { instrument } = request;
     if (deps.sampleData) {
-      if (!request.last) return { missing: "sample", problem: "The sample account has prices only for the instruments it holds." };
-      return { prices: samplePriceHistory(instrument.ticker, { from: request.from, to: now(), last: request.last, anchors: await request.fills ?? [] }) };
+      const last = request.last ?? await request.quote;
+      if (!last) return { missing: "sample", problem: "The sample account has prices only for its own instruments." };
+      const anchors = await (request.fills ?? deps.sampleAnchors?.(instrument, request.from).catch(() => []));
+      return { prices: samplePriceHistory(instrument.ticker, { from: request.from, to: now(), last, anchors: anchors ?? [] }) };
     }
     const quotes = deps.quotes;
     if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };

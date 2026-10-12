@@ -41,6 +41,22 @@ describe("instrument resolution", () => {
     expect(resolveInstrumentFromList([listing("VUSAl_EQ", "GBP")], "ie00b3xxrp09").ticker).toBe("VUSAl_EQ");
     expect(() => resolveInstrumentFromList([listing("VUSAl_EQ", "GBP"), listing("VUSAa_EQ", "EUR")], "IE00B3XXRP09")).toThrow(/VUSAl_EQ \(GBP\), VUSAa_EQ \(EUR\)/);
   });
+
+  it("ranks search results: exact symbol, then a symbol or name that starts with it, then a word, then anything else", async () => {
+    const make = (ticker: string, name: string, shortName: string): Instrument => ({ ticker, name, shortName, currencyCode: "USD", type: "STOCK" });
+    const list = [
+      make("PAPLd_EQ", "Pineapple Energy", "PEGY"),
+      make("APLEd_EQ", "Apple Hospitality REIT", "APLE"),
+      make("APCd_EQ", "Apple Inc.", "APC"),
+      make("AAPL_US_EQ", "Apple Inc.", "AAPL"),
+      make("GAPL_US_EQ", "Green Apple Group", "GAPL"),
+    ];
+    const config = createConfig({ T212_DEMO_API_KEY: "key", T212_DEMO_API_SECRET: "secret" });
+    const service = new TradingService({ config, store: new MemoryStateStore(), instrumentCache: new Map([["demo", { expiresAt: Date.now() + 60_000, instruments: list }]]) });
+    expect((await service.searchInstruments("demo", "apple")).map((item) => item.ticker)).toEqual(["AAPL_US_EQ", "APLEd_EQ", "APCd_EQ", "GAPL_US_EQ", "PAPLd_EQ"]);
+    expect((await service.searchInstruments("demo", "AAPL")).map((item) => item.ticker)).toEqual(["AAPL_US_EQ"]);
+    expect((await service.searchInstruments("demo", "ap", 2)).map((item) => item.ticker)).toEqual(["APLEd_EQ", "APCd_EQ"]);
+  });
 });
 
 describe("trade safety", () => {

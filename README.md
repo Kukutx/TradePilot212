@@ -21,6 +21,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 
 - Trading 212 Invest account summary, positions, pending orders, and recent TradePilot activity
 - a page per holding: position and share of the account, a price chart of the last year's daily closes with your buys and sells marked on it and the average cost, open stops and limits and alert levels drawn across it, a price ladder of the same levels, the last year of fills and dividends, and its trade journal
+- a watchlist of instruments you follow, held or not: the price now, the change over a day, a month, three months or a year, a three-month line, where the price sits in its 12-month range, the nearest open order or alert, the move since you added it and your note; add from search or from any instrument's page ([docs/WATCHLIST.md](./docs/WATCHLIST.md))
 - a trade journal: why you made each trade, written with the order or later on its fill, and what came of it looking back, kept in TradePilot and tied to the Trading 212 order; a Journal tab sets each reason against how the trade has gone since and shows per tag how often your reasons went your way ([docs/JOURNAL.md](./docs/JOURNAL.md))
 - performance, dividend/interest income, trading costs, trade history (including cancelled and rejected orders), itemised dividends and cash movements, and allocation/concentration analysis computed from Trading 212 history ([docs/ANALYTICS.md](./docs/ANALYTICS.md))
 - order follow-up from the chat: one order's status and fills, and a cancellation opened in the widget for you to confirm

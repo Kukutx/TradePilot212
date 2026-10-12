@@ -286,10 +286,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .holdingOpen .assetIdentity { flex: 1 1 auto; }
 .holdingOpenChevron { flex: none; color: var(--tp-muted); font-size: 18px; line-height: 1; }
 .positionCardHeader .holdingOpen { flex: 1 1 auto; width: auto; }
-.holdingNav { display: flex; }
+.holdingNav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .holdingNav .linkButton { padding-left: 0; text-decoration: none; font-size: 14px; }
 .holdingName { margin: 0; font-size: 22px; line-height: 1.2; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .holdingMeta { display: block; margin: 4px 0 14px; color: var(--tp-muted); font-size: 12px; overflow-wrap: anywhere; }
+.quoteNote { display: block; margin-top: 6px; color: var(--tp-muted); font-size: 12px; }
 .holdingActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .holdingActions button { min-width: 96px; }
 .levelLadder { position: relative; list-style: none; margin: 0 0 8px; padding: 0; }
@@ -995,4 +996,72 @@ h2[tabindex="-1"]:focus { outline: none; }
   .legRow > .removeLegButton, .legRow > .resultBadge { grid-area: action; }
   .pieTableWrap { display: none; }
   .sliceList { display: grid; }
+}
+
+/* Watchlist: one row per instrument, its price and change on the right, a three-month line between, and the
+   range, the nearest order or alert and the note under it. */
+.watchToggle { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 999px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 700; }
+.watchToggle span { color: var(--tp-muted); font-size: 15px; line-height: 1; }
+.watchToggle:hover { border-color: var(--tp-border-strong); }
+.watchToggle.on { border-color: color-mix(in srgb, var(--tp-amber) 55%, var(--tp-border)); background: var(--tp-amber-soft); }
+.watchToggle.on span { color: var(--tp-amber); }
+.watchingNote { display: block; margin: -8px 0 12px; color: var(--tp-muted); font-size: 12px; overflow-wrap: anywhere; }
+.watchHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.watchHeader h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 730; letter-spacing: -.02em; }
+.watchCount { min-width: 24px; height: 24px; display: grid; place-items: center; padding: 0 6px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 12px; font-weight: 700; }
+.watchControls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.watchControls .segmented button { min-height: 32px; padding: 0 10px; }
+.watchSort { display: inline-flex; align-items: center; gap: 6px; color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.watchSort select { height: 34px; max-width: 170px; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
+.watchAdd { display: grid; gap: 6px; margin-bottom: 10px; }
+.watchAdd > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.watchAdd input { width: 100%; height: 42px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
+.watchAdd input:hover { border-color: var(--tp-border-strong); }
+.watchAdd .panelNote { margin: 0; }
+.watchResults { list-style: none; margin: 0; padding: 2px 4px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg); box-shadow: var(--tp-shadow); }
+.watchResults li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 4px 4px 4px 8px; }
+.watchResults li + li { border-top: 1px solid var(--tp-border); }
+.watchName { display: grid; min-width: 0; }
+.watchName strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.watchName small { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tp-muted); font-size: 12px; }
+.watchLater { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.watchList { list-style: none; margin: 0; padding: 0; }
+.watchRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 6px; padding: 8px 0 10px; border-top: 1px solid var(--tp-border); }
+.watchRow:first-child { border-top: 0; }
+.watchMain { display: grid; grid-template-columns: 32px minmax(0, 1fr) 76px minmax(86px, auto); align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.watchMain:hover { background: var(--tp-bg-soft); }
+.watchMain:hover .watchName strong { text-decoration: underline; text-underline-offset: 3px; }
+.watchQuote { display: grid; justify-items: end; gap: 3px; }
+.watchQuote strong { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.changeChip { min-width: 60px; padding: 2px 7px; border-radius: 7px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 12px; font-weight: 720; font-variant-numeric: tabular-nums; text-align: right; }
+.changeChip.positive { background: var(--tp-green-soft); color: var(--tp-green); }
+.changeChip.negative { background: var(--tp-red-soft); color: var(--tp-red); }
+.watchSpark { display: block; overflow: visible; }
+.watchSpark.empty { width: 76px; height: 30px; }
+.watchSpark path { fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.watchSpark.positive path { stroke: var(--tp-green); }
+.watchSpark.negative path { stroke: var(--tp-red); }
+.watchSparkStart { stroke: var(--tp-border-strong); stroke-width: 1; stroke-dasharray: 2 3; }
+.watchMeta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 2px 4px 0 46px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.watchRange { display: inline-flex; align-items: center; gap: 6px; }
+.rangeTrack { position: relative; flex: none; width: 52px; height: 4px; border-radius: 2px; background: var(--tp-border); }
+.rangeTrack i { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--tp-text); box-shadow: 0 0 0 2px var(--tp-bg); }
+.watchLevel { padding: 1px 8px; border: 1px solid var(--level, var(--tp-border)); border-radius: 999px; color: var(--tp-text); }
+.watchLevel.alert { --level: color-mix(in srgb, var(--tp-amber) 60%, var(--tp-border)); }
+.watchLevel.stop { --level: color-mix(in srgb, var(--tp-red) 50%, var(--tp-border)); }
+.watchLevel.limit { --level: color-mix(in srgb, var(--tp-green) 50%, var(--tp-border)); }
+.watchMissing { flex-basis: 100%; }
+.watchNote { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 4px 0 0; padding: 0 4px 0 46px; font-size: 13px; line-height: 1.4; }
+.watchNote span { overflow-wrap: anywhere; }
+.watchNote .inlineLink { font-size: 12px; }
+.watchNoteForm { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; padding-left: 46px; }
+.watchNoteForm input { flex: 1 1 200px; height: 38px; min-width: 0; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
+@container (max-width: 420px) {
+  /* A phone keeps the name, a narrower line and the quote on one row; the avatar goes. */
+  .watchMain { grid-template-columns: minmax(0, 1fr) 56px auto; gap: 8px; }
+  .watchMain .assetAvatar { display: none; }
+  .watchName small { white-space: normal; }
+  .watchMain .watchSpark { width: 56px; height: 22px; }
+  .watchMeta, .watchNote, .watchNoteForm { padding-left: 4px; }
+  .watchControls { width: 100%; justify-content: space-between; }
 }

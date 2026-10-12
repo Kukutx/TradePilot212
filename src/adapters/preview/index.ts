@@ -19,6 +19,7 @@ import { build } from "esbuild";
 import { createConfig, type RuntimeEnv } from "../../core/config.js";
 import { createMcpServer } from "../../core/mcp.js";
 import { MemoryStateStore } from "../../core/state-store.js";
+import { watchKey } from "../../core/watchlist.js";
 import { createServices } from "../../app/services.js";
 import type { Position } from "../../shared/contracts.js";
 
@@ -50,7 +51,8 @@ function environment(): RuntimeEnv {
 }
 
 const config = createConfig(environment());
-const services = createServices({ config, store: new MemoryStateStore(), audit: async () => {} });
+const store = new MemoryStateStore();
+const services = createServices({ config, store, audit: async () => {} });
 const widgetPath = path.join(root, "dist", "widget", "index.html");
 const widgetHtml = () => fs.readFile(widgetPath, "utf8");
 const server = createMcpServer(services, config, widgetHtml, new Set(["trade:read", "trade:write"]));
@@ -83,6 +85,7 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "holding", group: "portfolio", tool: "get_holding_detail", args: { instrument: "NVDA" }, prompt: { en: "Show me everything about my NVIDIA position.", zh: "看看我的英伟达持仓详情。" } },
     { id: "journal", group: "portfolio", tool: "get_holding_detail", args: { instrument: "AAPL" }, prompt: { en: "Why did I buy Apple, and how did it go?", zh: "我当初为什么买苹果？后来怎么样了？" } },
     { id: "review", group: "portfolio", tool: "get_journal_review", args: { period: "all" }, prompt: { en: "Look back over my trade journal: which reasons worked?", zh: "复盘一下我的交易日志：哪些理由靠谱？" } },
+    { id: "watchlist", group: "portfolio", tool: "get_watchlist", args: {}, prompt: { en: "Show my watchlist.", zh: "看看我的自选。" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",
       args: { candidates: [
@@ -171,6 +174,14 @@ async function seedSample(): Promise<void> {
     ["manage_investment_plans", { action: "create", label: "Monthly by targets", targetAmount: 500, frequency: "monthly", dayOfMonth: 20 }],
     ["manage_price_alerts", { action: "create", instrument: "AAPL", condition: "below", price: 210, note: "Add on a dip" }],
     ["manage_price_alerts", { action: "create", instrument: "NVDA", condition: "trailing_drop", percent: 8 }],
+    // A watchlist of instruments held and not, with an alert and the pending Tesla limit buy around them.
+    ["manage_watchlist", { action: "add", instrument: "TSLA", note: "Wait for delivery numbers" }],
+    ["manage_watchlist", { action: "add", instrument: "ASML", note: "Buy below 600 if chip orders hold up" }],
+    ["manage_watchlist", { action: "add", instrument: "AMZN" }],
+    ["manage_watchlist", { action: "add", instrument: "NVDA" }],
+    ["manage_watchlist", { action: "add", instrument: "EUNL" }],
+    ["manage_price_alerts", { action: "create", instrument: "TSLA", condition: "above", price: 260, note: "Breakout" }],
+    ["manage_price_alerts", { action: "create", instrument: "ASML", condition: "below", price: 600 }],
   ];
   for (const [name, input] of calls) {
     const outcome = await client.callTool({ name, arguments: input });
@@ -223,6 +234,23 @@ async function seedValueHistory(): Promise<void> {
   }
 }
 
+/** Moves the sample watchlist's entries back in time, each at its simulated close of that day, so the rows show a change since added. */
+async function backdateWatchlist(): Promise<void> {
+  const daysAgo = [21, 64, 9, 120, 40];
+  const day = 86_400_000;
+  const from = new Date(Math.floor(Date.now() / day) * day - 365 * day);
+  const instruments = await services.trading.instruments("demo");
+  for (const [index, item] of (await services.watchlist.list("demo")).entries()) {
+    const instrument = instruments.find((entry) => entry.ticker === item.ticker);
+    if (!instrument || !item.addedPrice) continue;
+    const read = await services.priceHistory({ instrument, from, quote: Promise.resolve(item.addedPrice) });
+    if (!("prices" in read)) continue;
+    const when = new Date(Date.now() - (daysAgo[index % daysAgo.length]! * day));
+    const close = read.prices.points.filter((point) => point.date <= when.toISOString().slice(0, 10)).at(-1);
+    if (close) await store.put(watchKey("demo", item.ticker), { ...item, addedAt: `${close.date}T14:30:00.000Z`, addedPrice: close.close });
+  }
+}
+
 async function hostScript(): Promise<string> {
   const bundle = await build({ entryPoints: [path.join(here, "host.ts")], bundle: true, format: "iife", platform: "browser", target: "es2022", write: false, logLevel: "silent" });
   return bundle.outputFiles[0]!.text;
@@ -234,7 +262,7 @@ try {
   console.error("The widget is not built. Run `pnpm build:widget` first, or start with `pnpm preview`, which builds it.");
   process.exit(1);
 }
-if (!demo) { await seedSample(); await seedJournal(); await seedValueHistory(); }
+if (!demo) { await seedSample(); await seedJournal(); await seedValueHistory(); await backdateWatchlist(); }
 const views = await scenarios();
 const script = await hostScript();
 const page = await fs.readFile(path.join(here, "page.html"), "utf8");

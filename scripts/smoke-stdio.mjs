@@ -45,7 +45,7 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview"])
+for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
@@ -65,6 +65,22 @@ if (!live.isError && live.structuredContent?.credentials?.live) throw new Error(
 // Hosts that show only text get the holdings in the tool text too.
 const text = dashboard.content?.map((item) => item.text ?? "").join("\n") ?? "";
 if (!dashboard.structuredContent.positions.every((position) => text.includes(position.instrument.ticker))) throw new Error(`Dashboard text lacks the holdings: ${text.slice(0, 300)}`);
+// The watchlist: an instrument not held gets its simulated price, range and the alert armed on it; the holding page says it is watched.
+const watch = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
+  ["manage_watchlist", { action: "add", instrument: "TSLA", note: "Wait for delivery numbers" }],
+  ["manage_price_alerts", { action: "create", instrument: "TSLA_US_EQ", condition: "above", price: 260 }],
+  ["get_watchlist", {}],
+  ["get_holding_detail", { instrument: "TSLA" }],
+  ["manage_watchlist", { action: "remove", instrument: "TSLA_US_EQ" }],
+  ["get_watchlist", {}],
+]);
+const [watchAdded, , watchlist, watched, watchRemoved, emptied] = watch.results;
+const watchRow = watchlist.structuredContent?.items?.[0];
+if (watchAdded.isError || watchAdded.structuredContent?.item?.ticker !== "TSLA_US_EQ") throw new Error(`Adding to the watchlist failed: ${JSON.stringify(watchAdded).slice(0, 300)}`);
+if (watchlist.isError || watchRow?.ticker !== "TSLA_US_EQ" || !(watchRow.price > 0) || watchRow.priceSource !== "sample" || !(watchRow.spark?.closes?.length > 30) || watchRow.levels?.[0]?.kind !== "alert" || watchRow.note !== "Wait for delivery numbers")
+  throw new Error(`Watchlist failed: ${JSON.stringify(watchlist).slice(0, 300)}`);
+if (watched.isError || watched.structuredContent?.position || watched.structuredContent?.quote?.price !== watchRow.price || !watched.structuredContent?.watching) throw new Error(`Watched holding page failed: ${JSON.stringify(watched).slice(0, 300)}`);
+if (watchRemoved.isError || emptied.structuredContent?.items?.length !== 0) throw new Error(`Removing from the watchlist failed: ${JSON.stringify(emptied).slice(0, 300)}`);
 // Saved targets: the allocation shows their drift and a rebalance without targets uses them.
 const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["manage_target_allocation", { action: "set", targets: [{ instrument: "AAPL_US_EQ", weight: 0.5 }, { instrument: "KO_US_EQ", weight: 0.4 }] }],

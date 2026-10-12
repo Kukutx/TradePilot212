@@ -176,6 +176,19 @@ export function basketNotes(plan: Pick<RebalancePlan, "notes" | "skipped">): str
   return [...plan.notes.slice(0, 18), `Skipped ${plan.skipped.length} instrument(s) with no usable price or FX rate: ${plan.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
 }
 
+/** How well an instrument matches an upper-case query, lower is better; undefined when it does not. */
+export function searchRank(item: Instrument, q: string): number | undefined {
+  const ticker = item.ticker.toUpperCase();
+  const symbol = (item.shortName ?? "").toUpperCase();
+  const name = (item.name ?? "").toUpperCase();
+  const isin = (item.isin ?? "").toUpperCase();
+  if (ticker === q || symbol === q || isin === q) return 0;
+  if (symbol.startsWith(q) || ticker.startsWith(q)) return 1;
+  if (name.startsWith(q)) return 2;
+  if (name.split(/[^A-Z0-9]+/).some((word) => word.startsWith(q))) return 3;
+  return `${ticker} ${symbol} ${name} ${isin}`.includes(q) ? 4 : undefined;
+}
+
 export function resolveInstrumentFromList(instruments: Instrument[], query: string): Instrument {
   const norm = (value: string) => value.trim().toUpperCase();
   const q = norm(query);
@@ -560,12 +573,21 @@ export class TradingService {
     }
   }
 
+  /**
+   * Instruments matching a query, best first: an exact ticker, symbol or ISIN, then symbols and names that start
+   * with it, then names with a word that does, then any other match; a US listing first among equals.
+   */
   async searchInstruments(environment: TradingEnvironment, query: string, limit = 20) {
     if (!credentialStatus(this.deps.config)[environment]) return [];
+    const instruments = await this.instruments(environment);
     const q = query.trim().toUpperCase();
-    return (await this.instruments(environment))
-      .filter((item) => !q || `${item.ticker} ${item.shortName} ${item.name} ${item.isin ?? ""}`.toUpperCase().includes(q))
-      .slice(0, limit);
+    if (!q) return instruments.slice(0, limit);
+    return instruments
+      .map((item, index) => ({ item, index, rank: searchRank(item, q) }))
+      .filter((entry): entry is { item: Instrument; index: number; rank: number } => entry.rank !== undefined)
+      .sort((a, b) => a.rank - b.rank || Number(!/_US_EQ$/i.test(a.item.ticker)) - Number(!/_US_EQ$/i.test(b.item.ticker)) || a.index - b.index)
+      .slice(0, limit)
+      .map((entry) => entry.item);
   }
 
   async getDashboard(environment: TradingEnvironment): Promise<DashboardPayload> {

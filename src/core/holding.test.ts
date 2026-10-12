@@ -47,10 +47,22 @@ describe("holding detail", () => {
     expect(detail.position).toBeUndefined();
     expect(detail.weight).toBeUndefined();
     expect(detail.orders.map((order) => order.id)).toEqual([81234]);
-    expect(describePayload(detail)).toMatch(/^Not held\.$/m);
-    // The sample account simulates prices for its holdings only.
+    // Not held, its price comes from the quote provider: the sample account's own, offline.
+    expect(detail.quote).toMatchObject({ price: 244.1, source: "sample", symbol: "TSLA" });
+    expect(describePayload(detail)).toMatch(/^Not held; price 244\.1 USD \(simulated for the sample account\)\.$/m);
+    // And the simulated closes end at that price.
+    expect(detail.prices?.points.at(-1)?.close).toBe(244.1);
+  });
+
+  it("leaves the quote out of a holding's page, and says so when the provider gives none", async () => {
+    const held = await holdingDetail(sample(), "demo", "NVDA");
+    expect(held.quote).toBeUndefined();
+    const services = sample();
+    const quiet = { ...services, trading: Object.assign(Object.create(Object.getPrototypeOf(services.trading)), services.trading, { externalQuote: async () => undefined }) };
+    const detail = await holdingDetail(quiet, "demo", "TSLA");
+    expect(detail.quote).toBeUndefined();
     expect(detail).toMatchObject({ pricesMissing: "sample" });
-    expect(describePayload(detail)).toMatch(/^No daily prices: The sample account has prices only for the instruments it holds\.$/m);
+    expect(describePayload(detail)).toMatch(/^Not held\.$/m);
   });
 
   it("adds a year of daily closes that pass through the fills, and sums them up in the text", async () => {
@@ -105,7 +117,7 @@ describe("holding detail", () => {
     await services.targets.set("demo", { targets: [{ instrument: "TSLA_US_EQ", weight: 0.05 }] });
     const detail = await holdingDetail(services, "demo", "TSLA_US_EQ");
     expect(detail.targetWeight).toBe(0.05);
-    expect(describePayload(detail)).toMatch(/^Not held; target 5%\.$/m);
+    expect(describePayload(detail)).toMatch(/^Not held; price 244\.1 USD \(simulated for the sample account\); target 5%\.$/m);
   });
 
   it("keeps the rest when the history cannot be read", async () => {
