@@ -48,6 +48,45 @@ describe("holding detail", () => {
     expect(detail.weight).toBeUndefined();
     expect(detail.orders.map((order) => order.id)).toEqual([81234]);
     expect(describePayload(detail)).toMatch(/^Not held\.$/m);
+    // The sample account simulates prices for its holdings only.
+    expect(detail).toMatchObject({ pricesMissing: "sample" });
+    expect(describePayload(detail)).toMatch(/^No daily prices: The sample account has prices only for the instruments it holds\.$/m);
+  });
+
+  it("adds a year of daily closes that pass through the fills, and sums them up in the text", async () => {
+    const detail = await holdingDetail(sample(), "demo", "NVDA_US_EQ");
+    const points = detail.prices!.points;
+    expect(detail.prices?.source).toBe("sample");
+    expect(points.length).toBeGreaterThan(250);
+    expect(points.at(-1)?.close).toBe(128.75);
+    for (const fill of detail.history!.fills) {
+      const day = points.filter((point) => point.date <= fill.filledAt!.slice(0, 10)).at(-1);
+      expect(day?.close).toBeCloseTo(fill.price!, 2);
+    }
+    expect(describePayload(detail)).toMatch(/^Daily closes \(simulated for the sample account\) \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: [\d.]+ to 128\.75 USD \([+-][\d.]+%\); 1M [+-][\d.]+%, 3M [+-][\d.]+%, 6M [+-][\d.]+%; high [\d.]+ on \d{4}-\d{2}-\d{2}, low [\d.]+ on \d{4}-\d{2}-\d{2}\.$/m);
+  });
+
+  it("lists the newest 20 fills and gives the chart the older ones with only what a mark needs", async () => {
+    const services = sample();
+    const trades = services.insights.tradeHistory.bind(services.insights);
+    services.insights.tradeHistory = async (...args) => {
+      const read = await trades(...args);
+      const one = read.fills[0]!;
+      const fills = Array.from({ length: 26 }, (_, index) => ({ ...one, orderId: String(500 + index), filledAt: new Date(Date.parse(one.filledAt!) - index * 7 * 86_400_000).toISOString(), quantity: index % 5 === 4 ? -1 : 1 }));
+      return { ...read, fills };
+    };
+    const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");
+    expect(detail.history?.fills).toHaveLength(20);
+    expect(detail.history?.olderFills).toHaveLength(6);
+    expect(detail.history?.olderFills?.[4]).toEqual({ filledAt: expect.any(String), side: "SELL", quantity: 1, price: expect.any(Number) });
+    expect(describePayload(detail)).toMatch(/Fills since \d{4}-\d{2}-\d{2} \(newest 20 of 26\)/);
+  });
+
+  it("keeps the rest when the daily closes cannot be read", async () => {
+    const services = { ...sample(), priceHistory: async () => { throw new Error("quote provider down"); } };
+    const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");
+    expect(detail).toMatchObject({ pricesMissing: "data", pricesProblem: "quote provider down" });
+    expect(detail.history?.fills.length).toBeGreaterThan(0);
   });
 
   it("says which history ran out of pages, so a partial dividend total is not read as the year's", async () => {

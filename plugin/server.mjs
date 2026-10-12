@@ -34172,8 +34172,8 @@ function weekdaySchedule(openHour, closeHour, now) {
   const events = [];
   for (let offset = -3; offset < 10; offset++) {
     const day2 = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offset);
-    const weekday = new Date(day2).getUTCDay();
-    if (weekday === 0 || weekday === 6) continue;
+    const weekday2 = new Date(day2).getUTCDay();
+    if (weekday2 === 0 || weekday2 === 6) continue;
     events.push({ date: new Date(day2 + openHour * 36e5).toISOString(), type: "OPEN" }, { date: new Date(day2 + closeHour * 36e5).toISOString(), type: "CLOSE" });
   }
   return events;
@@ -34212,7 +34212,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   for (let index = 13; index >= 0; index--) {
     const instrument = INSTRUMENTS[index % 5];
     const sell = index % 4 === 3;
-    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.72 + index * 0.015)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
+    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
   }
   const dividends = [];
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]]) {
@@ -34402,6 +34402,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
 // src/core/quotes.ts
 var QUOTE_PROVIDERS = ["stooq", "finnhub", "twelvedata", "alphavantage", "none"];
 var CACHE_MS = 6e4;
+var HISTORY_CACHE_MS = 30 * 6e4;
 function usSymbol(ticker) {
   const match = /^([A-Z0-9.]+)_US_EQ$/.exec(ticker);
   return match?.[1];
@@ -34466,6 +34467,51 @@ function providerFetcher(name, key, fetcher) {
       };
   }
 }
+var isoDay = (date5) => date5.toISOString().slice(0, 10);
+function closes(rows2) {
+  return rows2.flatMap(({ date: date5, close }) => {
+    const price = positive(close);
+    return typeof date5 === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date5) && price ? [{ date: date5, close: price }] : [];
+  });
+}
+function providerSays(provider, key, said) {
+  const text = (typeof said === "string" ? said : JSON.stringify(said)).replace(/\s+/g, " ").trim();
+  return new Error(`${provider}: ${(key ? text.replaceAll(key, "***") : text).slice(0, 200)}`);
+}
+function historyFetcher(name, key, fetcher) {
+  switch (name) {
+    case "stooq":
+      return async (symbol2, from) => {
+        const range = `d1=${isoDay(from).replaceAll("-", "")}&d2=${isoDay(/* @__PURE__ */ new Date()).replaceAll("-", "")}`;
+        const response = await fetcher(`https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol2.toLowerCase())}&${range}&i=d`, { signal: AbortSignal.timeout(8e3) });
+        if (!response.ok) throw new Error(`Stooq returned ${response.status}`);
+        const [header = "", ...rows2] = (await response.text()).trim().split(/\r?\n/);
+        const columns = header.split(",");
+        const close = columns.indexOf("Close");
+        if (/^no data/i.test(header)) return [];
+        if (columns[0] !== "Date" || close < 0) throw providerSays("Stooq", key, /^\s*</.test(header) ? "answered with a web page instead of prices" : header);
+        return closes(rows2.map((row) => {
+          const cells = row.split(",");
+          return { date: cells[0], close: cells[close] };
+        }));
+      };
+    case "twelvedata":
+      return async (symbol2, from) => {
+        const body = await getJson(fetcher, `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol2)}&interval=1day&start_date=${isoDay(from)}&outputsize=5000&apikey=${encodeURIComponent(key)}`);
+        if (body?.status === "error") throw providerSays("Twelve Data", key, body.message ?? "error");
+        return closes((body.values ?? []).map((row) => ({ date: row.datetime?.slice(0, 10), close: row.close })));
+      };
+    case "alphavantage":
+      return async (symbol2) => {
+        const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol2)}&outputsize=compact&apikey=${encodeURIComponent(key)}`);
+        const said = body?.Note ?? body?.Information ?? body?.["Error Message"];
+        if (said !== void 0) throw providerSays("Alpha Vantage", key, said);
+        return closes(Object.entries(body["Time Series (Daily)"] ?? {}).map(([date5, row]) => ({ date: date5, close: row["4. close"] })));
+      };
+    case "finnhub":
+      return void 0;
+  }
+}
 function fxSymbol(name, from, to) {
   switch (name) {
     case "stooq":
@@ -34496,7 +34542,9 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   if (name !== "stooq" && !config3.quoteApiKey) return void 0;
   const fetchQuote = providerFetcher(name, config3.quoteApiKey, fetcher);
   const fetchFx = fxFetcher(name, config3.quoteApiKey, fetcher);
+  const fetchHistory = historyFetcher(name, config3.quoteApiKey, fetcher);
   const cache = /* @__PURE__ */ new Map();
+  const historyCache = /* @__PURE__ */ new Map();
   const fxCache = /* @__PURE__ */ new Map();
   const pairRate = async (from, to, fresh = false) => {
     const symbol2 = fxSymbol(name, from, to);
@@ -34528,6 +34576,34 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     name,
     symbolFor,
     hasFxRates: fxSymbol(name, "EUR", "USD") !== void 0,
+    ...fetchHistory ? {
+      async history(instrument, from) {
+        const symbol2 = symbolFor(instrument);
+        if (!symbol2) return void 0;
+        const factor = mapping(instrument)?.factor ?? 1;
+        const start = isoDay(from);
+        const key = `${symbol2}*${factor}:${start}`;
+        const cached2 = historyCache.get(key);
+        if (cached2 && cached2.expiresAt > Date.now()) {
+          if (cached2.failure) throw new Error(cached2.failure);
+          return cached2.history;
+        }
+        let history;
+        let failure2;
+        try {
+          const byDay = new Map((await fetchHistory(symbol2, from)).filter((point) => point.date >= start).map((point) => [point.date, Math.round(point.close * factor * 1e6) / 1e6]));
+          const points2 = [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([date5, close]) => ({ date: date5, close }));
+          if (points2.length >= 2) history = { source: name, symbol: symbol2, ...factor === 1 ? {} : { factor }, points: points2 };
+        } catch (error62) {
+          failure2 = error62 instanceof Error ? error62.message : String(error62);
+          console.error(JSON.stringify({ message: "TradePilot price history failed", provider: name, symbol: symbol2, error: failure2 }));
+        }
+        for (const [entry, value] of historyCache) if (value.expiresAt <= Date.now()) historyCache.delete(entry);
+        historyCache.set(key, { expiresAt: Date.now() + (history ? HISTORY_CACHE_MS : CACHE_MS), history, ...failure2 ? { failure: failure2 } : {} });
+        if (failure2) throw new Error(failure2);
+        return history;
+      }
+    } : {},
     async quote(instrument, options) {
       const symbol2 = symbolFor(instrument);
       if (!symbol2) return void 0;
@@ -35100,8 +35176,8 @@ function impliedFxRates(positions, accountCurrency) {
   const rates = {};
   for (const [currency, values] of samples) {
     const sorted = [...values].sort((a, b) => a - b);
-    const middle = Math.floor(sorted.length / 2);
-    rates[currency] = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    const middle2 = Math.floor(sorted.length / 2);
+    rates[currency] = sorted.length % 2 ? sorted[middle2] : (sorted[middle2 - 1] + sorted[middle2]) / 2;
   }
   return rates;
 }
@@ -36880,13 +36956,13 @@ function moneyWeightedReturn(flows) {
   let atLow = value(low), atHigh = value(high);
   if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return void 0;
   for (let step = 0; step < 200 && high - low > 1e-10; step++) {
-    const middle = (low + high) / 2;
-    const atMiddle = value(middle);
+    const middle2 = (low + high) / 2;
+    const atMiddle = value(middle2);
     if (Math.sign(atMiddle) === Math.sign(atLow)) {
-      low = middle;
+      low = middle2;
       atLow = atMiddle;
     } else {
-      high = middle;
+      high = middle2;
       atHigh = atMiddle;
     }
   }
@@ -37244,7 +37320,7 @@ function summarizeTaxYear(input2) {
 // src/core/insights-service.ts
 var DEFAULT_HISTORY_PAGES = 10;
 var MAX_HISTORY_PAGES = 40;
-var HISTORY_CACHE_MS = 6e4;
+var HISTORY_CACHE_MS2 = 6e4;
 var EXCHANGE_CACHE_MS = 10 * 6e4;
 function itemTime(kind, item) {
   const value = kind === "orders" ? item.fill?.filledAt ?? item.order?.createdAt : kind === "dividends" ? item.paidOn : item.dateTime;
@@ -37329,7 +37405,7 @@ var InsightsService = class {
       if (page === pages - 1) truncated = true;
     }
     const value = { items, truncated };
-    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
+    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value });
     return value;
   }
   async allocation(environment, limits) {
@@ -37692,10 +37768,10 @@ function nextRunAt(plan, after) {
     if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day2, plan.hourUtc));
     return candidate2;
   }
-  const weekday = plan.weekday ?? 1;
+  const weekday2 = plan.weekday ?? 1;
   const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan.hourUtc));
   const isoToday = today.getUTCDay() || 7;
-  let candidate = new Date(today.getTime() + (weekday - isoToday + 7) % 7 * DAY_MS3);
+  let candidate = new Date(today.getTime() + (weekday2 - isoToday + 7) % 7 * DAY_MS3);
   if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS3);
   return candidate;
 }
@@ -38250,8 +38326,41 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.30.0"
+  version: "2.31.0"
 };
+
+// src/shared/prices.ts
+var PRICE_RANGES = [
+  ["1m", 31],
+  ["3m", 92],
+  ["6m", 183],
+  ["1y", 366]
+];
+var DAY_MS4 = 864e5;
+var RANGE_SLACK_DAYS = 6;
+function rangeCovered(points2, days) {
+  const first = points2[0];
+  const last = points2[points2.length - 1];
+  return !!first && !!last && Date.parse(`${first.date}T00:00:00Z`) <= Date.parse(`${last.date}T00:00:00Z`) - (days - RANGE_SLACK_DAYS) * DAY_MS4;
+}
+function pricesIn(points2, days) {
+  const last = points2[points2.length - 1];
+  if (!last) return [];
+  const start = Date.parse(`${last.date}T00:00:00Z`) - days * DAY_MS4;
+  return points2.filter((point) => Date.parse(`${point.date}T00:00:00Z`) >= start);
+}
+function priceMove(points2) {
+  const first = points2[0];
+  const last = points2[points2.length - 1];
+  if (!first || !last || points2.length < 2) return void 0;
+  let high = first;
+  let low = first;
+  for (const point of points2) {
+    if (point.close > high.close) high = point;
+    if (point.close < low.close) low = point;
+  }
+  return { first, last, change: last.close / first.close - 1, high, low };
+}
 
 // src/core/text-summary.ts
 var MAX_ROWS = 30;
@@ -38457,6 +38566,19 @@ function holdingStopLine(position, orders, currency) {
   const guard = stopProtection(position, orders);
   return guard ? `Stop-loss: ${stopText(position, guard, currency)}.` : "Stop-loss: none.";
 }
+function priceLine(data) {
+  const prices = data.prices;
+  if (!prices) return data.pricesProblem ? [`No daily prices: ${data.pricesProblem}`] : [];
+  const year = priceMove(prices.points);
+  if (!year) return [];
+  const unit = data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : "";
+  const shorter = PRICE_RANGES.filter(([key, days]) => key !== "1y" && rangeCovered(prices.points, days)).flatMap(([key, days]) => {
+    const move = priceMove(pricesIn(prices.points, days));
+    return move ? [`${key.toUpperCase()} ${signedPct(move.change)}`] : [];
+  });
+  const source = prices.source === "sample" ? "simulated for the sample account" : `${prices.source}${prices.symbol ? ` ${prices.symbol}` : ""}`;
+  return [`Daily closes (${source}) ${year.first.date} to ${year.last.date}: ${num2(year.first.close, 6)} to ${num2(year.last.close, 6)}${unit} (${signedPct(year.change)})${shorter.length ? `; ${shorter.join(", ")}` : ""}; high ${num2(year.high.close, 6)} on ${year.high.date}, low ${num2(year.low.close, 6)} on ${year.low.date}.`];
+}
 function holding(data) {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -38468,11 +38590,12 @@ function holding(data) {
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight2}.` : `Not held${data.targetWeight === void 0 ? "" : `; target ${pct(data.targetWeight)}`}.`,
     ...data.position ? [holdingStopLine(data.position, data.orders, c)] : [],
+    ...priceLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...history ? [
-      ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+      ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
       `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
@@ -38796,8 +38919,9 @@ function describePayload(data) {
 }
 
 // src/core/holding.ts
-var DAY_MS4 = 864e5;
+var DAY_MS5 = 864e5;
 var MAX_FILLS = 20;
+var MAX_CHART_FILLS = 200;
 var MAX_DIVIDENDS = 12;
 var MAX_NOTES = 20;
 var HISTORY_PAGES = 2;
@@ -38820,21 +38944,30 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   };
   const total = dashboard.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
-  const window = { from: new Date(Math.floor(now.getTime() / DAY_MS4) * DAY_MS4 - 365 * DAY_MS4), to: now };
-  const [targets, alerts, notes, market, history] = await Promise.all([
+  const window = { from: new Date(Math.floor(now.getTime() / DAY_MS5) * DAY_MS5 - 365 * DAY_MS5), to: now };
+  const historyRead = Promise.all([
+    deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
+    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
+  ]).catch((error62) => asStructuredError(error62));
+  const fills = historyRead.then((read) => Array.isArray(read) ? read[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
+  const alertsRead = deps.alerts.list(environment);
+  const levels = alertsRead.catch(() => []).then((list2) => [
+    ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
+    ...list2.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price)
+  ].filter((price) => typeof price === "number" && price > 0));
+  const [targets, alerts, notes, market, history, prices] = await Promise.all([
     deps.targets.get(environment),
-    deps.alerts.list(environment),
+    alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position.instrument, now),
-    Promise.all([
-      deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
-      deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
-    ]).catch((error62) => asStructuredError(error62))
+    historyRead,
+    deps.priceHistory?.({ instrument: listed ?? position.instrument, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : {}, levels, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }))
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
-  const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => fill.orderId ? [fill.orderId] : []) : []);
+  const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
+  const filled = new Set(listedFills.flatMap((fill) => fill.orderId ? [fill.orderId] : []));
   const onFill = (note) => note.orderId !== void 0 && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
@@ -38856,7 +38989,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...Array.isArray(history) ? {
       history: {
         from: window.from.toISOString(),
-        fills: history[0].fills.map((fill) => ({
+        fills: listedFills.map((fill) => ({
           ...fill.orderId ? { orderId: fill.orderId } : {},
           ...fill.filledAt ? { filledAt: fill.filledAt } : {},
           ...fill.side ? { side: fill.side } : {},
@@ -38868,6 +39001,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
           ...fill.accountCurrency ? { accountCurrency: fill.accountCurrency } : {},
           ...fill.realisedProfitLoss === void 0 ? {} : { realisedProfitLoss: fill.realisedProfitLoss }
         })),
+        ...history[0].fills.length > MAX_FILLS ? {
+          olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => fill.filledAt && fill.price ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }] : [])
+        } : {},
         dividends: history[1].items.map((item) => ({
           date: item.date,
           amount: item.amount,
@@ -38881,12 +39017,13 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
         dividendsTruncated: history[1].truncated
       }
     } : { historyProblem: history.message },
+    ...prices && "prices" in prices ? { prices: prices.prices } : prices ? { pricesMissing: prices.missing, pricesProblem: prices.problem } : {},
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
 
 // src/core/journal-review.ts
-var DAY_MS5 = 864e5;
+var DAY_MS6 = 864e5;
 var MAX_REVIEW_TRADES = 50;
 var round6 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function orderSide(item) {
@@ -38950,7 +39087,7 @@ function summarizeJournalReview(input2) {
     const ratio2 = quotedPrice !== void 0 && quotedPrice > 0 ? quotedPrice / price : void 0;
     const priceNow = ratio2 !== void 0 && !(input2.quoted?.has(ticker) && (ratio2 >= 10 || ratio2 <= 0.1)) ? quotedPrice : void 0;
     const move = priceNow !== void 0 ? priceNow / price - 1 : void 0;
-    const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt)) / DAY_MS5));
+    const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt)) / DAY_MS6));
     const name = input2.names?.get(ticker) ?? item.order?.instrument?.name;
     const realised = side === "sell" ? fill.walletImpact?.realisedProfitLoss : void 0;
     const currency = item.order?.currency ?? item.order?.instrument?.currency;
@@ -39140,7 +39277,7 @@ var windowSchema = {
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
 };
-function createMcpServer({ trading, insights, automation: automation2, alerts, journal, targets: targetAllocations, values, pies: pies2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation2, alerts, journal, targets: targetAllocations, values, pies: pies2, priceHistory, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -39148,7 +39285,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     canWrite ? ORDER_INSTRUCTIONS : ""
   ].filter(Boolean).join("\n\n");
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
-  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations };
+  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory };
   const dashboard = async (environment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
@@ -39404,7 +39541,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_holding_detail",
     {
       title: "Trading 212 Holding Detail",
-      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, and the last 12 months of fills and dividends. Works for instruments not held too. Renders the holding view; read-only.",
+      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -40731,13 +40868,13 @@ var TradeJournal = class {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS6 = 864e5;
+var DAY_MS7 = 864e5;
 var watchKey = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS6).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS7).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -40844,7 +40981,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS6);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS7);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -40852,7 +40989,7 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS7 = 864e5;
+var DAY_MS8 = 864e5;
 var round7 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round7(value)}`;
 function digestText(input2) {
@@ -40889,7 +41026,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS7, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS8, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
@@ -40900,7 +41037,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS7);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS8);
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
@@ -41019,6 +41156,113 @@ function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(in
       return false;
     }
   };
+}
+
+// src/core/price-history.ts
+var DAY_MS9 = 864e5;
+var UNIT_RATIO = 10;
+var UNIT_RATIO_FILL = 50;
+var HISTORY_WAIT_MS = 3e3;
+function unitFactor(last, reference, mapped = 1) {
+  return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
+}
+var middle = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+function createPriceHistory(deps) {
+  const now = deps.now ?? (() => /* @__PURE__ */ new Date());
+  return async (request) => {
+    const { instrument } = request;
+    if (deps.sampleData) {
+      if (!request.last) return { missing: "sample", problem: "The sample account has prices only for the instruments it holds." };
+      return { prices: samplePriceHistory(instrument.ticker, { from: request.from, to: now(), last: request.last, anchors: await request.fills ?? [] }) };
+    }
+    const quotes = deps.quotes;
+    if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };
+    if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
+    const symbol2 = quotes.symbolFor(instrument);
+    if (!symbol2) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve("late"), deps.waitMs ?? HISTORY_WAIT_MS);
+    });
+    let prices;
+    try {
+      prices = await Promise.race([quotes.history(instrument, request.from), late]);
+    } catch (error62) {
+      return { missing: "data", problem: `${quotes.name} gave no daily prices for ${symbol2}: ${error62 instanceof Error ? error62.message : String(error62)}` };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1e3} seconds for ${symbol2}'s daily prices; they show the next time the page opens.` };
+    if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol2}.` };
+    const levels = (await request.levels ?? []).filter((price) => price > 0);
+    const newest = (await request.fills ?? []).reduce((best, item) => !best || item.at > best.at ? item : best, void 0);
+    const check2 = request.last ? { price: request.last, ratio: UNIT_RATIO, what: "last price" } : levels.length ? { price: middle(levels), ratio: UNIT_RATIO, what: "order and alert prices" } : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" } : void 0;
+    const last = prices.points[prices.points.length - 1].close;
+    if (check2 && (last / check2.price >= check2.ratio || check2.price / last >= check2.ratio)) {
+      const factor = unitFactor(last, check2.price, prices.factor);
+      const mapping = `${instrument.ticker}=${symbol2}${factor === 1 ? "" : `*${factor}`}`;
+      return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol2} (last ${last}) are far from Trading 212's ${check2.what} (${check2.price}), so they look like another unit; map it in QUOTE_SYMBOLS as ${mapping}.` };
+    }
+    return { prices };
+  };
+}
+var SAMPLE_DAILY_MOVE = 0.015;
+function seedOf(text) {
+  let hash2 = 2166136261;
+  for (let index = 0; index < text.length; index++) hash2 = Math.imul(hash2 ^ text.charCodeAt(index), 16777619);
+  return hash2 >>> 0;
+}
+function seeded(seed) {
+  let state = seed;
+  return () => {
+    state = state + 1831565813 | 0;
+    let mixed = Math.imul(state ^ state >>> 15, 1 | state);
+    mixed = mixed + Math.imul(mixed ^ mixed >>> 7, 61 | mixed) ^ mixed;
+    return ((mixed ^ mixed >>> 14) >>> 0) / 4294967296;
+  };
+}
+var dayOf = (time3) => Math.floor(time3 / DAY_MS9);
+var weekday = (day2) => {
+  const weekdayIndex = new Date(day2 * DAY_MS9).getUTCDay();
+  return weekdayIndex !== 0 && weekdayIndex !== 6;
+};
+function samplePriceHistory(ticker, input2) {
+  const days = [];
+  for (let day2 = dayOf(input2.from.getTime()); day2 <= dayOf(input2.to.getTime()); day2++) if (weekday(day2)) days.push(day2);
+  const random = seeded(seedOf(ticker));
+  const normal = () => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+  const walk = [0];
+  for (let index = 1; index < days.length; index++) walk.push(walk[index - 1] + SAMPLE_DAILY_MOVE * normal());
+  const fixed = /* @__PURE__ */ new Map();
+  const indexOf = (time3) => {
+    const day2 = dayOf(time3);
+    let found = -1;
+    for (let index = 0; index < days.length && days[index] <= day2; index++) found = index;
+    return found;
+  };
+  for (const anchor2 of [...input2.anchors].sort((a, b) => a.at.localeCompare(b.at))) {
+    const index = indexOf(Date.parse(anchor2.at));
+    if (index >= 0 && anchor2.price > 0) fixed.set(index, Math.log(anchor2.price));
+  }
+  if (days.length) fixed.set(days.length - 1, Math.log(input2.last));
+  const anchors = [...fixed].sort(([a], [b]) => a - b);
+  const log2 = new Array(days.length);
+  const [firstIndex, firstLog] = anchors[0] ?? [0, Math.log(input2.last)];
+  for (let index = 0; index <= firstIndex; index++) log2[index] = firstLog + walk[index] - walk[firstIndex];
+  for (let pair = 1; pair < anchors.length; pair++) {
+    const [start, startLog] = anchors[pair - 1];
+    const [end, endLog] = anchors[pair];
+    for (let index = start; index <= end; index++) {
+      const share3 = (index - start) / (end - start);
+      log2[index] = startLog + share3 * (endLog - startLog) + (walk[index] - walk[start]) - share3 * (walk[end] - walk[start]);
+    }
+  }
+  const digits = input2.last >= 1e3 ? 1 : input2.last >= 10 ? 2 : 4;
+  const points2 = days.map((day2, index) => ({
+    date: new Date(day2 * DAY_MS9).toISOString().slice(0, 10),
+    close: Math.round(Math.exp(log2[index]) * 10 ** digits) / 10 ** digits
+  }));
+  return { source: "sample", points: points2 };
 }
 
 // src/core/protective-links.ts
@@ -41204,6 +41448,7 @@ function createServices(input2) {
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
+  const priceHistory = createPriceHistory({ sampleData: deps.config.sampleData, ...quotes ? { quotes } : {} });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...notify ? { notify } : {} });
   const stage = async (name, run) => {
     try {
@@ -41266,7 +41511,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation2, links, orders, values, alerts, journal, targets, pies: pies2, digest, runScheduled, automationOverview };
+  return { trading, insights, automation: automation2, links, orders, values, alerts, journal, targets, pies: pies2, digest, priceHistory, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

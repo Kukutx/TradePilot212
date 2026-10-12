@@ -4,6 +4,7 @@ import type { PriceAlert } from "./automation.js";
 import type { CredentialStatus, Instrument, PendingOrder, Position, TradingEnvironment } from "./contracts.js";
 import type { MarketStatus } from "./history.js";
 import type { JournalEntry } from "./journal.js";
+import type { PriceHistory, PricesMissing } from "./prices.js";
 
 /** One fill of an order on this instrument, newest first. */
 export interface HoldingFill {
@@ -57,6 +58,8 @@ export interface HoldingDetail {
   history?: {
     from: string;
     fills: HoldingFill[];
+    /** Fills older than the 20 listed, up to 200 in all, with only what the price chart marks. */
+    olderFills?: Array<{ filledAt: string; side: "BUY" | "SELL"; quantity: number; price: number }>;
     dividends: HoldingDividend[];
     /** Dividends received in the window, in the account currency, and how many payments; `dividends` lists the newest. */
     dividendTotal: number;
@@ -68,5 +71,11 @@ export interface HoldingDetail {
   };
   /** Why the history is missing, e.g. Trading 212's rate limit; everything else is still current. */
   historyProblem?: string;
+  /** The last 12 months of daily closes, in the instrument's unit, from the quote provider (or simulated for sample data). */
+  prices?: PriceHistory;
+  /** Why there are no daily closes, for the page to say in the viewer's language; `pricesProblem` says it in full. */
+  pricesMissing?: PricesMissing;
+  /** Why there are no daily closes: no quote provider, no symbol for the instrument, or the provider's answer. */
+  pricesProblem?: string;
   timestamp: string;
 }

@@ -4,6 +4,8 @@ import { localeTag, type SupportedLocale } from "../i18n";
 export interface MoneyOptions {
   /** Show "+" on gains and "−" on losses, never on zero. For P/L and changes only, not for balances. */
   signed?: boolean;
+  /** Most decimals to show, for prices under 1 (default 2). */
+  digits?: number;
 }
 
 export function money(value: number | undefined, currency: string, locale: SupportedLocale, options: MoneyOptions = {}): string {
@@ -13,12 +15,13 @@ export function money(value: number | undefined, currency: string, locale: Suppo
     return new Intl.NumberFormat(localeTag(locale), {
       style: "currency",
       currency,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: Math.min(2, options.digits ?? 2),
+      maximumFractionDigits: options.digits ?? 2,
       signDisplay,
     }).format(value);
   } catch {
     const sign = options.signed && value > 0 ? "+" : "";
-    return `${sign}${value.toFixed(2)} ${currency}`;
+    return `${sign}${value.toFixed(options.digits ?? 2)} ${currency}`;
   }
 }
 
@@ -26,7 +29,7 @@ export function money(value: number | undefined, currency: string, locale: Suppo
 export function amount(value: number | undefined, currency: string | undefined, locale: SupportedLocale, options: MoneyOptions = {}): string {
   if (currency) return money(value, currency, locale, options);
   if (value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: 2, signDisplay: options.signed ? "exceptZero" : "auto" }).format(value);
+  return new Intl.NumberFormat(localeTag(locale), { maximumFractionDigits: options.digits ?? 2, signDisplay: options.signed ? "exceptZero" : "auto" }).format(value);
 }
 
 /**

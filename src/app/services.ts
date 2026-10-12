@@ -9,6 +9,7 @@ import { DailyDigest } from "../core/digest.js";
 import { createNotifier } from "../core/notify.js";
 import { OrderWatch } from "../core/order-watch.js";
 import { PiesService } from "../core/pies.js";
+import { createPriceHistory } from "../core/price-history.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
@@ -57,6 +58,7 @@ export function createServices(input: ServiceDependencies) {
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies = new PiesService({ config: deps.config, store: deps.store, trading, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}) });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
+  const priceHistory = createPriceHistory({ sampleData: deps.config.sampleData, ...(quotes ? { quotes } : {}) });
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
@@ -121,5 +123,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, runScheduled, automationOverview };
 }

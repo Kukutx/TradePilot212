@@ -164,14 +164,16 @@ In the widget, a holding's page has an **Add alert** form. It offers above or be
 
 Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price.
 
+The same source draws the price chart on the holding page: the last year of daily closes, with your fills marked on it and the average cost, open stops and limits and armed alerts drawn across it. Stooq and Twelve Data give the year and Alpha Vantage's free plan the last 100 trading days, so the chart offers the ranges the closes cover; Finnhub's daily prices are not on its free plan. A chart is read again after half an hour, a failed read after a minute, and the page waits 3 seconds for the closes before it shows without them. When the closes end ten times or more from Trading 212's price either way (the last price, else the instrument's order and alert prices, else a hundredfold gap from the newest fill), they are taken to be in another unit and the page says so instead of drawing them, naming the mapping with the factor that fixes it; see the factor below. A refusal or a limit is reported in the provider's own words. The sample account draws a simulated path through its own fills.
+
 The same source supplies exchange rates for currencies none of your holdings is priced in, so a first purchase in a new currency can be valued in the account currency (for `MAX_ORDER_NOTIONAL`, the policy rules and amount-based sizing). Stooq, Twelve Data and Alpha Vantage give rates; Finnhub's are not on its free plan. A rate implied by your holdings always wins, and the preview names the source and time of a quoted one.
 
 | `QUOTE_PROVIDER` | Key | Notes |
 |---|---|---|
 | `stooq` (default) | none | Free, no account. Unofficial and best effort; prices may be delayed, and the service may change or block requests. |
-| `finnhub` | free key in `QUOTE_API_KEY` | Real-time US quotes on the free tier. |
+| `finnhub` | free key in `QUOTE_API_KEY` | Real-time US quotes on the free tier; no exchange rates or daily history. |
 | `twelvedata` | free key | Daily request limit on the free tier. |
-| `alphavantage` | free key | Small daily limit; latest trading day's price. |
+| `alphavantage` | free key | Small daily limit (each holding page with a chart uses one); latest trading day's price. |
 | `none` | | External quotes off. |
 
 US tickers (`AAPL_US_EQ`) map automatically. Other markets differ in symbol suffixes and price units (London ETFs are often quoted in pence), so they are priced only when you map them in the provider's format, for example `QUOTE_SYMBOLS=VUSAl_EQ=VUSA.UK,SAPd_EQ=SAP.DE` for Stooq or `VUSAl_EQ=VUSA.L` for Finnhub. When the provider quotes in a different unit from Trading 212, add a factor: `VUSAl_EQ=VUSA.L*100` turns a price in pounds into pence. Check one with `get_quote` before relying on it: a quote off by a factor of 100 would size an order 100 times too large or too small. Quotes are cached for one minute. Gain and loss alerts need a holding, because they compare with the average cost.
