@@ -6,7 +6,7 @@ import { targetRiskOf } from "../../shared/holding-risk";
 import { createTranslator } from "../i18n";
 import { AllocationView } from "../views/InsightsView";
 import { holdEnter } from "./instrument-search";
-import { awayPending, canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, savedAway, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, widenedState, type TargetForm } from "./target-editor";
+import { awayPending, canUseParity, covarianceFits, covarianceKey, formTrades, loadCovariance, presetForm, readForm, riskOfForm, savedAway, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, widenedState, type TargetForm } from "./target-editor";
 
 const holding = (ticker: string, value: number) => ({ ticker, name: ticker, currency: "USD", value, weight: value / 10_000 });
 const data = (extra: Partial<AllocationAnalysis> = {}) => ({
@@ -348,5 +348,37 @@ describe("the target weights form", () => {
     // Chinese sentences follow each other without a space.
     expect(renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, volatility } }), locale: "zh-CN", t: createTranslator("zh-CN") })))
       .toContain("（现在 18.2%）。整个账户（含现金）：14.3%（现在 16.4%）。");
+  });
+
+  it("works out what a rebalance to the weights typed would trade, and the fee on the part in other currencies", () => {
+    // A EUR account of 10,000 holding three dollar instruments; EIMI, not held, is quoted in euros.
+    const rows = targetRows(data(), [{ ticker: "EIMI", currency: "EUR" }]);
+    expect(rows.map((row) => row.currency)).toEqual(["USD", "USD", "USD", "EUR"]);
+    const typed = { VUSA: "40", AAPL: "25", KO: "", EIMI: "20" };
+    // VUSA sells 1,000 in dollars, EIMI buys 2,000 in euros, KO is kept.
+    expect(formTrades(form(typed), rows, data())).toEqual({ currency: "EUR", bought: 2000, sold: 1000, converted: 1000, fxFee: 1.5, fxFeeRate: 0.0015 });
+    // Sold with the targets, KO's 1,500 is a dollar sell too; the rate set on the server is the one used.
+    expect(formTrades({ ...form(typed), sell: true }, rows, data({ fxFeeRate: 0.001 }))).toEqual({ currency: "EUR", bought: 2000, sold: 2500, converted: 2500, fxFee: 2.5, fxFeeRate: 0.001 });
+    // A row whose currency is not known counts as converted.
+    expect(formTrades(form(typed), targetRows(data(), [{ ticker: "EIMI" }]), data())).toMatchObject({ converted: 3000, unknownCurrency: 1 });
+    // Without the account's value or currency there is nothing to work it out from.
+    expect(formTrades(form(typed), rows, data({ accountCurrency: "" }))).toBeUndefined();
+  });
+
+  it("says under the total what the weights typed would trade, and beside the drift what the saved ones would", () => {
+    const opened = renderToStaticMarkup(createElement(TargetEditor, { data: data(), locale: "en", t: createTranslator("en"), onSave: async () => true, onClose: () => undefined }));
+    // Today's weights trade nothing.
+    expect(opened).toContain("At these weights a rebalance would trade nothing.");
+    const saved = renderToStaticMarkup(createElement(TargetEditor, { data: data({ drift: { ...drift, rows: drift.rows.map((row) => (row.ticker === "EIMI" ? { ...row, currency: "EUR" } : row)) } }), locale: "en", t: createTranslator("en"), onSave: async () => true, onClose: () => undefined }));
+    // VUSA 50% to 40%, EIMI 0 to 20%, and AAPL and KO sold: 5,000 of sells in dollars.
+    expect(saved).toContain("At these weights a rebalance would buy about €2,000.00 and sell about €5,000.00. €5,000.00 of it is in other currencies: about €7.50 in FX fees at 0.15%, none where a balance in that currency pays.");
+    const rebalance = { currency: "EUR", bought: 2000, sold: 5000, converted: 5000, fxFee: 7.5, fxFeeRate: 0.0015 };
+    expect(renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, rebalance } }), locale: "en", t: createTranslator("en") })))
+      .toContain("A rebalance all the way to the targets would buy about €2,000.00 and sell about €5,000.00. €5,000.00 of it is in other currencies");
+    const zh = renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, rebalance: { ...rebalance, sold: 0, converted: 0, fxFee: 0 } } }), locale: "zh-CN", t: createTranslator("zh-CN") }));
+    expect(zh).toContain("完整调仓到目标，约需买入 €2,000.00。<");
+    // Nothing to trade says nothing beside the drift.
+    expect(renderToStaticMarkup(createElement(AllocationView, { data: data({ drift: { ...drift, rebalance: { ...rebalance, bought: 0, sold: 0, converted: 0, fxFee: 0 } } }), locale: "en", t: createTranslator("en") })))
+      .not.toContain("A rebalance all the way");
   });
 });

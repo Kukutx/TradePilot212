@@ -158,6 +158,8 @@ function withoutSkipped(all: string[], plan?: RebalancePlan): string[] {
 }
 
 function RebalanceSummary({ plan, book, t, locale }: { plan: RebalancePlan; book?: InstrumentBook; t: Translator; locale: SupportedLocale }) {
+  // What the trades come to, and the conversion fee on the ones in other currencies (its note says when there is none).
+  const { totals } = plan;
   return (
     <section className="rebalanceSummary" aria-label={t("rebalanceSummary")}>
       <span className="policyTitle">{t("rebalanceSummary")}</span>
@@ -165,6 +167,9 @@ function RebalanceSummary({ plan, book, t, locale }: { plan: RebalancePlan; book
         <DetailRow label={t("totalValue")} value={money(plan.totalValue, plan.accountCurrency, locale)} />
         <DetailRow label={t("cashBefore")} value={money(plan.cashBefore, plan.accountCurrency, locale)} />
         <DetailRow label={t("cashAfter")} value={money(plan.cashAfter, plan.accountCurrency, locale)} />
+        {totals && totals.bought > 0 && <DetailRow label={t("rebalanceBought")} value={money(totals.bought, plan.accountCurrency, locale)} />}
+        {totals && totals.sold > 0 && <DetailRow label={t("rebalanceSold")} value={money(totals.sold, plan.accountCurrency, locale)} />}
+        {totals && totals.converted > 0 && totals.fxFeeRate > 0 && <DetailRow label={t("rebalanceFxFee")} value={money(totals.fxFee, plan.accountCurrency, locale)} />}
       </div>
       {plan.skipped.length > 0 && (
         <div className="basketNotes">

@@ -5,6 +5,7 @@ import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { amount, dateTime, money, num, pct, qty } from "./format";
 import { instrumentLabel, type InstrumentBook } from "./instruments";
 import { STOPS_BASKET_TITLE } from "../../shared/protection";
+import type { TradeTotals } from "../../shared/trade-cost";
 
 export type Translator = (key: MessageKey) => string;
 
@@ -398,8 +399,32 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
     case "nothing_possible": return t("rebalanceNoteNothing");
     case "within_threshold": return t("rebalanceNoteWithin");
     case "price_source": return t("rebalanceNotePrices");
+    case "fx_fee": {
+      const currency = String(value("currency") ?? "") || undefined;
+      return fill(t("rebalanceNoteFxFee"), { converted: amount(Number(value("converted")), currency, locale), fee: amount(Number(value("fee")), currency, locale), rate: pct(Number(value("rate")), locale, 2) });
+    }
     default: return note.message;
   }
+}
+
+const TRADE_KEYS = {
+  drift: { both: "driftTrades", buy: "driftTradesBuy", sell: "driftTradesSell" },
+  targets: { both: "targetsTrades", buy: "targetsTradesBuy", sell: "targetsTradesSell" },
+} as const;
+
+/**
+ * What a rebalance would buy and sell, then the conversion fee on the part in other currencies: for the drift panel
+ * (`drift`, the saved targets) or the target form (`targets`, the weights typed). Nothing to trade says so in the form
+ * and nothing in the panel.
+ */
+export function tradeEstimateText(totals: TradeTotals, lead: keyof typeof TRADE_KEYS, t: Translator, locale: SupportedLocale): string | undefined {
+  const currency = totals.currency || undefined;
+  if (!(totals.bought > 0) && !(totals.sold > 0)) return lead === "targets" ? t("targetsTradesNone") : undefined;
+  const keys = TRADE_KEYS[lead];
+  const trades = fill(t(totals.bought > 0 && totals.sold > 0 ? keys.both : totals.bought > 0 ? keys.buy : keys.sell), { bought: amount(totals.bought, currency, locale), sold: amount(totals.sold, currency, locale) });
+  if (!(totals.converted > 0) || !(totals.fxFeeRate > 0)) return trades;
+  const fee = fill(t("tradesFxFee"), { converted: amount(totals.converted, currency, locale), fee: amount(totals.fxFee, currency, locale), rate: pct(totals.fxFeeRate, locale, 2) });
+  return `${trades}${locale === "zh-CN" ? "" : " "}${fee}`;
 }
 
 export function rebalanceSkipText(item: RebalancePlan["skipped"][number], t: Translator): string {

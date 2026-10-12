@@ -17,7 +17,7 @@ import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
+import { fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
@@ -101,6 +101,7 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   const scale = Math.max(0.01, ...rows.map((row) => Math.max(row.current, row.target)));
   const points = new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
   const share = (value: number) => `${Math.min(100, (value / scale) * 100)}%`;
+  const trades = drift.rebalance && tradeEstimateText(drift.rebalance, "drift", t, locale);
   return (
     <section className="dataPanel">
       <div className="panelHeading">
@@ -121,6 +122,7 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
           {drift.volatility.leftOut?.length ? <>{locale === "zh-CN" ? "" : " "}{fill(t("targetsRiskLeftOut"), { list: drift.volatility.leftOut.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") })}</> : null}
         </p>
       )}
+      {trades && <p className="panelNote driftTrades">{trades}</p>}
       <ul className="driftList" aria-label={t("driftTitle")}>
         {rows.map((row) => {
           const over = Math.abs(row.drift) > drift.threshold + 1e-9;

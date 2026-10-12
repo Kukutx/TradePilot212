@@ -3,6 +3,7 @@ import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.j
 import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 import { fail } from "./errors.js";
+import { DEFAULT_FX_FEE_RATE, MAX_FX_FEE_RATE } from "../shared/trade-cost.js";
 
 /** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -45,6 +46,8 @@ export interface RuntimeConfig {
   sampleData: boolean;
   /** OAuth redirect hosts clients may register (OAUTH_REDIRECT_HOSTS); empty allows any HTTPS host. Loopback is always allowed. */
   oauthRedirectHosts: string[];
+  /** Trading 212's currency conversion fee, for the estimates of what a rebalance converts (FX_FEE_RATE, default 0.0015). */
+  fxFeeRate: number;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -59,7 +62,7 @@ export type RuntimeEnv = Partial<Record<
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "BENCHMARK" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
-  | "OAUTH_REDIRECT_HOSTS",
+  | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE",
   string
 >>;
 
@@ -86,6 +89,12 @@ function nonNegative(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number):
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be zero or a positive number`);
+  return value;
+}
+
+function fxFeeRate(env: RuntimeEnv): number {
+  const value = nonNegative(env, "FX_FEE_RATE", DEFAULT_FX_FEE_RATE);
+  if (value > MAX_FX_FEE_RATE) throw new Error(`FX_FEE_RATE must be a fraction from 0 to ${MAX_FX_FEE_RATE}, such as 0.0015 for 0.15%`);
   return value;
 }
 
@@ -183,6 +192,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     ...(digestHour(env) === undefined ? {} : { digestHourUtc: digestHour(env)! }),
     sampleData,
     oauthRedirectHosts: list(env, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
+    fxFeeRate: fxFeeRate(env),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData
       ? {

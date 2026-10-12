@@ -6,10 +6,11 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Instrument } from "../../shared/contracts";
 import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload, HoldingRisk } from "../../shared/history";
 import { equalRiskTargets, OVER_ACCOUNT, targetRiskOf, type TargetRisk } from "../../shared/holding-risk";
+import { DEFAULT_FX_FEE_RATE, tradeTotals, weightTrades, type TradeTotals } from "../../shared/trade-cost";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { parseAmount, pct } from "../lib/format";
-import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { fill, type Translator } from "../lib/messages";
+import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
+import { fill, tradeEstimateText, type Translator } from "../lib/messages";
 import { Field, Icon } from "./common";
 import { InstrumentSearch } from "./instrument-search";
 
@@ -26,7 +27,8 @@ export interface TargetSave {
 
 export type TargetPreset = "today" | "equal" | "parity";
 
-type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk"> & { timestamp?: string };
+type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk">
+  & Partial<Pick<AllocationAnalysis, "accountCurrency" | "fxFeeRate">> & { timestamp?: string };
 
 export interface TargetForm {
   /** Percent typed for each ticker; empty for no target. */
@@ -44,17 +46,18 @@ const downText = (share: number) => percentText(Math.max(0, Math.floor(share * 1
 /** A share as the server keeps it: four decimals (0.01%). */
 const serverShare = (share: number) => Math.round(share * 10_000) / 10_000;
 
-export interface TargetRow { ticker: string; name?: string; current: number; held: boolean }
+/** A row of the form; `currency` is the instrument's quote currency, when known. */
+export interface TargetRow { ticker: string; name?: string; current: number; held: boolean; currency?: string }
 /** An instrument not held in the form: a saved target, or one added from the search. */
-export interface AwayRow { ticker: string; name?: string }
+export interface AwayRow { ticker: string; name?: string; currency?: string }
 
 const heldRows = (data: Pick<Data, "holdings">): TargetRow[] => data.holdings.filter((holding) => holding.value > 0).sort((a, b) => b.value - a.value)
-  .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true }));
+  .map((holding) => ({ ticker: holding.ticker, name: holding.name, current: holding.weight, held: true, ...(holding.currency ? { currency: holding.currency } : {}) }));
 
 /** The saved targets not held, as the form opens. */
 export function savedAway(data: Pick<Data, "holdings" | "drift">): AwayRow[] {
   const held = new Set(heldRows(data).map((row) => row.ticker));
-  return (data.drift?.rows ?? []).filter((row) => !held.has(row.ticker)).map((row) => ({ ticker: row.ticker }));
+  return (data.drift?.rows ?? []).filter((row) => !held.has(row.ticker)).map((row) => ({ ticker: row.ticker, ...(row.currency ? { currency: row.currency } : {}) }));
 }
 
 /** The rows: the holdings, largest first, then the instruments not held (`away`, by default the saved targets not held). */
@@ -65,7 +68,7 @@ export function targetRows(data: Pick<Data, "holdings" | "drift">, away: readonl
   for (const row of away) {
     if (known.has(row.ticker)) continue;
     known.add(row.ticker);
-    others.push({ ticker: row.ticker, ...(row.name ? { name: row.name } : {}), current: 0, held: false });
+    others.push({ ticker: row.ticker, ...(row.name ? { name: row.name } : {}), current: 0, held: false, ...(row.currency ? { currency: row.currency } : {}) });
   }
   return [...held, ...others];
 }
@@ -174,6 +177,23 @@ export function typedTargets(form: TargetForm, tickers: string[]): Map<string, n
     if (Number.isFinite(value) && value <= 100 && serverShare(value / 100) > 0) typed.set(ticker, serverShare(value / 100));
   }
   return typed;
+}
+
+/**
+ * What a rebalance to the weights typed would trade, as the drift panel works it out for the saved ones: each row from
+ * its share today to the one typed, and the holdings left without a target kept, or sold with `sell`. Only with the
+ * account's value and currency.
+ */
+export function formTrades(form: TargetForm, rows: readonly TargetRow[], data: Pick<Data, "totalValue" | "accountCurrency" | "fxFeeRate">): TradeTotals | undefined {
+  if (!data.accountCurrency || !(data.totalValue > 0)) return undefined;
+  const typed = typedTargets(form, rows.map((row) => row.ticker));
+  const moves = rows.map((row) => ({
+    ticker: row.ticker,
+    current: row.current,
+    target: typed.get(row.ticker) ?? (row.held && !form.sell ? row.current : 0),
+    ...(row.currency ? { currency: row.currency } : {}),
+  }));
+  return tradeTotals(weightTrades(moves, data.totalValue), data.accountCurrency, data.fxFeeRate ?? DEFAULT_FX_FEE_RATE);
 }
 
 /**
@@ -357,7 +377,11 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   // The instruments not held in the form: the saved targets not held, and the ones added from the search.
   const [away, setAway] = useState<AwayRow[]>(() => savedAway(data));
   const [focusTicker, setFocusTicker] = useState<string>();
-  const rows = targetRows(data, away);
+  // Rows whose currency the payload left out take the one the widget knows.
+  const rows = targetRows(data, away).map((row) => {
+    const currency = row.currency ?? instrumentCurrency(row.ticker, book);
+    return currency ? { ...row, currency } : row;
+  });
   const alongside = rows.filter((row) => !row.held).map((row) => row.ticker).sort();
   const alongsideKey = alongside.join(",");
   // The risk by holding on screen, which the covariance is read for: again when a refresh measures other holdings or weeks.
@@ -416,6 +440,9 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const keptOver = !read.problem && kept > 0 && read.total + read.cash + kept > 100 + OVER_ACCOUNT * 100;
   const risk = covariance?.state === "read" ? riskOfForm(covariance.covariance, data.holdings, form, rows.map((row) => row.ticker)) : undefined;
   const pending = awayPending(covariance, alongside);
+  // What these weights would trade, once they could be saved.
+  const totals = read.problem ? undefined : formTrades(form, rows, data);
+  const trades = totals && tradeEstimateText(totals, "targets", t, locale);
   const share = (value: number) => pct(value / 100, locale, 1);
   // More holdings than a target list takes: the presets leave some without a target. Fewer, but more rows with the
   // targets not held: equal weights, which fill those first, leave some holdings without.
@@ -438,7 +465,7 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   }, [refocus]);
   const add = (item: Instrument) => {
     if (listed.has(item.ticker)) return false;
-    setAway([...away, { ticker: item.ticker, ...(item.name || item.shortName ? { name: item.name || item.shortName } : {}) }]);
+    setAway([...away, { ticker: item.ticker, ...(item.name || item.shortName ? { name: item.name || item.shortName } : {}), ...(item.currencyCode ? { currency: item.currencyCode } : {}) }]);
     setForm({ ...form, weights: { ...form.weights, [item.ticker]: "" } });
     setFilled(undefined);
     // Its share is typed next.
@@ -538,6 +565,7 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
             {left >= 0.05 && !read.problem && <>{locale === "zh-CN" ? "" : " "}{fill(t(form.sell ? "targetsLeftSold" : "targetsLeftKept"), { share: share(left) })}</>}
           </p>
           {keptOver && <p className="panelNote targetKeptOver">{fill(t("targetsKeptOver"), { kept: share(kept), total: share(read.total + read.cash + kept) })}</p>}
+          {trades && <p className="panelNote targetTrades">{trades}</p>}
           {covariance && measured && <TargetRiskSummary {...(risk ? { risk } : {})} state={covariance} weeks={measured.weeks} parity={filled === "parity"} pending={pending} {...(book ? { book } : {})} locale={locale} t={t} />}
           {shown && read.problem !== "cash" && read.problem !== "threshold" && <p className="fieldError targetError" id={errorId} role="alert">{shown}</p>}
           <div className="alertFormActions">

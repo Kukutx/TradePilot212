@@ -10,6 +10,7 @@ import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPa
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -376,7 +377,23 @@ function driftLines(drift: AllocationDrift): string[] {
     `- Cash: ${pct(drift.cash.current)} now, target ${pct(drift.cash.target)}, ${points(drift.cash.drift)}`,
     ...(drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
     ...(drift.volatility ? [targetVolatilityLine(drift.volatility)] : []),
+    ...(drift.rebalance ? [driftTradesLine(drift.rebalance)] : []),
   ]);
+}
+
+/** What converting the part in other currencies costs, as a clause: empty when nothing is converted or no fee is set. */
+function fxFeeClause(totals: TradeTotals): string {
+  if (!(totals.converted > 0)) return "; none of it in another currency";
+  const unknown = totals.unknownCurrency ? ` (${totals.unknownCurrency} in a currency not known, counted as converted)` : "";
+  return totals.fxFeeRate > 0
+    ? `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, about ${money(totals.fxFee, totals.currency)} in Trading 212's ${num(totals.fxFeeRate * 100, 2)}% conversion fee, none on a trade paid from or into a balance in that currency`
+    : `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, no conversion fee counted (FX_FEE_RATE is 0)`;
+}
+
+function driftTradesLine(totals: TradeTotals): string {
+  if (!(totals.bought > 0) && !(totals.sold > 0)) return "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency.";
+  const trades = [totals.bought > 0 ? `buy about ${money(totals.bought, totals.currency)}` : "", totals.sold > 0 ? `sell about ${money(totals.sold, totals.currency)}` : ""].filter(Boolean).join(" and ");
+  return `- A rebalance all the way to the targets would ${trades}${fxFeeClause(totals)}. By weight; whole shares and the cash on hand can trade less.`;
 }
 
 function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {
@@ -671,6 +688,7 @@ function basketDraft(data: BasketDraftPayload & { rebalance?: RebalancePlan }): 
     `${data.title} (${data.purpose}, ${env(data.environment)}):`,
     ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === undefined ? "" : ` ≈ ${money(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
     ...(plan ? [`Total value ${money(plan.totalValue, plan.accountCurrency)}; cash ${num(plan.cashBefore)} before, ${num(plan.cashAfter)} after.`] : []),
+    ...(plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [`Buys ${money(plan.totals.bought, plan.totals.currency)}, sells ${money(plan.totals.sold, plan.totals.currency)}.`] : []),
     ...section("Skipped", rows(skipped, (line) => line)),
     ...section("Notes", rows(notes, (line) => line)),
   ];

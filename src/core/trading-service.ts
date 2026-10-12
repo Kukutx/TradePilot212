@@ -1237,7 +1237,7 @@ export class TradingService {
     const missing = resolved.map((target) => currency.get(target.ticker.toUpperCase()) ?? "").filter((code) => code && !options.fxRates?.[code.toUpperCase()]);
     const { quoted } = await this.ratesFor(snapshot.positions, snapshot.account.currency ?? "", missing);
     const quotedFxRates = Object.fromEntries(quoted);
-    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { ...options, ...(quoted.size ? { quotedFxRates } : {}) }, (ticker) => currency.get(ticker.toUpperCase()));
+    return planRebalance(environment, snapshot.account, snapshot.positions, resolved, { fxFeeRate: this.deps.config.fxFeeRate, ...options, ...(quoted.size ? { quotedFxRates } : {}) }, (ticker) => currency.get(ticker.toUpperCase()));
   }
 
   /** Attach each leg's instrument so a review can show names; legs that do not resolve stay as they are. */

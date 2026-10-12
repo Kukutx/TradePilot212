@@ -57,6 +57,41 @@ describe("rebalance planner", () => {
     expect(passed.notes.join(" ")).not.toMatch(/Exchange rates/);
   });
 
+  it("totals the trades and estimates the conversion fee on the ones in another currency", () => {
+    // EUR account: SPY is valued in dollars, the bond fund in euros.
+    const valued: Position[] = [{ ...held("SPY", 10, 500, "USD"), walletImpact: { currency: "EUR", currentValue: 4000 } }, held("BOND", 80, 50)];
+    const plan = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.3 }, { ticker: "BOND", weight: 0.5 }], { quantityDecimals: 0 });
+    // SPY: 4000 EUR to 3000 EUR, 2.5 shares at 400 EUR each, whole shares only so 2 (800 EUR); BOND: 4000 to 5000, 20 shares.
+    expect(plan.trades.map((trade) => [trade.side, trade.ticker, trade.value])).toEqual([["sell", "SPY", 800], ["buy", "BOND", 1000]]);
+    expect(plan.totals).toEqual({ currency: "EUR", bought: 1000, sold: 800, converted: 800, fxFee: 1.2, fxFeeRate: 0.0015 });
+    expect(plan.noteDetails?.find((note) => note.code === "fx_fee")?.details).toEqual({ converted: 800, fee: 1.2, rate: 0.0015, currency: "EUR" });
+    expect(plan.notes.join(" ")).toMatch(/Trading 212's 0\.15% conversion fee on them is about 1\.2 EUR/);
+    // The fee comes off the dollar sell's proceeds, so the cash after is net of it.
+    expect(plan.cashAfter).toBe(1798.8);
+    // A rate of 0 counts no fee and says nothing about it; trades all in the account currency have none either.
+    const free = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.3 }, { ticker: "BOND", weight: 0.5 }], { quantityDecimals: 0, fxFeeRate: 0 });
+    expect(free.totals).toMatchObject({ converted: 800, fxFee: 0, fxFeeRate: 0 });
+    expect(free.noteDetails?.map((note) => note.code)).not.toContain("fx_fee");
+    const home = planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.5 }, { ticker: "BOND", weight: 0.5 }], { quantityDecimals: 0 });
+    expect(home.totals).toMatchObject({ bought: 3000, sold: 1000, converted: 0, fxFee: 0 });
+    expect(home.noteDetails?.map((note) => note.code)).not.toContain("fx_fee");
+  });
+
+  it("leaves room for the conversion fee when the buys take all the free cash", () => {
+    // 2000 EUR free and SPY 3000 EUR under its target: the buys and the fee on them come to no more than the cash.
+    const valued: Position[] = [{ ...held("SPY", 2, 500, "USD"), walletImpact: { currency: "EUR", currentValue: 800 } }];
+    const plan = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.38 }]);
+    const bought = plan.totals!.bought;
+    expect(bought + plan.totals!.fxFee).toBeLessThanOrEqual(2000);
+    expect(bought).toBeGreaterThan(1990);
+    expect(plan.cashAfter).toBeGreaterThanOrEqual(0);
+    expect(plan.cashAfter).toBeLessThan(1);
+    // Investing a set amount counts the fee in it.
+    const amount = planRebalance("demo", account, valued, [{ ticker: "SPY", weight: 0.38 }], { investAmount: 1000 });
+    expect(amount.totals!.bought + amount.totals!.fxFee).toBeLessThanOrEqual(1000);
+    expect(amount.cashAfter).toBeGreaterThanOrEqual(1000);
+  });
+
   it("invests only spare cash in buy-only mode, most to the furthest below", () => {
     // EQ is 2000 over its 4000 target and is not sold; BOND is 2000 under and NEW 1000 under.
     const targets = [{ ticker: "EQ", weight: 0.4 }, { ticker: "BOND", weight: 0.4 }, { ticker: "NEW", weight: 0.1, referencePrice: 10 }];

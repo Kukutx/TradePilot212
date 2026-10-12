@@ -16,6 +16,15 @@ describe("runtime config", () => {
     expect(config.maxOrderQuantity).toBe(0);
   });
 
+  it("takes Trading 212's 0.15% conversion fee unless FX_FEE_RATE says otherwise", () => {
+    expect(createConfig({}).fxFeeRate).toBe(0.0015);
+    expect(createConfig({ FX_FEE_RATE: "0" }).fxFeeRate).toBe(0);
+    expect(createConfig({ FX_FEE_RATE: "0.005" }).fxFeeRate).toBe(0.005);
+    // A percent typed by mistake is refused rather than read as 15%.
+    expect(() => createConfig({ FX_FEE_RATE: "0.15" })).toThrow(/FX_FEE_RATE must be a fraction/);
+    expect(() => createConfig({ FX_FEE_RATE: "-0.001" })).toThrow(/FX_FEE_RATE/);
+  });
+
   it("rejects unsupported default environments", () => {
     expect(() => createConfig({ DEFAULT_TRADING_ENV: "paper" })).toThrow(/DEFAULT_TRADING_ENV/);
   });

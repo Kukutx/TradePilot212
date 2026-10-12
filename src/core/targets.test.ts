@@ -36,9 +36,11 @@ describe("allocation drift", () => {
       ],
     });
     expect(drift.rows).toEqual([
-      { ticker: "AAPL_US_EQ", target: 0.5, current: 0.62, drift: 0.12 },
-      { ticker: "VUSAl_EQ", target: 0.4, current: 0.33, drift: -0.07 },
+      { ticker: "AAPL_US_EQ", target: 0.5, current: 0.62, drift: 0.12, currency: "USD" },
+      { ticker: "VUSAl_EQ", target: 0.4, current: 0.33, drift: -0.07, currency: "GBX" },
     ]);
+    // Without the account's value there is no estimate of the trades.
+    expect(drift.rebalance).toBeUndefined();
     expect(drift.cash).toEqual({ target: 0.1, current: 0.02, drift: -0.08 });
     expect(drift.untargeted).toEqual([{ ticker: "KO_US_EQ", current: 0.03 }]);
     expect(drift.maxDrift).toBe(0.12);
@@ -57,6 +59,26 @@ describe("allocation drift", () => {
     // Sold: Coca-Cola's 20% is all drift.
     expect(allocationDrift(saved({ sellUntargeted: true, driftThreshold: 0.1 }), { cashWeight: 0.02, holdings })).toMatchObject({ sellUntargeted: true, maxDrift: 0.2, over: true });
     expect(allocationDrift(saved({ driftThreshold: 0.1 }), { cashWeight: 0.02, holdings }).over).toBe(false);
+  });
+
+  it("estimates what a rebalance all the way to the targets trades, and the fee on the part in other currencies", () => {
+    // A GBP account of 10,000: Apple in dollars, the S&P 500 fund in pence, Coca-Cola without a target.
+    const holdings = [
+      { ticker: "AAPL_US_EQ", name: "Apple", currency: "USD", value: 6200, weight: 0.62 },
+      { ticker: "VUSAl_EQ", name: "S&P 500", currency: "GBX", value: 3300, weight: 0.33 },
+      { ticker: "KO_US_EQ", name: "Coca-Cola", currency: "USD", value: 300, weight: 0.03 },
+    ];
+    const analysis = { cashWeight: 0.02, holdings, totalValue: 10_000, accountCurrency: "GBP" };
+    // Sell 1200 of Apple (dollars), buy 700 of the fund (pence are pounds); Coca-Cola is kept.
+    expect(allocationDrift(saved(), analysis).rebalance).toEqual({ currency: "GBP", bought: 700, sold: 1200, converted: 1200, fxFee: 1.8, fxFeeRate: 0.0015 });
+    // Sold with the targets, Coca-Cola's 300 adds to the sells, in dollars too.
+    expect(allocationDrift(saved({ sellUntargeted: true }), analysis, { fxFeeRate: 0.001 }).rebalance).toEqual({ currency: "GBP", bought: 700, sold: 1500, converted: 1500, fxFee: 1.5, fxFeeRate: 0.001 });
+    // A target not held takes its currency from the instrument list; without one it counts as converted.
+    const away = saved({ targets: [{ ticker: "AAPL_US_EQ", weight: 0.5 }, { ticker: "VUSAl_EQ", weight: 0.33 }, { ticker: "SAPd_EQ", weight: 0.1 }] });
+    const listed = allocationDrift(away, analysis, { currencyOf: (ticker) => (ticker === "SAPd_EQ" ? "EUR" : undefined) });
+    expect(listed.rows.find((row) => row.ticker === "SAPd_EQ")).toMatchObject({ currency: "EUR", current: 0, target: 0.1 });
+    expect(listed.rebalance).toEqual({ currency: "GBP", bought: 1000, sold: 1200, converted: 2200, fxFee: 3.3, fxFeeRate: 0.0015 });
+    expect(allocationDrift(away, analysis).rebalance).toMatchObject({ converted: 2200, unknownCurrency: 1 });
   });
 
   it("counts a target that is not held as fully under weight", () => {
@@ -108,6 +130,25 @@ describe("saved targets", () => {
     expect(analysis.drift?.over).toBe(true);
     expect(analysis.flags.map((flag) => flag.code)).toContain("DRIFT_OVER_THRESHOLD");
     expect(analysis.drift?.untargeted.map((item) => item.ticker)).toContain("AAPL_US_EQ");
+  });
+
+  it("prices a rebalance to the targets, with the currency of a target not held from the instrument list", async () => {
+    const services = sample();
+    const read = await services.insights.allocation("demo");
+    // A euro listing the sample account does not hold.
+    const away = ["ASMLa_EQ", "EUNLd_EQ"].find((ticker) => !read.holdings.some((holding) => holding.ticker === ticker))!;
+    await services.targets.set("demo", { targets: [{ instrument: "KO_US_EQ", weight: 0.5 }, { instrument: away, weight: 0.2 }], cashWeight: 0.1 });
+    const { drift } = await services.targets.withDrift(read);
+    expect(drift?.rows.find((row) => row.ticker === away)).toMatchObject({ currency: "EUR", current: 0 });
+    expect(drift?.rows.find((row) => row.ticker === "KO_US_EQ")?.currency).toBe("USD");
+    // The euro buy converts nothing in a euro account; the dollar trades do.
+    const rebalance = drift!.rebalance!;
+    expect(rebalance).toMatchObject({ currency: "EUR", fxFeeRate: 0.0015 });
+    const ko = read.holdings.find((holding) => holding.ticker === "KO_US_EQ")!.weight;
+    expect(rebalance.converted).toBeCloseTo(Math.abs(0.5 - ko) * read.totalValue, 0);
+    expect(rebalance.bought + rebalance.sold).toBeGreaterThan(rebalance.converted);
+    expect(rebalance.unknownCurrency).toBeUndefined();
+    expect(rebalance.fxFee).toBeCloseTo(rebalance.converted * 0.0015, 2);
   });
 
   it("checks about once an hour and notifies at most once a day while the drift lasts", async () => {
