@@ -445,6 +445,35 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect((await service.prepareOrder({ ...sized.draft })).draft.fxRate).toBe(0.94);
   });
 
+  it("checks the send of a risk-sized buy at a quote and rate read past the cache", async () => {
+    const writes: string[] = [];
+    let price = 100, rate = 0.94;
+    // Like the real sources, a quote or rate is served from the cache until a fresh one is asked for.
+    let cachedPrice: number | undefined, cachedRate: number | undefined;
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "nesn.sw",
+      quote: async (_instrument, options) => {
+        if (options?.fresh || cachedPrice === undefined) cachedPrice = price;
+        return { ticker: "NESNz_EQ", symbol: "nesn.sw", price: cachedPrice, asOf: new Date().toISOString(), source: "stooq" as const };
+      },
+      fxRate: async (from, to, options) => {
+        if (options?.fresh || cachedRate === undefined) cachedRate = rate;
+        return { from, to, rate: cachedRate, asOf: new Date().toISOString(), source: "stooq" as const };
+      } };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true, writes }), quotes });
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "NESNz_EQ", side: "buy", type: "market", sizing: { mode: "risk", amount: 30, stopLossPrice: 90 } });
+    const preview = await service.prepareOrder({ ...sized.draft });
+    expect(preview.notices.map((notice) => notice.code)).not.toContain("RISK_OVER_BUDGET");
+    // The franc strengthens to 0.8 per euro after the review. The cache still has 0.94, but the send reads 0.8.
+    rate = 0.8;
+    expect(await service.executeOrder(preview.token)).toMatchObject({ ok: false, error: { code: "RISK_CHANGED", details: { loss: 35.25, budget: 30 } } });
+    // Reviewed at 0.8, the price then rises to 110 with 100 still cached: the send reads 110 and refuses again.
+    const again = await service.prepareOrder({ ...sized.draft });
+    expect(again.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.details).toMatchObject({ loss: 35.25 });
+    price = 110;
+    expect(await service.executeOrder(again.token)).toMatchObject({ ok: false, error: { code: "RISK_CHANGED", details: { loss: 70.5 } } });
+    expect(writes).toEqual([]);
+  });
+
   it("refuses a risk-sized Market or Stop buy it can't price at the moment, and keeps a Stop's reference a market price", async () => {
     const writes: string[] = [];
     let price: number | undefined = 216;

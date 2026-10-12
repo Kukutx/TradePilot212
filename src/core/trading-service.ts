@@ -33,7 +33,7 @@ import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
-import type { ExternalFxRate, ExternalQuote, QuoteProvider } from "./quotes.js";
+import type { ExternalFxRate, ExternalQuote, QuoteOptions, QuoteProvider } from "./quotes.js";
 
 type Audit = (event: string, details: Record<string, unknown>) => Promise<void>;
 interface PendingBasket {
@@ -449,15 +449,15 @@ export class TradingService {
   }
 
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
-  externalQuote(instrument: Instrument): Promise<ExternalQuote | undefined> {
-    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(undefined);
+  externalQuote(instrument: Instrument, options?: QuoteOptions): Promise<ExternalQuote | undefined> {
+    return this.deps.quotes?.quote(instrument, options) ?? Promise.resolve(undefined);
   }
 
   /**
    * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
    * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
    */
-  async ratesFor(positions: Position[], accountCurrency: string, currencies: Iterable<string>): Promise<{ rates: FxRates; quoted: Map<string, ExternalFxRate> }> {
+  async ratesFor(positions: Position[], accountCurrency: string, currencies: Iterable<string>, options?: QuoteOptions): Promise<{ rates: FxRates; quoted: Map<string, ExternalFxRate> }> {
     const account = accountCurrency.toUpperCase();
     const rates = knownFxRates(positions, account);
     const quoted = new Map<string, ExternalFxRate>();
@@ -465,7 +465,7 @@ export class TradingService {
     if (!account || !provider) return { rates, quoted };
     for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
       if (crossRate(rates, account, currency)) continue;
-      const rate = await provider.fxRate(account, currency);
+      const rate = await provider.fxRate(account, currency, options);
       if (rate) { rates[currency] = rate.rate; quoted.set(currency, rate); }
     }
     return { rates, quoted };
@@ -850,7 +850,8 @@ export class TradingService {
     };
   }
 
-  private async current(draft: OrderDraft) {
+  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  private async current(draft: OrderDraft, options: { fresh?: boolean } = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
@@ -864,9 +865,10 @@ export class TradingService {
     // but has no quote just now, the order is refused rather than checked without one (a Limit too: with the
     // market under the stop-loss it would fill there); with no quote source, the price given stands, as for any order.
     const risky = !!draft.riskBudget && draft.side === "buy";
+    const lookup = { fresh: risky && !!options.fresh };
     let marketPrice = position?.currentPrice || undefined;
     if (risky && !marketPrice) {
-      const quote = await this.externalQuote(instrument).catch(() => undefined);
+      const quote = await this.externalQuote(instrument, lookup).catch(() => undefined);
       if (quote) {
         marketPrice = quote.price;
         if (draft.type === "market" || draft.type === "stop") {
@@ -882,7 +884,7 @@ export class TradingService {
     // none just now, it is refused; with none, or a rate your holdings imply, the review goes on as before.
     const accountCode = (account.currency ?? "").toUpperCase();
     const instrumentCode = instrument.currencyCode.toUpperCase();
-    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode]);
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode], lookup);
     const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : undefined;
     if (fresh) {
       draft.fxRate = fresh.rate;
@@ -1088,7 +1090,8 @@ export class TradingService {
     const draft = pending.draft;
     let current: Awaited<ReturnType<TradingService["current"]>>;
     try {
-      current = await this.current(draft);
+      // A risk-sized buy reads the quote and rate of this moment: a cached one can be older than the review.
+      current = await this.current(draft, { fresh: true });
       // Re-check the policy: the market may have closed or the daily budget filled since review.
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);

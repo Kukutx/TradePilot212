@@ -34498,11 +34498,11 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   const fetchFx = fxFetcher(name, config3.quoteApiKey, fetcher);
   const cache = /* @__PURE__ */ new Map();
   const fxCache = /* @__PURE__ */ new Map();
-  const pairRate = async (from, to) => {
+  const pairRate = async (from, to, fresh = false) => {
     const symbol2 = fxSymbol(name, from, to);
     if (!symbol2) return void 0;
     const cached2 = fxCache.get(symbol2);
-    if (cached2 && cached2.expiresAt > Date.now()) return cached2.rate;
+    if (!fresh && cached2 && cached2.expiresAt > Date.now()) return cached2.rate;
     let rate;
     try {
       const result2 = await fetchFx(symbol2);
@@ -34510,7 +34510,7 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     } catch (error62) {
       console.error(JSON.stringify({ message: "TradePilot FX rate failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
     }
-    fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
+    if (rate || !fresh) fxCache.set(symbol2, { expiresAt: Date.now() + CACHE_MS, rate });
     return rate;
   };
   const mapping = (instrument) => {
@@ -34528,13 +34528,13 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     name,
     symbolFor,
     hasFxRates: fxSymbol(name, "EUR", "USD") !== void 0,
-    async quote(instrument) {
+    async quote(instrument, options) {
       const symbol2 = symbolFor(instrument);
       if (!symbol2) return void 0;
       const factor = mapping(instrument)?.factor ?? 1;
       const key = `${symbol2}*${factor}`;
       const cached2 = cache.get(key);
-      if (cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
+      if (!options?.fresh && cached2 && cached2.expiresAt > Date.now()) return cached2.quote;
       let quote;
       try {
         const result2 = await fetchQuote(symbol2);
@@ -34542,10 +34542,10 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
       } catch (error62) {
         console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
-      cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
+      if (quote || !options?.fresh) cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
     },
-    async fxRate(from, to) {
+    async fxRate(from, to, options) {
       const source = from.toUpperCase();
       const target = to.toUpperCase();
       if (!/^[A-Z]{3}$/.test(source) || !/^[A-Z]{3}$/.test(target) || source === target) return void 0;
@@ -34553,7 +34553,7 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
       const quote = target === "GBX" ? "GBP" : target;
       const scale = (target === "GBX" ? 100 : 1) / (source === "GBX" ? 100 : 1);
       if (base === quote) return { from: source, to: target, rate: scale, asOf: (/* @__PURE__ */ new Date()).toISOString(), source: name };
-      const rate = await pairRate(base, quote);
+      const rate = await pairRate(base, quote, !!options?.fresh);
       return rate ? { ...rate, from: source, to: target, rate: rate.rate * scale } : void 0;
     }
   };
@@ -35597,14 +35597,14 @@ var TradingService = class {
     return this.namedOrders(environment, [order], instrument ? [{ instrument }] : [])[0];
   }
   /** External quote for an instrument that is not held, when a provider is configured and can map it. */
-  externalQuote(instrument) {
-    return this.deps.quotes?.quote(instrument) ?? Promise.resolve(void 0);
+  externalQuote(instrument, options) {
+    return this.deps.quotes?.quote(instrument, options) ?? Promise.resolve(void 0);
   }
   /**
    * Rates from the account currency to each of `currencies`: implied by your holdings first, then, for a
    * currency none of them is priced in, the quote provider's. `quoted` holds the ones from the provider.
    */
-  async ratesFor(positions, accountCurrency, currencies) {
+  async ratesFor(positions, accountCurrency, currencies, options) {
     const account = accountCurrency.toUpperCase();
     const rates = knownFxRates(positions, account);
     const quoted = /* @__PURE__ */ new Map();
@@ -35612,7 +35612,7 @@ var TradingService = class {
     if (!account || !provider) return { rates, quoted };
     for (const currency of new Set([...currencies].map((item) => item.toUpperCase()))) {
       if (crossRate(rates, account, currency)) continue;
-      const rate = await provider.fxRate(account, currency);
+      const rate = await provider.fxRate(account, currency, options);
       if (rate) {
         rates[currency] = rate.rate;
         quoted.set(currency, rate);
@@ -35938,16 +35938,18 @@ var TradingService = class {
       note
     };
   }
-  async current(draft) {
+  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  async current(draft, options = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
     const risky = !!draft.riskBudget && draft.side === "buy";
+    const lookup = { fresh: risky && !!options.fresh };
     let marketPrice = position?.currentPrice || void 0;
     if (risky && !marketPrice) {
-      const quote = await this.externalQuote(instrument).catch(() => void 0);
+      const quote = await this.externalQuote(instrument, lookup).catch(() => void 0);
       if (quote) {
         marketPrice = quote.price;
         if (draft.type === "market" || draft.type === "stop") {
@@ -35960,7 +35962,7 @@ var TradingService = class {
     }
     const accountCode = (account.currency ?? "").toUpperCase();
     const instrumentCode = instrument.currencyCode.toUpperCase();
-    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode]);
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode], lookup);
     const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : void 0;
     if (fresh) {
       draft.fxRate = fresh.rate;
@@ -36148,7 +36150,7 @@ var TradingService = class {
     const draft = pending.draft;
     let current;
     try {
-      current = await this.current(draft);
+      current = await this.current(draft, { fresh: true });
       const market = await this.market(draft.environment, current.instrument);
       this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment)), draft.ticker);
       assertRiskAsShown(riskNotices(draft, current), pending.risk);

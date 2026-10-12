@@ -30,13 +30,18 @@ export interface ExternalFxRate {
   source: QuoteProviderName;
 }
 
+/** `fresh` asks the provider itself, past the cache: the check made just before an order is sent needs the price of that moment. */
+export interface QuoteOptions {
+  fresh?: boolean;
+}
+
 export interface QuoteProvider {
   name: QuoteProviderName;
   /** The provider symbol for an instrument, or undefined when it cannot be mapped safely. */
   symbolFor(instrument: Instrument): string | undefined;
-  quote(instrument: Instrument): Promise<ExternalQuote | undefined>;
+  quote(instrument: Instrument, options?: QuoteOptions): Promise<ExternalQuote | undefined>;
   /** An exchange rate, for currencies none of your holdings price; undefined when the provider has none. */
-  fxRate(from: string, to: string): Promise<ExternalFxRate | undefined>;
+  fxRate(from: string, to: string, options?: QuoteOptions): Promise<ExternalFxRate | undefined>;
   /** False when the provider never has exchange rates, so a missing one is not a failure of the moment. */
   hasFxRates?: boolean;
 }
@@ -157,12 +162,12 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
   const cache = new Map<string, { expiresAt: number; quote: ExternalQuote | undefined }>();
   const fxCache = new Map<string, { expiresAt: number; rate: ExternalFxRate | undefined }>();
 
-  /** A rate between two ISO currencies, from the provider or the cache. */
-  const pairRate = async (from: string, to: string): Promise<ExternalFxRate | undefined> => {
+  /** A rate between two ISO currencies, from the provider or, unless `fresh`, the cache. */
+  const pairRate = async (from: string, to: string, fresh = false): Promise<ExternalFxRate | undefined> => {
     const symbol = fxSymbol(name, from, to);
     if (!symbol) return undefined;
     const cached = fxCache.get(symbol);
-    if (cached && cached.expiresAt > Date.now()) return cached.rate;
+    if (!fresh && cached && cached.expiresAt > Date.now()) return cached.rate;
     let rate: ExternalFxRate | undefined;
     try {
       const result = await fetchFx(symbol);
@@ -170,7 +175,8 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot FX rate failed", provider: name, symbol, error: error instanceof Error ? error.message : String(error) }));
     }
-    fxCache.set(symbol, { expiresAt: Date.now() + CACHE_MS, rate });
+    // A fresh read that failed leaves the cache as it was, for the lookups that can use a recent rate.
+    if (rate || !fresh) fxCache.set(symbol, { expiresAt: Date.now() + CACHE_MS, rate });
     return rate;
   };
 
@@ -190,13 +196,13 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
     name,
     symbolFor,
     hasFxRates: fxSymbol(name, "EUR", "USD") !== undefined,
-    async quote(instrument) {
+    async quote(instrument, options) {
       const symbol = symbolFor(instrument);
       if (!symbol) return undefined;
       const factor = mapping(instrument)?.factor ?? 1;
       const key = `${symbol}*${factor}`;
       const cached = cache.get(key);
-      if (cached && cached.expiresAt > Date.now()) return cached.quote;
+      if (!options?.fresh && cached && cached.expiresAt > Date.now()) return cached.quote;
       let quote: ExternalQuote | undefined;
       try {
         const result = await fetchQuote(symbol);
@@ -204,10 +210,10 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
       } catch (error) {
         console.error(JSON.stringify({ message: "TradePilot quote failed", provider: name, symbol, error: error instanceof Error ? error.message : String(error) }));
       }
-      cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
+      if (quote || !options?.fresh) cache.set(key, { expiresAt: Date.now() + CACHE_MS, quote });
       return quote;
     },
-    async fxRate(from, to) {
+    async fxRate(from, to, options) {
       const source = from.toUpperCase();
       const target = to.toUpperCase();
       if (!/^[A-Z]{3}$/.test(source) || !/^[A-Z]{3}$/.test(target) || source === target) return undefined;
@@ -216,7 +222,7 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
       const quote = target === "GBX" ? "GBP" : target;
       const scale = (target === "GBX" ? 100 : 1) / (source === "GBX" ? 100 : 1);
       if (base === quote) return { from: source, to: target, rate: scale, asOf: new Date().toISOString(), source: name };
-      const rate = await pairRate(base, quote);
+      const rate = await pairRate(base, quote, !!options?.fresh);
       return rate ? { ...rate, from: source, to: target, rate: rate.rate * scale } : undefined;
     },
   };
