@@ -35715,9 +35715,20 @@ var TradingService = class {
       return void 0;
     }
   }
-  /** The account summary alone: one request, for the scheduler's daily value record. */
-  async accountSummary(environment) {
+  summaries = /* @__PURE__ */ new Map();
+  /**
+   * The account summary alone: one request, for the scheduler's daily value record. With `maxAgeMs`, one read in that
+   * time (alone or with the dashboard) is used as it is: Trading 212 allows few summary reads.
+   */
+  async accountSummary(environment, maxAgeMs = 0) {
+    if (maxAgeMs > 0) {
+      const board = this.dashboards.get(environment);
+      const reads = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : void 0].filter((read) => read !== void 0 && Date.now() - read.at <= maxAgeMs).sort((a, b) => b.at - a.at);
+      if (reads[0]) return reads[0].account;
+    }
+    const generation = this.writes;
     const account = await this.client(environment).getAccountSummary();
+    if (this.writes === generation) this.summaries.set(environment, { at: Date.now(), account });
     if (account.currency) this.currencies.set(environment, account.currency);
     return account;
   }
@@ -36868,6 +36879,7 @@ var TradingService = class {
   wrote(environment) {
     this.writes += 1;
     this.dashboards.delete(environment);
+    this.summaries.delete(environment);
     this.reading.delete(environment);
     try {
       this.deps.afterWrite?.(environment);
@@ -38777,6 +38789,7 @@ var PiesService = class {
 // src/core/account-alerts.ts
 var MAX_ACCOUNT_ALERTS = 20;
 var DAY_MOVE_EVERY_MS = 10 * 6e4;
+var SUMMARY_REUSE_MS = 3e4;
 var WRITE_EVERY_MS = 10 * 6e4;
 var alertKey = (id) => `account-alert:${id}`;
 var round9 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
@@ -38795,11 +38808,19 @@ function evaluateAccountAlert(alert, account) {
   };
 }
 function accountDayMove(today) {
-  const total = today.total;
-  if (!total || total.change === void 0) return void 0;
-  const days = today.moves.filter((move) => move.profitLoss !== void 0).map((move) => move.day).sort();
-  const day2 = days[days.length - 1];
-  return day2 ? { change: total.change, profitLoss: total.profitLoss, day: day2, counted: total.counted, of: total.of } : void 0;
+  const moved = today.moves.filter((move) => move.profitLoss !== void 0 && Number.isFinite(move.profitLoss));
+  const day2 = moved.map((move) => move.day).sort().at(-1);
+  if (!day2) return { problem: "No holding has a move for the day yet." };
+  const onDay = moved.filter((move) => move.day === day2);
+  const profitLoss = onDay.reduce((sum, move) => sum + move.profitLoss, 0);
+  const whole = onDay.length === today.moves.length;
+  if (!whole && today.invested === void 0) {
+    return { problem: `Trading 212 did not report the holdings' value, so the day's move of ${onDay.length} of ${today.moves.length} holdings cannot be put against the account.` };
+  }
+  const base = whole ? onDay.reduce((sum, move) => sum + (move.base ?? 0), 0) : today.invested - profitLoss;
+  if (!(base > 0)) return { problem: "The holdings have no value to measure the day's move against." };
+  const closed = today.ended?.[day2];
+  return { day: day2, change: profitLoss / base, profitLoss: round9(profitLoss), counted: onDay.length, of: today.moves.length, ...closed !== void 0 ? { closed } : {} };
 }
 function untriggered(alert) {
   const { triggeredAt: _t, triggeredValue: _v, ...rest } = alert;
@@ -38853,12 +38874,16 @@ var AccountAlerts = class {
     if (current && current.createdAt === alert.createdAt && current.triggeredAt === alert.triggeredAt) await this.deps.store.put(alertKey(alert.id), { ...current, lastCheckedAt: now.toISOString() });
   }
   /**
-   * One scheduler tick: the account summary once per environment for the value and cash alerts, and the day's move
-   * once per environment, at most every ten minutes, for the day's-move alerts.
+   * One scheduler tick. The day's-move alerts of an environment read the day's move together, when one of them has
+   * not for ten minutes, and go first: the value and cash alerts then take the account summary that read came with,
+   * else read it once per environment.
    */
   async check(now = /* @__PURE__ */ new Date()) {
-    const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move");
-    if (!due.length) return [];
+    const listed = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move");
+    if (!listed.length) return [];
+    const due = [...listed.filter((alert) => alert.condition === "day_move"), ...listed.filter((alert) => alert.condition !== "day_move")];
+    const read = (alert) => alert.lastCheckedAt !== void 0 && now.getTime() - Date.parse(alert.lastCheckedAt) < DAY_MOVE_EVERY_MS;
+    const moveDue = new Set(listed.filter((alert) => alert.condition === "day_move" && !read(alert)).map((alert) => alert.environment));
     const credentials = credentialStatus(this.deps.config);
     const reports = [];
     const accounts = /* @__PURE__ */ new Map();
@@ -38870,27 +38895,28 @@ var AccountAlerts = class {
       let outcome;
       let fresh = false;
       if (alert.condition === "day_move") {
-        if (alert.lastCheckedAt && now.getTime() - Date.parse(alert.lastCheckedAt) < DAY_MOVE_EVERY_MS) continue;
+        if (!moveDue.has(alert.environment)) continue;
         if (!this.deps.today) {
           waiting(alert, "The day's move cannot be read here.");
           continue;
         }
         if (!days.has(alert.environment)) days.set(alert.environment, this.deps.today(alert.environment, now).catch(caught));
         const today = await days.get(alert.environment);
-        const move = today instanceof Error ? void 0 : accountDayMove(today);
-        if (today instanceof Error || !move) {
+        const move = today instanceof Error ? { problem: today.message } : accountDayMove(today);
+        if ("problem" in move) {
           await this.touch(alert, now);
-          waiting(alert, today instanceof Error ? today.message : "No holding has a move for the day yet.");
+          waiting(alert, move.problem);
           continue;
         }
-        const currency = today.accountCurrency ?? alert.currency;
+        const currency = (today instanceof Error ? void 0 : today.accountCurrency) ?? alert.currency;
         const said = `The account is ${move.change >= 0 ? "+" : ""}${(move.change * 100).toFixed(2)}% on ${move.day} (${move.profitLoss >= 0 ? "+" : ""}${money2(move.profitLoss, currency)} across ${move.counted} of ${move.of} holdings; alert at ${alert.percent}% either way).`;
         const done = alert.triggeredDay !== void 0 && move.day <= alert.triggeredDay;
         fresh = alert.triggeredAt !== void 0 && !done;
-        const read = { value: move.change, day: move.day, ...currency ? { currency } : {} };
-        outcome = done ? { ...read, fired: false, message: `${said} It fired for ${alert.triggeredDay} already; it counts from the next trading day.` } : alert.createdAt.slice(0, 10) > move.day ? { ...read, fired: false, message: `${said} That session was before the alert was set; it counts from the next.` } : { ...read, fired: Math.abs(move.change) * 100 >= alert.percent - 1e-9, message: said };
+        const before = move.closed !== void 0 ? Date.parse(alert.createdAt) >= move.closed : alert.createdAt.slice(0, 10) > move.day;
+        const reading = { value: move.change, day: move.day, ...currency ? { currency } : {} };
+        outcome = done ? { ...reading, fired: false, message: `${said} It fired for ${alert.triggeredDay} already; it counts from the next trading day.` } : before ? { ...reading, fired: false, message: `${said} That session was over before the alert was set; it counts from the next.` } : { ...reading, fired: Math.abs(move.change) * 100 >= alert.percent - 1e-9, message: said };
       } else {
-        if (!accounts.has(alert.environment)) accounts.set(alert.environment, this.deps.trading.accountSummary(alert.environment).catch(caught));
+        if (!accounts.has(alert.environment)) accounts.set(alert.environment, this.deps.trading.accountSummary(alert.environment, SUMMARY_REUSE_MS).catch(caught));
         const account = await accounts.get(alert.environment);
         if (account instanceof Error) {
           waiting(alert, account.message);
@@ -39730,9 +39756,16 @@ function describePayload(data) {
     case "pie_change_result":
       lines = pieChange(payload);
       break;
-    case "price_alerts":
-      lines = [...rows(payload.alerts ?? [], (alert) => alertLine(alert)), ...rows(payload.accountAlerts ?? [], accountAlertLine)];
+    case "price_alerts": {
+      const onPrice = payload.alerts ?? [];
+      const onAccount = payload.accountAlerts ?? [];
+      lines = [
+        ...section(`Price alerts (${onPrice.length})`, rows(onPrice, (alert) => alertLine(alert))),
+        ...section(`Account alerts (${onAccount.length})`, rows(onAccount, accountAlertLine)),
+        ...onPrice.length || onAccount.length ? [] : ["No alerts are set."]
+      ];
       break;
+    }
     case "price_alert":
       lines = payload.alert ? [alertLine(payload.alert)] : [];
       break;
@@ -40120,6 +40153,14 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
   const counted = moves.filter((item) => item.profitLoss !== void 0);
   const profitLoss = counted.reduce((sum, item) => sum + item.profitLoss, 0);
   const base = counted.reduce((sum, item) => sum + (item.base ?? 0), 0);
+  const closings = /* @__PURE__ */ new Map();
+  for (const { ticker } of items) {
+    const { day: day2, ended: ended2 } = session(ticker);
+    const before = closings.get(day2);
+    closings.set(day2, before === null || ended2 === void 0 ? null : Math.max(before ?? 0, ended2));
+  }
+  const ended = Object.fromEntries([...closings].filter((entry) => entry[1] !== null));
+  const invested = dashboard.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
     environment,
@@ -40127,6 +40168,8 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     moves: moves.sort((a, b) => Math.abs(b.profitLoss ?? 0) - Math.abs(a.profitLoss ?? 0)),
     ...counted.length ? { total: { profitLoss: round11(profitLoss, 2), ...base > 0 ? { change: round11(profitLoss / base) } : {}, counted: counted.length, of: moves.length } } : {},
     ...fillsProblem ? { fillsProblem } : {},
+    ...invested !== void 0 && Number.isFinite(invested) ? { invested } : {},
+    ...Object.keys(ended).length ? { ended } : {},
     timestamp: now.toISOString()
   };
 }
@@ -41875,14 +41918,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "manage_account_alerts",
     {
       title: "Manage Account Alerts",
-      description: `Create, delete or re-arm an alert on the account as a whole. Conditions: value_above or value_below (the account's total value at or above, or at or below, amount in the account currency); cash_above or cash_below (the free cash, available to trade, likewise: for example to be told when dividends have built up to invest, or when cash runs low before a plan is due); day_move (the holdings' move on the day, as get_portfolio_today adds it up, is percent or more either way; it fires once per trading day and arms itself again on the next, so it needs no rearm; a session before the day the alert was set does not count). The scheduler checks value and cash every minute from the account summary, and the day's move every ten minutes (it reads every holding's closes and the day's fills); a triggered alert is logged once and sent to the notification webhook when one is configured, and stays triggered until re-armed. At most ${MAX_ACCOUNT_ALERTS}. Alerts never place orders.`,
+      description: `Create, delete or re-arm an alert on the account as a whole. Conditions: value_above or value_below (the account's total value at or above, or at or below, amount in the account currency); cash_above or cash_below (the free cash, available to trade, likewise: for example to be told when dividends have built up to invest, or when cash runs low before a plan is due); day_move (the holdings' move on their latest trading day is percent or more either way: the moves get_portfolio_today reads for that day, against the holdings' value before them; a holding still on the session before does not count; it fires once per trading day and arms itself again on the next, so it needs no rearm, and a rearm does not make it fire again for the same day; a session that closed before the alert was set does not count). The scheduler checks value and cash every minute from the account summary, and the day's move every ten minutes (it reads every holding's closes and the day's fills); a triggered alert is logged once and sent to the notification webhook when one is configured, and stays triggered until re-armed. At most ${MAX_ACCOUNT_ALERTS}. Alerts never place orders.`,
       inputSchema: external_exports.object({
         action: external_exports.enum(["create", "delete", "rearm"]),
         alertId: external_exports.string().optional().describe("Required for delete and rearm"),
         environment: environmentWithDefault,
         condition: external_exports.enum(["value_above", "value_below", "cash_above", "cash_below", "day_move"]).optional(),
         amount: external_exports.number().positive().optional().describe("In the account currency, for the value and cash conditions"),
-        percent: external_exports.number().positive().optional().describe("Either way, for day_move"),
+        percent: external_exports.number().positive().lt(100).optional().describe("Either way, for day_move"),
         note: external_exports.string().max(200).optional()
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
@@ -43136,7 +43179,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS14);
+        const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS14);
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
@@ -43427,6 +43470,8 @@ var ValueHistory = class {
 };
 
 // src/app/services.ts
+var OVERVIEW_SUMMARY_MS = 6e4;
+var OVERVIEW_WAIT_MS = 3e3;
 var processSampleBroker;
 function createServices(input2) {
   const sampleFetcher = () => input2.fetcher ? createSampleBroker(input2.fetcher) : processSampleBroker ??= createSampleBroker();
@@ -43540,10 +43585,10 @@ function createServices(input2) {
       ...saved ? { targets: saved } : {},
       ...instruments.length ? { instruments } : {},
       usageToday: await trading.usageToday(environment),
-      // One summary read gives the currency and the starting amounts of an account alert.
-      ...await trading.accountSummary(environment).then(
-        (summary) => ({ ...summary.currency ? { currency: summary.currency } : {}, account: { ...summary.totalValue !== void 0 ? { value: summary.totalValue } : {}, ...summary.cash?.availableToTrade !== void 0 ? { cash: summary.cash.availableToTrade } : {} } }),
-        () => trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}, () => ({}))
+      // The currency and the starting amounts of an account alert, from a summary read in the last minute or a new
+      // one; for at most a few seconds, else the currency alone.
+      ...await settleWithin(trading.accountSummary(environment, OVERVIEW_SUMMARY_MS).catch(() => void 0), OVERVIEW_WAIT_MS).then(
+        (summary) => summary ? { ...summary.currency ? { currency: summary.currency } : {}, account: { ...summary.totalValue !== void 0 ? { value: summary.totalValue } : {}, ...summary.cash?.availableToTrade !== void 0 ? { cash: summary.cash.availableToTrade } : {} } } : trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}, () => ({}))
       ),
       policy: deps.config.policy[environment],
       settings: {
