@@ -416,7 +416,8 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
           {...(onBenchmark ? { onBenchmark } : {})} />
       )}
 
-      {data.timeWeighted?.months && data.timeWeighted.months.length >= 2 && (
+      {/* Two months or more, one of them the whole month: a 1m window's two part-months say no more than its chart. */}
+      {data.timeWeighted?.months && data.timeWeighted.months.length >= 2 && data.timeWeighted.months.some((month) => !month.partial) && (
         <section className="dataPanel">
           <MonthlyReturns months={data.timeWeighted.months} years={data.timeWeighted.years ?? []} locale={locale} t={t} />
         </section>

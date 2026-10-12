@@ -60,10 +60,12 @@ The return chart's **Drawdown** view, and `timeWeighted.drawdown` in `get_portfo
 
 ## Monthly returns
 
-The Performance tab's **Monthly returns** grid, and `timeWeighted.months` and `timeWeighted.years` in `get_portfolio_performance`, give the time-weighted return in each calendar month and year the recorded days touch (UTC dates). It shows once the recorded days touch two months.
+The Performance tab's **Monthly returns** grid, and `timeWeighted.months` and `timeWeighted.years` in `get_portfolio_performance`, give the time-weighted return in each calendar month and year the recorded days touch (UTC dates). The grid shows once two months have a return and one of them is a whole month, so not for the 1 month window, whose two part-months say no more than its chart.
 
 - A month's return runs from the last recorded day before it to its last recorded day, chained as the time-weighted return is, so deposits and withdrawals stay out of it. With no recorded day in a month, that month is empty and the next one runs from the last day recorded before it (`from` says which).
-- A month is **partial** when only part of it was recorded: the record began inside it, or its last recorded day is before its end (this month, until it is over). The grid draws a partial month with a dashed outline and its value in italics. The first month with only one recorded day has no return and is left out.
+- A month is **partial** when only part of it was recorded: the record began inside it, or its last recorded day is before its end or is today (this month, until it is over).
+- A month is **extended** when it runs from a recorded day before the end of the month before it, with no reading in between (the server was off): its return takes in those days too, and `from` says from when. The text gives its days.
+- The grid draws a partial or extended month with a dashed outline and its value in italics, its days in its hover text. The first month with only one recorded day has no return and is left out; the month after it is then extended.
 - Each row is a year, latest first, with the year's own return at its end. Cells are tinted green for a gain and red for a loss, as the holdings map is: at full strength from the scale's end (2%, 5%, 10% or 20%, the smallest that four in five months stay within), with the value written in each cell. On a narrow screen each year is a grid of four months a row.
 
 ## The day's move

@@ -12,13 +12,21 @@ function lastDay(period: string): string {
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
 }
 
+/** The last day before the month ("2026-05") or year ("2026") begins. */
+function dayBefore(period: string): string {
+  if (period.length === 4) return `${Number(period) - 1}-12-31`;
+  const [year, month] = period.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+}
+
 /**
  * Each calendar month's (`unit` "month", keyed "2026-05") or year's ("2026") return over the recorded days, oldest
  * first. A period starts from the last recorded day before it; the first one, with none before it, from its own first
- * recorded day, and is partial, as is one whose last recorded day is before its end. A first period with one recorded
- * day has no return and is left out.
+ * recorded day, and is partial, as is one whose last recorded day is before its end or is `today` (a day not over yet).
+ * One that starts from a recorded day before the end of the period before it is extended: with no reading in between,
+ * its return takes in those days too. A first period with one recorded day has no return and is left out.
  */
-export function calendarReturns(series: ReturnPoint[], unit: "month" | "year"): CalendarReturn[] {
+export function calendarReturns(series: ReturnPoint[], unit: "month" | "year", today?: string): CalendarReturn[] {
   const keyOf = (date: string) => (unit === "month" ? date.slice(0, 7) : date.slice(0, 4));
   const out: CalendarReturn[] = [];
   let start = 0;
@@ -34,7 +42,8 @@ export function calendarReturns(series: ReturnPoint[], unit: "month" | "year"): 
         return: round((1 + last.return) / (1 + base.return) - 1),
         from: base.date,
         to: last.date,
-        ...(start === 0 || last.date < lastDay(key) ? { partial: true as const } : {}),
+        ...(start === 0 || last.date < lastDay(key) || (today !== undefined && last.date >= today) ? { partial: true as const } : {}),
+        ...(start > 0 && base.date < dayBefore(key) ? { extended: true as const } : {}),
       });
     }
     start = end + 1;

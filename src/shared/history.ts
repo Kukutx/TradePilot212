@@ -179,8 +179,11 @@ export interface CalendarReturn {
   /** The recorded days it runs from and to. */
   from: string;
   to: string;
-  /** Only part of it was recorded: the record began inside it, or it ends before its last day. */
+  /** Only part of it was recorded: the record began inside it, or it ends before its last day or before it is over. */
   partial?: true;
+  /** It starts from a recorded day before the end of the period before it, with none in between, so its return takes
+   * in those days too. */
+  extended?: true;
 }
 
 /** The deepest fall of a return from a high, and how far below its high it ends (`src/shared/drawdown.ts`). */

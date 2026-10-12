@@ -344,10 +344,15 @@ function attributionLines(data: PerformanceSummary): string[] {
   ];
 }
 
-/** The time-weighted return in each calendar month (the last 24) and year, with the ones only partly recorded marked. */
+/**
+ * The time-weighted return in each calendar month (the last 24) and year, with the days of the ones only partly
+ * recorded, and of the ones reaching back over days with no reading.
+ */
 function calendarLines(returns: PerformanceSummary["timeWeighted"]): string[] {
   if (!returns?.months?.length) return [];
-  const item = (entry: CalendarReturn) => `${entry.period} ${signed(entry.return * 100, 1)}%${entry.partial ? ` (${entry.from} to ${entry.to} only)` : ""}`;
+  const days = (entry: CalendarReturn) => entry.extended ? ` (from ${entry.from}, the last recorded day before it, to ${entry.to})`
+    : entry.partial ? ` (${entry.from} to ${entry.to} only)` : "";
+  const item = (entry: CalendarReturn) => `${entry.period} ${signed(entry.return * 100, 1)}%${days(entry)}`;
   return [
     `Time-weighted return by month: ${returns.months.slice(-24).map(item).join(", ")}.`,
     ...(returns.years?.length ? [`By year: ${returns.years.map(item).join(", ")}.`] : []),

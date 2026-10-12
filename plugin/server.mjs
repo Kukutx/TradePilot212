@@ -36977,7 +36977,12 @@ function lastDay(period) {
   const [year, month] = period.split("-").map(Number);
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
 }
-function calendarReturns(series, unit) {
+function dayBefore(period) {
+  if (period.length === 4) return `${Number(period) - 1}-12-31`;
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+}
+function calendarReturns(series, unit, today) {
   const keyOf = (date5) => unit === "month" ? date5.slice(0, 7) : date5.slice(0, 4);
   const out = [];
   let start = 0;
@@ -36993,7 +36998,8 @@ function calendarReturns(series, unit) {
         return: round5((1 + last.return) / (1 + base.return) - 1),
         from: base.date,
         to: last.date,
-        ...start === 0 || last.date < lastDay(key) ? { partial: true } : {}
+        ...start === 0 || last.date < lastDay(key) || today !== void 0 && last.date >= today ? { partial: true } : {},
+        ...start > 0 && base.date < dayBefore(key) ? { extended: true } : {}
       });
     }
     start = end + 1;
@@ -37237,7 +37243,7 @@ function moneyWeightedReturn(flows) {
 }
 var MIN_INVESTED = 1;
 var EMPTY_SHARE = 0.01;
-function timeWeightedReturn(points2, flows) {
+function timeWeightedReturn(points2, flows, now = /* @__PURE__ */ new Date()) {
   const readings = points2.map((point) => ({ point, at: Date.parse(point.at) })).filter((reading) => Number.isFinite(reading.at) && Number.isFinite(reading.point.totalValue)).sort((a, b) => a.at - b.at);
   if (readings.length < 2) return void 0;
   const series = [{ date: readings[0].point.date, return: 0 }];
@@ -37266,6 +37272,7 @@ function timeWeightedReturn(points2, flows) {
     series.push({ date: end.point.date, return: round6(growth - 1, 6) });
   }
   const drawdown = drawdownOf(series);
+  const today = now.toISOString().slice(0, 10);
   return {
     return: round6(growth - 1, 6),
     from: readings[0].point.date,
@@ -37273,8 +37280,8 @@ function timeWeightedReturn(points2, flows) {
     netFlows: round6(netFlows),
     series,
     ...drawdown ? { drawdown } : {},
-    months: calendarReturns(series, "month"),
-    years: calendarReturns(series, "year")
+    months: calendarReturns(series, "month", today),
+    years: calendarReturns(series, "year", today)
   };
 }
 function summarizePerformance(input2) {
@@ -37367,7 +37374,7 @@ function summarizePerformance(input2) {
         if (!Number.isFinite(at)) return [];
         return DEPOSIT.has(type) ? [{ at, amount: amount2 }] : WITHDRAW.has(type) ? [{ at, amount: -amount2 }] : type === "TRANSFER" && item.amount ? [{ at, amount: item.amount }] : [];
       });
-      timeWeighted = timeWeightedReturn(input2.values, flows);
+      timeWeighted = timeWeightedReturn(input2.values, flows, input2.now);
       if (!timeWeighted) notes.push("timeWeighted is omitted because a stretch between recorded days began with nothing invested.");
     }
   }
@@ -38948,7 +38955,8 @@ function attributionLines(data) {
 }
 function calendarLines(returns) {
   if (!returns?.months?.length) return [];
-  const item = (entry) => `${entry.period} ${signed(entry.return * 100, 1)}%${entry.partial ? ` (${entry.from} to ${entry.to} only)` : ""}`;
+  const days = (entry) => entry.extended ? ` (from ${entry.from}, the last recorded day before it, to ${entry.to})` : entry.partial ? ` (${entry.from} to ${entry.to} only)` : "";
+  const item = (entry) => `${entry.period} ${signed(entry.return * 100, 1)}%${days(entry)}`;
   return [
     `Time-weighted return by month: ${returns.months.slice(-24).map(item).join(", ")}.`,
     ...returns.years?.length ? [`By year: ${returns.years.map(item).join(", ")}.`] : []

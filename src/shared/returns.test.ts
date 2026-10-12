@@ -12,23 +12,24 @@ describe("calendar returns", () => {
     { date: "2026-10-12", return: 0.2 },
   ];
 
-  it("chains each month from the last recorded day before it, and marks the ones only partly recorded", () => {
+  it("chains each month from the last recorded day before it, and marks the ones only partly recorded or reaching back", () => {
     expect(calendarReturns(series, "month")).toEqual([
       // Began on the 16th: partial.
       { period: "2026-04", return: 0.1, from: "2026-04-16", to: "2026-04-30", partial: true },
       { period: "2026-05", return: 0.1, from: "2026-04-30", to: "2026-05-31" },
       // Its last reading is the 14th: partial.
       { period: "2026-06", return: -0.090909, from: "2026-05-31", to: "2026-06-14", partial: true },
-      { period: "2026-07", return: 0.05, from: "2026-06-14", to: "2026-07-02", partial: true },
+      // No reading at the end of June: July takes in 15 to 30 June too.
+      { period: "2026-07", return: 0.05, from: "2026-06-14", to: "2026-07-02", partial: true, extended: true },
       // No reading in August or September: October runs from 2 July, and the months between have none.
-      { period: "2026-10", return: 0.038961, from: "2026-07-02", to: "2026-10-12", partial: true },
+      { period: "2026-10", return: 0.038961, from: "2026-07-02", to: "2026-10-12", partial: true, extended: true },
     ]);
   });
 
   it("gives each year the same way", () => {
     expect(calendarReturns([...series, { date: "2027-01-04", return: 0.32 }], "year")).toEqual([
       { period: "2026", return: 0.2, from: "2026-04-16", to: "2026-10-12", partial: true },
-      { period: "2027", return: 0.1, from: "2026-10-12", to: "2027-01-04", partial: true },
+      { period: "2027", return: 0.1, from: "2026-10-12", to: "2027-01-04", partial: true, extended: true },
     ]);
   });
 
@@ -37,5 +38,15 @@ describe("calendar returns", () => {
       { period: "2026-05", return: 0.05, from: "2026-04-30", to: "2026-05-31" },
     ]);
     expect(calendarReturns([], "month")).toEqual([]);
+    // A lone reading in mid-April: May starts from it, so takes in the rest of April.
+    expect(calendarReturns([{ date: "2026-04-16", return: 0 }, { date: "2026-05-31", return: 0.05 }], "month")).toEqual([
+      { period: "2026-05", return: 0.05, from: "2026-04-16", to: "2026-05-31", extended: true },
+    ]);
+  });
+
+  it("keeps a month whose last reading is today partial, since the day is not over", () => {
+    const toToday = [{ date: "2026-09-30", return: 0 }, { date: "2026-10-31", return: 0.02 }];
+    expect(calendarReturns(toToday, "month", "2026-10-31")).toEqual([{ period: "2026-10", return: 0.02, from: "2026-09-30", to: "2026-10-31", partial: true }]);
+    expect(calendarReturns(toToday, "month", "2026-11-01")).toEqual([{ period: "2026-10", return: 0.02, from: "2026-09-30", to: "2026-10-31" }]);
   });
 });

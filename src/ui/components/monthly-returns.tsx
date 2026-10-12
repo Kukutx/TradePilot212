@@ -21,7 +21,7 @@ export function MonthlyReturns({ months, years, locale, t }: { months: CalendarR
   const monthName = new Intl.DateTimeFormat(localeTag(locale), { month: "short", timeZone: "UTC" });
   const longMonth = new Intl.DateTimeFormat(localeTag(locale), { month: "long", year: "numeric", timeZone: "UTC" });
   const nameOf = (period: string) => (period.length === 4 ? period : longMonth.format(new Date(`${period}-01T00:00:00Z`)));
-  const describe = (item: CalendarReturn) => fill(t(item.partial ? "monthlyCellPartial" : "monthlyCell"), {
+  const describe = (item: CalendarReturn) => fill(t(item.extended ? "monthlyCellExtended" : item.partial ? "monthlyCellPartial" : "monthlyCell"), {
     period: nameOf(item.period), value: pct(item.return, locale, 2, { signed: true }), from: dayLabel(item.from, locale), to: dayLabel(item.to, locale),
   });
   /** The tint and the text of one period's cell, or undefined without a return for it. */
@@ -31,7 +31,8 @@ export function MonthlyReturns({ months, years, locale, t }: { months: CalendarR
     const tone = item.return > 0 ? " up" : item.return < 0 ? " down" : "";
     return {
       item,
-      className: `${tone}${item.partial ? " partial" : ""}`,
+      // Dashed: not exactly the month, either only part of it or reaching back before it.
+      className: `${tone}${item.partial || item.extended ? " partial" : ""}`,
       style: { "--tile-strength": strength(item.return, end).toFixed(3) } as CSSProperties,
       text: pct(item.return, locale, 1, { signed: true }),
     };
@@ -54,13 +55,13 @@ export function MonthlyReturns({ months, years, locale, t }: { months: CalendarR
         <span className="mapScaleEnd" aria-hidden="true">{pct(-end, locale, 0)}</span>
         <span className="mapScale" aria-hidden="true" />
         <span className="mapScaleEnd" aria-hidden="true">{pct(end, locale, 0, { signed: true })}</span>
-        {months.some((item) => item.partial) && <span className="monthlyPartialKey" aria-hidden="true"><i />{t("monthlyPartialKey")}</span>}
+        {[...months, ...years].some((item) => item.partial || item.extended) && <span className="monthlyPartialKey" aria-hidden="true"><i />{t("monthlyPartialKey")}</span>}
       </p>
       <div className="monthlyWrap">
         <table className="monthlyTable">
           <thead>
             <tr>
-              <th scope="col"><span className="visuallyHidden">{t("monthlyYear")}</span></th>
+              <th scope="col"><span className="visuallyHidden">{t("monthlyYearColumn")}</span></th>
               {MONTHS.map((month) => <th key={month} scope="col">{monthName.format(new Date(`2026-${month}-01T00:00:00Z`))}</th>)}
               <th scope="col" className="monthlyTotal">{t("monthlyYear")}</th>
             </tr>

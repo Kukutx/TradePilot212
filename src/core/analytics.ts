@@ -195,7 +195,7 @@ const EMPTY_SHARE = 0.01;
  * day. Undefined with fewer than two readings, or when a stretch began with nothing invested yet still gained
  * or lost.
  */
-export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: number; amount: number }>): TimeWeightedReturn | undefined {
+export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: number; amount: number }>, now: Date = new Date()): TimeWeightedReturn | undefined {
   const readings = points
     .map((point) => ({ point, at: Date.parse(point.at) }))
     .filter((reading) => Number.isFinite(reading.at) && Number.isFinite(reading.point.totalValue))
@@ -230,11 +230,13 @@ export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: numb
     series.push({ date: end.point.date, return: round(growth - 1, 6) });
   }
   const drawdown = drawdownOf(series);
+  // Today's reading is the latest of a day not over yet, so the month and year it ends are not over either.
+  const today = now.toISOString().slice(0, 10);
   return {
     return: round(growth - 1, 6), from: readings[0]!.point.date, to: readings[readings.length - 1]!.point.date, netFlows: round(netFlows), series,
     ...(drawdown ? { drawdown } : {}),
-    months: calendarReturns(series, "month"),
-    years: calendarReturns(series, "year"),
+    months: calendarReturns(series, "month", today),
+    years: calendarReturns(series, "year", today),
   };
 }
 
@@ -355,7 +357,7 @@ export function summarizePerformance(input: {
         if (!Number.isFinite(at)) return [];
         return DEPOSIT.has(type) ? [{ at, amount }] : WITHDRAW.has(type) ? [{ at, amount: -amount }] : type === "TRANSFER" && item.amount ? [{ at, amount: item.amount }] : [];
       });
-      timeWeighted = timeWeightedReturn(input.values, flows);
+      timeWeighted = timeWeightedReturn(input.values, flows, input.now);
       if (!timeWeighted) notes.push("timeWeighted is omitted because a stretch between recorded days began with nothing invested.");
     }
   }
