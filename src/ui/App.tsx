@@ -33,8 +33,8 @@ import { PortfolioView, type TodayState } from "./views/PortfolioView";
 import type { PortfolioToday } from "../shared/today";
 import { AllocationView, IncomeView, PerformanceView, periodOf, type InsightPeriod } from "./views/InsightsView";
 import type { EqualRiskPlan } from "./components/holding-parity";
-import type { TargetSave } from "./components/target-editor";
-import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
+import { covarianceFits, type MeasuredRisk, type TargetSave } from "./components/target-editor";
+import type { AllocationAnalysis, HoldingCovariancePayload, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
@@ -98,6 +98,8 @@ type DisplayMode = "inline" | "fullscreen" | "pip";
 const LOCALE_STORAGE_KEY = "tradepilot212.locale";
 /** How old a dashboard can be for the day's moves to be read for it: an older one is a saved result shown again. */
 const TODAY_FRESH_MS = 2 * 60_000;
+/** The holdings' covariance is read again after this long: the weekly closes it comes from change once a week. */
+const COVARIANCE_KEEP_MS = 30 * 60_000;
 
 function readSavedLocale(): SupportedLocale | null {
   try {
@@ -278,6 +280,7 @@ export default function App() {
   const [displayMode, setDisplayMode] = useState<DisplayMode>("inline");
   const [availableDisplayModes, setAvailableDisplayModes] = useState<DisplayMode[]>(["inline"]);
   const cancelDraftRequested = useRef<string | null>(null);
+  const covariances = useRef(new Map<string, { at: number; read: Promise<HoldingCovariancePayload> }>());
 
   const t = useMemo(() => createTranslator(locale), [locale]);
 
@@ -455,6 +458,23 @@ export default function App() {
     await run("errorTitleRebalance", async () => {
       showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment: env, targets: plan.targets, cashWeight: plan.cashWeight }));
     }, () => void rebalanceToEqualRisk(plan, env));
+  }
+
+  /**
+   * The holdings' covariance, for the risk at the targets typed in: read for the holdings the risk on screen measured,
+   * and kept a while for them and its weeks, as the closes it is read from change once a week. A failed read, or one
+   * that does not fit the risk on screen, is not kept.
+   */
+  function readCovariance(env: TradingEnvironment, measured: MeasuredRisk): Promise<HoldingCovariancePayload> {
+    const tickers = measured.rows.map((row) => row.ticker);
+    const key = `${env}:${measured.to}:${measured.weeks}:${[...tickers].sort().join(",")}`;
+    const kept = covariances.current.get(key);
+    if (kept && Date.now() - kept.at < COVARIANCE_KEEP_MS) return kept.read;
+    const read = callTool<HoldingCovariancePayload>("app_get_holding_covariance", { environment: env, tickers });
+    covariances.current.set(key, { at: Date.now(), read });
+    const forget = () => { if (covariances.current.get(key)?.read === read) covariances.current.delete(key); };
+    read.then((payload) => { if (!covarianceFits(payload, measured)) forget(); }, forget);
+    return read;
   }
 
   /** Save or remove the target weights, then read the allocation again so it shows their drift. Targets never trade. */
@@ -1006,6 +1026,7 @@ export default function App() {
                 {...(connected ? {
                   onSaveTargets: (save: TargetSave) => changeTargets({ action: "set", ...save }, allocationEnvironment),
                   onClearTargets: () => changeTargets({ action: "clear" }, allocationEnvironment),
+                  ...(insights.allocation.risk ? { onReadCovariance: (measured: MeasuredRisk) => readCovariance(allocationEnvironment, measured) } : {}),
                 } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (

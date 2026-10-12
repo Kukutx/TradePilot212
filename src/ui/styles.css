@@ -1332,7 +1332,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .targetPresets { align-items: center; color: var(--tp-muted); font-size: 12px; }
 .targetRows { display: grid; gap: 8px; margin: 12px 0 14px; padding: 0; list-style: none; }
 .targetRows li { display: grid; grid-template-columns: minmax(0, 1fr) auto 112px; align-items: center; gap: 12px; }
-.targetNow { color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.targetNow { display: grid; justify-items: end; gap: 2px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.targetRiskShare { font-size: 11.5px; }
 .targetField input { height: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 .targetField .fieldControl.withUnit input { padding-right: 30px; }
 .targetSettings { margin-top: 4px; }
@@ -1340,10 +1341,22 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .targetTotal { margin: 12px 0 0; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .targetTotal.over { color: var(--tp-red); }
 .targetError { margin: 8px 0 0; }
+.targetKeptOver { margin: 6px 0 0; color: var(--tp-amber-text); }
+/* The volatility now and at the targets typed, worked out as they change. */
+.targetRisk { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); }
+.targetRiskTitle { margin: 0 0 6px; font-size: 13px; font-weight: 650; }
+.targetRisk .panelNote { margin: 8px 0 0; }
+.targetRiskTable { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.targetRiskTable th, .targetRiskTable td { padding: 5px 0; text-align: right; vertical-align: baseline; }
+.targetRiskTable th:first-child { padding-right: 12px; text-align: left; font-weight: 500; }
+.targetRiskTable thead th { color: var(--tp-muted); font-size: 11.5px; font-weight: 500; border-bottom: 1px solid var(--tp-border); }
+.targetRiskTable td + td { padding-left: 14px; }
+.targetRiskTable strong { font-size: 15px; font-weight: 700; }
+.targetRiskChange { display: block; color: var(--tp-muted); font-size: 11.5px; }
 .targetClear { margin-right: auto; color: var(--tp-red); }
 @container (max-width: 640px) {
   .targetRows li { grid-template-columns: minmax(0, 1fr) 96px; gap: 4px 10px; }
-  .targetNow { grid-column: 1; grid-row: 2; }
+  .targetNow { grid-column: 1; grid-row: 2; justify-items: start; }
   .targetField { grid-column: 2; grid-row: 1 / span 2; }
 }
 

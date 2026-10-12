@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.50.0
+
+- Risk at the targets typed. The target form on the Allocation tab works out, as each share is typed, the volatility a year the targets would give: the holdings measured together, and the whole account with cash counted as not moving, each beside today's, and under each holding its share of the risk now and at the targets. It reads the holdings' covariance as it opens, for the holdings and the weeks risk by holding measured (when a read since measured others, it asks for a **Refresh**); a target not held, or a holding not measured, is named and left out, and then the whole account is not given.
+- The form says when the holdings kept without a target, with the targets and the cash, come to more than the account, so a rebalance can't reach every target.
+- Saved targets say it too: beside their drift, the Allocation tab gives the volatility the targets would give against today's, and `analyze_portfolio_allocation` and `manage_target_allocation` return it as `drift.volatility` and say it in their text.
+- The covariance goes only to the widget, through the app-only tool `app_get_holding_covariance`, so the model's context does not carry a matrix of every pair of holdings.
+
 ## 2.49.0
 
 - Target weights in the widget. The Allocation tab sets, edits and removes the saved targets, which until now only the assistant could: **Set targets** (or **Edit targets** beside their drift) opens a share for each holding, typed in or filled from today's weights, equal weights or the equal-risk weights, with the cash share, the notice threshold and whether a rebalance sells holdings without a target. It says what the targets and cash come to and what is wrong before saving, checking the shares as the server keeps them, and the drift shows as soon as they are saved. With more than 20 holdings, the presets fill the 20 largest and say what happens to the others. **Use as targets** under the equal-risk weights opens it filled with them. Targets never trade; they work without order tools.

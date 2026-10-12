@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AllocationAnalysis } from "./history.js";
-import { equalRiskTargets, holdingRiskOf, MATRIX_SIZE, MAX_PARITY_TARGETS, MIN_WEEKS, parityOf, type HoldingRiskInput } from "./holding-risk.js";
+import type { AllocationAnalysis, AllocationDrift, HoldingCovariance } from "./history.js";
+import { equalRiskTargets, holdingRiskOf, MATRIX_SIZE, MAX_PARITY_TARGETS, MIN_WEEKS, parityOf, riskAtWeights, targetRiskOf, withTargetVolatility, type HoldingRiskInput } from "./holding-risk.js";
 import type { PricePoint } from "./prices.js";
 
 const DAY_MS = 86_400_000;
@@ -311,5 +311,83 @@ describe("the targets that plan the move to equal risk", () => {
   it("has none without equal-risk weights or an account value", () => {
     expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6 }, { ticker: "B", weight: 0.4 }], { A: 600, B: 400 }))).toBeUndefined();
     expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400 }, { totalValue: 0 }))).toBeUndefined();
+  });
+});
+
+describe("the risk at target weights", () => {
+  // A 20% and a 40% volatility, unrelated, and C, which moves with A.
+  const covariance: HoldingCovariance = { tickers: ["A", "B", "C"], matrix: [[0.04, 0, 0.03], [0, 0.16, 0], [0.03, 0, 0.0225]] };
+
+  it("hands over the covariance it reads the risk from, which gives today's volatility again", () => {
+    let found: HoldingCovariance | undefined;
+    const risk = holdingRiskOf([holding("A", 3000, pattern([1, -1, 1, -1])), holding("B", 1000, pattern([1, 1, -1, -1], 0.04))], TODAY, undefined, (given) => { found = given; })!;
+    expect(found!.tickers).toEqual(["A", "B"]);
+    const today = riskAtWeights(found!, new Map([["A", 0.3], ["B", 0.1]]))!;
+    expect(today.volatility).toBeCloseTo(risk.volatility, 6);
+    for (const row of risk.rows) expect(today.shares.get(row.ticker)).toBeCloseTo(row.risk, 6);
+    // Shares of an account 40% in these two: its volatility is theirs times 0.4.
+    expect(today.scaled).toBeCloseTo(risk.volatility * 0.4, 6);
+    // No covariance is handed over when there is no risk to read.
+    let none: HoldingCovariance | undefined;
+    expect(holdingRiskOf([holding("A", 3000, pattern([1, -1]))], TODAY, undefined, (given) => { none = given; })).toBeUndefined();
+    expect(none).toBeUndefined();
+  });
+
+  it("weighs the holdings measured among themselves, and counts any other ticker as nothing", () => {
+    const half = riskAtWeights(covariance, new Map([["A", 0.25], ["B", 0.25], ["X", 0.5]]))!;
+    // Half each of A and B, unrelated: √(0.25 × 0.04 + 0.25 × 0.16).
+    expect(half.volatility).toBeCloseTo(Math.sqrt(0.05), 10);
+    expect(half.scaled).toBeCloseTo(Math.sqrt(0.05) / 2, 10);
+    expect(half.shares.get("A")).toBeCloseTo(0.2, 10);
+    expect(half.shares.get("B")).toBeCloseTo(0.8, 10);
+    expect(half.shares.get("C")).toBe(0);
+    expect(riskAtWeights(covariance, new Map([["X", 1]]))).toBeUndefined();
+    expect(riskAtWeights(covariance, new Map())).toBeUndefined();
+  });
+
+  it("keeps a holding without a target at today's weight, or sells it, and adds the targets not held", () => {
+    const holdings = [{ ticker: "A", weight: 0.4 }, { ticker: "B", weight: 0.2 }, { ticker: "C", weight: 0.2 }];
+    const kept = targetRiskOf(covariance, holdings, new Map([["A", 0.2]]), false)!;
+    // A at its 0.2 target, B and C kept at their 0.2: a third each, weighing 0.6 of the account.
+    const third = riskAtWeights(covariance, new Map([["A", 1], ["B", 1], ["C", 1]]))!;
+    expect(kept.atTargets.volatility).toBeCloseTo(third.volatility, 10);
+    expect(kept.account!.atTargets).toBeCloseTo(third.volatility * 0.6, 10);
+    expect(kept.account!.now).toBeCloseTo(riskAtWeights(covariance, new Map(holdings.map((item) => [item.ticker, item.weight])))!.scaled, 10);
+    expect(kept.leftOut).toEqual([]);
+    // Sold: only A's 0.2 is left, at A's own volatility.
+    const sold = targetRiskOf(covariance, holdings, new Map([["A", 0.2]]), true)!;
+    expect(sold.atTargets.volatility).toBeCloseTo(0.2, 10);
+    expect(sold.account!.atTargets).toBeCloseTo(0.04, 10);
+    // A target not held cannot be measured: the holdings' figures leave it out, and there is no account figure.
+    const away = targetRiskOf(covariance, holdings, new Map([["A", 0.2], ["EIMI", 0.3]]), false)!;
+    expect(away.leftOut).toEqual(["EIMI"]);
+    expect(away.account).toBeUndefined();
+    // Nor is there one when a holding today was not measured.
+    expect(targetRiskOf(covariance, [...holdings, { ticker: "Z", weight: 0.1 }], new Map([["A", 0.2]]), true)!.leftOut).toEqual(["Z"]);
+    // Kept beside targets that already take the account, the holdings come to more than it: no account figure.
+    const over = targetRiskOf(covariance, holdings, new Map([["A", 0.5], ["B", 0.4]]), false)!;
+    expect(over.atTargets.weight).toBeCloseTo(1.1, 10);
+    expect(over.account).toBeUndefined();
+    expect(over.leftOut).toEqual([]);
+    expect(targetRiskOf(covariance, holdings, new Map([["A", 0.5], ["B", 0.3]]), false)!.account).toBeDefined();
+    // So is the cash target: 0.5 + 0.3 + C's 0.2 kept leave none for 10% in cash.
+    expect(targetRiskOf(covariance, holdings, new Map([["A", 0.5], ["B", 0.3]]), false, 0.1)!.account).toBeUndefined();
+    expect(targetRiskOf(covariance, holdings, new Map([["A", 0.4], ["B", 0.3]]), false, 0.1)!.account).toBeDefined();
+    // Nothing measured at the targets: nothing to say.
+    expect(targetRiskOf(covariance, holdings, new Map([["EIMI", 0.5]]), true)).toBeUndefined();
+  });
+
+  it("puts the volatility at the saved targets on the drift, rounded, when both are there", () => {
+    const drift = { rows: [{ ticker: "A", target: 0.3, current: 0.4, drift: 0.1 }], cash: { target: 0.2, current: 0.2, drift: 0 }, sellUntargeted: false } as unknown as AllocationDrift;
+    const holdings = [{ ticker: "A", weight: 0.4 }, { ticker: "B", weight: 0.2 }, { ticker: "C", weight: 0.2 }] as AllocationAnalysis["holdings"];
+    const saved = withTargetVolatility({ holdings, drift }, covariance);
+    const expected = targetRiskOf(covariance, holdings, new Map([["A", 0.3]]), false, 0.2)!;
+    expect(saved.drift!.volatility).toEqual({
+      now: Math.round(expected.now.volatility * 1e6) / 1e6,
+      atTargets: Math.round(expected.atTargets.volatility * 1e6) / 1e6,
+      account: { now: Math.round(expected.account!.now * 1e6) / 1e6, atTargets: Math.round(expected.account!.atTargets * 1e6) / 1e6 },
+    });
+    expect(withTargetVolatility({ holdings, drift }, undefined)).toEqual({ holdings, drift });
+    expect(withTargetVolatility({ holdings }, covariance)).toEqual({ holdings });
   });
 });

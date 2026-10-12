@@ -101,14 +101,19 @@ const targets = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["analyze_portfolio_allocation", {}],
   ["plan_portfolio_rebalance", {}],
   ["plan_portfolio_rebalance", { buyOnly: true }],
+  ["app_get_holding_covariance", { environment: "demo" }],
 ]);
-const [saved, allocation, rebalance, buyOnly] = targets.results;
+const [saved, allocation, rebalance, buyOnly, covariance] = targets.results;
 if (saved.isError || saved.structuredContent?.targets?.cashWeight !== 0.1) throw new Error(`Saving targets failed: ${JSON.stringify(saved).slice(0, 300)}`);
 if (!allocation.structuredContent?.drift?.rows?.length) throw new Error(`Allocation lacks the drift: ${JSON.stringify(allocation).slice(0, 300)}`);
 // Risk by holding, from the sample closes: every holding measured.
 if (!(allocation.structuredContent?.risk?.mix?.series?.length > 26)) throw new Error(`Allocation lacks today's mix: ${JSON.stringify(allocation.structuredContent?.risk ?? allocation.structuredContent?.riskProblem).slice(0, 300)}`);
 if (!(allocation.structuredContent.risk.parityVolatility > 0) || !allocation.structuredContent.risk.rows.every((row) => row.parity > 0)) throw new Error(`Allocation lacks equal-risk weights: ${JSON.stringify(allocation.structuredContent.risk.rows).slice(0, 300)}`);
 if (!(allocation.structuredContent?.risk?.rows?.length >= 2) || allocation.structuredContent.risk.covered !== 1) throw new Error(`Allocation lacks the risk by holding: ${JSON.stringify(allocation.structuredContent?.riskProblem ?? allocation.structuredContent?.riskMissing ?? allocation).slice(0, 300)}`);
+// The volatility at the saved targets, for the model and the drift panel; the covariance behind it only for the widget.
+if (!(allocation.structuredContent.drift.volatility?.atTargets > 0) || !(saved.structuredContent?.drift?.volatility?.atTargets > 0)) throw new Error(`Allocation lacks the volatility at the targets: ${JSON.stringify(allocation.structuredContent.drift).slice(0, 300)}`);
+const matrix = covariance.structuredContent?.covariance?.matrix;
+if (covariance.isError || matrix?.length !== allocation.structuredContent.risk.rows.length || JSON.stringify(allocation.structuredContent).includes("covariance")) throw new Error(`Holdings' covariance failed: ${JSON.stringify(covariance).slice(0, 300)}`);
 if (rebalance.isError || !rebalance.structuredContent?.rebalance?.trades?.length) throw new Error(`Rebalance from saved targets failed: ${JSON.stringify(rebalance).slice(0, 300)}`);
 const buyOnlyPlan = buyOnly.structuredContent?.rebalance;
 if (buyOnly.isError || !buyOnlyPlan?.buyOnly || buyOnlyPlan.trades.some((trade) => trade.side !== "buy")) throw new Error(`Buy-only rebalance failed: ${JSON.stringify(buyOnly).slice(0, 300)}`);
