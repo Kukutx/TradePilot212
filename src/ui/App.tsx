@@ -29,7 +29,8 @@ import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBo
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
 import { intentForAccount } from "./lib/orders";
-import { PortfolioView } from "./views/PortfolioView";
+import { PortfolioView, type TodayState } from "./views/PortfolioView";
+import type { PortfolioToday } from "../shared/today";
 import { AllocationView, IncomeView, PerformanceView, periodOf, type InsightPeriod } from "./views/InsightsView";
 import type { AllocationAnalysis, IncomeSummary, PerformanceSummary } from "../shared/history";
 import { TradePlanView } from "./views/TradePlanView";
@@ -93,6 +94,8 @@ const isInsight = (payload: BasePayload | null): payload is InsightPayload =>
 type Status = "idle" | "loading";
 type DisplayMode = "inline" | "fullscreen" | "pip";
 const LOCALE_STORAGE_KEY = "tradepilot212.locale";
+/** How old a dashboard can be for the day's moves to be read for it: an older one is a saved result shown again. */
+const TODAY_FRESH_MS = 2 * 60_000;
 
 function readSavedLocale(): SupportedLocale | null {
   try {
@@ -244,6 +247,8 @@ export default function App() {
   const [journalTag, setJournalTag] = useState<string | undefined>(undefined);
   /** The fund the performance tab compares with, once picked; the server's default until then. */
   const [benchmark, setBenchmark] = useState<string | undefined>(undefined);
+  /** The day's moves of the dashboard on screen, read after it: keyed by its account and when it was read. */
+  const [today, setToday] = useState<TodayState & { key: string } | null>(null);
   const [tab, setTab] = useState<PortfolioTab>("holdings");
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
@@ -347,6 +352,24 @@ export default function App() {
       setExecution(null);
     }
   }
+
+  // Each dashboard read is followed by the day's moves of its holdings (previous closes come from the quote provider,
+  // so they are read on their own and never hold up the dashboard). A dashboard that carries them uses those.
+  useEffect(() => {
+    if (base?.kind !== "portfolio" || !base.credentials[base.environment] || !base.positions.length) return;
+    const key = `${base.environment}:${base.timestamp}`;
+    if (base.today) {
+      setToday({ key, data: base.today, loading: false });
+      return;
+    }
+    if (!app || today?.key === key) return;
+    // A dashboard shown again long after it was read (the host's saved result) is not set against today's closes.
+    if (Date.now() - Date.parse(base.timestamp) > TODAY_FRESH_MS) return;
+    setToday({ key, loading: true });
+    const settle = (data?: PortfolioToday) => setToday((current) => (current?.key === key ? { key, ...(data ? { data } : { failed: true }), loading: false } : current));
+    callTool<PortfolioToday>("app_get_today", { environment: base.environment }).then(settle, () => settle());
+    // Only a new dashboard (or the connection) starts a read; the day's state itself does not.
+  }, [app, base]);
 
   useHostStyles(app, app?.getHostContext());
   // The host's initial context (locale, display modes) is only available after connecting.
@@ -935,6 +958,7 @@ export default function App() {
             {portfolioLike && <ViewTabs tab={tab} busy={loading} t={t} onSelect={(next) => void selectTab(next)} />}
             {base?.kind === "portfolio" && tab === "holdings" && (
               <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
+                {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
                 {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading

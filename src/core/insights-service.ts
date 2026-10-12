@@ -328,7 +328,7 @@ export class InsightsService {
       .slice(0, max)
       .map((item) => ({
         ...orderIdOf(item.order?.id),
-        ticker: item.order?.ticker,
+        ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
         ...(item.order?.instrument?.name ? { name: item.order.instrument.name } : {}),
         side: item.order?.side,
         type: item.order?.type,
@@ -354,6 +354,11 @@ export class InsightsService {
     const exchanges = await this.client(environment).getExchanges();
     this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
     return exchanges;
+  }
+
+  /** Trading 212's exchanges with their working schedules, cached for ten minutes. */
+  schedules(environment: TradingEnvironment): Promise<Exchange[]> {
+    return this.exchanges(environment);
   }
 
   async marketHours(environment: TradingEnvironment, query: string, now = new Date()): Promise<MarketStatus> {

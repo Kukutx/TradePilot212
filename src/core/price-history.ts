@@ -52,6 +52,20 @@ export async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<
   }
 }
 
+/** Run `work` over `items`, `limit` at a time; an item not started by `deadline` gets `late` instead. */
+export async function eachLimited<T, R>(items: T[], limit: number, deadline: number, work: (item: T) => Promise<R>, late: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await (Date.now() > deadline ? late(items[index]!) : work(items[index]!));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** The QUOTE_SYMBOLS factor that brings closes at `last` to Trading 212's `reference`: a power of ten times the one mapped. */
 export function unitFactor(last: number, reference: number, mapped = 1): number {
   return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));

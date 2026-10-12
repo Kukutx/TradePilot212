@@ -50,6 +50,20 @@ describe("history collection", () => {
     expect(result.truncated).toBe(true);
   });
 
+  it("names a fill's instrument when the order carries its ticker only on the instrument", async () => {
+    const service = new InsightsService({
+      config,
+      instruments: async () => [],
+      fetcher: fetcherFor({
+        "https://demo.test/api/v0/equity/history/orders?limit=50": {
+          items: [{ order: { id: 7, side: "BUY", instrument: { ticker: "AAPL_US_EQ", name: "Apple" } }, fill: { filledAt: "2026-10-09T14:00:00Z", quantity: 2, price: 230 } }],
+        },
+      }, []),
+    });
+    const history = await service.tradeHistory("demo", { from: new Date("2026-10-09T00:00:00Z"), to: new Date("2026-10-10T00:00:00Z") });
+    expect(history.fills[0]).toMatchObject({ ticker: "AAPL_US_EQ", name: "Apple", price: 230 });
+  });
+
   it("refuses an environment without credentials", async () => {
     const service = new InsightsService({ config, instruments: async () => [], fetcher: fetcherFor({}, []) });
     await expect(service.collect("live", "orders", { to: new Date() })).rejects.toThrow(/LIVE credentials are not configured/);

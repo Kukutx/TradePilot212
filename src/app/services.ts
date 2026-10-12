@@ -3,6 +3,7 @@ import { AutomationService } from "../core/automation.js";
 import { credentialStatus, type RuntimeConfig } from "../core/config.js";
 import type { AutomationOverview } from "../shared/automation.js";
 import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
+import type { PricePoint } from "../shared/prices.js";
 import { InsightsService } from "../core/insights-service.js";
 import { TradeJournal } from "../core/journal.js";
 import { DailyDigest } from "../core/digest.js";
@@ -13,6 +14,7 @@ import { createPriceHistory } from "../core/price-history.js";
 import { createQuoteProvider } from "../core/quotes.js";
 import { createSampleBroker, createSampleQuotes } from "../core/sample-broker.js";
 import { ProtectiveLinks } from "../core/protective-links.js";
+import { DAY_ORDER_PAGES, portfolioToday } from "../core/today.js";
 import { TargetAllocations } from "../core/targets.js";
 import { ValueHistory } from "../core/value-history.js";
 import { Watchlist } from "../core/watchlist.js";
@@ -70,6 +72,18 @@ export function createServices(input: ServiceDependencies) {
         .flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : [])),
     } : {}),
   });
+  /** Trading 212's exchange schedules: the trading day a price is from. */
+  const schedules = (environment: TradingEnvironment) => insights.schedules(environment);
+  /** Previous closes that will not change today, kept across the day's reads. */
+  const closes = new Map<string, PricePoint & { source: string }>();
+  /** Each holding's move since its previous close, with the day's fills counted from their price. */
+  const today = (environment: TradingEnvironment, now?: Date) => portfolioToday({
+    trading,
+    priceHistory,
+    schedules,
+    closes,
+    fills: (env, from) => insights.tradeHistory(env, { from, to: new Date() }, undefined, 200, DAY_ORDER_PAGES),
+  }, environment, now);
   const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
@@ -134,5 +148,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, watchlist, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, runScheduled, automationOverview };
 }

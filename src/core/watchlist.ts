@@ -4,13 +4,15 @@
 
 import type { PriceAlert } from "../shared/automation.js";
 import type { Instrument, PendingOrder, Position, TradingEnvironment } from "../shared/contracts.js";
+import type { Exchange } from "../shared/history.js";
 import { PRICE_RANGES, pricesIn, rangeCovered, type PricePoint } from "../shared/prices.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST, type WatchItem, type WatchLevel, type WatchlistView, type WatchPeriod, type WatchRow } from "../shared/watchlist.js";
 import type { PriceAlerts } from "./alerts.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
-import { quoteUnitProblem, settleWithin, unitReference, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
+import { eachLimited, quoteUnitProblem, settleWithin, unitReference, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { StateStore } from "./state-store.js";
+import { sessionFinder } from "./today.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 
 const DAY_MS = 86_400_000;
@@ -27,7 +29,6 @@ const PERIOD_DAYS = Object.fromEntries(PRICE_RANGES) as Record<"1m" | "3m" | "1y
 /** Where an instrument's watchlist entry is stored. */
 export const watchKey = (environment: TradingEnvironment, ticker: string) => `watch:${environment}:${ticker}`;
 const round = (value: number) => Math.round(value * 1e6) / 1e6;
-const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
 export class Watchlist {
   /** Changes run one at a time, so two adds at once cannot both pass the cap. */
@@ -138,7 +139,7 @@ export function watchLevels(ticker: string, orders: PendingOrder[], alerts: Pric
 
 export interface WatchCloses {
   price: number;
-  /** The day the price is from, YYYY-MM-DD: today for a live price, the close's day for a close. */
+  /** The day the price is from, YYYY-MM-DD: the trading day of a live price, the close's day for a close. */
   day: string;
   points: PricePoint[];
 }
@@ -173,36 +174,25 @@ export interface WatchlistDeps {
   trading: TradingService;
   alerts: PriceAlerts;
   priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
-  /** How long a read starts provider requests (READ_BUDGET_MS); a test sets 0 to see the rows left for later. */
+  /** Trading 212's exchanges and their working schedules: the trading day a holding's price is from. */
+  schedules?: (environment: TradingEnvironment) => Promise<Exchange[]>;
+  /** How long a read starts provider requests (READ_BUDGET_MS); a test sets -1 to see the rows left for later. */
   budgetMs?: number;
-}
-
-/** Run `work` over `items`, `limit` at a time; an item not started by `deadline` gets `late` instead. */
-async function eachLimited<T, R>(items: T[], limit: number, deadline: number, work: (item: T) => Promise<R>, late: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await (Date.now() > deadline ? late(items[index]!) : work(items[index]!));
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 /** The watchlist with each row's price, changes, range, sparkline and the levels around it. */
 export async function watchlistView(deps: WatchlistDeps, environment: TradingEnvironment, now = new Date()): Promise<WatchlistView> {
   const dashboard = await deps.trading.getDashboard(environment);
   if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
-  const [items, instruments, alerts] = await Promise.all([
+  const [items, instruments, alerts, exchanges] = await Promise.all([
     deps.watchlist.list(environment),
     deps.trading.instruments(environment).catch((): Instrument[] => []),
     deps.alerts.list(environment).catch((): PriceAlert[] => []),
+    deps.schedules?.(environment).catch((): Exchange[] => []) ?? [],
   ]);
+  const session = sessionFinder(exchanges, now);
   const listed = new Map(instruments.map((instrument) => [instrument.ticker, instrument]));
   const from = new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS);
-  const today = isoDay(now);
 
   const row = async (item: WatchItem, ask: boolean): Promise<WatchRow> => {
     const instrument = listed.get(item.ticker);
@@ -240,8 +230,9 @@ export async function watchlistView(deps: WatchlistDeps, environment: TradingEnv
       const last = points?.[points.length - 1];
       if (!price && last) { price = last.close; priceSource = "close"; priceAt = last.date; }
     }
-    // The day the price is from: a quote can be the last session's (a weekend, or before the market opens).
-    const day = priceSource === "broker" || !priceAt ? today : priceAt.slice(0, 10);
+    // The day the price is from: Trading 212's is the session in progress or the last one (a weekend, or before the
+    // market opens), and a quote's is its own.
+    const day = priceSource === "broker" || !priceAt ? session(instrument).day : priceAt.slice(0, 10);
     const figures = price && points?.length ? watchFigures({ price, day, points }) : { changes: {} };
     // A price added in another unit (a fund quoted in pounds, held in pence) gives no "since added".
     const ratio = price && item.addedPrice ? price / item.addedPrice : undefined;

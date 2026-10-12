@@ -10,6 +10,7 @@ import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, Bas
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
+import type { DayMove, PortfolioToday } from "../shared/today.js";
 import { WATCH_PERIODS, type WatchLevel, type WatchlistView, type WatchRow } from "../shared/watchlist.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -232,10 +233,43 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...(data.warning ? [data.warning] : []),
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
     ...valueHistoryLines(data.valueTrend),
+    ...(data.today ? todayLines(data.today) : []),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
     ...protectionLines(holdings, data.orders, data.account?.currency),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.positions))),
     ...section("Recent TradePilot activity", rows((data.activity ?? []).slice(0, 5), activityLine)),
+  ];
+}
+
+/** One instrument's move on the day: against which close, its profit or loss, and the shares traded on the day. */
+function dayMoveLine(move: DayMove, currency?: string): string {
+  const name = `${move.name ?? move.ticker}${move.shortName && move.shortName !== move.name ? ` (${move.shortName})` : ""}`;
+  const traded = [move.bought ? `bought ${num(move.bought, 8)}` : "", move.sold ? `sold ${num(move.sold, 8)}` : ""].filter(Boolean).join(", ");
+  const tradedText = traded ? ` (${traded} on the day, from the fill price)` : "";
+  const close = move.previousClose ? `the close on ${move.previousClose.date} (${num(move.previousClose.close, 6)}${move.currencyCode ? ` ${move.currencyCode}` : ""})` : "";
+  if (move.change !== undefined || move.profitLoss !== undefined) {
+    const parts = [
+      move.change !== undefined ? `${signedPct(move.change)} since ${close}` : move.quantity === 0 ? `sold out on the day against ${close}` : "",
+      move.profitLoss !== undefined ? `${signed(move.profitLoss)}${currency ? ` ${currency}` : ""}` : "",
+    ].filter(Boolean);
+    return `${name}: ${parts.join(", ")}${tradedText}${move.problem ? `; ${move.problem}` : ""}`;
+  }
+  return `${name}: no move for the day; ${move.problem ?? "no previous close"}`;
+}
+
+/** The day's moves: the total, then each holding, biggest in the account currency first. */
+function todayLines(data: PortfolioToday): string[] {
+  const currency = data.accountCurrency;
+  const total = data.total;
+  const days = [...new Set(data.moves.map((move) => move.day))].sort();
+  const lead = total
+    ? `Holdings on the day (${days.join(", ") || "?"}), against each one's last close before it: ${signed(total.profitLoss)}${currency ? ` ${currency}` : ""}${total.change === undefined ? "" : ` (${signedPct(total.change)})`}, ${total.counted} of ${total.of} instrument(s) with a move.`
+    : `No holding has a move for the day${data.moves.length ? "" : ": there are no holdings"}.`;
+  return [
+    lead,
+    ...rows(data.moves, (move) => dayMoveLine(move, currency)),
+    ...(data.fillsProblem ? [`The day's fills could not be read (${data.fillsProblem}), so shares traded on the day count from the previous close.`] : []),
+    ...(total ? ["Amounts are at today's exchange rates; the previous closes are the quote provider's."] : []),
   ];
 }
 
@@ -609,6 +643,7 @@ export function describePayload(data: unknown): string {
   let lines: string[] = [];
   switch (payload.kind) {
     case "portfolio": lines = portfolio(payload as unknown as PortfolioSnapshot); break;
+    case "portfolio_today": lines = todayLines(payload as unknown as PortfolioToday); break;
     case "allocation": lines = allocation(payload as unknown as AllocationAnalysis); break;
     case "performance": lines = performance(payload as unknown as PerformanceSummary); break;
     case "income": lines = income(payload as unknown as IncomeSummary); break;

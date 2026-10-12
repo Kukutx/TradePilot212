@@ -79,6 +79,7 @@ const value = (position: Position) => {
 async function scenarios(): Promise<Scenario[]> {
   const list: Scenario[] = [
     { id: "dashboard", group: "portfolio", tool: "get_portfolio_dashboard", args: {}, prompt: { en: "Show my portfolio dashboard.", zh: "看看我的投资组合。" } },
+    { id: "today", group: "portfolio", tool: "get_portfolio_today", args: {}, prompt: { en: "How are my holdings doing today?", zh: "我的持仓今天表现怎么样？" } },
     { id: "allocation", group: "portfolio", tool: "analyze_portfolio_allocation", args: {}, prompt: { en: "Check my allocation for concentration risk.", zh: "检查一下我的持仓是否过于集中。" } },
     { id: "performance", group: "portfolio", tool: "get_portfolio_performance", args: {}, prompt: { en: "How has my portfolio performed this year?", zh: "我今年的收益怎么样？" } },
     { id: "income", group: "portfolio", tool: "get_income_summary", args: {}, prompt: { en: "What income did my portfolio pay?", zh: "我的组合派了多少股息和利息？" } },

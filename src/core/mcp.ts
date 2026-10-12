@@ -130,7 +130,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, automationOverview }: Services,
+  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -184,6 +184,34 @@ export function createMcpServer(
       try {
         const data = await dashboard(environment);
         return result(data, `Rendered ${environment.toUpperCase()} Trading 212 portfolio dashboard.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "get_portfolio_today",
+    {
+      title: "Portfolio Today",
+      description:
+        "How the user's Trading 212 holdings moved on the day: each holding's price now against its previous close (the quote provider's last daily close before the trading day the price is from, so over a weekend or before the open it is the last session's move), the day's profit or loss in the account currency at today's exchange rates, with shares bought or sold that day counted from their fill price, and the total with its change. Renders the dashboard with the day's moves. Read-only.",
+      inputSchema: z.object({ environment: environmentWithDefault }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment }) => {
+      try {
+        const data = await dashboard(environment);
+        const day = data.credentials[environment] ? await today(environment) : undefined;
+        const total = day?.total;
+        const currency = day?.accountCurrency ? ` ${day.accountCurrency}` : "";
+        // Over a weekend or before the open the day is the last session's.
+        const days = [...new Set((day?.moves ?? []).map((move) => move.day))].sort().join(", ");
+        return result({ ...data, ...(day ? { today: day } : {}) }, total
+          ? `${environment.toUpperCase()} holdings on ${days}: ${total.profitLoss >= 0 ? "+" : ""}${num(total.profitLoss, 2)}${currency}${total.change === undefined ? "" : ` (${total.change >= 0 ? "+" : ""}${num(total.change * 100, 2)}%)`}, ${total.counted} of ${total.of} with a move.`
+          : `Rendered the ${environment.toUpperCase()} dashboard; no holding has a move for the day.`);
       } catch (error) {
         return toolError(error);
       }
@@ -1051,7 +1079,7 @@ export function createMcpServer(
     },
     async ({ environment }) => {
       try {
-        const data = { ...(await watchlistView({ watchlist, trading, alerts, priceHistory }, environment)), writeEnabled: canWrite };
+        const data = { ...(await watchlistView({ watchlist, trading, alerts, priceHistory, schedules }, environment)), writeEnabled: canWrite };
         return result(data, `Rendered the ${environment.toUpperCase()} watchlist (${data.items.length} instrument(s)).`);
       } catch (error) {
         return toolError(error);
@@ -1303,6 +1331,26 @@ export function createMcpServer(
       try {
         const data = await dashboard(environment);
         return result(data, "Dashboard refreshed.");
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "app_get_today",
+    {
+      title: "Holdings today",
+      description: "App-only: the day's move of each holding, for the dashboard.",
+      inputSchema: z.object({ environment: environmentEnum }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { visibility: ["app"] } },
+    },
+    async ({ environment }) => {
+      try {
+        const data = await today(environment);
+        return result(data, `${data.total?.counted ?? 0} of ${data.moves.length} holding(s) with a move today.`);
       } catch (error) {
         return toolError(error);
       }
