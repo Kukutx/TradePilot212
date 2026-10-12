@@ -97,6 +97,10 @@ describe("rebalance notes", () => {
     const none = planRebalance("demo", account, positions, targets, { cashWeight: 0.3, band: 0.1 });
     expect(rebalanceNoteText(band(none), zh, "zh-CN")).toBe("每个目标的偏离都在 10.0 个百分点以内，无需交易。");
     expect(basketTitle({ purpose: "rebalance", title: "Rebalance what drifted", legs: [] }, zh)).toBe("只调偏离过大的");
+    expect(rebalanceNoteText({ code: "within_band", message: "x", details: { count: 1, total: 3, band: 0.05, inside: 1 } }, en, "en")).toBe("Every target is within 5.0 points of its weight; 1 of 3 is left as it is.");
+    expect(rebalanceNoteText({ code: "band_cash", message: "x", details: { amount: 600, band: 0.05, currency: "EUR" } }, zh, "zh-CN")).toBe("否则现金会超出目标 5.0 个百分点以上，所以其中 €600.00 投给阈值内低于目标的标的。");
+    expect(rebalanceNoteText({ code: "nothing_possible", message: "x", details: { band: 0.05 } }, en, "en")).toBe("No trades could be planned: the targets within the band stay as they are, and the others were skipped.");
+    expect(rebalanceNoteText({ code: "nothing_possible", message: "x" }, en, "en")).toBe("No trades could be planned: every target was skipped.");
   });
 
   it("estimates a rebalance of only the targets over the threshold, naming them", () => {

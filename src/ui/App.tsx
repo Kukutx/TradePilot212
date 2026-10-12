@@ -452,10 +452,10 @@ export default function App() {
    * Plan a rebalance from the saved targets, with a band of only the ones further off than it; the trades open as a
    * basket to review, nothing is sent.
    */
-  async function rebalanceToTargets(buyOnly = false, band?: number): Promise<void> {
+  async function rebalanceToTargets(env: TradingEnvironment, buyOnly = false, band?: number): Promise<void> {
     await run("errorTitleRebalance", async () => {
-      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment, ...(buyOnly ? { buyOnly } : {}), ...(band === undefined ? {} : { band }) }));
-    }, () => void rebalanceToTargets(buyOnly, band));
+      showPayload(await callTool<BasePayload>("plan_portfolio_rebalance", { environment: env, ...(buyOnly ? { buyOnly } : {}), ...(band === undefined ? {} : { band }) }));
+    }, () => void rebalanceToTargets(env, buyOnly, band));
   }
 
   /** Plan the move to the equal-risk weights; the trades open as a basket to review, nothing is sent. */
@@ -1030,7 +1030,7 @@ export default function App() {
             )}
             {portfolioLike && tab === "allocation" && insights.allocation && (
               <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
-                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: (band?: number) => void rebalanceToTargets(false, band), onInvestCash: () => void rebalanceToTargets(true) } : {})}
+                {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: (band?: number) => void rebalanceToTargets(allocationEnvironment, false, band), onInvestCash: () => void rebalanceToTargets(allocationEnvironment, true) } : {})}
                 {...(writeEnabled && connected ? { onPlanEqualRisk: (plan: EqualRiskPlan) => void rebalanceToEqualRisk(plan, allocationEnvironment) } : {})}
                 {...(connected ? {
                   onSaveTargets: (save: TargetSave) => changeTargets({ action: "set", ...save }, allocationEnvironment),

@@ -247,10 +247,12 @@ export interface AllocationDrift {
   rebalance?: TradeTotals;
   /**
    * What a rebalance of only the targets more than the threshold off their weight would trade (plan_portfolio_rebalance
-   * with band set to the threshold), estimated as `rebalance` is: present when it leaves out some that a rebalance to
-   * every target trades, from 2.53. `tickers` are the ones it trades, largest drift first.
+   * with band set to the threshold), estimated as `rebalance` is: present when it trades some of them and leaves out
+   * some that a rebalance to every target trades, from 2.53. `tickers` are the ones over the threshold it trades,
+   * largest drift first; `cashTo` the ones within it below their target that it buys with the cash that would
+   * otherwise be left more than the threshold over its target.
    */
-  rebalanceOver?: { tickers: string[]; totals: TradeTotals };
+  rebalanceOver?: { tickers: string[]; cashTo?: string[]; totals: TradeTotals };
 }
 
 /**

@@ -378,7 +378,7 @@ function driftLines(drift: AllocationDrift): string[] {
     ...(drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
     ...(drift.volatility ? [targetVolatilityLine(drift.volatility)] : []),
     ...(drift.rebalance ? [driftTradesLine(drift.rebalance)] : []),
-    ...(drift.rebalanceOver ? [driftTradesLine(drift.rebalanceOver.totals, `A rebalance of only the ones more than ${num(drift.threshold * 100, 1)} points off (${drift.rebalanceOver.tickers.join(", ")}; plan_portfolio_rebalance with band ${drift.threshold})`)] : []),
+    ...(drift.rebalanceOver ? [driftTradesLine(drift.rebalanceOver.totals, `A rebalance of only the ones more than ${num(drift.threshold * 100, 1)} points off (${drift.rebalanceOver.tickers.join(", ")}${drift.rebalanceOver.cashTo?.length ? `, with buys of ${drift.rebalanceOver.cashTo.join(", ")} so the cash doesn't stay more than that over its target` : ""}; plan_portfolio_rebalance with band ${drift.threshold})`)] : []),
   ]);
 }
 

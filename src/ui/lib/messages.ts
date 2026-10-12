@@ -397,13 +397,20 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
       return fill(t("rebalanceNoteCapped"), { available: amount(Number(value("available")), currency, locale), amount: amount(Number(value("amount")), currency, locale) });
     }
     case "no_cash": return t("rebalanceNoteNoCash");
-    case "nothing_possible": return t("rebalanceNoteNothing");
+    case "nothing_possible": return t(value("band") === undefined ? "rebalanceNoteNothing" : "rebalanceNoteNothingBand");
     case "within_threshold": return t("rebalanceNoteWithin");
     case "within_band": {
       const count = Number(value("count"));
       const total = Number(value("total"));
       const points = bandPoints(Number(value("band")), locale);
-      return count >= total ? fill(t("rebalanceNoteBandAll"), { points }) : plural(count, locale, t("rebalanceNoteBandOne"), t("rebalanceNoteBand"), { points, total: num(total, locale, 0) });
+      if (count >= total) return fill(t("rebalanceNoteBandAll"), { points });
+      return value("inside") === 1
+        ? plural(count, locale, t("rebalanceNoteBandInsideOne"), t("rebalanceNoteBandInside"), { points, total: num(total, locale, 0) })
+        : plural(count, locale, t("rebalanceNoteBandOne"), t("rebalanceNoteBand"), { points, total: num(total, locale, 0) });
+    }
+    case "band_cash": {
+      const currency = String(value("currency") ?? "") || undefined;
+      return fill(t("rebalanceNoteBandCash"), { points: bandPoints(Number(value("band")), locale), amount: amount(Number(value("amount")), currency, locale) });
     }
     case "price_source": return t("rebalanceNotePrices");
     case "fx_fee": {

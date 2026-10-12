@@ -102,6 +102,26 @@ describe("allocation drift", () => {
     expect(fitted.rebalanceOver).toMatchObject({ tickers: ["VUSAl_EQ"], totals: { bought: 200, sold: 0, buysScaled: 0.2857 } });
   });
 
+  it("puts the cash the sells over the threshold would leave too far over its target into the targets below theirs", () => {
+    // As the planner: A's sell would leave cash 6 points over its 10% target, so B and C, within the threshold, take it.
+    const holdings = [
+      { ticker: "A", name: "A", currency: "EUR", value: 3700, weight: 0.37 },
+      { ticker: "B", name: "B", currency: "EUR", value: 2700, weight: 0.27 },
+      { ticker: "C", name: "C", currency: "EUR", value: 2700, weight: 0.27 },
+    ];
+    const targets = saved({ targets: [{ ticker: "A", weight: 0.3 }, { ticker: "B", weight: 0.3 }, { ticker: "C", weight: 0.3 }], cashWeight: 0.1 });
+    const drift = allocationDrift(targets, { cashWeight: 0.09, cash: 900, holdings, totalValue: 10_000, accountCurrency: "EUR" });
+    // Every target trades, as a full rebalance does: nothing to offer.
+    expect(drift.rebalanceOver).toBeUndefined();
+    // A 6 points over its 25%; B and D 4 under theirs, C 2 over: A's 600 would leave cash 6 points over its 10%, so
+    // it goes to B and D. C stays, which a full rebalance would sell.
+    const four = allocationDrift(saved({ targets: [{ ticker: "A", weight: 0.25 }, { ticker: "B", weight: 0.25 }, { ticker: "C", weight: 0.25 }, { ticker: "D", weight: 0.15 }], cashWeight: 0.1 }), {
+      cashWeight: 0.1, cash: 1000, totalValue: 10_000, accountCurrency: "EUR",
+      holdings: [["A", 3100], ["B", 2100], ["C", 2700], ["D", 1100]].map(([ticker, value]) => ({ ticker: String(ticker), name: String(ticker), currency: "EUR", value: Number(value), weight: Number(value) / 10_000 })),
+    });
+    expect(four.rebalanceOver).toEqual({ tickers: ["A"], cashTo: ["B", "D"], totals: { currency: "EUR", bought: 600, sold: 600, converted: 0, fxFee: 0, fxFeeRate: 0.0015 } });
+  });
+
   it("fits the buys to the cash, as the planner does, and takes an unknown currency for none", () => {
     // 10,000 GBP: A and B, 35% each, under their 50% targets; C, 30% with no target, is kept; no cash.
     const holdings = [
@@ -230,8 +250,12 @@ describe("saved targets", () => {
     // With a band, only what is further off than it; the basket says so in its title.
     const banded = await client.callTool({ name: "plan_portfolio_rebalance", arguments: { environment: "demo", targets: [{ ticker: "EUNLd_EQ", weight: 0.05 }, { ticker: "KO_US_EQ", weight: 0.3 }], band: 0.05 } });
     const bandedText = (banded.content as Array<{ text: string }>)[0]!.text;
-    expect(bandedText).toMatch(/^Rebalance plan of the targets more than 5 points off/);
+    expect(bandedText).toMatch(/^Rebalance plan of the targets more than 5 points off(, 1 target left as it is|, \d+ targets left as they are)?: \d+ trade/);
     expect((banded.structuredContent as { rebalance: { band?: number }; title: string })).toMatchObject({ rebalance: { band: 0.05 }, title: "Rebalance what drifted" });
+    // Targets three of which are more than 5 points under: the analysis says what rebalancing only those would trade.
+    await services.targets.set("demo", { targets: ["MSFT_US_EQ", "NVDA_US_EQ", "AAPL_US_EQ", "VUSAl_EQ"].map((instrument) => ({ instrument, weight: 0.238 })), cashWeight: 0.048 });
+    const over = await client.callTool({ name: "analyze_portfolio_allocation", arguments: { environment: "demo" } });
+    expect(JSON.stringify(over.content)).toMatch(/a rebalance to them about \d+ EUR traded[^;]*, only the 3 over the threshold about \d+ EUR traded/);
     await client.close();
   });
 

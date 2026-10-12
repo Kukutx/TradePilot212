@@ -34968,6 +34968,22 @@ function rebalanceEstimate(moves, totalValue, accountCurrency, fxFeeRate2 = DEFA
   const totals = tradeTotals(funded.trades, accountCurrency, fxFeeRate2);
   return funded.scale < 1 ? { ...totals, buysScaled: Math.floor(funded.scale * 1e4) / 1e4 } : totals;
 }
+function bandEstimate(over, within2, band, totalValue, accountCurrency, fxFeeRate2 = DEFAULT_FX_FEE_RATE, spareCash) {
+  const feeOf = (trade) => converts(trade.currency, accountCurrency) ? fxFeeRate2 : 0;
+  const wanted = weightTrades(over, totalValue);
+  const funded = spareCash === void 0 ? { trades: wanted, scale: 1 } : fundBuys(wanted, spareCash, accountCurrency, fxFeeRate2);
+  let extra = [];
+  if (spareCash !== void 0 && totalValue > 0) {
+    const left = funded.trades.reduce((sum, trade) => sum + (trade.side === "sell" ? trade.value * (1 - feeOf(trade)) : -trade.value * (1 + feeOf(trade))), spareCash);
+    if (left / totalValue > band + 1e-9) extra = fundBuys(weightTrades(within2.filter((move) => move.target > move.current), totalValue), left, accountCurrency, fxFeeRate2).trades;
+  }
+  const totals = tradeTotals([...funded.trades, ...extra], accountCurrency, fxFeeRate2);
+  return {
+    tickers: funded.trades.map((trade) => trade.ticker),
+    cashTo: extra.map((trade) => trade.ticker),
+    totals: funded.scale < 1 ? { ...totals, buysScaled: Math.floor(funded.scale * 1e4) / 1e4 } : totals
+  };
+}
 
 // src/core/config.ts
 function isLoopbackHost(hostname3) {
@@ -35390,11 +35406,9 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       targetWeight: target.weight
     });
   }
+  const unpriced = skipped.length;
   const within2 = band === void 0 ? [] : lines.filter((line) => Math.abs(line.currentValue / totalValue - line.targetWeight) <= band + 1e-9);
   const active = within2.length ? lines.filter((line) => !within2.includes(line)) : lines;
-  if (band !== void 0 && within2.length) {
-    note("within_band", active.length ? `Only the targets more than ${points(band)} points off their weight are traded; ${within2.length} of ${lines.length} ${within2.length === 1 ? "is left as it is" : "are left as they are"}.` : `Every target is within ${points(band)} points of its weight, so nothing is traded.`, { count: within2.length, total: lines.length, band });
-  }
   const trades = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
   let cash = cashBefore;
@@ -35422,16 +35436,37 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
   const shortOfBuys = budget + 5e-3 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
   if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
-  for (const { line, gap } of shortfalls) {
-    const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
-    const value = quantity * line.price / line.fx;
-    if (quantity <= 0 || value < minTradeValue) {
-      if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
-      continue;
+  const buy = (items, by) => {
+    for (const { line, gap } of items) {
+      const quantity = floorTo(gap * by * line.fx / line.price, decimals);
+      const value = quantity * line.price / line.fx;
+      if (quantity <= 0 || value < minTradeValue) {
+        if (by > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
+        continue;
+      }
+      cash -= value * (1 + feeOf(line));
+      valueAfter.set(line.ticker, line.currentValue + value);
+      trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
     }
-    cash -= value * (1 + feeOf(line));
-    valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+  };
+  buy(shortfalls, scale);
+  if (band !== void 0) {
+    const spare = cash - reserve;
+    const below = within2.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
+    const room = below.reduce((sum, item) => sum + item.gap * (1 + feeOf(item.line)), 0);
+    if (spare / totalValue > band + 1e-9 && room > 0) {
+      const before = cash;
+      buy(below, Math.min(1, spare / room));
+      if (before - cash > 0) note("band_cash", `Cash would stay more than ${points(band)} points over its target, so ${money(before - cash)} ${accountCurrency} of it goes to the targets within the band below their weight.`, { amount: money(before - cash), band, currency: accountCurrency });
+    }
+    const traded = new Set(trades.map((trade) => trade.ticker));
+    const kept = within2.filter((line) => !traded.has(line.ticker)).length;
+    const total = lines.length + unpriced;
+    const inside = !active.length && !unpriced;
+    const left = `${kept} of ${total} ${kept === 1 ? "is left as it is" : "are left as they are"}`;
+    if (kept) {
+      note("within_band", kept === total ? `Every target is within ${points(band)} points of its weight, so nothing is traded.` : inside ? `Every target is within ${points(band)} points of its weight; ${left}.` : `Only the targets more than ${points(band)} points off their weight are traded; ${left}.`, { count: kept, total, band, ...inside ? { inside: 1 } : {} });
+    }
   }
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
   if (usedImplied.size) note("implied_rates", `Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`, { currencies: [...usedImplied].sort().join(", ") });
@@ -35452,6 +35487,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else if (band !== void 0 && unpriced && !active.length) note("nothing_possible", "No trades could be planned: the targets within the band stay as they are, and the others were skipped.", { band });
     else if (wantedCash > 0 && scale === 0) note("no_cash", `Some targets are below their weight, but no cash is available above the reserve to buy with${buyOnly ? " and nothing is sold" : ""}.`);
     else if (active.length) note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
   }
@@ -38223,11 +38259,14 @@ function allocationDrift(saved, analysis, options = {}) {
     ...rows2,
     ...saved.sellUntargeted ? untargeted.map((item) => ({ ...item, target: 0, drift: item.current, ...currencyOf(item.ticker) ? { currency: currencyOf(item.ticker) } : {} })) : []
   ];
-  const estimate = (chosen) => rebalanceEstimate(chosen, totalValue, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash === void 0 ? void 0 : freeCash - saved.cashWeight * totalValue);
-  const rebalance = totalValue && totalValue > 0 && accountCurrency ? estimate(moves) : void 0;
-  const overMoves = moves.filter((move) => Math.abs(move.drift) > saved.driftThreshold + 1e-9).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
-  const overTrades = rebalance ? weightTrades(overMoves, totalValue) : [];
-  const rebalanceOver = overTrades.length && overTrades.length < weightTrades(moves, totalValue).length ? { tickers: overTrades.map((trade) => trade.ticker), totals: estimate(overMoves) } : void 0;
+  const rate = options.fxFeeRate ?? DEFAULT_FX_FEE_RATE;
+  const spare = freeCash === void 0 || !totalValue ? void 0 : freeCash - saved.cashWeight * totalValue;
+  const priced = !!(totalValue && totalValue > 0 && accountCurrency);
+  const rebalance = priced ? rebalanceEstimate(moves, totalValue, accountCurrency, rate, spare) : void 0;
+  const isOver = (move) => Math.abs(move.drift) > saved.driftThreshold + 1e-9;
+  const overMoves = moves.filter(isOver).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+  const band = priced && overMoves.length ? bandEstimate(overMoves, moves.filter((move) => !isOver(move)), saved.driftThreshold, totalValue, accountCurrency, rate, spare) : void 0;
+  const rebalanceOver = band?.tickers.length && band.tickers.length + band.cashTo.length < weightTrades(moves, totalValue).length ? { tickers: band.tickers, ...band.cashTo.length ? { cashTo: band.cashTo } : {}, totals: band.totals } : void 0;
   return {
     threshold: saved.driftThreshold,
     maxDrift: exact(maxDrift),
@@ -39767,7 +39806,7 @@ function driftLines(drift) {
     ...drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : [],
     ...drift.volatility ? [targetVolatilityLine(drift.volatility)] : [],
     ...drift.rebalance ? [driftTradesLine(drift.rebalance)] : [],
-    ...drift.rebalanceOver ? [driftTradesLine(drift.rebalanceOver.totals, `A rebalance of only the ones more than ${num2(drift.threshold * 100, 1)} points off (${drift.rebalanceOver.tickers.join(", ")}; plan_portfolio_rebalance with band ${drift.threshold})`)] : []
+    ...drift.rebalanceOver ? [driftTradesLine(drift.rebalanceOver.totals, `A rebalance of only the ones more than ${num2(drift.threshold * 100, 1)} points off (${drift.rebalanceOver.tickers.join(", ")}${drift.rebalanceOver.cashTo?.length ? `, with buys of ${drift.rebalanceOver.cashTo.join(", ")} so the cash doesn't stay more than that over its target` : ""}; plan_portfolio_rebalance with band ${drift.threshold})`)] : []
   ]);
 }
 function fxFeeClause(totals) {
@@ -42219,7 +42258,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "plan_portfolio_rebalance",
     {
       title: "Plan a Rebalance",
-      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint. totals gives what the buys and sells come to and the currency conversion fee on the trades in other currencies (FX_FEE_RATE, 0.15% by default; none on a trade paid from or into a balance in that currency); the buys leave room for that fee, and cashAfter is net of it. With band, only the targets more than that share of the account off their weight are traded (for example the saved drift threshold, so a rebalance trades only what the drift notice flagged, with fewer trades and fees); cash over its target is not a target, so invest it with buyOnly.",
+      description: "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint. totals gives what the buys and sells come to and the currency conversion fee on the trades in other currencies (FX_FEE_RATE, 0.15% by default; none on a trade paid from or into a balance in that currency); the buys leave room for that fee, and cashAfter is net of it. With band, only the targets more than that share of the account off their weight are traded (for example the saved drift threshold, so a rebalance trades only what the drift notice flagged, with fewer trades and fees); cash that would stay more than the band over its target goes to the targets within the band below their weight.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         targets: external_exports.array(external_exports.object({
@@ -42258,7 +42297,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         const totals = plan.totals;
         const traded = totals && plan.trades.length ? ` (${[totals.bought > 0 ? `buys ${totals.bought} ${totals.currency}` : "", totals.sold > 0 ? `sells ${totals.sold} ${totals.currency}` : "", totals.fxFee > 0 ? `at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""].filter(Boolean).join(", ")})` : "";
         const held = plan.noteDetails?.find((item) => item.code === "within_band");
-        const banded = plan.band === void 0 ? "" : ` of the targets more than ${Number((plan.band * 100).toFixed(2))} points off${held ? `, ${held.details?.count} left as they are` : ""}`;
+        const kept = Number(held?.details?.count ?? 0);
+        const banded = plan.band === void 0 ? "" : ` of the targets more than ${Number((plan.band * 100).toFixed(2))} points off${kept ? `, ${kept} ${kept === 1 ? "target left as it is" : "targets left as they are"}` : ""}`;
         return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}${banded}: ${plan.trades.length} trade(s)${traded}${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
         return toolError(error62);

@@ -107,7 +107,11 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   // Only the ones over the threshold, when that trades fewer than a rebalance to every target.
   const over = drift.rebalanceOver;
   const threshold = bandPoints(drift.threshold, locale);
-  const overTrades = over && tradeEstimateText(over.totals, "over", t, locale, { points: threshold, list: over.tickers.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ") });
+  const names = (tickers: string[]) => tickers.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ");
+  const overTrades = over && [
+    tradeEstimateText(over.totals, "over", t, locale, { points: threshold, list: names(over.tickers) }),
+    over.cashTo?.length ? fill(t("driftOverCash"), { points: threshold, list: names(over.cashTo) }) : "",
+  ].filter(Boolean).join(locale === "zh-CN" ? "" : " ");
   const rebalanceOver = over && (over.totals.bought > 0 || over.totals.sold > 0) && onRebalance ? () => onRebalance(drift.threshold) : undefined;
   return (
     <section className="dataPanel">
@@ -136,15 +140,15 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
       {overTrades && <p className="panelNote driftTrades driftOverTrades">{overTrades}</p>}
       <ul className="driftList" aria-label={t("driftTitle")}>
         {rows.map((row) => {
-          const over = Math.abs(row.drift) > drift.threshold + 1e-9;
+          const past = Math.abs(row.drift) > drift.threshold + 1e-9;
           return (
-            <li key={row.key} className={over ? "over" : undefined}>
+            <li key={row.key} className={past ? "over" : undefined}>
               <div className="driftHead">
                 <span className="barLabel" title={row.title}>
                   <strong>{row.label}</strong>
                   {"sublabel" in row && row.sublabel && <small>{row.sublabel}</small>}
                 </span>
-                <span className={`driftValue ${over ? "over" : ""}`} aria-label={`${t("driftPointsHeader")} ${points.format(row.drift * 100)}`}>{points.format(row.drift * 100)}</span>
+                <span className={`driftValue ${past ? "over" : ""}`} aria-label={`${t("driftPointsHeader")} ${points.format(row.drift * 100)}`}>{points.format(row.drift * 100)}</span>
               </div>
               <div className="driftTrack" aria-hidden="true">
                 <span className="driftFill" style={{ width: share(row.current) }} />

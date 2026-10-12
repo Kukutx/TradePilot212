@@ -136,6 +136,9 @@ describe("the drift panel", () => {
     expect(render(data, () => {}, "zh-CN")).toContain("只调偏离超过 5.0 个百分点的（A），约需卖出 €800.00。");
     // Without order tools, the estimate but no button; without the estimate, neither.
     expect(render(data)).not.toContain("Rebalance what drifted");
+    // Buys within the threshold with the cash that would otherwise stay too far over its target, named.
+    const cashTo = render({ ...data, drift: { ...drift, rebalanceOver: { tickers: ["A"], cashTo: ["B"], totals: { ...totals, bought: 300, sold: 800 } } } } as unknown as AllocationAnalysis, () => {});
+    expect(cashTo).toContain("would buy about €300.00 and sell about €800.00. The buys include B, within the threshold, so the cash doesn&#x27;t stay more than 5.0 points over its target.");
     const full = render({ ...data, drift: { ...drift, rebalanceOver: undefined } } as unknown as AllocationAnalysis, () => {});
     expect(full).not.toContain("Rebalancing only");
     expect(full).not.toContain("Rebalance what drifted");

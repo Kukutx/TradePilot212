@@ -146,14 +146,11 @@ export function planRebalance(
     });
   }
 
+  // The targets skipped for want of a price or a rate: they count among the targets a band leaves or trades.
+  const unpriced = skipped.length;
   // With a band, a target within it of its weight is left as it is; only the ones further off trade, sells funding buys.
   const within = band === undefined ? [] : lines.filter((line) => Math.abs(line.currentValue / totalValue - line.targetWeight) <= band + 1e-9);
   const active = within.length ? lines.filter((line) => !within.includes(line)) : lines;
-  if (band !== undefined && within.length) {
-    note("within_band", active.length
-      ? `Only the targets more than ${points(band)} points off their weight are traded; ${within.length} of ${lines.length} ${within.length === 1 ? "is left as it is" : "are left as they are"}.`
-      : `Every target is within ${points(band)} points of its weight, so nothing is traded.`, { count: within.length, total: lines.length, band });
-  }
 
   const trades: RebalanceTrade[] = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
@@ -192,16 +189,43 @@ export function planRebalance(
   // buys are a hair smaller (the fee note says so), not scaled down.
   const shortOfBuys = budget + 0.005 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
   if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
-  for (const { line, gap } of shortfalls) {
-    const quantity = floorTo(gap * scale * line.fx / line.price, decimals);
-    const value = quantity * line.price / line.fx;
-    if (quantity <= 0 || value < minTradeValue) {
-      if (scale > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
-      continue;
+  const buy = (items: Array<{ line: Line; gap: number }>, by: number) => {
+    for (const { line, gap } of items) {
+      const quantity = floorTo(gap * by * line.fx / line.price, decimals);
+      const value = quantity * line.price / line.fx;
+      if (quantity <= 0 || value < minTradeValue) {
+        if (by > 0) skipped.push(decimals === 0 ? { ticker: line.ticker, code: "below_one_share", reason: "The buy is smaller than one whole share." } : { ticker: line.ticker, code: "below_minimum", reason: "The buy is below the minimum trade value." });
+        continue;
+      }
+      cash -= value * (1 + feeOf(line));
+      valueAfter.set(line.ticker, line.currentValue + value);
+      trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
     }
-    cash -= value * (1 + feeOf(line));
-    valueAfter.set(line.ticker, line.currentValue + value);
-    trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...(line.priceAt ? { priceAt: line.priceAt } : {}), value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+  };
+  buy(shortfalls, scale);
+
+  if (band !== undefined) {
+    // Cash left more than the band above its target would itself be off target, and the drift notice would go on: it
+    // goes, as buy-only puts it, to the targets within the band below their weight.
+    const spare = cash - reserve;
+    const below = within.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
+    const room = below.reduce((sum, item) => sum + item.gap * (1 + feeOf(item.line)), 0);
+    if (spare / totalValue > band + 1e-9 && room > 0) {
+      const before = cash;
+      buy(below, Math.min(1, spare / room));
+      if (before - cash > 0) note("band_cash", `Cash would stay more than ${points(band)} points over its target, so ${money(before - cash)} ${accountCurrency} of it goes to the targets within the band below their weight.`, { amount: money(before - cash), band, currency: accountCurrency });
+    }
+    const traded = new Set(trades.map((trade) => trade.ticker));
+    const kept = within.filter((line) => !traded.has(line.ticker)).length;
+    const total = lines.length + unpriced;
+    // Every target within the band, some of them bought with the cash over it: none is further off.
+    const inside = !active.length && !unpriced;
+    const left = `${kept} of ${total} ${kept === 1 ? "is left as it is" : "are left as they are"}`;
+    if (kept) {
+      note("within_band", kept === total ? `Every target is within ${points(band)} points of its weight, so nothing is traded.`
+        : inside ? `Every target is within ${points(band)} points of its weight; ${left}.`
+        : `Only the targets more than ${points(band)} points off their weight are traded; ${left}.`, { count: kept, total, band, ...(inside ? { inside: 1 } : {}) });
+    }
   }
 
   for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
@@ -220,6 +244,7 @@ export function planRebalance(
   }
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
+    else if (band !== undefined && unpriced && !active.length) note("nothing_possible", "No trades could be planned: the targets within the band stay as they are, and the others were skipped.", { band });
     else if (wantedCash > 0 && scale === 0) note("no_cash", `Some targets are below their weight, but no cash is available above the reserve to buy with${buyOnly ? " and nothing is sold" : ""}.`);
     else if (active.length) note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
   }

@@ -141,6 +141,8 @@ describe("text summaries for hosts that only show text", () => {
     const rebalanceOver = { tickers: ["AAPL_US_EQ", "KO_US_EQ"], totals: { ...rebalance, bought: 0, sold: 900 } };
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, threshold: 0.05, rebalance, rebalanceOver } }))
       .toContain("- A rebalance of only the ones more than 5 points off (AAPL_US_EQ, KO_US_EQ; plan_portfolio_rebalance with band 0.05) would sell about 900 EUR; none of it in another currency. By weight;");
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, threshold: 0.05, rebalance, rebalanceOver: { ...rebalanceOver, cashTo: ["MSFT_US_EQ"] } } }))
+      .toContain("(AAPL_US_EQ, KO_US_EQ, with buys of MSFT_US_EQ so the cash doesn't stay more than that over its target; plan_portfolio_rebalance with band 0.05)");
   });
 
   it("gives a day's-move alert's change since the previous close", async () => {
