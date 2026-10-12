@@ -3,9 +3,12 @@
 import type { PriceAlert } from "./automation.js";
 import type { CredentialStatus, Instrument, PendingOrder, Position, TradingEnvironment } from "./contracts.js";
 import type { MarketStatus } from "./history.js";
+import type { JournalEntry } from "./journal.js";
 
 /** One fill of an order on this instrument, newest first. */
 export interface HoldingFill {
+  /** The Trading 212 order the fill belongs to, so its journal note can be found. */
+  orderId?: string;
   filledAt?: string;
   side?: string;
   type?: string;
@@ -45,6 +48,10 @@ export interface HoldingDetail {
   targetWeight?: number;
   orders: PendingOrder[];
   alerts: PriceAlert[];
+  /** Trade journal notes on this instrument, newest first: the newest ones and any on a listed fill. */
+  journal: JournalEntry[];
+  /** All notes on this instrument, when more than `journal` lists. */
+  journalTotal?: number;
   market?: MarketStatus;
   /** The last 12 months of fills and dividends; absent when the history could not be read. */
   history?: {

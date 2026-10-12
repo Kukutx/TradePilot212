@@ -23,6 +23,7 @@ import type {
 import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPurpose, PolicyCheck, ProtectiveLink, RebalancePlan, RebalanceTarget } from "../shared/automation.js";
 import { BASKET_ORDER_NOTE } from "../shared/automation.js";
 import { stopProtection, STOPS_BASKET_TITLE, suggestedStop, SUGGESTED_STOP_DROP } from "../shared/protection.js";
+import { journalText } from "../shared/journal.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
@@ -100,6 +101,11 @@ export interface TradingServiceDeps {
   marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
   /** Called after a basket created for a standing plan has been executed. */
   afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
+  /**
+   * Called for an order with a thesis once Trading 212 accepted it, or its result was unclear; saves the thesis
+   * to the trade journal and returns the note's id. A failure here never changes the order's result.
+   */
+  afterOrder?: (draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }) => Promise<string | undefined>;
   /** Optional webhook for notable events; it filters the types itself and never throws. */
   notify?: Notifier;
   /** Optional external quotes for instruments that are not held (Trading 212 has no quote endpoint). */
@@ -344,10 +350,11 @@ export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: nu
 }
 
 /** The risk notices a preview showed, kept with its confirmation so the send can tell what is new. */
-/** A copy of the draft without its risk budget. */
-function withoutRiskBudget(draft: OrderDraft): OrderDraft {
+/** A basket leg is an ordinary order: no risk budget, and no thesis (a basket has no journal note per leg). */
+function basketLeg(draft: OrderDraft): OrderDraft {
   const copy = { ...draft };
   delete copy.riskBudget;
+  delete copy.thesis;
   return copy;
 }
 
@@ -840,6 +847,7 @@ export class TradingService {
       ...(rateQuoted ? { fxRateQuoted: true } : {}),
       // The review checks the loss at the stop again, at the prices of the moment.
       ...(sizing.mode === "risk" && risk ? { riskBudget: { stopLossPrice: sizing.stopLossPrice, budget: round(risk.budget, 2) } } : {}),
+      ...(journalText(intent.thesis) ? { thesis: journalText(intent.thesis)! } : {}),
     };
 
     // Validate what can be validated now. This remains read-only; no order is submitted.
@@ -1031,6 +1039,10 @@ export class TradingService {
 
   async prepareOrder(raw: OrderDraft): Promise<OrderPreview> {
     const draft = { ...raw, ticker: raw.ticker.trim() };
+    // The thesis is confirmed with the order and saved to the journal as shown.
+    const thesis = journalText(raw.thesis);
+    if (thesis) draft.thesis = thesis;
+    else delete draft.thesis;
     const current = await this.current(draft);
     const snapshotAt = new Date().toISOString();
     const market = await this.market(draft.environment, current.instrument);
@@ -1328,7 +1340,7 @@ export class TradingService {
   /** `quiet` leaves the activity log alone, for the scheduler's retries of a plan that is blocked. */
   async prepareBasket(raw: BasketRequest, options: { quiet?: boolean } = {}): Promise<BasketPreview> {
     // A basket checks its orders as ordinary ones: a risk-sized buy's budget is checked only when it is reviewed on its own.
-    const request = { ...raw, drafts: raw.drafts.map(withoutRiskBudget) };
+    const request = { ...raw, drafts: raw.drafts.map(basketLeg) };
     requireCredentials(this.deps.config, request.environment);
     if (!request.drafts.length || request.drafts.length > MAX_BASKET_LEGS) fail("INVALID_INPUT", `A basket needs 1 to ${MAX_BASKET_LEGS} orders`);
     const snapshot = await this.snapshot(request.environment);
@@ -1391,14 +1403,28 @@ export class TradingService {
     } catch (error) {
       console.error(JSON.stringify({ message: "TradePilot activity log failed", error: error instanceof Error ? error.message : String(error) }));
     }
-    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
+    const journalEntryId = await this.journal(draft, { order });
+    return { kind: "order_execution", environment: draft.environment, ok: true, status: "submitted", order, ...(journalEntryId ? { journalEntryId } : {}), message: `${draft.environment.toUpperCase()} order submitted to Trading 212` };
+  }
+
+  /** Save the order's thesis to the journal; a failure is logged and the order's result stands. */
+  private async journal(draft: OrderDraft, outcome: { order?: unknown; unconfirmed?: boolean }): Promise<string | undefined> {
+    if (!draft.thesis || !this.deps.afterOrder) return undefined;
+    try {
+      return await this.deps.afterOrder(draft, outcome);
+    } catch (error) {
+      console.error(JSON.stringify({ message: "TradePilot journal note failed", error: error instanceof Error ? error.message : String(error) }));
+      return undefined;
+    }
   }
 
   private async failedSubmission(draft: OrderDraft, baselineQuantity: number, error: unknown): Promise<OrderExecutionResult> {
     if (error instanceof ExecutionStatusUnknownError) {
       const verificationId = await this.createVerificationRecord({ kind: "order", environment: draft.environment, draft, baselineQuantity, createdAt: new Date().toISOString() });
       await this.recordActivity("order_status_unknown", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: "unknown" });
-      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), error: asStructuredError(error), message: error.message };
+      // The order may have gone through, so its reason is kept, marked unconfirmed and without an order id.
+      const journalEntryId = await this.journal(draft, { unconfirmed: true });
+      return { kind: "order_execution", environment: draft.environment, ok: false, status: "unknown", ...(verificationId ? { verificationId } : {}), ...(journalEntryId ? { journalEntryId } : {}), error: asStructuredError(error), message: error.message };
     }
     await this.recordActivity("order_rejected", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error), message: error instanceof Error ? error.message : String(error) };

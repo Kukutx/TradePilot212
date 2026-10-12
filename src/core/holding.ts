@@ -5,6 +5,7 @@ import type { HoldingDetail } from "../shared/holding.js";
 import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
 import type { InsightsService } from "./insights-service.js";
+import type { TradeJournal } from "./journal.js";
 import type { TargetAllocations } from "./targets.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 
@@ -12,6 +13,8 @@ const DAY_MS = 86_400_000;
 /** Fills and dividends listed; the dividend total covers the whole window. */
 const MAX_FILLS = 20;
 const MAX_DIVIDENDS = 12;
+/** The newest journal notes listed, plus any on a listed fill. */
+const MAX_NOTES = 20;
 /** Two pages of each history is at most four requests, well inside Trading 212's limits even with a few views open. */
 const HISTORY_PAGES = 2;
 
@@ -19,12 +22,13 @@ export interface HoldingDeps {
   trading: TradingService;
   insights: InsightsService;
   alerts: PriceAlerts;
+  journal: TradeJournal;
   targets: TargetAllocations;
 }
 
 /**
  * One instrument: the position (if held), its share of the account and saved target, open orders,
- * price alerts, market session, and the last 12 months of fills and dividends. A failed history read
+ * price alerts, journal notes, market session, and the last 12 months of fills and dividends. A failed history read
  * leaves the rest in place and says why.
  */
 export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvironment, query: string, now = new Date()): Promise<HoldingDetail> {
@@ -48,9 +52,10 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const total = dashboard.account?.totalValue;
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
-  const [targets, alerts, market, history] = await Promise.all([
+  const [targets, alerts, notes, market, history] = await Promise.all([
     deps.targets.get(environment),
     deps.alerts.list(environment),
+    deps.journal.list(environment, { ticker }),
     deps.insights.tryMarketStatus(environment, listed ?? position!.instrument, now),
     Promise.all([
       deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
@@ -58,6 +63,8 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ]).catch((error: unknown) => asStructuredError(error)),
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
+  const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])) : []);
+  const journal = notes.filter((note, index) => index < MAX_NOTES || (note.orderId !== undefined && filled.has(note.orderId)));
   return {
     kind: "holding",
     environment,
@@ -70,12 +77,15 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ...(target === undefined ? {} : { targetWeight: target }),
     orders: dashboard.orders.filter((order) => order.ticker === ticker),
     alerts: alerts.filter((alert) => alert.ticker === ticker),
+    journal,
+    ...(notes.length > journal.length ? { journalTotal: notes.length } : {}),
     ...(market ? { market } : {}),
     ...(Array.isArray(history)
       ? {
           history: {
             from: window.from.toISOString(),
             fills: history[0].fills.map((fill) => ({
+              ...(fill.orderId ? { orderId: fill.orderId } : {}),
               ...(fill.filledAt ? { filledAt: fill.filledAt } : {}),
               ...(fill.side ? { side: fill.side } : {}),
               ...(fill.type ? { type: fill.type } : {}),

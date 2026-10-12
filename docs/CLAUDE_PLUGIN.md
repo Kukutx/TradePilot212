@@ -41,7 +41,7 @@ The plugin ignores `.env` files in the folder you open Claude Code in, so anothe
 | `/tradepilot212:portfolio-review` | Performance, income, costs, and allocation for a period |
 | `/tradepilot212:daily-brief` | Read-only pre-market brief with short, medium, and long ideas |
 | `/tradepilot212:risk-check` | Concentration, currency exposure, cash, and risky pending orders |
-| `/tradepilot212:trade-journal` | Reviewing recent fills, fees, and FX |
+| `/tradepilot212:trade-journal` | Reviewing recent fills, fees, and FX against the reasons in your trade journal, and saving what you learn |
 | `/tradepilot212:order-followup` | Whether an order filled, what is still pending, and cancelling one after your confirmation |
 | `/tradepilot212:tax-year` | One tax year's sales, gains and losses, dividends, interest and costs, to prepare a tax return |
 | `/tradepilot212:rebalance` | Moving the portfolio toward target weights as one reviewed basket |

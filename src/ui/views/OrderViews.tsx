@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { PolicyCheck } from "../../shared/automation";
 import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
+import { MAX_JOURNAL_TEXT } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
 import { amount, dateTime, money, notional, qty, time } from "../lib/format";
@@ -141,6 +142,12 @@ export function OrderEditor({
           <Field label={t("referencePrice")} unit={currency} hint={t("referencePriceHint")}>{priceInput(referenceText, setReferenceText, "referencePrice")}</Field>
           {draft.type !== "market" && <Field label={t("validity")}>{(props) => <select {...props} value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select>}</Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
+          <div className="wideField">
+            <Field label={t("orderThesis")} hint={t("orderThesisHint")}>
+              {(props) => <textarea {...props} rows={2} maxLength={MAX_JOURNAL_TEXT} value={draft.thesis ?? ""}
+                onChange={(event) => onChange({ ...draft, thesis: event.target.value || undefined })} />}
+            </Field>
+          </div>
         </form>
         <div className="transactionFooter">
           <button type="button" className="secondaryButton" onClick={onClose}>{t("cancel")}</button>
@@ -220,6 +227,7 @@ export function OrderConfirmation({
           {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
           <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
+        {draft.thesis && <div className="journalText confirmationThesis"><span>{t("journalWhy")}</span><p>{draft.thesis}</p></div>}
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <PolicyList checks={preview.policy} t={t} locale={locale} />
         <div className="expiryLine">{t("tokenExpires")} · {time(preview.expiresAt, locale)}</div>

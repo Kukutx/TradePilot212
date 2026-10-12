@@ -81,6 +81,7 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "performance", group: "portfolio", tool: "get_portfolio_performance", args: {}, prompt: { en: "How has my portfolio performed this year?", zh: "我今年的收益怎么样？" } },
     { id: "income", group: "portfolio", tool: "get_income_summary", args: {}, prompt: { en: "What income did my portfolio pay?", zh: "我的组合派了多少股息和利息？" } },
     { id: "holding", group: "portfolio", tool: "get_holding_detail", args: { instrument: "NVDA" }, prompt: { en: "Show me everything about my NVIDIA position.", zh: "看看我的英伟达持仓详情。" } },
+    { id: "journal", group: "portfolio", tool: "get_holding_detail", args: { instrument: "AAPL" }, prompt: { en: "Why did I buy Apple, and how did it go?", zh: "我当初为什么买苹果？后来怎么样了？" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",
       args: { candidates: [
@@ -176,6 +177,23 @@ async function seedSample(): Promise<void> {
   }
 }
 
+/** Journal notes on the two newest sample Apple buys and one without an order, so the holding page shows the journal. */
+async function seedJournal(): Promise<void> {
+  const history = await client.callTool({ name: "get_trade_history", arguments: { ticker: "AAPL", period: "all" } });
+  const buys = ((history.structuredContent as { fills?: Array<{ orderId?: string; side?: string }> } | undefined)?.fills ?? [])
+    .filter((fill) => fill.orderId && String(fill.side).toUpperCase() === "BUY");
+  const [newest, earlier] = buys;
+  const notes: Record<string, unknown>[] = [
+    ...(earlier ? [{ orderId: earlier.orderId, thesis: "Started a position after the earnings beat; adding in thirds so one bad week does not set the price.", tags: ["earnings"] }] : []),
+    ...(newest ? [{ orderId: newest.orderId, thesis: "Services keep growing faster than hardware, and the pullback brought the price back to its 200-day average. Wrong if margins shrink next quarter.", review: "Margins held and the price recovered within weeks. Buying the pullback in two steps worked better than one order.", tags: ["pullback", "long-term"] }] : []),
+    { thesis: "Watching the next earnings: add if services growth stays above 10%.", tags: ["earnings", "watchlist"] },
+  ];
+  for (const note of notes) {
+    const outcome = await client.callTool({ name: "manage_trade_journal", arguments: { action: "add", instrument: "AAPL", ...note } });
+    if (outcome.isError) console.warn("Could not seed the journal:", JSON.stringify(outcome.content).slice(0, 200));
+  }
+}
+
 /** Six months of made-up daily values ending at today's sample value, so the performance tab shows its chart. */
 async function seedValueHistory(): Promise<void> {
   const account = await services.trading.accountSummary("demo");
@@ -206,7 +224,7 @@ try {
   console.error("The widget is not built. Run `pnpm build:widget` first, or start with `pnpm preview`, which builds it.");
   process.exit(1);
 }
-if (!demo) { await seedSample(); await seedValueHistory(); }
+if (!demo) { await seedSample(); await seedJournal(); await seedValueHistory(); }
 const views = await scenarios();
 const script = await hostScript();
 const page = await fs.readFile(path.join(here, "page.html"), "utf8");

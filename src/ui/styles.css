@@ -57,7 +57,7 @@ body { background: transparent; overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .48; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
 
 .appShell {
   width: 100%;
@@ -318,6 +318,34 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .alertActions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 2px; }
 .alertActions .linkButton { min-height: 32px; font-size: 12px; }
 .linkButton.danger, .linkButton.danger:hover { color: var(--tp-red); }
+/* Trade journal: a note per trade, the reason and the look back each under a quiet rule. */
+.journalList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.journalNote { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--tp-border); border-radius: 12px; }
+.journalNote.editing { padding: 0; border: 0; }
+.journalNote.editing .alertForm { margin: 0; }
+.journalHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.journalHead strong { font-size: 13px; font-weight: 720; }
+.journalOrder { color: var(--tp-muted); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.journalOrder.buy::before, .journalOrder.sell::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--tp-green); vertical-align: 1px; }
+.journalOrder.sell::before { background: var(--tp-red); }
+.journalHead .statusPill { margin-left: auto; }
+.journalText { display: grid; gap: 3px; padding-left: 10px; border-left: 2px solid var(--tp-blue); }
+.journalText.review { border-left-color: var(--tp-green); }
+.journalText > span { color: var(--tp-muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.journalText p { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.journalTags { display: flex; flex-wrap: wrap; gap: 6px; }
+.journalTags span { padding: 2px 8px; border-radius: 999px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.journalNote .alertActions { align-items: center; margin-top: -2px; }
+.journalEdited { margin-right: auto; }
+.historyList li.withNote { flex-wrap: wrap; }
+.fillNote { flex: 1 0 100%; display: -webkit-box; margin: -2px 0 0; padding-left: 10px; overflow: hidden; border-left: 2px solid var(--tp-blue); color: var(--tp-text); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.fillNote span { margin-right: 6px; color: var(--tp-muted); font-weight: 700; }
+.fillNoteForm { flex: 1 0 100%; }
+.fillNoteForm .alertForm { margin: 2px 0 0; }
+.inlineLink { padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.inlineLink:hover { color: var(--tp-text); }
+.inlineLink:disabled { cursor: default; opacity: .6; }
+.confirmationThesis { margin-top: 12px; }
 .panelTotal { color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .orderRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--tp-border); }
 .orderRow:last-child { border-bottom: 0; }
@@ -464,7 +492,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
 .field input, .field select { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
-.field input:hover, .field select:hover { border-color: var(--tp-border-strong); }
+.field textarea { display: block; width: 100%; min-width: 0; min-height: 66px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font: inherit; font-size: 14px; line-height: 1.45; resize: vertical; }
+.field input:hover, .field select:hover, .field textarea:hover { border-color: var(--tp-border-strong); }
+.wideField { grid-column: 1 / -1; min-width: 0; }
 .toggleField { display: flex; align-items: center; gap: 9px; align-self: end; min-height: 44px; color: var(--tp-muted); font-size: 12px; cursor: pointer; }
 .toggleField input { position: absolute; opacity: 0; pointer-events: none; }
 .toggleTrack { width: 32px; height: 19px; padding: 2px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--tp-border-strong); transition: background .16s ease; }
@@ -549,7 +579,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .activityRow time { grid-column: 2; }
   .resolutionCard { grid-template-columns: 1fr; align-items: start; }
   .formGrid { grid-template-columns: 1fr; }
-  .field input, .field select { font-size: 16px; }
+  .field input, .field select, .field textarea { font-size: 16px; }
   .transactionStage { padding: 0; }
   .transactionPanel { width: 100%; min-height: 0; padding: 18px 16px; border-radius: 16px; box-shadow: none; }
   .transactionHeader { margin-bottom: 16px; }
@@ -800,7 +830,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .fieldControl input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .fieldControl input[type="number"]::-webkit-inner-spin-button, .fieldControl input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .fieldUnit { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--tp-muted); font-size: 13px; font-weight: 700; pointer-events: none; }
-.field.invalid input, .field.invalid select { border-color: var(--tp-red); }
+.field.invalid input, .field.invalid select, .field.invalid textarea { border-color: var(--tp-red); }
 .fieldError { display: flex; align-items: center; gap: 5px; color: var(--tp-red); font-size: 12px; font-weight: 650; }
 .fieldError .icon { width: 14px; height: 14px; }
 .fieldHint { color: var(--tp-muted); font-size: 12px; line-height: 1.4; }

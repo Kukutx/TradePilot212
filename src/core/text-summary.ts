@@ -3,6 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
+import type { JournalEntry, JournalPayload } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
@@ -43,6 +44,18 @@ function draftLine(draft: OrderDraft, instrument?: Instrument): string {
   const name = instrument?.name && instrument.name !== draft.ticker ? ` (${instrument.name})` : "";
   const validity = draft.timeValidity ? ` ${draft.timeValidity}` : "";
   return `${draft.side.toUpperCase()} ${num(draft.quantity, 8)} ${draft.ticker}${name} ${draft.type.replace("_", "-")}${price}${stop}${validity}${draft.extendedHours ? " extended hours" : ""}`;
+}
+
+/** Text written by the user, on one line and shortened, so a long note cannot crowd out the rest. */
+function quoted(text: string, max = 160): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return `"${line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line}"`;
+}
+
+function journalLine(entry: JournalEntry, withTicker = true): string {
+  const order = entry.order ? ` ${entry.order.side.toUpperCase()} ${num(entry.order.quantity, 8)} ${entry.order.type.replace("_", "-")}${entry.order.unconfirmed ? " (result unclear when sent)" : ""}` : "";
+  return `${entry.id} ${day(entry.createdAt)}${withTicker ? ` ${entry.ticker}` : ""}${entry.orderId ? ` order ${entry.orderId}` : ""}${order}`
+    + `${entry.thesis ? `; why: ${quoted(entry.thesis)}` : ""}${entry.review ? `; review: ${quoted(entry.review)}` : ""}${entry.tags?.length ? `; tags ${entry.tags.join(", ")}` : ""}`;
 }
 
 function noticesLines(notices: OrderNotice[] | undefined): string[] {
@@ -238,6 +251,7 @@ function holding(data: HoldingDetail): string[] {
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
+    ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...(history
       ? [
           ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
@@ -270,6 +284,7 @@ function income(data: IncomeSummary): string[] {
 }
 
 interface TradeFill {
+  orderId?: string;
   ticker?: string;
   name?: string;
   side?: string;
@@ -285,9 +300,9 @@ interface TradeFill {
   costItems?: Array<{ name: string; amount: number; currency?: string }>;
 }
 
-interface UnfilledOrder { ticker?: string; name?: string; side?: string; type?: string; status?: string; createdAt?: string; quantity?: number; value?: number; limitPrice?: number; stopPrice?: number; priceCurrency?: string }
+interface UnfilledOrder { orderId?: string; ticker?: string; name?: string; side?: string; type?: string; status?: string; createdAt?: string; quantity?: number; value?: number; limitPrice?: number; stopPrice?: number; priceCurrency?: string }
 
-function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; truncated?: boolean }): string[] {
+function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; journal?: JournalEntry[]; truncated?: boolean }): string[] {
   const fills = data.fills;
   const sum = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
   const count = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
@@ -298,9 +313,10 @@ function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; tr
   return [
     ...(fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num(sum("BUY"))}, ${count("SELL")} sells ${num(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."]),
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}`
-      + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}`, 50),
+      + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`
       + `${order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`}${order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== undefined || order.stopPrice !== undefined) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : []),
+    ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
     ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []),
   ];
 }
@@ -348,6 +364,7 @@ function tokenLine(token: string, expiresAt: string, environment: TradingEnviron
 function orderPreview(data: OrderPreview): string[] {
   return [
     `Ready to send to ${env(data.draft.environment)}: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === undefined ? "" : ` ≈ ${money(data.estimatedNotional, data.estimatedNotionalCurrency)}`}${data.estimatedAccountNotional === undefined ? "" : ` (about ${money(data.estimatedAccountNotional, data.accountCurrency)})`}.`,
+    ...(data.draft.thesis ? [`Why (saved to the journal once sent): ${quoted(data.draft.thesis)}.`] : []),
     ...(data.availableCash === undefined ? [] : [`Available cash ${money(data.availableCash, data.accountCurrency)}.`]),
     ...noticesLines(data.notices),
     ...policyLines(data.policy),
@@ -380,6 +397,7 @@ function orderExecution(data: OrderExecutionResult): string[] {
   return [
     ...(order && typeof order === "object" && order.id !== undefined ? [`Trading 212 order ${orderLine(order)}.`] : []),
     ...(data.status === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : []),
+    ...(data.journalEntryId ? [`The reason was saved to the trade journal as ${data.journalEntryId}.`] : []),
   ];
 }
 
@@ -504,7 +522,8 @@ export function describePayload(data: unknown): string {
     case "basket_execution": lines = basketExecution(payload as unknown as BasketExecutionResult); break;
     case "order_draft": {
       const draft = payload as unknown as OrderDraftPayload;
-      lines = [...credentialsLine(draft.draft.environment, draft.credentials), `Draft: ${draftLine(draft.draft, draft.resolvedInstrument)}${draft.draft.referencePrice ? `, reference price ${num(draft.draft.referencePrice, 6)} ${draft.resolvedInstrument?.currencyCode ?? ""}`.trimEnd() : ""}.`];
+      lines = [...credentialsLine(draft.draft.environment, draft.credentials), `Draft: ${draftLine(draft.draft, draft.resolvedInstrument)}${draft.draft.referencePrice ? `, reference price ${num(draft.draft.referencePrice, 6)} ${draft.resolvedInstrument?.currencyCode ?? ""}`.trimEnd() : ""}.`,
+        ...(draft.draft.thesis ? [`Why: ${quoted(draft.draft.thesis)}.`] : [])];
       break;
     }
     case "order_preview": lines = orderPreview(payload as unknown as OrderPreview); break;
@@ -532,6 +551,8 @@ export function describePayload(data: unknown): string {
     case "pie_change_result": lines = pieChange(payload as unknown as PieChangeDraftPayload | PieChangePreview | PieChangeResult); break;
     case "price_alerts": lines = rows((payload.alerts as PriceAlert[]) ?? [], (alert) => alertLine(alert)); break;
     case "price_alert": lines = payload.alert ? [alertLine(payload.alert as PriceAlert)] : []; break;
+    case "trade_journal": lines = rows((payload as unknown as JournalPayload).entries, (entry) => journalLine(entry)); break;
+    case "journal_entry": lines = payload.entry ? [journalLine(payload.entry as JournalEntry)] : []; break;
     case "trading_policy": lines = policy(payload as unknown as Parameters<typeof policy>[0]); break;
     case "history_export": lines = exports(payload as Parameters<typeof exports>[0]); break;
     case "activity": lines = rows((payload.activity as ActivityEvent[]) ?? [], activityLine); break;

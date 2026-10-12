@@ -86,6 +86,8 @@ Trading 212 write
 
 The order editor shows both the original sizing rule and the calculated quantity. If the quantity is edited manually, the UI marks it as changed and offers a restore action for the calculated value.
 
+An order can carry a `thesis`, why you are making it. It is shown on the review and never sent to Trading 212; once the order is accepted it is saved to the trade journal with the order id ([JOURNAL.md](./JOURNAL.md)).
+
 ## Price checks
 
 A Limit or Stop price ten times above or below the last price is blocked (`PRICE_OUT_OF_RANGE`), because that is almost always a unit slip, such as pounds typed for an instrument quoted in pence. Smaller surprises are notes on the review:

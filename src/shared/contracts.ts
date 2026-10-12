@@ -30,6 +30,7 @@ export type TradePilotErrorCode =
   | "PLAN_NOT_FOUND"
   | "PIE_NOT_FOUND"
   | "ALERT_NOT_FOUND"
+  | "JOURNAL_ENTRY_NOT_FOUND"
   | "BROKER_RATE_LIMITED"
   | "BROKER_REQUEST_FAILED"
   | "EXECUTION_STATUS_UNKNOWN"
@@ -256,6 +257,8 @@ export interface OrderDraft {
    * budget (account currency). The review checks the loss again at the prices of the moment.
    */
   riskBudget?: { stopLossPrice: number; budget: number };
+  /** Why you are making this trade. Never sent to Trading 212; saved to the trade journal once the order is sent. */
+  thesis?: string;
 }
 
 export type OrderSizing =
@@ -285,6 +288,8 @@ export interface OrderIntent {
   /** Instrument-currency units per 1 account-currency unit, for an instrument quoted in a currency you hold nothing in. */
   fxRate?: number;
   fxRateAt?: string;
+  /** Why you are making this trade; it travels with the draft and is saved to the trade journal once sent. */
+  thesis?: string;
 }
 
 export interface ResolvedOrderIntent {
@@ -396,6 +401,8 @@ export interface OrderExecutionResult {
   message: string;
   error?: StructuredError;
   verificationId?: string;
+  /** The trade journal note the order's thesis was saved to. */
+  journalEntryId?: string;
 }
 
 export type ExecutionVerificationStatus =

@@ -670,6 +670,25 @@ describe("currencies, uncertain results and Live confirmations", () => {
     await expect(service.prepareOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() })).rejects.toThrow(/order 2 today; the daily limit is 1/);
   });
 
+  it("keeps the thesis of an order whose result is unclear, marked unconfirmed, and never lets the journal fail an order", async () => {
+    const broken = () => new ReadableStream({ start(controller) { controller.error(new Error("connection reset")); } });
+    const policy = createConfig({ POLICY_APPLY_TO: "demo", POLICY_MAX_POSITION_WEIGHT: "0" }).policy;
+    const calls: Array<{ thesis?: string; unconfirmed?: boolean; order?: unknown }> = [];
+    const unclear = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: fxFetch({ writeBody: broken }),
+      afterOrder: async (draft, outcome) => { calls.push({ ...(draft.thesis ? { thesis: draft.thesis } : {}), ...outcome }); return "jrn_unclear"; } });
+    const order = { environment: "demo" as const, ticker: "AAPL_US_EQ", side: "buy" as const, type: "market" as const, quantity: 1, referencePrice: 216, referencePriceAt: new Date().toISOString() };
+    const result = await unclear.executeOrder((await unclear.prepareOrder({ ...order, thesis: "why" })).token);
+    expect(result).toMatchObject({ status: "unknown", journalEntryId: "jrn_unclear" });
+    expect(calls).toEqual([{ thesis: "why", unconfirmed: true }]);
+
+    // A journal that throws is logged; the accepted order still reads as submitted.
+    const failing = new TradingService({ config: { ...config(), policy }, store: new MemoryStateStore(), fetcher: fxFetch(),
+      afterOrder: async () => { throw new Error("store unavailable"); } });
+    const sent = await failing.executeOrder((await failing.prepareOrder({ ...order, thesis: "why" })).token);
+    expect(sent.status).toBe("submitted");
+    expect(sent).not.toHaveProperty("journalEntryId");
+  });
+
   it("needs the second confirmation to cancel a Live order and keeps the token until then", async () => {
     const writes: string[] = [];
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ writes }) });
