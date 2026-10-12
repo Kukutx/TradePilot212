@@ -62,6 +62,8 @@ export interface HoldingDetail {
   /** The last 12 months of fills and dividends; absent when the history could not be read. */
   history?: {
     from: string;
+    /** Where the dividends are read from: the first day of this month a year ago, when earlier than `from`. */
+    dividendsFrom?: string;
     fills: HoldingFill[];
     /** Fills older than the 20 listed, up to 200 in all, with only what the price chart marks. */
     olderFills?: Array<{ filledAt: string; side: "BUY" | "SELL"; quantity: number; price: number }>;
@@ -74,13 +76,13 @@ export interface HoldingDetail {
     /** The same for dividends; dividendTotal and dividendCount then cover only the newer part of the window. */
     dividendsTruncated: boolean;
     /**
-     * The next 12 months' expected payments of a holding that paid in the window, at the current quantity, in the
+     * The next year's expected payments of a holding that paid since `dividendsFrom`, at the current quantity, in the
      * account currency: its usual spacing stepped on from its last payment. `on` (YYYY-MM-DD) is about when; one due
      * this month and not paid yet has an `on` already passed.
      */
     nextDividends?: Array<{ on: string; amount: number }>;
     /** Payments a year, from their spacing; absent from a single payment. */
-    dividendFrequency?: 12 | 4 | 2 | 1;
+    dividendFrequency?: 52 | 26 | 12 | 4 | 2 | 1;
   };
   /** Why the history is missing, e.g. Trading 212's rate limit; everything else is still current. */
   historyProblem?: string;

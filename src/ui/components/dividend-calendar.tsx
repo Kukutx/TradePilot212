@@ -10,6 +10,7 @@ import { fill, type Translator } from "../lib/messages";
 import { ViewSwitch } from "./charts";
 
 type Forward = NonNullable<IncomeSummary["forwardAnnual"]>;
+type Month = NonNullable<Forward["calendar"]>[number];
 
 /** Payments listed before "show all". */
 const LISTED = 8;
@@ -22,9 +23,12 @@ const monthName = (key: string, locale: SupportedLocale, style: "long" | "short"
   }).format(date);
 };
 
-export function DividendCalendar({ forward, today, currency, book, locale, t }: {
-  forward: Forward;
-  /** The summary's end (ISO): a payment expected before it this month is due and not paid yet. */
+export function DividendCalendar({ calendar, upcoming, total, today, currency, book, locale, t }: {
+  calendar: Month[];
+  upcoming: NonNullable<Forward["upcoming"]>;
+  /** The expected total over the next 12 months, which the calendar's months can fall short of. */
+  total: number;
+  /** When the summary was made (ISO): a payment expected before that day is due and not paid yet. */
   today: string;
   currency: string;
   book?: InstrumentBook;
@@ -34,14 +38,13 @@ export function DividendCalendar({ forward, today, currency, book, locale, t }: 
   const [asTable, setAsTable] = useState(false);
   const [all, setAll] = useState(false);
   const m = (value: number) => money(value, currency, locale);
-  const { calendar, upcoming } = forward;
   const top = Math.max(...calendar.map((month) => month.paid + month.expected), 0);
   const largest = calendar.reduce<(typeof calendar)[number] | undefined>((best, month) => (month.paid + month.expected > (best ? best.paid + best.expected : 0) ? month : best), undefined);
   const paidAny = calendar.some((month) => month.paid > 0);
   const expected = upcoming.reduce((sum, payment) => sum + payment.amount, 0);
-  const describe = (month: Forward["calendar"][number]) => {
+  const describe = (month: Month) => {
     const name = monthName(month.month, locale, "long");
-    if (month.paid > 0) return fill(t("calendarMonthPaid"), { month: name, paid: m(month.paid), expected: m(month.expected) });
+    if (month.paid > 0) return fill(t(month.expected > 0 ? "calendarMonthPaid" : "calendarMonthPaidOnly"), { month: name, paid: m(month.paid), expected: m(month.expected) });
     return fill(t(month.expected > 0 ? "calendarMonth" : "calendarMonthNone"), { month: name, expected: m(month.expected) });
   };
   const day = today.slice(0, 10);
@@ -75,8 +78,9 @@ export function DividendCalendar({ forward, today, currency, book, locale, t }: 
                   <span className="columnValue">{month === largest ? m(sum) : ""}</span>
                   {sum > 0 && (
                     <span className="calendarStack" style={{ height: `${Math.round(Math.max(2, (sum / top) * 100) * 10) / 10}%` }}>
-                      {month.expected > 0 && <span className="calendarExpected" style={{ flexGrow: month.expected }} />}
-                      {month.paid > 0 && <span className="calendarPaid" style={{ flexGrow: month.paid }} />}
+                      {/* Shares of the column, which add up to 1 whatever the amounts. */}
+                      {month.expected > 0 && <span className="calendarExpected" style={{ flexGrow: Math.round((month.expected / sum) * 1000) / 1000 }} />}
+                      {month.paid > 0 && <span className="calendarPaid" style={{ flexGrow: Math.round((month.paid / sum) * 1000) / 1000 }} />}
                     </span>
                   )}
                   <span className="columnLabel">{monthName(month.month, locale, "column")}</span>
@@ -90,6 +94,8 @@ export function DividendCalendar({ forward, today, currency, book, locale, t }: 
           {paidAny && <span><i className="calendarPaid" aria-hidden="true" />{t("calendarPaidThisMonth")}</span>}
           <span><i className="calendarExpected" aria-hidden="true" />{fill(t("calendarExpectedTotal"), { amount: m(expected) })}</span>
         </p>
+        {/* A payment made earlier this month comes again after the calendar's last month. */}
+        {total - expected > 0.005 && <p className="panelNote calendarShort">{fill(t("calendarShort"), { total: m(total) })}</p>}
       </figure>
       {upcoming.length > 0 && (
         <div className="upcomingDividends">

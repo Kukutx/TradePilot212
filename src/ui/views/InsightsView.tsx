@@ -414,9 +414,10 @@ export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
           <Metric label={t("interest")} value={m(data.interest)} />
         </div>
       </section>
-      {data.forwardAnnual && (
+      {data.forwardAnnual?.calendar && data.forwardAnnual.upcoming && (
         <section className="dataPanel">
-          <DividendCalendar forward={data.forwardAnnual} today={data.period.to} currency={currency} book={book} locale={locale} t={t} />
+          <DividendCalendar calendar={data.forwardAnnual.calendar} upcoming={data.forwardAnnual.upcoming} total={data.forwardAnnual.total} today={data.timestamp}
+            currency={currency} book={book} locale={locale} t={t} />
         </section>
       )}
       <section className="dataPanel">

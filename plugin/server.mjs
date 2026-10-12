@@ -32702,10 +32702,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round13 = 0;
+    let round12 = 0;
     while (true) {
-      round13 += 1;
-      if (round13 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round12 += 1;
+      if (round12 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -36933,8 +36933,7 @@ var TradingService = class {
 
 // src/core/dividends.ts
 var DAY = 864e5;
-var SAME_PAYMENT_DAYS = 10;
-var round4 = (value) => Math.round(value * 100) / 100;
+var SAME_PAYDAY_DAYS = 3;
 function addMonths(at, months) {
   const date5 = new Date(at);
   const month = date5.getUTCMonth() + months;
@@ -36945,45 +36944,89 @@ var monthStart = (at) => {
   const date5 = new Date(at);
   return Date.UTC(date5.getUTCFullYear(), date5.getUTCMonth(), 1);
 };
-function dividendSchedule(paid) {
-  const payments = [];
-  for (const item of [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at)) {
-    const previous = payments[payments.length - 1];
-    if (previous && item.at - previous.at <= SAME_PAYMENT_DAYS * DAY) previous.perShare += item.perShare;
-    else payments.push({ ...item });
+var dayStart = (at) => Math.floor(at / DAY) * DAY;
+var monthEnd = (at) => {
+  const date5 = new Date(at);
+  return Date.UTC(date5.getUTCFullYear(), date5.getUTCMonth() + 1, 0);
+};
+var scheduleStart = (now) => addMonths(monthStart(now), -12);
+function paydayPerShare(entries) {
+  if (entries.length === 1) return entries[0].perShare;
+  const quantities = new Set(entries.map((entry) => entry.quantity));
+  if (quantities.size > 1 && entries.every((entry) => entry.amount !== void 0 && entry.quantity)) {
+    return entries.reduce((sum, entry) => sum + entry.amount, 0) / entries.reduce((sum, entry) => sum + entry.quantity, 0);
   }
+  return entries.reduce((sum, entry) => sum + entry.perShare, 0);
+}
+function dividendSchedule(paid) {
+  const groups = [];
+  for (const item of [...paid].filter((entry) => Number.isFinite(entry.at) && Number.isFinite(entry.perShare)).sort((a, b) => a.at - b.at)) {
+    const group = groups[groups.length - 1];
+    if (group && item.at - group[group.length - 1].at <= SAME_PAYDAY_DAYS * DAY) group.push(item);
+    else groups.push([item]);
+  }
+  const days = [];
+  for (const group of groups) {
+    const perShare = paydayPerShare(group);
+    if (perShare > 0) days.push({ at: group[0].at, perShare });
+    else if (days.length) days[days.length - 1].perShare += perShare;
+  }
+  const payments = days.filter((day2) => day2.perShare > 0);
   if (!payments.length) return void 0;
-  const sum = payments.reduce((total, item) => total + item.perShare, 0);
   const gaps = payments.slice(1).map((item, index) => (item.at - payments[index].at) / DAY).sort((a, b) => a - b);
   const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : void 0;
-  const frequency = gap === void 0 ? void 0 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+  const frequency = gap === void 0 ? void 0 : gap < 10 ? 52 : gap < 21 ? 26 : gap < 45 ? 12 : gap < 135 ? 4 : gap < 270 ? 2 : 1;
+  const count = frequency ?? 1;
+  const recent = payments.slice(-count);
+  const sum = recent.reduce((total, item) => total + item.perShare, 0);
+  return { payments, ...frequency ? { frequency } : {}, annualPerShare: recent.length < count ? sum * count / recent.length : sum };
+}
+function stepper(last, frequency) {
+  const from = dayStart(last);
+  if (frequency >= 26) {
+    const days = 364 / frequency;
+    return { step: (k) => from + k * days * DAY, days, yearBefore: (at) => at - 364 * DAY };
+  }
+  const months = 12 / frequency;
+  const atMonthEnd = monthEnd(from) === from;
   return {
-    payments,
-    ...frequency ? { frequency } : {},
-    annualPerShare: frequency && payments.length < frequency ? sum * frequency / payments.length : sum
+    step: (k) => atMonthEnd ? monthEnd(addMonths(monthStart(from), k * months)) : addMonths(from, k * months),
+    days: months * 30.44,
+    yearBefore: (at) => addMonths(at, -12)
   };
 }
-function expectedPayments(schedule, quantity, from, until) {
-  const annual = schedule.annualPerShare * quantity;
+function splitCents(total, shares) {
+  const cents = shares.map((share3) => Math.floor(share3 * 100 + 1e-9));
+  let left = Math.round(total * 100) - cents.reduce((sum, value) => sum + value, 0);
+  const order = shares.map((share3, index) => ({ index, rest: share3 * 100 - cents[index] })).sort((a, b) => b.rest - a.rest);
+  for (const { index } of order) {
+    if (left <= 0) break;
+    cents[index] = cents[index] + 1;
+    left -= 1;
+  }
+  return cents.map((value) => value / 100);
+}
+function expectedPayments(schedule, quantity, from, until = Number.POSITIVE_INFINITY) {
+  const annual = Math.round(schedule.annualPerShare * quantity * 100) / 100;
   if (!(annual > 0)) return [];
   const count = schedule.frequency ?? 1;
-  const step = 12 / count;
-  const last = schedule.payments[schedule.payments.length - 1].at;
+  const { step, days, yearBefore } = stepper(schedule.payments[schedule.payments.length - 1].at, schedule.frequency ?? 1);
   let first = 1;
-  while (addMonths(last, first * step) < from) first++;
-  const dates = Array.from({ length: count }, (_, index) => addMonths(last, (first + index) * step));
+  while (step(first) < from) first++;
+  const dates = Array.from({ length: count }, (_, index) => step(first + index));
   const average = schedule.payments.reduce((total2, item) => total2 + item.perShare, 0) / schedule.payments.length;
-  const halfStep = step * 15 * DAY;
   const weights = dates.map((at) => {
-    const yearBefore = addMonths(at, -12);
+    const before = yearBefore(at);
     let match;
     for (const item of schedule.payments) {
-      if (Math.abs(item.at - yearBefore) <= halfStep && (!match || Math.abs(item.at - yearBefore) < Math.abs(match.at - yearBefore))) match = item;
+      const distance = Math.abs(dayStart(item.at) - before);
+      if (distance <= days / 2 * DAY && (!match || distance < Math.abs(dayStart(match.at) - before))) match = item;
     }
-    return Math.max(0, match?.perShare ?? average);
+    return match?.perShare ?? average;
   });
   const total = weights.reduce((sum, weight2) => sum + weight2, 0);
-  return dates.flatMap((at, index) => at < until ? [{ at, amount: round4(total > 0 ? annual * weights[index] / total : annual / count) }] : []);
+  const amounts = splitCents(annual, weights.map((weight2) => annual * weight2 / total));
+  return dates.flatMap((at, index) => at < until && amounts[index] > 0 ? [{ at, amount: amounts[index] }] : []);
 }
 
 // src/core/analytics.ts
@@ -36994,12 +37037,12 @@ var DEFAULT_ALLOCATION_LIMITS = {
   cashLowWeight: 0.02,
   maxCurrencyWeight: 0.85
 };
-var round5 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round4 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var ratio = (part, whole) => whole > 0 ? part / whole : 0;
 function sumBy(items, key, amount2) {
   const totals = /* @__PURE__ */ new Map();
   for (const item of items) totals.set(key(item), (totals.get(key(item)) ?? 0) + amount2(item));
-  return [...totals].map(([k, v]) => ({ key: k, amount: round5(v) })).sort((a, b) => b.amount - a.amount);
+  return [...totals].map(([k, v]) => ({ key: k, amount: round4(v) })).sort((a, b) => b.amount - a.amount);
 }
 function positionValue(position) {
   const wallet = position.walletImpact;
@@ -37037,7 +37080,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   const accountCurrency = (account.currency ?? "").toUpperCase();
   const exposure = new Map(holdingCurrencies.map((item) => [item.k, item.value]));
   if (cash > 0 && accountCurrency) exposure.set(accountCurrency, (exposure.get(accountCurrency) ?? 0) + cash);
-  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round5(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
+  const byCurrency = [...exposure].map(([currency, value]) => ({ currency, value: round4(value), weight: ratio(value, totalValue) })).sort((a, b) => b.value - a.value);
   const byType = group((item) => item.type ?? "UNKNOWN").map(({ k, value, weight: weight2 }) => ({ type: k, value, weight: weight2 }));
   const investedWeights = holdings.map((item) => ratio(item.value, investedValue));
   const herfindahl = investedWeights.reduce((sum, w) => sum + w * w, 0);
@@ -37045,7 +37088,7 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
   const top5Weight = investedWeights.slice(0, 5).reduce((sum, w) => sum + w, 0);
   const cashWeight = ratio(cash, totalValue);
   const flags = [];
-  const pct2 = (value) => `${round5(value * 100, 1)}%`;
+  const pct2 = (value) => `${round4(value * 100, 1)}%`;
   if (holdings[0] && largestWeight > limits.maxSingleWeight)
     flags.push({ code: "SINGLE_HOLDING_OVER_LIMIT", message: `${holdings[0].ticker} is ${pct2(largestWeight)} of invested value (limit ${pct2(limits.maxSingleWeight)}).` });
   if (holdings.length > 5 && top5Weight > limits.maxTop5Weight)
@@ -37061,15 +37104,15 @@ function analyzeAllocation(environment, account, positions, instruments = [], li
     kind: "allocation",
     environment,
     accountCurrency: account.currency ?? "",
-    totalValue: round5(totalValue),
-    investedValue: round5(investedValue),
-    cash: round5(cash),
-    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round5(account.cash.availableToTrade) } : {},
+    totalValue: round4(totalValue),
+    investedValue: round4(investedValue),
+    cash: round4(cash),
+    ...typeof account.cash?.availableToTrade === "number" ? { availableCash: round4(account.cash.availableToTrade) } : {},
     cashWeight,
-    holdings: holdings.map((item) => ({ ...item, value: round5(item.value) })),
+    holdings: holdings.map((item) => ({ ...item, value: round4(item.value) })),
     byCurrency,
     byType,
-    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round5(1 / herfindahl, 1) : 0 },
+    concentration: { largestWeight, top5Weight, herfindahl, effectiveHoldings: herfindahl > 0 ? round4(1 / herfindahl, 1) : 0 },
     flags,
     timestamp: now.toISOString()
   };
@@ -37135,9 +37178,9 @@ function timeWeightedReturn(points2, flows) {
       growth *= 1 + gain / invested;
     }
     if (!(growth > 0)) return void 0;
-    series.push({ date: end.point.date, return: round5(growth - 1, 6) });
+    series.push({ date: end.point.date, return: round4(growth - 1, 6) });
   }
-  return { return: round5(growth - 1, 6), from: readings[0].point.date, to: readings[readings.length - 1].point.date, netFlows: round5(netFlows), series };
+  return { return: round4(growth - 1, 6), from: readings[0].point.date, to: readings[readings.length - 1].point.date, netFlows: round4(netFlows), series };
 }
 function summarizePerformance(input2) {
   const { window } = input2;
@@ -37239,32 +37282,33 @@ function summarizePerformance(input2) {
     accountCurrency: input2.account.currency ?? "",
     period: { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() },
     coverage: { orders: fills.length, dividends: dividends.length, transactions: transactions.length, truncated: input2.truncated },
-    contributions: { deposits: round5(deposits), withdrawals: round5(withdrawals), net: round5(net) },
-    income: { dividends: round5(dividendTotal), interest: round5(interest) },
-    costs: { total: round5(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
-    realizedProfitLoss: round5(realized),
+    contributions: { deposits: round4(deposits), withdrawals: round4(withdrawals), net: round4(net) },
+    income: { dividends: round4(dividendTotal), interest: round4(interest) },
+    costs: { total: round4(costTotal), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    realizedProfitLoss: round4(realized),
     ...input2.account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealizedProfitLoss: input2.account.investments.unrealizedProfitLoss },
     ...currentValue === void 0 ? {} : { currentValue },
     ...measurable && net > 0 ? { simpleReturn: (currentValue - net) / net } : {},
     ...annualized ? { annualizedReturn: Math.round(annualized.rate * 1e4) / 1e4, annualizedSince: annualized.since } : {},
-    trades: { buys, sells, turnover: round5(turnover) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round5(row.realizedProfitLoss), dividends: round5(row.dividends), costs: round5(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
+    trades: { buys, sells, turnover: round4(turnover) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, realizedProfitLoss: round4(row.realizedProfitLoss), dividends: round4(row.dividends), costs: round4(row.costs) })).sort((a, b) => Math.abs(b.realizedProfitLoss) + b.dividends - (Math.abs(a.realizedProfitLoss) + a.dividends)),
     ...input2.values && input2.values.length >= 2 ? { valueHistory: input2.values } : {},
     ...timeWeighted ? { timeWeighted } : {},
     notes,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function forwardDividends(dividends, positions, to) {
-  const yearAgo = new Date(to.getTime() - 365 * 864e5);
+function forwardDividends(dividends, positions, to, now = to) {
+  const read = { from: new Date(scheduleStart(to.getTime())), to };
   const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
-    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity }]);
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
+    payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
   }
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
+  const current = start === monthStart(now.getTime());
   const byTicker = [];
   const upcoming = [];
   let value = 0;
@@ -37272,24 +37316,24 @@ function forwardDividends(dividends, positions, to) {
     const ticker = position.instrument?.ticker;
     value += positionValue(position);
     const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : void 0;
-    if (!ticker || !schedule?.annualPerShare || !(position.quantity > 0)) continue;
-    byTicker.push({ key: ticker, amount: round5(schedule.annualPerShare * position.quantity) });
-    upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
+    byTicker.push({ key: ticker, amount: round4(schedule.annualPerShare * position.quantity) });
+    if (current) upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
   }
   byTicker.sort((a, b) => b.amount - a.amount);
   upcoming.sort((a, b) => a.at - b.at || b.amount - a.amount);
-  const total = round5(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  const total = round4(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  const forward = { total, byTicker, yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null };
+  if (!current) return forward;
   const monthKey2 = (at) => new Date(at).toISOString().slice(0, 7);
   const paid = dividends.filter((item) => inWindow(item.paidOn, { from: new Date(start), to })).reduce((sum, item) => sum + (item.amount ?? 0), 0);
   const calendar = Array.from({ length: 12 }, (_, index) => {
     const month = monthKey2(addMonths(start, index));
     const expected = upcoming.filter((payment) => monthKey2(payment.at) === month).reduce((sum, payment) => sum + payment.amount, 0);
-    return { month, paid: index === 0 ? round5(paid) : 0, expected: round5(expected) };
+    return { month, paid: index === 0 ? round4(paid) : 0, expected: round4(expected) };
   });
   return {
-    total,
-    byTicker,
-    yieldOnValue: value > 0 ? Math.round(total / value * 1e4) / 1e4 : null,
+    ...forward,
     calendar,
     upcoming: upcoming.map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }))
   };
@@ -37309,13 +37353,13 @@ function summarizeIncome(input2) {
     environment: input2.environment,
     accountCurrency: input2.accountCurrency,
     period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
-    total: round5(dividends + interest),
-    dividends: round5(dividends),
-    interest: round5(interest),
+    total: round4(dividends + interest),
+    dividends: round4(dividends),
+    interest: round4(interest),
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
-    trailing12Months: round5(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to) } : {},
+    trailing12Months: round4(trailing.reduce((sum, item) => sum + item.amount, 0)),
+    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to, input2.now ?? input2.window.to) } : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -37456,10 +37500,10 @@ function summarizeTaxYear(input2) {
     lastDay: localDay(window.to.getTime(), timeZone),
     period: { from: window.from.toISOString(), to: window.to.toISOString() },
     ended,
-    disposals: { count, proceeds: round5(proceeds), gains: round5(gains), losses: round5(losses), net: round5(gains + losses) },
-    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round5(row.proceeds), realizedProfitLoss: round5(row.realizedProfitLoss) })).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
-    income: { dividends: round5(dividends), interest: round5(interest) },
-    costs: { total: round5(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    disposals: { count, proceeds: round4(proceeds), gains: round4(gains), losses: round4(losses), net: round4(gains + losses) },
+    byTicker: [...perTicker].map(([ticker, row]) => ({ ticker, disposals: row.disposals, proceeds: round4(row.proceeds), realizedProfitLoss: round4(row.realizedProfitLoss) })).sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
+    income: { dividends: round4(dividends), interest: round4(interest) },
+    costs: { total: round4(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
     truncated: input2.truncated,
     notes,
     timestamp: now.toISOString()
@@ -37590,7 +37634,7 @@ var InsightsService = class {
   async income(environment, window, maxPages) {
     const client = this.client(environment);
     const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
-    const yearAgo = new Date(window.to.getTime() - 365 * 864e5);
+    const yearAgo = new Date(Math.min(window.to.getTime() - 365 * 864e5, scheduleStart(window.to.getTime())));
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
@@ -37601,7 +37645,8 @@ var InsightsService = class {
       dividends: dividends.items,
       transactions: transactions.items,
       positions,
-      truncated: dividends.truncated || transactions.truncated
+      truncated: dividends.truncated || transactions.truncated,
+      now: /* @__PURE__ */ new Date()
     });
   }
   /**
@@ -38244,7 +38289,7 @@ var DEFAULT_PIE_DETAILS = 10;
 var LIST_CACHE_MS = 3e4;
 var DETAIL_CACHE_MS = 6e4;
 var SHARE_DIGITS = 4;
-var round6 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round5 = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 var num = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
 function normaliseShares(shares) {
   const entries = Object.entries(shares);
@@ -38252,11 +38297,11 @@ function normaliseShares(shares) {
   for (const [ticker, share3] of entries)
     if (!Number.isFinite(share3) || share3 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
   const total = entries.reduce((sum, [, share3]) => sum + share3, 0);
-  const scaled = entries.map(([ticker, share3]) => [ticker, round6(share3 / total, SHARE_DIGITS)]);
-  const remainder = round6(1 - scaled.reduce((sum, [, share3]) => sum + share3, 0), SHARE_DIGITS);
+  const scaled = entries.map(([ticker, share3]) => [ticker, round5(share3 / total, SHARE_DIGITS)]);
+  const remainder = round5(1 - scaled.reduce((sum, [, share3]) => sum + share3, 0), SHARE_DIGITS);
   const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
   const result2 = Object.fromEntries(scaled);
-  result2[scaled[largest][0]] = round6(scaled[largest][1] + remainder, SHARE_DIGITS);
+  result2[scaled[largest][0]] = round5(scaled[largest][1] + remainder, SHARE_DIGITS);
   for (const [ticker, share3] of Object.entries(result2))
     if (share3 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
   return result2;
@@ -38272,7 +38317,7 @@ function pieOverview(summary, detail, id) {
       ticker: item.ticker,
       targetShare,
       currentShare,
-      driftShare: round6(currentShare - targetShare, 4),
+      driftShare: round5(currentShare - targetShare, 4),
       ownedQuantity: num(item.ownedQuantity),
       ...item.result?.priceAvgValue === void 0 ? {} : { value: item.result.priceAvgValue },
       ...item.result?.priceAvgResult === void 0 ? {} : { result: item.result.priceAvgResult },
@@ -38287,12 +38332,12 @@ function pieOverview(summary, detail, id) {
     cash: num(summary?.cash),
     invested,
     value,
-    result: num(result2.priceAvgResult) || round6(value - invested),
-    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round6(result2.priceAvgResultCoef * 100) : invested > 0 ? round6((value - invested) / invested * 100) : null,
+    result: num(result2.priceAvgResult) || round5(value - invested),
+    resultPercent: typeof result2.priceAvgResultCoef === "number" ? round5(result2.priceAvgResultCoef * 100) : invested > 0 ? round5((value - invested) / invested * 100) : null,
     progress: typeof summary?.progress === "number" ? summary.progress : null,
     ...settings?.goal ? { goal: settings.goal } : {},
     dividends: { gained: num(summary?.dividendDetails?.gained), reinvested: num(summary?.dividendDetails?.reinvested), inCash: num(summary?.dividendDetails?.inCash) },
-    ...instruments ? { instruments, drift: round6(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
+    ...instruments ? { instruments, drift: round5(instruments.reduce((sum, item) => sum + Math.abs(item.driftShare), 0) / 2, 4) } : {},
     ...settings ? { settings } : {}
   };
 }
@@ -38363,7 +38408,7 @@ var PiesService = class {
     return {
       ...base,
       pies: currency ? pies2.map((pie) => ({ ...pie, currency })) : pies2,
-      totals: { value: round6(totals.value), invested: round6(totals.invested), result: round6(totals.result), cash: round6(totals.cash) },
+      totals: { value: round5(totals.value), invested: round5(totals.invested), result: round5(totals.result), cash: round5(totals.cash) },
       ...currency ? { currency } : {},
       notes
     };
@@ -38831,7 +38876,7 @@ function holding(data) {
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...history ? [
       ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
-      `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
+      `Dividends since ${(history.dividendsFrom ?? history.from).slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
       ...history.nextDividends ? [`Expected next dividends${history.dividendFrequency ? ` (${FREQUENCY_TEXT[history.dividendFrequency]})` : ""}, at today's quantity, dates approximate: ${history.nextDividends.slice(0, 4).map((payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`} ${money2(payment.amount, c)}`).join("; ")}.`] : []
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
@@ -38846,19 +38891,19 @@ function taxYear(data) {
     ...data.notes
   ];
 }
-var FREQUENCY_TEXT = { 12: "monthly", 4: "quarterly", 2: "twice a year", 1: "once a year" };
+var FREQUENCY_TEXT = { 52: "weekly", 26: "every two weeks", 12: "monthly", 4: "quarterly", 2: "twice a year", 1: "once a year" };
 function income(data) {
   const c = data.accountCurrency;
   return [
     `Period ${data.period.from ? day(data.period.from) : "all history"} to ${day(data.period.to)}: ${money2(data.total, c)} (dividends ${num2(data.dividends)}, interest ${num2(data.interest)}); trailing 12 months ${num2(data.trailing12Months)}.`,
     ...data.forwardAnnual ? [`Expected next 12 months from current holdings: ${num2(data.forwardAnnual.total)}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${pct(data.forwardAnnual.yieldOnValue, 2)} of their value)`}; net of withholding tax, from the last year's payments.`] : [],
-    ...data.forwardAnnual ? section("Dividend calendar, this month and the next 11 (each holding's usual spacing from its last payment, at today's quantity)", rows(
+    ...data.forwardAnnual?.calendar ? section("Dividend calendar, this month and the next 11 (each holding's usual spacing from its last payment, at today's quantity)", rows(
       data.forwardAnnual.calendar.filter((month) => month.paid || month.expected),
       (month) => `${month.month}: ${month.paid ? `paid ${num2(month.paid)}, ` : ""}expected ${num2(month.expected)}`
     )) : [],
-    ...data.forwardAnnual ? section(`Next payments (${data.forwardAnnual.upcoming.length}, dates approximate)`, rows(
+    ...data.forwardAnnual?.upcoming ? section(`Next payments (${data.forwardAnnual.upcoming.length}, dates approximate)`, rows(
       data.forwardAnnual.upcoming,
-      (payment) => `${payment.on < data.period.to.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`}: ${payment.ticker} ${num2(payment.amount)}`,
+      (payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`}: ${payment.ticker} ${num2(payment.amount)}`,
       10
     )) : [],
     ...section("By instrument", rows(data.byTicker.slice(0, 12), (item) => `${item.key}: ${num2(item.amount)}`)),
@@ -39321,7 +39366,7 @@ var LIST_WAIT_MS = 3e3;
 var LAG_WINDOW_MS = 6 * 36e5;
 var DAY_ORDER_PAGES = 2;
 var DASHBOARD_REUSE_MS = 15e3;
-var round7 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round6 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits;
 var isoDay2 = (time3) => new Date(time3).toISOString().slice(0, 10);
 function sessionOf(events, now, extendedHours = false) {
   const sorted = (events ?? []).map((event) => ({ type: event.type, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
@@ -39370,7 +39415,7 @@ function dayFigures(input2) {
   const held = Math.max(0, quantity - bought + sold);
   const profitLoss = price !== void 0 ? quantity * (price - previous) + traded : quantity === 0 ? traded : void 0;
   return {
-    ...price !== void 0 ? { change: round7(price / previous - 1) } : {},
+    ...price !== void 0 ? { change: round6(price / previous - 1) } : {},
     ...profitLoss !== void 0 ? { profitLoss } : {},
     base: held * previous + spent,
     bought,
@@ -39443,8 +39488,8 @@ async function dayMove(deps, context, input2) {
     ...identity,
     previousClose,
     ...figures.change !== void 0 ? { change: figures.change } : {},
-    ...profitLoss !== void 0 ? { profitLoss: round7(profitLoss, 2) } : {},
-    ...base !== void 0 ? { base: round7(base, 2) } : {},
+    ...profitLoss !== void 0 ? { profitLoss: round6(profitLoss, 2) } : {},
+    ...base !== void 0 ? { base: round6(base, 2) } : {},
     ...figures.bought ? { bought: figures.bought } : {},
     ...figures.sold ? { sold: figures.sold } : {},
     ...owned && figures.profitLoss !== void 0 && profitLoss === void 0 ? { missing: "fx", problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` } : {}
@@ -39524,7 +39569,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     environment,
     ...accountCurrency ? { accountCurrency } : {},
     moves: moves.sort((a, b) => Math.abs(b.profitLoss ?? 0) - Math.abs(a.profitLoss ?? 0)),
-    ...counted.length ? { total: { profitLoss: round7(profitLoss, 2), ...base > 0 ? { change: round7(profitLoss / base) } : {}, counted: counted.length, of: moves.length } } : {},
+    ...counted.length ? { total: { profitLoss: round6(profitLoss, 2), ...base > 0 ? { change: round6(profitLoss / base) } : {}, counted: counted.length, of: moves.length } } : {},
     ...fillsProblem ? { fillsProblem } : {},
     timestamp: now.toISOString()
   };
@@ -39565,9 +39610,10 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const total = dashboard.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS7) * DAY_MS7 - 365 * DAY_MS7), to: now };
+  const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
   const historyRead = Promise.all([
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
-    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
+    deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
   const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
   const subjectRead = listed ? Promise.resolve(listed) : deps.trading.instruments(environment).catch(() => []).then((list2) => ({ ...position.instrument, ...list2.find((item) => item.ticker === ticker) }));
@@ -39604,9 +39650,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
-  const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity }] : [])) : void 0;
-  const calendarStart = monthStart(now.getTime());
-  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, calendarStart, addMonths(calendarStart, 12)) : [];
+  const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }] : [])) : void 0;
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS7) : [];
   const moved = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
     environment,
     now,
@@ -39643,6 +39688,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...Array.isArray(history) ? {
       history: {
         from: window.from.toISOString(),
+        dividendsFrom: dividendWindow.from.toISOString(),
         fills: listedFills.map((fill) => ({
           ...fill.orderId ? { orderId: fill.orderId } : {},
           ...fill.filledAt ? { filledAt: fill.filledAt } : {},
@@ -39682,7 +39728,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
 // src/core/journal-review.ts
 var DAY_MS8 = 864e5;
 var MAX_REVIEW_TRADES = 50;
-var round8 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
+var round7 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function orderSide(item) {
   const side = (item.order?.side ?? "").toUpperCase();
   return side === "SELL" || (item.fill?.quantity ?? 0) < 0 ? "sell" : "buy";
@@ -39695,8 +39741,8 @@ function stats(trades, tag) {
     trades: trades.length,
     priced: priced.length,
     inFavour: edges.filter((edge) => edge > EDGE_FLAT).length,
-    ...edges.length ? { averageEdge: round8(edges.reduce((sum, edge) => sum + edge, 0) / edges.length, 6) } : {},
-    realisedProfitLoss: round8(trades.reduce((sum, trade) => sum + (trade.realisedProfitLoss ?? 0), 0), 2)
+    ...edges.length ? { averageEdge: round7(edges.reduce((sum, edge) => sum + edge, 0) / edges.length, 6) } : {},
+    realisedProfitLoss: round7(trades.reduce((sum, trade) => sum + (trade.realisedProfitLoss ?? 0), 0), 2)
   };
 }
 var tagKey = (tag) => journalTagFilter(tag)?.toLowerCase();
@@ -39758,7 +39804,7 @@ function summarizeJournalReview(input2) {
       ...currency ? { priceCurrency: currency } : {},
       filledAt: fill.filledAt,
       days,
-      ...move === void 0 ? {} : { priceNow, move: round8(move, 6), edge: round8(side === "buy" ? move : -move, 6) },
+      ...move === void 0 ? {} : { priceNow, move: round7(move, 6), edge: round7(side === "buy" ? move : -move, 6) },
       ...realised === void 0 ? {} : { realisedProfitLoss: realised },
       ...entry.thesis && !entry.review && days >= REVIEW_AFTER_DAYS ? { due: true } : {}
     });
@@ -39849,7 +39895,7 @@ var QUOTE_WAIT_MS2 = 3e3;
 var SPARK_DAYS = 92;
 var PERIOD_DAYS = Object.fromEntries(PRICE_RANGES);
 var watchKey = (environment, ticker) => `watch:${environment}:${ticker}`;
-var round9 = (value) => Math.round(value * 1e6) / 1e6;
+var round8 = (value) => Math.round(value * 1e6) / 1e6;
 var Watchlist = class {
   constructor(deps) {
     this.deps = deps;
@@ -39949,11 +39995,11 @@ function watchFigures({ price, day: day2, points: points2 }) {
   const changes = {};
   const before = points2.filter((point) => point.date < day2);
   const previous = before[before.length - 1];
-  if (previous) changes["1d"] = round9(price / previous.close - 1);
+  if (previous) changes["1d"] = round8(price / previous.close - 1);
   for (const key of ["1m", "3m", "1y"]) {
     const days = PERIOD_DAYS[key];
     const start = pricesIn(points2, days)[0];
-    if (start && rangeCovered(points2, days)) changes[key] = round9(price / start.close - 1);
+    if (start && rangeCovered(points2, days)) changes[key] = round8(price / start.close - 1);
   }
   if (!before.length) return { changes };
   const recent = pricesIn(before, SPARK_DAYS);
@@ -40041,9 +40087,9 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
       ...item.addedPrice ? { addedPrice: item.addedPrice } : {},
       ...position ? { held: { quantity: position.quantity, averagePrice: position.averagePricePaid } } : {},
       ...price ? { price, priceSource, priceAt } : {},
-      ...ratio2 !== void 0 && ratio2 < 10 && ratio2 > 0.1 ? { sinceAdded: round9(ratio2 - 1) } : {},
+      ...ratio2 !== void 0 && ratio2 < 10 && ratio2 > 0.1 ? { sinceAdded: round8(ratio2 - 1) } : {},
       ...figures,
-      levels: levels.map((level) => price ? { ...level, distance: round9(level.price / price - 1) } : level).sort((a, b) => Math.abs(a.distance ?? Infinity) - Math.abs(b.distance ?? Infinity)),
+      levels: levels.map((level) => price ? { ...level, distance: round8(level.price / price - 1) } : level).sort((a, b) => Math.abs(a.distance ?? Infinity) - Math.abs(b.distance ?? Infinity)),
       ...missing ? { pricesMissing: missing, pricesProblem: problem } : {}
     };
   };
@@ -40064,7 +40110,7 @@ var DAY_MS10 = 864e5;
 var START_SLACK_DAYS = 7;
 var LIST_WAIT_MS2 = 3e3;
 var MAX_OPTIONS = 8;
-var round10 = (value) => Math.round(value * 1e6) / 1e6;
+var round9 = (value) => Math.round(value * 1e6) / 1e6;
 var US_FUNDS = {
   SPY: "SPDR S&P 500 ETF",
   VOO: "Vanguard S&P 500 ETF",
@@ -40082,7 +40128,7 @@ function benchmarkReturns(series, points2) {
   };
   const base = closeOn(first.date);
   if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS10) return void 0;
-  const out = series.map((point) => ({ date: point.date, return: round10(closeOn(point.date).close / base.close - 1) }));
+  const out = series.map((point) => ({ date: point.date, return: round9(closeOn(point.date).close / base.close - 1) }));
   return { return: out[out.length - 1].return, series: out };
 }
 function benchmarkInstrument(instruments, query) {
@@ -40408,7 +40454,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_income_summary",
     {
       title: "Dividend and Interest Income",
-      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -40416,7 +40462,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} about ${data.forwardAnnual.upcoming[0].on} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42128,9 +42174,9 @@ var OrderWatch = class {
 
 // src/core/digest.ts
 var DAY_MS12 = 864e5;
-var round11 = (value) => Math.round(value * 100) / 100;
-var signed2 = (value) => `${value >= 0 ? "+" : ""}${round11(value)}`;
-var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round11(value * 100)}%`;
+var round10 = (value) => Math.round(value * 100) / 100;
+var signed2 = (value) => `${value >= 0 ? "+" : ""}${round10(value)}`;
+var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round10(value * 100)}%`;
 var MOVERS = 3;
 function digestDay(today) {
   const total = today?.total;
@@ -42148,14 +42194,14 @@ function digestDay(today) {
 }
 function digestText(input2) {
   const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round11(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round10(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
   const day2 = input2.day;
   return [
-    `Total ${round11(input2.totalValue)} ${input2.currency}${change}`,
+    `Total ${round10(input2.totalValue)} ${input2.currency}${change}`,
     day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} instruments` : ""}` : void 0,
     // One sold out on the day has no price to compare: its sells' amount instead.
     day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(", ")}` : void 0,
-    `cash ${round11(input2.cash)}`,
+    `cash ${round10(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
@@ -42412,7 +42458,7 @@ var ProtectiveLinks = class {
 var HOUR_MS2 = 36e5;
 var KEEP_MS = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
-var round12 = (value) => Math.round(value * 100) / 100;
+var round11 = (value) => Math.round(value * 100) / 100;
 var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
 function within(point, bound, side) {
   if (!bound) return true;
@@ -42444,9 +42490,9 @@ var ValueHistory = class {
       const read = new Date(now.getTime() + Date.now() - started);
       const point = {
         date: read.toISOString().slice(0, 10),
-        totalValue: round12(account.totalValue),
-        ...typeof account.cash?.availableToTrade === "number" ? { cash: round12(account.cash.availableToTrade) } : {},
-        ...typeof account.investments?.currentValue === "number" ? { invested: round12(account.investments.currentValue) } : {},
+        totalValue: round11(account.totalValue),
+        ...typeof account.cash?.availableToTrade === "number" ? { cash: round11(account.cash.availableToTrade) } : {},
+        ...typeof account.investments?.currentValue === "number" ? { invested: round11(account.investments.currentValue) } : {},
         at: read.toISOString(),
         ...typeof account.id === "number" ? { account: account.id } : {}
       };

@@ -324,7 +324,7 @@ export function HoldingView({
             form={<JournalForm t={t} busy={busy} onCancel={() => setNoteForm(null)} onSave={saveNote} />} />
           <section className="dataPanel">
             <div className="pieHeader">
-              <h2>{t("holdingDividendsTitle")}</h2>
+              <h2>{fill(t("holdingDividendsTitle"), { date: dayLabel(data.history.dividendsFrom ?? data.history.from, locale) })}</h2>
               {data.history.dividendCount > 0 && <span className="panelTotal">{fill(t("holdingDividendsTotal"), { total: money(data.history.dividendTotal, currency, locale) })}</span>}
             </div>
             {data.history.nextDividends && <NextDividends payments={data.history.nextDividends} frequency={data.history.dividendFrequency} today={data.timestamp} currency={currency} locale={locale} t={t} />}
@@ -423,12 +423,14 @@ function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, o
   );
 }
 
-const FREQUENCY: Record<12 | 4 | 2 | 1, MessageKey> = { 12: "dividendMonthly", 4: "dividendQuarterly", 2: "dividendHalfYearly", 1: "dividendYearly" };
+const FREQUENCY: Record<52 | 26 | 12 | 4 | 2 | 1, MessageKey> = {
+  52: "dividendWeekly", 26: "dividendFortnightly", 12: "dividendMonthly", 4: "dividendQuarterly", 2: "dividendHalfYearly", 1: "dividendYearly",
+};
 
 /** The holding's expected payments over the next 12 months, the soonest four, apart from the ones it paid. */
 function NextDividends({ payments, frequency, today, currency, locale, t }: {
   payments: Array<{ on: string; amount: number }>;
-  frequency: 12 | 4 | 2 | 1 | undefined;
+  frequency: 52 | 26 | 12 | 4 | 2 | 1 | undefined;
   today: string;
   currency: string;
   locale: SupportedLocale;

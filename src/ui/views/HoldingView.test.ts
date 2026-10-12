@@ -126,7 +126,7 @@ describe("holding price levels", () => {
       accountCurrency: "EUR", orders: [], alerts: [], journal: [], timestamp: "2026-10-12T09:00:00Z",
       position: { instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", currencyCode: "USD" }, quantity: 25, quantityAvailableForTrading: 25, quantityInPies: 0, averagePricePaid: 60, currentPrice: 70 },
       history: {
-        from: "2025-10-12T00:00:00Z", fills: [], dividends: [{ date: "2026-07-01T00:00:00Z", amount: 10.3, currency: "EUR", quantity: 25 }], dividendTotal: 41.2, dividendCount: 4, fillsTruncated: false, dividendsTruncated: false,
+        from: "2025-10-12T00:00:00Z", dividendsFrom: "2025-10-01T00:00:00.000Z", fills: [], dividends: [{ date: "2026-07-01T00:00:00Z", amount: 10.3, currency: "EUR", quantity: 25 }], dividendTotal: 41.2, dividendCount: 4, fillsTruncated: false, dividendsTruncated: false,
         nextDividends: [{ on: "2026-10-01", amount: 10.3 }, { on: "2027-01-01", amount: 10.3 }, { on: "2027-04-01", amount: 10.3 }, { on: "2027-07-01", amount: 10.3 }],
         dividendFrequency: 4,
       },
@@ -136,12 +136,14 @@ describe("holding price levels", () => {
       onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
     }));
     const en = render("en");
+    expect(en).toContain("<h2>Dividends since Oct 1, 2025</h2>");
     expect(en).toContain('<h3>Expected next<small class="headingDetail"> · Pays quarterly</small></h3>');
     expect(en).toContain("<strong>due around Oct 1, not paid yet</strong>");
     expect(en).toContain("<strong>around Jan 1, 2027</strong>");
     expect(en).toContain('<strong class="historyAmount expectedAmount">≈ €10.30</strong>');
     expect(en.indexOf("Expected next")).toBeLessThan(en.indexOf("Jul 1, 2026"));
     const zh = render("zh-CN");
+    expect(zh).toContain("<h2>2025年10月1日以来的股息</h2>");
     expect(zh).toContain("预计下次分红");
     expect(zh).toContain("每季度派息");
     expect(zh).toContain("约 €10.30");

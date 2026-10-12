@@ -352,9 +352,9 @@ describe("forward dividends", () => {
       new Date("2026-10-12T09:00:00Z"),
     );
     expect(result.calendar).toHaveLength(12);
-    expect(result.calendar[0]).toEqual({ month: "2026-10", paid: 15, expected: 0 });
-    expect(result.calendar[2]).toEqual({ month: "2026-12", paid: 0, expected: 10 });
-    expect(result.calendar[11]).toEqual({ month: "2027-09", paid: 0, expected: 10 });
+    expect(result.calendar![0]).toEqual({ month: "2026-10", paid: 15, expected: 0 });
+    expect(result.calendar![2]).toEqual({ month: "2026-12", paid: 0, expected: 10 });
+    expect(result.calendar![11]).toEqual({ month: "2027-09", paid: 0, expected: 10 });
     // Coca-Cola's four quarters at today's 20 shares; the fund paid once, this month, so not again within the calendar.
     expect(result.upcoming).toEqual([
       { ticker: "KO_US_EQ", on: "2026-12-01", amount: 10 },
@@ -363,5 +363,28 @@ describe("forward dividends", () => {
       { ticker: "KO_US_EQ", on: "2027-09-01", amount: 10 },
     ]);
     expect(result.total).toBe(52);
+  });
+
+  it("still expects last year's payment due this month and not paid yet, and only the newest year's paydays", () => {
+    const holding = [{ instrument: { ticker: "ULVR_EQ", name: "Unilever", shortName: "ULVR", currencyCode: "GBP" }, quantity: 100, quantityAvailableForTrading: 100, quantityInPies: 0, averagePricePaid: 40, currentPrice: 45 }];
+    // A large final in October, a small interim in April: on the 25th, this October's final has not come yet.
+    const paid = [{ ticker: "ULVR_EQ", amount: 60, quantity: 100, paidOn: "2025-10-20T09:00:00Z" }, { ticker: "ULVR_EQ", amount: 20, quantity: 100, paidOn: "2026-04-20T09:00:00Z" }];
+    const late = forwardDividends(paid, holding, new Date("2026-10-25T12:00:00Z"));
+    expect(late.total).toBe(80);
+    expect(late.upcoming).toEqual([{ ticker: "ULVR_EQ", on: "2026-10-20", amount: 60 }, { ticker: "ULVR_EQ", on: "2027-04-20", amount: 20 }]);
+    // Once it has come, last year's is not counted again.
+    const done = forwardDividends([...paid, { ticker: "ULVR_EQ", amount: 66, quantity: 100, paidOn: "2026-10-22T09:00:00Z" }], holding, new Date("2026-10-25T12:00:00Z"));
+    expect(done.total).toBe(86);
+    expect(done.calendar![0]).toEqual({ month: "2026-10", paid: 66, expected: 0 });
+    expect(done.upcoming).toEqual([{ ticker: "ULVR_EQ", on: "2027-04-22", amount: 20 }]);
+  });
+
+  it("gives no calendar for a period that ends in another month", () => {
+    const holding = [{ instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", shortName: "KO", currencyCode: "EUR" }, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 50, currentPrice: 60 }];
+    const paid = ["2025-03-01", "2025-06-01", "2025-09-01", "2025-12-01"].map((day) => ({ ticker: "KO_US_EQ", amount: 5, quantity: 10, paidOn: `${day}T00:00:00Z` }));
+    const past = forwardDividends(paid, holding, new Date("2025-12-31T00:00:00Z"), new Date("2026-10-12T09:00:00Z"));
+    expect(past.total).toBe(20);
+    expect(past.calendar).toBeUndefined();
+    expect(past.upcoming).toBeUndefined();
   });
 });

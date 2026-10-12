@@ -313,7 +313,7 @@ export function createMcpServer(
     "get_income_summary",
     {
       title: "Dividend and Interest Income",
-      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
@@ -321,7 +321,7 @@ export function createMcpServer(
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} about ${data.forwardAnnual.upcoming[0].on} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
       } catch (error) {
         return toolError(error);
       }

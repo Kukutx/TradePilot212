@@ -17,7 +17,7 @@ import type {
   TimeWeightedReturn,
   ValuePoint,
 } from "../shared/history.js";
-import { addMonths, dividendSchedule, expectedPayments, monthStart, type PaidDividend } from "./dividends.js";
+import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
 
 export interface AllocationLimits {
   maxSingleWeight: number;
@@ -378,21 +378,23 @@ export function summarizePerformance(input: {
 }
 
 /**
- * Next-12-month dividends from each holding's trailing-12-month net payment per share. A holding bought
- * during the year has fewer payments than its schedule, so the payments seen are scaled up to the
- * frequency their spacing implies (monthly, quarterly, half-yearly or yearly). The calendar spreads them
- * over this month and the next 11 by that spacing, beside what was paid so far this month.
+ * Next-12-month dividends from each holding's net payments per share over the last year (from the first day of this
+ * month a year ago), at the current quantity. A holding bought during the year has fewer paydays than its schedule,
+ * so they are scaled up to the frequency their spacing implies (weekly to yearly). While `to` is in the current
+ * month, the calendar spreads them over this month and the next 11 by that spacing, beside what was paid so far
+ * this month; for a period ending in another month there is no calendar.
  */
-export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date): NonNullable<IncomeSummary["forwardAnnual"]> {
-  const yearAgo = new Date(to.getTime() - 365 * 86_400_000);
+export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date, now: Date = to): NonNullable<IncomeSummary["forwardAnnual"]> {
+  const read = { from: new Date(scheduleStart(to.getTime())), to };
   const payments = new Map<string, PaidDividend[]>();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
-    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, { from: yearAgo, to })) continue;
-    payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity }]);
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
+    payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
   }
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
+  const current = start === monthStart(now.getTime());
   const byTicker: MoneyBucket[] = [];
   const upcoming: Array<{ ticker: string; at: number; amount: number }> = [];
   let value = 0;
@@ -400,13 +402,15 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
     const ticker = position.instrument?.ticker;
     value += positionValue(position);
     const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : undefined;
-    if (!ticker || !schedule?.annualPerShare || !(position.quantity > 0)) continue;
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
     byTicker.push({ key: ticker, amount: round(schedule.annualPerShare * position.quantity) });
-    upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
+    if (current) upcoming.push(...expectedPayments(schedule, position.quantity, start, end).map((payment) => ({ ticker, ...payment })));
   }
   byTicker.sort((a, b) => b.amount - a.amount);
   upcoming.sort((a, b) => a.at - b.at || b.amount - a.amount);
   const total = round(byTicker.reduce((sum, item) => sum + item.amount, 0));
+  const forward = { total, byTicker, yieldOnValue: value > 0 ? Math.round((total / value) * 10_000) / 10_000 : null };
+  if (!current) return forward;
   const monthKey = (at: number) => new Date(at).toISOString().slice(0, 7);
   const paid = dividends.filter((item) => inWindow(item.paidOn, { from: new Date(start), to })).reduce((sum, item) => sum + (item.amount ?? 0), 0);
   const calendar = Array.from({ length: 12 }, (_, index) => {
@@ -415,9 +419,7 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
     return { month, paid: index === 0 ? round(paid) : 0, expected: round(expected) };
   });
   return {
-    total,
-    byTicker,
-    yieldOnValue: value > 0 ? Math.round((total / value) * 10_000) / 10_000 : null,
+    ...forward,
     calendar,
     upcoming: upcoming.map(({ ticker, at, amount }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount })),
   };
@@ -431,6 +433,8 @@ export function summarizeIncome(input: {
   window: HistoryWindow;
   truncated: boolean;
   positions?: Position[];
+  /** The clock, for whether the period ends this month and so has a dividend calendar. */
+  now?: Date;
 }): IncomeSummary {
   const events = [
     ...input.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
@@ -454,7 +458,7 @@ export function summarizeIncome(input: {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...(input.positions ? { forwardAnnual: forwardDividends(input.dividends, input.positions, input.window.to) } : {}),
+    ...(input.positions ? { forwardAnnual: forwardDividends(input.dividends, input.positions, input.window.to, input.now ?? input.window.to) } : {}),
     truncated: input.truncated,
     timestamp: new Date().toISOString(),
   };

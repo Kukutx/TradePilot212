@@ -6,7 +6,7 @@ import type { HoldingDetail } from "../shared/holding.js";
 import type { JournalEntry } from "../shared/journal.js";
 import type { PriceAlerts } from "./alerts.js";
 import { marketStatus } from "./analytics.js";
-import { addMonths, dividendSchedule, expectedPayments, monthStart } from "./dividends.js";
+import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart } from "./dividends.js";
 import { asStructuredError } from "./errors.js";
 import { knownFxRates } from "./fx.js";
 import type { InsightsService } from "./insights-service.js";
@@ -75,9 +75,11 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const total = dashboard.account?.totalValue;
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
+  // Dividends from the first day of this month a year ago, so last year's payment due again this month is seen.
+  const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
   const historyRead = Promise.all([
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
-    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
+    deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
   ]).catch((error: unknown) => asStructuredError(error));
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
     ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
@@ -127,12 +129,14 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   // quoted price does not move before the open, so the day of one not held is the last session until it opens.
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
   const accountCurrency = dashboard.account?.currency;
-  // A holding's next dividends: its spacing from the window's payments (newest MAX_DIVIDENDS, a monthly payer's year).
+  // A holding's next year of dividends from its spacing (the newest MAX_DIVIDENDS payments: a monthly payer's year),
+  // from the start of this month so one due and not paid yet still shows.
   const schedule = position && position.quantity > 0 && Array.isArray(history)
-    ? dividendSchedule(history[1].items.flatMap((item) => (item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity }] : [])))
+    ? dividendSchedule(history[1].items.flatMap((item) => (item.quantity && item.quantity > 0 && item.amount
+      ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]
+      : [])))
     : undefined;
-  const calendarStart = monthStart(now.getTime());
-  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, calendarStart, addMonths(calendarStart, 12)) : [];
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS) : [];
   const moved = prices && "prices" in prices
     ? await dayMove({ priceHistory: async () => prices, ...(deps.closes ? { closes: deps.closes } : {}) }, {
         environment, now, from: window.from, ...(accountCurrency ? { accountCurrency } : {}), rates: accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {},
@@ -171,6 +175,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
       ? {
           history: {
             from: window.from.toISOString(),
+            dividendsFrom: dividendWindow.from.toISOString(),
             fills: listedFills.map((fill) => ({
               ...(fill.orderId ? { orderId: fill.orderId } : {}),
               ...(fill.filledAt ? { filledAt: fill.filledAt } : {}),

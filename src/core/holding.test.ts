@@ -89,6 +89,7 @@ describe("holding detail", () => {
     const quantity = detail.position!.quantity;
     const perShare = detail.history!.dividends[0]!.amount / detail.history!.dividends[0]!.quantity!;
     expect(detail.history?.dividendFrequency).toBe(4);
+    expect(detail.history?.dividendsFrom?.slice(8, 19)).toBe("01T00:00:00");
     expect(detail.history?.nextDividends).toHaveLength(4);
     expect(detail.history!.nextDividends![0]!.on > detail.history!.dividends[0]!.date.slice(0, 10)).toBe(true);
     for (const payment of detail.history!.nextDividends!) expect(payment.amount).toBeCloseTo(perShare * quantity, 2);
