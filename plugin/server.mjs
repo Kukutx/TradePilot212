@@ -34232,8 +34232,9 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
     });
   };
+  const traded = ["AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ", "KO_US_EQ", "VUSAl_EQ"].map((ticker) => instrumentOf(ticker));
   for (let index = 13; index >= 0; index--) {
-    const instrument = INSTRUMENTS[index % 5];
+    const instrument = traded[index % traded.length];
     const sell = index % 4 === 3;
     addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
   }
@@ -37640,7 +37641,8 @@ var InsightsService = class {
    * `readValues` gives the account values TradePilot recorded in the window for one Trading 212 account, for
    * the value chart and the time-weighted return.
    */
-  async performance(environment, window, maxPages, readValues) {
+  /** `onHistory` is handed the orders and dividends read, for a caller that needs them too (gains by instrument). */
+  async performance(environment, window, maxPages, readValues, onHistory) {
     const client = this.client(environment);
     const account = await client.getAccountSummary();
     const values = readValues ? await readValues(typeof account.id === "number" ? account.id : void 0).catch(() => []) : [];
@@ -37648,6 +37650,7 @@ var InsightsService = class {
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
     const transactions = await this.collect(environment, "transactions", window, maxPages);
+    onHistory?.({ orders, dividends });
     return summarizePerformance({
       environment,
       account,
@@ -38856,7 +38859,7 @@ function attributionLines(data) {
   const since = attribution.from ? `since the close before ${attribution.from}` : "over all history";
   return [
     ...section(
-      `Gain by instrument ${since}: ${signed(attribution.total)} in all (value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate)`,
+      `Gain by instrument ${since}: ${signed(attribution.total)} in all (${attribution.basis === "start" ? "value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate" : "Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends"})`,
       rows(attribution.holdings, (holding2) => `${holding2.ticker}: ${signed(holding2.gain)}${holding2.return === void 0 ? "" : ` (${signed(holding2.return * 100, 1)}%)`}, start ${num2(holding2.startValue)}${holding2.startClose ? ` (${num2(holding2.startQuantity, 8)} at ${num2(holding2.startClose.price, 6)} on ${holding2.startClose.date})` : ""}, now ${num2(holding2.value)}${holding2.bought ? `, bought ${num2(holding2.bought)}` : ""}${holding2.sold ? `, sold ${num2(holding2.sold)}` : ""}${holding2.dividends ? `, dividends ${num2(holding2.dividends)}` : ""}`)
     ),
     ...attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []
@@ -40303,19 +40306,26 @@ function attributeGains(input2) {
 async function readAttribution(deps, environment, window, maxPages, now = /* @__PURE__ */ new Date()) {
   const from = window.from ? Math.floor(window.from.getTime() / DAY_MS10) * DAY_MS10 : void 0;
   const to = Math.min(window.to.getTime(), now.getTime());
-  if (window.to.getTime() < now.getTime() - 5 * 6e4) return { attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
+  if (window.to.getTime() < now.getTime() - 5 * 6e4) {
+    return { attributionMissing: "period", attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
+  }
   const [dashboard, orders, dividends] = await Promise.all([
     deps.trading.getDashboard(environment, 15e3),
-    deps.insights.collect(environment, "orders", window, maxPages),
-    deps.insights.collect(environment, "dividends", window, maxPages)
+    deps.history?.orders ?? deps.insights.collect(environment, "orders", window, maxPages),
+    deps.history?.dividends ?? deps.insights.collect(environment, "dividends", window, maxPages)
   ]);
-  if (orders.truncated) return { attributionProblem: "The order history stops at the page limit before the start, so the shares held then are not known; raise maxPages." };
+  if (orders.truncated || dividends.truncated) {
+    return {
+      attributionMissing: "history",
+      attributionProblem: `The ${orders.truncated ? "order" : "dividend"} history stops at the page limit before the start, so ${orders.truncated ? "the shares held then are not known" : "some dividends would be left out"}; raise maxPages.`
+    };
+  }
   const accountCurrency = dashboard.account?.currency ?? "";
-  if (!accountCurrency) return { attributionProblem: "Trading 212 did not give the account currency." };
+  if (!accountCurrency) return { attributionMissing: "data", attributionProblem: "Trading 212 did not give the account currency." };
   const positions = dashboard.positions;
   const flows = holdingFlows(orders.items, dividends.items, from, to);
   if (from === void 0) return { attribution: allTimeGains({ to, positions, flows }) };
-  const held = new Map(positions.filter((position) => position.quantity > 0).map((position) => [position.instrument.ticker, position]));
+  const held = new Map(positions.flatMap((position) => position.instrument?.ticker && position.quantity > 0 ? [[position.instrument.ticker, position]] : []));
   const starting = [.../* @__PURE__ */ new Set([...held.keys(), ...flows.keys()])].filter((ticker) => {
     const entry = flows.get(ticker);
     return (held.get(ticker)?.quantity ?? 0) - (entry?.boughtQuantity ?? 0) + (entry?.soldQuantity ?? 0) > NO_SHARES;
@@ -40326,13 +40336,14 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
   const currencies = /* @__PURE__ */ new Map();
   for (const ticker of [...held.keys(), ...flows.keys()]) {
     const instrument = held.get(ticker)?.instrument;
-    const currency = listed.get(ticker)?.currencyCode ?? instrument?.currencyCode ?? instrument?.currency ?? orders.items.find((item) => (item.order?.ticker ?? item.order?.instrument?.ticker) === ticker)?.order?.instrument?.currency;
+    const order = orders.items.find((item) => (item.order?.ticker ?? item.order?.instrument?.ticker) === ticker)?.order;
+    const currency = listed.get(ticker)?.currencyCode ?? instrument?.currencyCode ?? instrument?.currency ?? order?.instrument?.currency ?? order?.currency;
     if (currency) currencies.set(ticker, currency);
   }
   const closes2 = /* @__PURE__ */ new Map();
   if (starting.length) {
     const day2 = dayOf2(from);
-    const readFrom = new Date(from - (STALE_CLOSE_DAYS + 1) * DAY_MS10);
+    const readFrom = new Date(Math.min(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10, from - (STALE_CLOSE_DAYS + 1) * DAY_MS10));
     const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS3);
     const read = async (ticker) => {
       const position = held.get(ticker);
@@ -40344,9 +40355,9 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
         instrument,
         from: readFrom,
         ...position?.currentPrice ? { last: position.currentPrice } : {},
-        // The sample account draws an instrument it no longer holds through the provider's price.
-        ...!position && deps.config.sampleData ? { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) } : {},
-        fills: Promise.resolve(anchors)
+        // The sample account draws an instrument it no longer holds through the provider's price, and each path through
+        // its own fills, as the holding page draws it.
+        ...deps.config.sampleData ? position ? {} : { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) } : { fills: Promise.resolve(anchors) }
       }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
       if (!("prices" in result2)) return result2;
       const close = closeBefore(result2.prices.points, day2);
@@ -40684,7 +40695,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,
@@ -40696,11 +40707,23 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     async ({ environment, period, from, to, maxPages, benchmark: benchmark2 }) => {
       try {
         const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
-        const summary = await insights.performance(environment, window, maxPages, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }));
-        const compared = await compareWithBenchmark({ config: config3, trading, watchlist: watchlist2, priceHistory }, environment, summary, benchmark2);
-        const attributed = await readAttribution({ config: config3, trading, insights, priceHistory }, environment, window, maxPages).catch((error62) => ({ attributionProblem: asStructuredError(error62).message }));
+        let history;
+        const summary = await insights.performance(
+          environment,
+          window,
+          maxPages,
+          (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }),
+          (read) => {
+            history = read;
+          }
+        );
+        const [compared, attributed] = await Promise.all([
+          compareWithBenchmark({ config: config3, trading, watchlist: watchlist2, priceHistory }, environment, summary, benchmark2),
+          // Gains by instrument are optional: a read that fails leaves them out and says why.
+          readAttribution({ config: config3, trading, insights, priceHistory, ...history ? { history } : {} }, environment, window, maxPages).catch((error62) => ({ attributionMissing: "data", attributionProblem: asStructuredError(error62).message }))
+        ]);
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared, ...attributed };
-        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${data.attribution.holdings.slice(0, 3).map((holding2) => `${holding2.ticker} ${holding2.gain >= 0 ? "+" : ""}${num2(holding2.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding2) => `${holding2.ticker} ${holding2.gain >= 0 ? "+" : ""}${num2(holding2.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

@@ -44,4 +44,13 @@ describe("gain chart", () => {
     expect(html).toContain("Trading 212 记录的卖出已实现盈亏");
     expect(render({ basis: "start", from: "2026-09-12", to: "2026-10-12T10:00:00Z", total: 0, holdings: [], missing: [] })).toContain("Nothing was held or traded in this period.");
   });
+
+  it("shows the largest gains and losses before \"show all\", scaled to the bars shown", () => {
+    const many = [...Array.from({ length: 10 }, (_, index) => holding(`T${index}_US_EQ`, 10 - index * 0.1)), holding("KO_US_EQ", -1000), holding("PEP_US_EQ", 0.5)];
+    const html = render({ basis: "start", from: "2026-09-12", to: "2026-10-12T10:00:00Z", total: -910, holdings: many, missing: [] });
+    // KO's loss is shown, and the smallest gain makes way for it.
+    expect(html).toContain('title="KO_US_EQ"');
+    expect(html).not.toContain('title="PEP_US_EQ"');
+    expect(html).toContain("Show all 12");
+  });
 });

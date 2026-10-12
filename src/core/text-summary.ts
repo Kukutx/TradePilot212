@@ -334,7 +334,9 @@ function attributionLines(data: PerformanceSummary): string[] {
   if (!attribution) return data.attributionProblem ? [`No gains by instrument: ${data.attributionProblem}`] : [];
   const since = attribution.from ? `since the close before ${attribution.from}` : "over all history";
   return [
-    ...section(`Gain by instrument ${since}: ${signed(attribution.total)} in all (value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate)`,
+    ...section(`Gain by instrument ${since}: ${signed(attribution.total)} in all (${attribution.basis === "start"
+      ? "value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate"
+      : "Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends"})`,
       rows(attribution.holdings, (holding) => `${holding.ticker}: ${signed(holding.gain)}${holding.return === undefined ? "" : ` (${signed(holding.return * 100, 1)}%)`}, start ${num(holding.startValue)}${holding.startClose ? ` (${num(holding.startQuantity, 8)} at ${num(holding.startClose.price, 6)} on ${holding.startClose.date})` : ""}, now ${num(holding.value)}${holding.bought ? `, bought ${num(holding.bought)}` : ""}${holding.sold ? `, sold ${num(holding.sold)}` : ""}${holding.dividends ? `, dividends ${num(holding.dividends)}` : ""}`)),
     ...(attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []),
   ];

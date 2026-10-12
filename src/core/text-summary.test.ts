@@ -57,9 +57,12 @@ describe("text summaries for hosts that only show text", () => {
     const attributed = await readAttribution({ config: { sampleData: true }, trading: services.trading, insights: services.insights, priceHistory: services.priceHistory }, "demo", window);
     const text = describePayload({ ...performance, ...attributed });
     expect(text).toMatch(/Gain by instrument since the close before \d{4}-\d{2}-\d{2}: [+-]\d[\d.]* in all/);
-    expect(text).toMatch(/- VUSAl_EQ: [+-]\d[\d.]* \([+-][\d.]+%\), start [\d.]+ \(40 at [\d.]+ on \d{4}-\d{2}-\d{2}\), now [\d.]+/);
-    // The sample account's TSLA fills do not add up to what it holds.
-    expect(text).toMatch(/Not valued: TSLA_US_EQ \(TSLA_US_EQ's shares do not add up/);
+    // 40 held now, 6 bought over the year: 34 at the start.
+    expect(text).toMatch(/- VUSAl_EQ: [+-]\d[\d.]* \([+-][\d.]+%\), start [\d.]+ \(34 at [\d.]+ on \d{4}-\d{2}-\d{2}\), now [\d.]+, bought [\d.]+, dividends [\d.]+/);
+    expect(text).not.toContain("Not valued");
+    const all = await readAttribution({ config: { sampleData: true }, trading: services.trading, insights: services.insights, priceHistory: services.priceHistory }, "demo", { to: window.to });
+    expect(describePayload({ ...performance, ...all })).toContain("Gain by instrument over all history: ");
+    expect(describePayload({ ...performance, ...all })).toContain("(Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends)");
     expect(describePayload({ ...performance, attributionProblem: "Only today's holdings are known." })).toContain("No gains by instrument: Only today's holdings are known.");
   });
 

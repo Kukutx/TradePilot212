@@ -2,9 +2,10 @@
 
 ## 2.40.0
 
-- Gain by instrument. The Performance tab shows where the period's gain came from: one bar per instrument from a shared zero line, gains to the right and losses to the left, largest first, with the total, each one's return on the money at work, and a table view of its value at the start, buys, sells, dividends and value now. A name opens the instrument's page.
+- Gain by instrument. The Performance tab shows where the period's gain came from: one bar per instrument from a shared zero line, gains to the right and losses to the left, largest first, with the total, each one's return on the money at work (with more than ten, the largest gains and losses first), and a table view of its value at the start, buys, sells, dividends and value now. A name opens the instrument's page.
 - For 1 month, 3 months, this year or 12 months, the start is the shares held then (today's, less the buys since, plus the sells since) at the quote provider's close before the first day, at today's exchange rate; over all history it is Trading 212's realised and unrealised P/L plus dividends. Instruments that cannot be valued (no closes, or shares that do not add up after a split) are named rather than guessed.
-- `get_portfolio_performance` returns it as `attribution` (or `attributionProblem`), and says the total and the three largest in its text.
+- `get_portfolio_performance` returns it as `attribution` (or `attributionMissing` and `attributionProblem`), and says the total and the three largest gains or losses in its text. It reads the closes alongside the benchmark and reuses the summary's own read of the history.
+- The sample account trades only the instruments it holds, so its shares add up from its fills.
 
 ## 2.39.0
 

@@ -15,7 +15,7 @@ import type { TradingService } from "./trading-service.js";
 const DAY_MS = 86_400_000;
 /** Instruments whose closes are read at once; each read is cached by the price history. */
 const CONCURRENCY = 4;
-/** No closes are asked for after this long; the instruments left wait for the next read, when the rest are cached. */
+/** No new read of closes starts after this long; the instruments left wait for the next read, when the rest are cached. */
 const READ_BUDGET_MS = 5000;
 /** The instrument list is optional here: at most this long. */
 const LIST_WAIT_MS = 3000;
@@ -216,9 +216,13 @@ export interface AttributionDeps {
   trading: Pick<TradingService, "getDashboard" | "instruments" | "externalQuote">;
   insights: Pick<InsightsService, "collect">;
   priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
-  /** How long closes are asked for; the default suits a tool call. */
+  /** The orders and dividends the performance summary has just read for the same window, so they are not read again. */
+  history?: { orders: Collected<HistoryOrderItem>; dividends: Collected<HistoryDividendItem> };
+  /** How long new reads of closes are started for; the default suits a tool call. */
   budgetMs?: number;
 }
+
+interface Collected<T> { items: T[]; truncated: boolean }
 
 /**
  * The performance summary's attribution for `window`: the fills and dividends from the start of its first day (read as
@@ -226,23 +230,30 @@ export interface AttributionDeps {
  * held then. Instruments without one are listed as missing; a history cut short leaves the attribution out.
  */
 export async function readAttribution(deps: AttributionDeps, environment: TradingEnvironment, window: HistoryWindow, maxPages?: number, now = new Date()):
-  Promise<Pick<PerformanceSummary, "attribution" | "attributionProblem">> {
+  Promise<Pick<PerformanceSummary, "attribution" | "attributionProblem" | "attributionMissing">> {
   // Whole days: the start is valued at a close, so the fills counted begin with the day after it.
   const from = window.from ? Math.floor(window.from.getTime() / DAY_MS) * DAY_MS : undefined;
   const to = Math.min(window.to.getTime(), now.getTime());
-  if (window.to.getTime() < now.getTime() - 5 * 60_000) return { attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
+  if (window.to.getTime() < now.getTime() - 5 * 60_000) {
+    return { attributionMissing: "period", attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
+  }
   const [dashboard, orders, dividends] = await Promise.all([
     deps.trading.getDashboard(environment, 15_000),
-    deps.insights.collect(environment, "orders", window, maxPages),
-    deps.insights.collect(environment, "dividends", window, maxPages),
+    deps.history?.orders ?? deps.insights.collect(environment, "orders", window, maxPages),
+    deps.history?.dividends ?? deps.insights.collect(environment, "dividends", window, maxPages),
   ]);
-  if (orders.truncated) return { attributionProblem: "The order history stops at the page limit before the start, so the shares held then are not known; raise maxPages." };
+  if (orders.truncated || dividends.truncated) {
+    return {
+      attributionMissing: "history",
+      attributionProblem: `The ${orders.truncated ? "order" : "dividend"} history stops at the page limit before the start, so ${orders.truncated ? "the shares held then are not known" : "some dividends would be left out"}; raise maxPages.`,
+    };
+  }
   const accountCurrency = dashboard.account?.currency ?? "";
-  if (!accountCurrency) return { attributionProblem: "Trading 212 did not give the account currency." };
+  if (!accountCurrency) return { attributionMissing: "data", attributionProblem: "Trading 212 did not give the account currency." };
   const positions = dashboard.positions;
   const flows = holdingFlows(orders.items, dividends.items, from, to);
   if (from === undefined) return { attribution: allTimeGains({ to, positions, flows }) };
-  const held = new Map(positions.filter((position) => position.quantity > 0).map((position) => [position.instrument.ticker, position]));
+  const held = new Map(positions.flatMap((position) => (position.instrument?.ticker && position.quantity > 0 ? [[position.instrument.ticker, position] as const] : [])));
   // What was held at the start needs a close; whatever was bought since does not.
   const starting = [...new Set([...held.keys(), ...flows.keys()])].filter((ticker) => {
     const entry = flows.get(ticker);
@@ -256,15 +267,16 @@ export async function readAttribution(deps: AttributionDeps, environment: Tradin
   const currencies = new Map<string, string>();
   for (const ticker of [...held.keys(), ...flows.keys()]) {
     const instrument = held.get(ticker)?.instrument as { currencyCode?: string; currency?: string } | undefined;
-    const currency = listed.get(ticker)?.currencyCode ?? instrument?.currencyCode ?? instrument?.currency
-      ?? orders.items.find((item) => (item.order?.ticker ?? item.order?.instrument?.ticker) === ticker)?.order?.instrument?.currency;
+    const order = orders.items.find((item) => (item.order?.ticker ?? item.order?.instrument?.ticker) === ticker)?.order;
+    const currency = listed.get(ticker)?.currencyCode ?? instrument?.currencyCode ?? instrument?.currency ?? order?.instrument?.currency ?? order?.currency;
     if (currency) currencies.set(ticker, currency);
   }
 
   const closes = new Map<string, StartClose>();
   if (starting.length) {
     const day = dayOf(from);
-    const readFrom = new Date(from - (STALE_CLOSE_DAYS + 1) * DAY_MS);
+    // A year back at least, from the start of today (UTC), as the holding page and the benchmark ask: one cached read.
+    const readFrom = new Date(Math.min(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS, from - (STALE_CLOSE_DAYS + 1) * DAY_MS));
     const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS);
     const read = async (ticker: string): Promise<StartClose> => {
       const position = held.get(ticker);
@@ -276,9 +288,11 @@ export async function readAttribution(deps: AttributionDeps, environment: Tradin
         instrument,
         from: readFrom,
         ...(position?.currentPrice ? { last: position.currentPrice } : {}),
-        // The sample account draws an instrument it no longer holds through the provider's price.
-        ...(!position && deps.config.sampleData ? { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => undefined) } : {}),
-        fills: Promise.resolve(anchors),
+        // The sample account draws an instrument it no longer holds through the provider's price, and each path through
+        // its own fills, as the holding page draws it.
+        ...(deps.config.sampleData
+          ? (position ? {} : { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => undefined) })
+          : { fills: Promise.resolve(anchors) }),
       }).catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message }));
       if (!("prices" in result)) return result;
       const close = closeBefore(result.prices.points, day);

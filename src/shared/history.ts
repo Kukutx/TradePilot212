@@ -290,6 +290,8 @@ export interface PerformanceSummary {
   /** Each instrument's gain over the period; absent with `attributionProblem` when it cannot be worked out. */
   attribution?: GainAttribution;
   attributionProblem?: string;
+  /** Why there is none: a period that ends before now, a history cut short at its page limit, or a read that failed. */
+  attributionMissing?: "period" | "history" | "data";
   notes: string[];
   timestamp: string;
 }

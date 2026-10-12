@@ -367,7 +367,9 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
         <section className="dataPanel">
           <GainChart attribution={data.attribution} currency={currency} book={book} locale={locale} t={t} busy={busy} {...(onOpen ? { onOpen } : {})} />
         </section>
-      ) : data.attributionProblem ? <div className="notice compactNotice">{t("gainsUnavailable")}</div> : null}
+      ) : data.attributionProblem ? (
+        <div className="notice compactNotice">{t(data.attributionMissing === "period" ? "gainsUnavailable" : data.attributionMissing === "history" ? "gainsUnavailableHistory" : "gainsUnavailableData")}</div>
+      ) : null}
 
       <div className="twoColumn">
         <section className="dataPanel">

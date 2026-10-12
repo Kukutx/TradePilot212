@@ -113,9 +113,11 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } },
     });
   };
-  // A fill every 24 days over the last year, at prices that climb towards today's, as a rising market's would.
+  // A fill every 24 days over the last year, at prices that climb towards today's, as a rising market's would. Only
+  // instruments held now are traded, so today's shares less the buys plus the sells leave what was held before.
+  const traded = ["AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ", "KO_US_EQ", "VUSAl_EQ"].map((ticker) => instrumentOf(ticker)!);
   for (let index = 13; index >= 0; index--) {
-    const instrument = INSTRUMENTS[index % 5]!;
+    const instrument = traded[index % traded.length]!;
     const sell = index % 4 === 3;
     addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
   }

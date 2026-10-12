@@ -9,7 +9,7 @@ import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, type Translator } from "../lib/messages";
 import { ViewSwitch } from "./charts";
 
-/** Instruments shown before "show all". */
+/** Instruments shown before "show all": the largest gains and losses, so a large loss is never the one hidden. */
 const LISTED = 10;
 
 export function GainChart({ attribution, currency, book, locale, t, onOpen, busy }: {
@@ -27,12 +27,13 @@ export function GainChart({ attribution, currency, book, locale, t, onOpen, busy
   const m = (value: number) => money(value, currency, locale);
   const signed = (value: number) => money(value, currency, locale, { signed: true });
   const { holdings } = attribution;
-  // The zero line sits where the largest loss and the largest gain, side by side, fill the track.
-  const right = Math.max(0, ...holdings.map((holding) => holding.gain));
-  const left = Math.max(0, ...holdings.map((holding) => -holding.gain));
+  const largest = new Set([...holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, LISTED).map((holding) => holding.ticker));
+  const shown = all ? holdings : holdings.filter((holding) => largest.has(holding.ticker));
+  // The zero line sits where the largest loss and the largest gain shown, side by side, fill the track.
+  const right = Math.max(0, ...shown.map((holding) => holding.gain));
+  const left = Math.max(0, ...shown.map((holding) => -holding.gain));
   const span = right + left;
   const zero = span > 0 ? (left / span) * 100 : 0;
-  const shown = all ? holdings : holdings.slice(0, LISTED);
   const since = attribution.from ? fill(t("gainsSince"), { date: dayLabel(attribution.from, locale) }) : t("gainsAllHistory");
   const title = t("gainsTitle");
   const share = (value: number) => `${Math.round(Math.max(0.8, (Math.abs(value) / span) * 100) * 10) / 10}%`;
@@ -63,7 +64,7 @@ export function GainChart({ attribution, currency, book, locale, t, onOpen, busy
             </tr></thead>
             <tbody>{holdings.map((holding) => (
               <tr key={holding.ticker}>
-                <td title={holding.ticker}>{instrumentLabel(holding.ticker, book).name}</td>
+                <td>{name(holding.ticker)}</td>
                 {attribution.basis === "start" && <td>{m(holding.startValue)}</td>}
                 <td>{m(holding.bought)}</td><td>{m(holding.sold)}</td><td>{m(holding.dividends)}</td><td>{m(holding.value)}</td>
                 <td className={signedClass(holding.gain)}>{signed(holding.gain)}{holding.return === undefined ? "" : <small> {pct(holding.return, locale, 1, { signed: true })}</small>}</td>

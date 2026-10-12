@@ -164,7 +164,9 @@ export class InsightsService {
    * `readValues` gives the account values TradePilot recorded in the window for one Trading 212 account, for
    * the value chart and the time-weighted return.
    */
-  async performance(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number, readValues?: (account: number | undefined) => Promise<ValuePoint[]>): Promise<PerformanceSummary> {
+  /** `onHistory` is handed the orders and dividends read, for a caller that needs them too (gains by instrument). */
+  async performance(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number, readValues?: (account: number | undefined) => Promise<ValuePoint[]>,
+    onHistory?: (read: { orders: Collected<HistoryOrderItem>; dividends: Collected<HistoryDividendItem> }) => void): Promise<PerformanceSummary> {
     const client = this.client(environment);
     const account: AccountSummary = await client.getAccountSummary();
     // Only this account's days: after a switch of keys, the old account's days would mix with its history.
@@ -173,6 +175,7 @@ export class InsightsService {
     const orders = await this.collect(environment, "orders", window, maxPages);
     const dividends = await this.collect(environment, "dividends", window, maxPages);
     const transactions = await this.collect(environment, "transactions", window, maxPages);
+    onHistory?.({ orders, dividends });
     return summarizePerformance({
       environment, account, window, now: valuedAt,
       orders: orders.items, dividends: dividends.items, transactions: transactions.items,

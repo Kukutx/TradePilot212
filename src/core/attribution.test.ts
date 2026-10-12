@@ -104,7 +104,7 @@ describe("gain attribution", () => {
     const positions = [position("AAPL_US_EQ", "USD", 10, 220, 2000), position("NVDA_US_EQ", "USD", 5, 110, 500)];
     const orders = [fill("NVDA_US_EQ", "BUY", 5, 100, "2026-09-15", 460)];
     const asked: PriceHistoryRequest[] = [];
-    let truncated = false;
+    let truncated: string | undefined;
     const deps = {
       config: { sampleData: false },
       trading: {
@@ -113,7 +113,7 @@ describe("gain attribution", () => {
         externalQuote: async () => undefined,
       },
       insights: {
-        collect: async (_environment: unknown, kind: string) => ({ items: kind === "orders" ? orders : [], truncated }) as never,
+        collect: async (_environment: unknown, kind: string) => ({ items: kind === "orders" ? orders : [], truncated: truncated === kind }) as never,
       },
       priceHistory: async (request: PriceHistoryRequest) => {
         asked.push(request);
@@ -121,16 +121,30 @@ describe("gain attribution", () => {
       },
     };
     const read = await readAttribution(deps, "demo", window, undefined, now);
-    // Only AAPL was held at the start; its closes from 11 days before the first day, checked against its price.
-    expect(asked.map((request) => [request.instrument.ticker, request.from.toISOString(), request.last])).toEqual([["AAPL_US_EQ", "2026-09-01T00:00:00.000Z", 220]]);
+    // Only AAPL was held at the start; its closes from a year back, as the holding page reads them, checked against its
+    // price and its fills.
+    expect(asked.map((request) => [request.instrument.ticker, request.from.toISOString(), request.last])).toEqual([["AAPL_US_EQ", "2025-10-12T00:00:00.000Z", 220]]);
+    expect(await asked[0]!.fills).toEqual([]);
     expect(read.attribution?.holdings.map((holding) => [holding.ticker, holding.startValue, holding.gain])).toEqual([["AAPL_US_EQ", 1727.27, 272.73], ["NVDA_US_EQ", 0, 40]]);
 
     // Out of time: asked for next time.
     const late = await readAttribution({ ...deps, budgetMs: -1 }, "demo", window, undefined, now);
     expect(late.attribution?.missing).toEqual([{ ticker: "AAPL_US_EQ", reason: "later", problem: "AAPL_US_EQ's closes are asked for on the next read: this one ran out of time." }]);
     // A period that ended earlier, or a history cut short: no attribution, and why.
-    expect((await readAttribution(deps, "demo", { from: window.from, to: new Date("2026-10-01T00:00:00Z") }, undefined, now)).attributionProblem).toMatch(/period that ends now/);
-    truncated = true;
-    expect((await readAttribution(deps, "demo", window, undefined, now)).attributionProblem).toMatch(/page limit/);
+    expect(await readAttribution(deps, "demo", { from: window.from, to: new Date("2026-10-01T00:00:00Z") }, undefined, now)).toMatchObject({ attributionMissing: "period", attributionProblem: expect.stringMatching(/period that ends now/) });
+    truncated = "orders";
+    expect(await readAttribution(deps, "demo", window, undefined, now)).toMatchObject({ attributionMissing: "history", attributionProblem: expect.stringMatching(/order history stops at the page limit/) });
+    // Dividends cut short would leave some out.
+    truncated = "dividends";
+    expect(await readAttribution(deps, "demo", window, undefined, now)).toMatchObject({ attributionMissing: "history", attributionProblem: expect.stringMatching(/dividend history stops/) });
+    // The summary's own read of the history is used when it is handed over.
+    const handed = await readAttribution({ ...deps, history: { orders: { items: orders, truncated: false }, dividends: { items: [dividend("NVDA_US_EQ", 3, "2026-10-01")], truncated: false } } }, "demo", window, undefined, now);
+    expect(handed.attribution?.holdings.find((holding) => holding.ticker === "NVDA_US_EQ")).toMatchObject({ dividends: 3, gain: 43 });
+
+    // A year back reaches 11 days before a 12-month period's first day; the sample account draws through its own anchors.
+    asked.length = 0;
+    truncated = undefined;
+    await readAttribution({ ...deps, config: { sampleData: true } }, "demo", { from: new Date("2025-10-12T10:00:00Z"), to: now }, undefined, now);
+    expect(asked.map((request) => [request.from.toISOString(), "fills" in request])).toEqual([["2025-10-01T00:00:00.000Z", false]]);
   });
 });
