@@ -95,6 +95,34 @@ describe("risk by holding", () => {
     expect(holdingRiskOf([holding("A", 1000, pattern([0])), holding("B", 1000, pattern([0]))], TODAY)).toBeUndefined();
   });
 
+  it("leaves out a holding bought late rather than cut the weeks the rest are read over", () => {
+    const full = (ticker: string, cycle: number[]) => holding(ticker, 1000, pattern(cycle));
+    // 31 closes, from the year's second half: under three quarters of the 53 the others have.
+    const late = { ticker: "LATE", value: 1000, points: fridays(pattern([1, -1])).slice(-31) };
+    const risk = holdingRiskOf([full("A", [1, -1, 2, -2]), full("B", [1, 1, -1, -1]), full("C", [2, -1, -1]), late], TODAY)!;
+    expect(risk).toMatchObject({ weeks: 52, short: ["LATE"], covered: 0.75 });
+  });
+
+  it("leaves out the holding whose weeks line up least with the rest's when too few are shared", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    // B's closes stop after week 39 and C's start at week 13: the three share 27 closes, 26 weeks, too few.
+    const b = { ticker: "B", value: 1000, points: fridays(pattern([1, 1, -1, -1])).slice(0, 40) };
+    const c = { ticker: "C", value: 1000, points: fridays(pattern([2, -1, -1])).slice(13) };
+    const risk = holdingRiskOf([holding("A", 1000, moves), b, c], TODAY)!;
+    expect(risk).toMatchObject({ weeks: 39, short: ["B"], from: "2026-01-09", to: "2026-10-09" });
+    expect(risk.rows.map((row) => row.ticker).sort()).toEqual(["A", "C"]);
+  });
+
+  it("leaves out a holding whose closes jump as across a change of unit", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    // Pounds, then pence from week 20.
+    const pence = { ticker: "GBX", value: 1000, points: fridays(pattern([1, 1, -1, -1])).map((point, index) => (index >= 20 ? { ...point, close: point.close * 100 } : point)) };
+    const risk = holdingRiskOf([holding("A", 1000, moves), holding("B", 1000, pattern([2, -1, -1])), pence], TODAY)!;
+    expect(risk.jumps).toEqual(["GBX"]);
+    expect(risk.rows.map((row) => row.ticker).sort()).toEqual(["A", "B"]);
+    expect(risk.short).toBeUndefined();
+  });
+
   it("shows the correlations between the largest holdings only", () => {
     const inputs = Array.from({ length: MATRIX_SIZE + 2 }, (_, index) => holding(`T${index}`, 100 + index, pattern([1, -1, index % 2 ? 2 : -2, 1])));
     const risk = holdingRiskOf(inputs, TODAY)!;

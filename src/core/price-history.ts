@@ -27,9 +27,12 @@ export interface PriceHistoryRequest {
   levels?: Promise<number[]>;
   /** The account's fills of the instrument: the unit check's last resort, and the sample path's anchors. */
   fills?: Promise<PriceAnchor[]>;
+  /** The days back the closes must reach to be of use; a provider whose plan reaches fewer is not asked. */
+  minDays?: number;
 }
 
-export type PriceHistoryResult = { prices: PriceHistory } | { missing: PricesMissing; problem: string };
+/** `late`: the provider had not answered in time; its answer is cached for the next read. */
+export type PriceHistoryResult = { prices: PriceHistory } | { missing: PricesMissing; problem: string; late?: true };
 
 /**
  * A provider's close this many times Trading 212's price, either way, is taken to be in another unit (a fund
@@ -119,6 +122,9 @@ export function createPriceHistory(deps: {
     const quotes = deps.quotes;
     if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };
     if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
+    if (request.minDays && quotes.historyDays !== undefined && quotes.historyDays < request.minDays) {
+      return { missing: "plan", problem: `The ${quotes.name} free plan's daily prices reach about ${quotes.historyDays} days back, and this needs ${request.minDays}; QUOTE_PROVIDER=stooq or twelvedata reaches a year.` };
+    }
     const symbol = quotes.symbolFor(instrument);
     if (!symbol) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -131,7 +137,7 @@ export function createPriceHistory(deps: {
     } finally {
       clearTimeout(timer);
     }
-    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
+    if (prices === "late") return { missing: "data", late: true, problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol}.` };
     // The unit is checked against the last price, else the open orders and alerts, else the newest fill.
     const check = unitReference(request.last, await request.levels ?? [], await request.fills ?? []);

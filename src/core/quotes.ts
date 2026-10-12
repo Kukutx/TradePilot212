@@ -53,6 +53,8 @@ export interface QuoteProvider {
    * free plan has no daily history.
    */
   history?(instrument: Instrument, from: Date): Promise<PriceHistory | undefined>;
+  /** How many days back `history` reaches, when the plan limits it, whatever `from` asks for. */
+  historyDays?: number;
 }
 
 const CACHE_MS = 60_000;
@@ -265,6 +267,8 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
     name,
     symbolFor,
     hasFxRates: fxSymbol(name, "EUR", "USD") !== undefined,
+    // Alpha Vantage's free plan gives the latest 100 trading days: about 145 days back.
+    ...(fetchHistory && name === "alphavantage" ? { historyDays: 145 } : {}),
     ...(fetchHistory ? {
       async history(instrument: Instrument, from: Date) {
         const symbol = symbolFor(instrument);

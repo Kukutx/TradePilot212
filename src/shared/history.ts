@@ -166,8 +166,10 @@ export interface HoldingRisk {
   rows: HoldingRiskRow[];
   /** Correlations of weekly returns between the largest holdings by value. */
   correlations: { tickers: string[]; matrix: number[][] };
-  /** Holdings with too few weekly closes to measure, left out. */
+  /** Holdings left out with too few weekly closes, or weeks that do not line up with the rest's. */
   short?: string[];
+  /** Holdings left out because their closes jump more than fivefold in a week: a change of unit or a split. */
+  jumps?: string[];
 }
 
 /** Current against target weight, as shares of total account value; drift is current minus target. */

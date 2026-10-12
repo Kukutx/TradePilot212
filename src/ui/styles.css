@@ -1267,6 +1267,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .riskShareLegend span { display: inline-flex; align-items: center; gap: 6px; }
 .riskSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .riskSwatch.risk, .riskShareFill.risk { background: var(--tp-chart); }
+.riskShareFill.risk.offset { background: repeating-linear-gradient(135deg, var(--tp-chart) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--tp-chart); }
 .riskSwatch.value, .riskShareFill.value { background: color-mix(in srgb, var(--tp-muted) 50%, var(--tp-bg-soft)); }
 .riskShareList { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .riskShareList li { display: grid; grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) auto; align-items: center; gap: 10px; }
@@ -1293,6 +1294,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .corrScale { flex: 0 1 160px; height: 8px; border: 1px solid var(--tp-border); border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--tp-blue) var(--corr-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-amber) var(--corr-max), var(--tp-bg-soft))); }
 @media (forced-colors: active) {
   .riskShareFill.risk, .riskSwatch.risk { background: CanvasText !important; }
+  .riskShareFill.risk.offset { background: repeating-linear-gradient(135deg, CanvasText 0 2px, Canvas 2px 5px) !important; }
   .riskShareFill.value, .riskSwatch.value { background: GrayText !important; }
 }
 @container (max-width: 640px) {

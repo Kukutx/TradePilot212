@@ -56,8 +56,9 @@ describe("risk by holding panel", () => {
     expect(html).toContain('<td title="MSFT and KO: 0.20" class="together" style="--corr:0.2">.20</td>');
     expect(html).toContain("It covers 90% of the holdings&#x27; value.");
     expect(html).toContain("Not measured, without daily closes: ODD.");
-    expect(html).toContain("Too few weeks of closes to measure: NEW.");
-    expect(html).not.toContain("still being read");
+    expect(html).toContain("Too few weeks of closes, or weeks that do not line up with the rest&#x27;s, to measure: NEW.");
+    expect(html).not.toContain("not read in time");
+    expect(html).not.toContain("hatched");
   });
 
   it("names the largest holding under its ticker, and the holdings by their short names", () => {
@@ -74,9 +75,25 @@ describe("risk by holding panel", () => {
     const two = { ...risk, correlations: { tickers: ["AAPL_US_EQ", "MSFT_US_EQ"], matrix: [[1, 0.58], [0.58, 1]] } };
     const html = render({ data: { holdings, risk: two, riskMissing: [{ ticker: "KO_US_EQ", reason: "later", problem: "Later." }] } });
     expect(html).not.toContain("corrTable");
-    expect(html).toContain("Some closes are still being read");
+    expect(html).toContain("not read in time; they are being read now, so press Refresh in a moment");
     // A holding left for later is not one that could not be read.
     expect(html).not.toContain("Not measured");
+  });
+
+  it("draws a share below 0 hatched, as long as its size, and says what it means", () => {
+    const hedged: HoldingRisk = { ...risk, rows: [{ ...risk.rows[0]!, risk: 1.5 }, { ...risk.rows[1]!, risk: -0.5 }] };
+    const html = render({ data: { holdings, risk: hedged } });
+    expect(html).toContain('<span class="riskShareFill risk offset" style="width:33.33333333333333%"></span>');
+    expect(html).toContain("<strong>-50%</strong>");
+    expect(html).toContain("A hatched bar is a share below 0");
+  });
+
+  it("names the first few of a long list of holdings left out, and those whose closes jump", () => {
+    const many = Array.from({ length: 11 }, (_, index) => ({ ticker: `T${index}_US_EQ`, reason: "data" as const, problem: "No closes." }));
+    const html = render({ data: { holdings, risk: { ...risk, jumps: ["GBX_EQ"] }, riskMissing: many } });
+    expect(html).toContain("Not measured, without daily closes: T0, T1, T2, T3, T4, T5, T6, T7 and 3 more.");
+    expect(html).toContain("their closes jump more than fivefold in a week, as across a change of unit or a split: GBX.");
+    expect(render({ data: { holdings, risk, riskMissing: many } }, "zh-CN")).toContain("T6、T7，另有 3 个。");
   });
 
   it("says what it needs without a measure, and shows nothing for one holding", () => {

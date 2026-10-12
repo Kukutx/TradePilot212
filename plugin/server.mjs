@@ -34600,6 +34600,8 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
     name,
     symbolFor,
     hasFxRates: fxSymbol(name, "EUR", "USD") !== void 0,
+    // Alpha Vantage's free plan gives the latest 100 trading days: about 145 days back.
+    ...fetchHistory && name === "alphavantage" ? { historyDays: 145 } : {},
     ...fetchHistory ? {
       async history(instrument, from) {
         const symbol2 = symbolFor(instrument);
@@ -39307,8 +39309,27 @@ function allocation(data) {
     ...holdingRiskLines(data)
   ];
 }
+var RISK_MISSING = {
+  later: "not read in time; they are being read for the next read",
+  symbol: "no quote provider symbol (QUOTE_SYMBOLS)",
+  unit: "closes in another unit than Trading 212's (QUOTE_SYMBOLS)",
+  data: "no daily closes from the quote provider",
+  provider: "no quote provider",
+  plan: "no year of closes on the quote provider's plan",
+  sample: "no sample closes"
+};
+var MAX_NAMED = 10;
+function riskMissingLine(missing) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of missing) groups.set(item.reason, [...groups.get(item.reason) ?? [], item]);
+  return `Risk by holding leaves out ${[...groups].map(([reason, items]) => {
+    if (items.length === 1) return `${items[0].ticker} (${items[0].problem.replace(/\.$/, "")})`;
+    const named = items.slice(0, MAX_NAMED).map((item) => item.ticker).join(", ");
+    return `${named}${items.length > MAX_NAMED ? ` and ${items.length - MAX_NAMED} more` : ""} (${RISK_MISSING[reason]})`;
+  }).join("; ")}.`;
+}
 function holdingRiskLines(data) {
-  const missing = data.riskMissing?.length ? [`Risk by holding leaves out ${data.riskMissing.map((item) => `${item.ticker} (${item.problem.replace(/\.$/, "")})`).join("; ")}.`] : [];
+  const missing = data.riskMissing?.length ? [riskMissingLine(data.riskMissing)] : [];
   const { risk } = data;
   if (!risk) return [...data.riskProblem ? [`No risk by holding: ${data.riskProblem}`] : [], ...missing];
   const pairs = risk.correlations.tickers.flatMap((a, i) => risk.correlations.tickers.slice(i + 1).map((b, k) => ({ a, b, value: risk.correlations.matrix[i][i + 1 + k] }))).sort((x, y) => y.value - x.value);
@@ -39318,8 +39339,9 @@ function holdingRiskLines(data) {
       `Risk by holding (weekly closes ${risk.from} to ${risk.to}, ${risk.weeks} weeks, each in its own currency; ${pct(risk.covered, 0)} of the holdings' value): together ${pct(risk.volatility)} a year, diversification ratio ${num2(risk.diversification, 2)} (their own volatilities, weighted, over that)`,
       rows(risk.rows, (row) => `${row.ticker}: ${pct(row.risk, 0)} of the risk, ${pct(row.weight, 0)} of the value; volatility ${pct(row.volatility, 0)} a year, correlation with them together ${num2(row.correlation, 2)}`)
     ),
-    ...pairs.length > 1 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : [],
-    ...risk.short?.length ? [`Too few weekly closes to measure: ${risk.short.join(", ")}.`] : [],
+    ...pairs.length >= 6 ? [`Most alike: ${pairs.slice(0, 3).map(pair).join(", ")}; least alike: ${pairs.slice(-3).reverse().map(pair).join(", ")}.`] : pairs.length > 1 ? [`Correlations, most alike first: ${pairs.map(pair).join(", ")}.`] : [],
+    ...risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : [],
+    ...risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : [],
     ...missing
   ];
 }
@@ -39892,6 +39914,9 @@ function createPriceHistory(deps) {
     const quotes = deps.quotes;
     if (!quotes) return { missing: "provider", problem: "No quote provider is configured (QUOTE_PROVIDER, QUOTE_API_KEY), so there is no price chart." };
     if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
+    if (request.minDays && quotes.historyDays !== void 0 && quotes.historyDays < request.minDays) {
+      return { missing: "plan", problem: `The ${quotes.name} free plan's daily prices reach about ${quotes.historyDays} days back, and this needs ${request.minDays}; QUOTE_PROVIDER=stooq or twelvedata reaches a year.` };
+    }
     const symbol2 = quotes.symbolFor(instrument);
     if (!symbol2) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
     let timer;
@@ -39906,7 +39931,7 @@ function createPriceHistory(deps) {
     } finally {
       clearTimeout(timer);
     }
-    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1e3} seconds for ${symbol2}'s daily prices; they show the next time the page opens.` };
+    if (prices === "late") return { missing: "data", late: true, problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1e3} seconds for ${symbol2}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol2}.` };
     const check2 = unitReference(request.last, await request.levels ?? [], await request.fills ?? []);
     const last = prices.points[prices.points.length - 1].close;
@@ -40975,6 +41000,8 @@ var MIN_WEEKS = 26;
 var MATRIX_SIZE = 10;
 var WEEKS_A_YEAR = 52;
 var FLAT_VARIANCE = 1e-6;
+var COVERAGE = 0.75;
+var JUMP = Math.log(5);
 var DAY_MS12 = 864e5;
 var round15 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
 var dayNumber2 = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS12;
@@ -40994,15 +41021,34 @@ function weeklyCloses(points2, today) {
   }
   return weeks;
 }
+function sharedWeeks(inputs) {
+  if (!inputs.length) return [];
+  return [...inputs[0].weeks.keys()].filter((week) => inputs.every((input2) => input2.weeks.has(week))).sort((a, b) => a - b);
+}
+function jumps(weeks) {
+  const closes2 = [...weeks].sort(([a], [b]) => a - b).map(([, week]) => week.close);
+  return closes2.some((close, index) => index > 0 && Math.abs(Math.log(close / closes2[index - 1])) > JUMP);
+}
 function holdingRiskOf(inputs, today, totalValue) {
   const valued = inputs.filter((input2) => input2.value > 0 && Number.isFinite(input2.value));
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input2) => sum + input2.value, 0));
   const read = valued.map((input2) => ({ ...input2, weeks: weeklyCloses(input2.points, today) }));
-  const short = read.filter((input2) => input2.weeks.size <= MIN_WEEKS).map((input2) => input2.ticker);
-  const measured = read.filter((input2) => input2.weeks.size > MIN_WEEKS);
-  if (measured.length < 2) return void 0;
-  const common = [...measured[0].weeks.keys()].filter((week) => measured.every((input2) => input2.weeks.has(week))).sort((a, b) => a - b);
-  if (common.length <= MIN_WEEKS) return void 0;
+  const jumped = read.filter((input2) => jumps(input2.weeks));
+  const steady = read.filter((input2) => !jumped.includes(input2));
+  const most = Math.max(0, ...steady.map((input2) => input2.weeks.size));
+  const enough = (input2) => input2.weeks.size - 1 > MIN_WEEKS && input2.weeks.size >= most * COVERAGE;
+  const short = steady.filter((input2) => !enough(input2)).map((input2) => input2.ticker);
+  let measured = steady.filter(enough);
+  let common = sharedWeeks(measured);
+  while (common.length - 1 <= MIN_WEEKS && measured.length > 2) {
+    const without = measured.map((left) => sharedWeeks(measured.filter((input2) => input2 !== left)));
+    const best = without.reduce((at, weeks, index) => weeks.length > without[at].length ? index : at, 0);
+    if (without[best].length <= common.length) break;
+    short.push(measured[best].ticker);
+    measured = measured.filter((_, index) => index !== best);
+    common = without[best];
+  }
+  if (measured.length < 2 || common.length - 1 <= MIN_WEEKS) return void 0;
   const returns = measured.map((input2) => common.slice(1).map((week, index) => {
     const before = common[index];
     return Math.log(input2.weeks.get(week).close / input2.weeks.get(before).close) / Math.sqrt((week - before) / 7);
@@ -41037,7 +41083,8 @@ function holdingRiskOf(inputs, today, totalValue) {
     covered: round15(value / total, 4),
     rows: rows2,
     correlations: { tickers: largest.map((entry) => entry.ticker), matrix: largest.map((a) => largest.map((b) => correlation(a.i, b.i))) },
-    ...short.length ? { short } : {}
+    ...short.length ? { short } : {},
+    ...jumped.length ? { jumps: jumped.map((input2) => input2.ticker) } : {}
   };
 }
 
@@ -41045,6 +41092,8 @@ function holdingRiskOf(inputs, today, totalValue) {
 var DAY_MS13 = 864e5;
 var CONCURRENCY4 = 4;
 var READ_BUDGET_MS4 = 5e3;
+var MIN_DAYS = (MIN_WEEKS + 2) * 7;
+var PROVIDER_MISSES = /* @__PURE__ */ new Set(["provider", "plan"]);
 async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__PURE__ */ new Date()) {
   const valued = holdings.filter((holding2) => holding2.value > 0).sort((a, b) => b.value - a.value);
   if (valued.length < 2) return { riskProblem: "Risk by holding needs two holdings or more." };
@@ -41053,16 +41102,27 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
   const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
   const from = new Date(Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13);
-  const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS4);
-  const readOne = async (holding2) => {
+  const requestFor = (holding2) => {
     const position = positions.get(holding2.ticker);
     const instrument = listed.get(holding2.ticker) ?? position?.instrument;
-    if (!instrument) return { reason: "data", problem: `Trading 212 does not list ${holding2.ticker} at the moment.` };
-    const result2 = await priceHistory({ instrument, from, ...position?.currentPrice ? { last: position.currentPrice } : {} }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+    return instrument && { instrument, from, minDays: MIN_DAYS, ...position?.currentPrice ? { last: position.currentPrice } : {} };
+  };
+  const ask = (request) => priceHistory(request).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+  const later = async (holding2) => ({ reason: "later", problem: `${holding2.ticker}'s closes were not read in time; they are read now for the next read.` });
+  const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS4);
+  const started = /* @__PURE__ */ new Set();
+  const readOne = async (holding2) => {
+    const request = requestFor(holding2);
+    if (!request) return { reason: "data", problem: `Trading 212 does not list ${holding2.ticker} at the moment.` };
+    if (Date.now() >= deadline) return later(holding2);
+    started.add(holding2.ticker);
+    const result2 = await settleWithin(ask(request), Math.max(0, deadline - Date.now()));
+    if (!result2 || "late" in result2 && result2.late) return later(holding2);
     return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
   };
-  const later = async (holding2) => ({ reason: "later", problem: `${holding2.ticker}'s closes are asked for on the next read: this one ran out of time.` });
   const results = await eachLimited(valued, CONCURRENCY4, deadline, readOne, later);
+  const unread = valued.filter((holding2) => !started.has(holding2.ticker)).flatMap((holding2) => requestFor(holding2) ?? []);
+  if (unread.length) void eachLimited(unread, CONCURRENCY4, Infinity, ask, ask);
   const inputs = [];
   const missing = [];
   valued.forEach((holding2, index) => {
@@ -41070,9 +41130,12 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
     if ("points" in result2) inputs.push({ ticker: holding2.ticker, value: holding2.value, points: result2.points });
     else missing.push({ ticker: holding2.ticker, reason: result2.reason, problem: result2.problem });
   });
+  if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
+    return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0].problem}` };
+  }
   const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding2) => sum + holding2.value, 0));
   return {
-    ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} are needed), or did not move.` },
+    ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} weekly returns are needed), their closes jump as across a change of unit, or they did not move.` },
     ...missing.length ? { riskMissing: missing } : {}
   };
 }

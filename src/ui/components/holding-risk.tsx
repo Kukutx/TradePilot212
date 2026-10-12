@@ -13,6 +13,8 @@ import { ViewSwitch } from "./charts";
 
 /** At most this many rows of bars: the largest shares of the risk. */
 const MAX_ROWS = 12;
+/** At most this many holdings are named in a note. */
+const MAX_NAMED = 8;
 
 /** A correlation to two decimals, as every cell and title shows it: "0.60", "-0.15". */
 const correlationNumber = (value: number, locale: SupportedLocale) =>
@@ -80,13 +82,21 @@ export function HoldingRiskPanel({ data, book, locale, t }: { data: Pick<Allocat
   const { risk } = data;
   if (data.holdings.filter((holding) => holding.value > 0).length < 2) return null;
   const later = data.riskMissing?.some((item) => item.reason === "later");
-  const unread = data.riskMissing?.filter((item) => item.reason !== "later").map((item) => instrumentText(item.ticker, book)) ?? [];
-  const short = risk?.short?.map((ticker) => instrumentText(ticker, book)) ?? [];
+  // The holdings a note names, by name, the first few of a long list.
+  const named = (tickers: string[]) => {
+    const list = tickers.slice(0, MAX_NAMED).map((ticker) => instrumentText(ticker, book)).join(locale === "zh-CN" ? "、" : ", ");
+    return tickers.length > MAX_NAMED ? fill(t("holdingRiskAndMore"), { list, count: String(tickers.length - MAX_NAMED) }) : list;
+  };
+  const unread = data.riskMissing?.filter((item) => item.reason !== "later").map((item) => item.ticker) ?? [];
+  const short = risk?.short ?? [];
+  const jumps = risk?.jumps ?? [];
   const notes = sentences(locale, [
     risk && t("holdingRiskNote"),
+    risk?.rows.some((row) => row.risk < 0) && t("holdingRiskOffset"),
     risk && risk.covered < 0.995 && fill(t("holdingRiskCovered"), { share: pct(risk.covered, locale, 0) }),
-    unread.length > 0 && fill(t("holdingRiskMissing"), { list: unread.join(locale === "zh-CN" ? "、" : ", ") }),
-    short.length > 0 && fill(t("holdingRiskShort"), { list: short.join(locale === "zh-CN" ? "、" : ", ") }),
+    unread.length > 0 && fill(t("holdingRiskMissing"), { list: named(unread) }),
+    short.length > 0 && fill(t("holdingRiskShort"), { list: named(short) }),
+    jumps.length > 0 && fill(t("holdingRiskJumps"), { list: named(jumps) }),
     later && t("holdingRiskLater"),
   ]);
   if (!risk) {
@@ -101,8 +111,9 @@ export function HoldingRiskPanel({ data, book, locale, t }: { data: Pick<Allocat
     );
   }
   const rows = risk.rows.slice(0, MAX_ROWS);
-  const top = Math.max(...rows.map((row) => Math.max(row.risk, row.weight)), 0);
-  const width = (value: number) => `${top > 0 ? Math.max(0, (value / top) * 100) : 0}%`;
+  // A share below 0 (a holding that offsets the rest) is drawn as long as its size, hatched.
+  const top = Math.max(...rows.map((row) => Math.max(Math.abs(row.risk), row.weight)), 0);
+  const width = (value: number) => `${top > 0 ? (Math.abs(value) / top) * 100 : 0}%`;
   const largest = risk.rows[0]!;
   // The ticker beside its share keeps the share in sight; the name, however long, wraps below it.
   const largestLabel = instrumentLabel(largest.ticker, book);
@@ -141,7 +152,7 @@ export function HoldingRiskPanel({ data, book, locale, t }: { data: Pick<Allocat
                   <li key={row.ticker} title={rowTitle(row)}>
                     <span className="barLabel" aria-hidden="true"><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</span>
                     <span className="riskShareBars" aria-hidden="true">
-                      <span className="riskShareTrack"><span className="riskShareFill risk" style={{ width: width(row.risk) }} /></span>
+                      <span className="riskShareTrack"><span className={`riskShareFill risk${row.risk < 0 ? " offset" : ""}`} style={{ width: width(row.risk) }} /></span>
                       <span className="riskShareTrack thin"><span className="riskShareFill value" style={{ width: width(row.weight) }} /></span>
                     </span>
                     <span className="riskShareValues" aria-hidden="true"><strong>{share(row.risk)}</strong><small>{share(row.weight)}</small></span>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createServices } from "../app/services.js";
 import type { Instrument, Position } from "../shared/contracts.js";
 import type { HoldingWeight } from "../shared/history.js";
@@ -49,27 +49,53 @@ describe("reading risk by holding", () => {
     expect(risk.rows.every((row) => row.correlation > 0 && row.correlation < 1)).toBe(true);
   });
 
-  it("reads the largest holdings first, a few at a time, and leaves the rest for the next read once out of time", async () => {
-    const tickers = ["A", "B", "C", "D", "E", "F"];
-    const asked: string[] = [];
-    const requests: PriceHistoryRequest[] = [];
-    const priceHistory = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
-      asked.push(request.instrument.ticker);
-      requests.push(request);
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      return { prices: { source: "test", points: fridays(tickers.indexOf(request.instrument.ticker)) } };
-    };
-    // Listed by value from smallest: they are read from the largest.
-    const holdings = tickers.map((ticker, index) => holding(ticker, 100 * (index + 1)));
-    const result = await readHoldingRisk({ priceHistory, budgetMs: 20 }, "demo", holdings, { positions: tickers.map(position), instruments: [] }, NOW);
-    expect(asked).toEqual(["F", "E", "D", "C"]);
-    expect(result.riskMissing?.map((item) => [item.ticker, item.reason])).toEqual([["B", "later"], ["A", "later"]]);
-    expect(result.risk?.rows.map((row) => row.ticker).sort()).toEqual(["C", "D", "E", "F"]);
-    // C to F are 1800 of the 2100.
-    expect(result.risk?.covered).toBeCloseTo(1800 / 2100, 4);
-    // A year back from the start of the day, with the holding's last price to check the unit against.
-    expect(requests[0]!.from.toISOString()).toBe("2025-10-10T00:00:00.000Z");
-    expect(requests[0]!.last).toBe(42);
+  it("reads the largest holdings first, a few at a time, waits a few seconds at most, and reads the rest on for the next read", async () => {
+    vi.useFakeTimers({ now: NOW });
+    try {
+      const tickers = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+      const asked: string[] = [];
+      const requests: PriceHistoryRequest[] = [];
+      // The four largest answer in a second, the next four in ten (still running when the reads stop waiting).
+      const priceHistory = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
+        const ticker = request.instrument.ticker;
+        asked.push(ticker);
+        requests.push(request);
+        await new Promise((resolve) => setTimeout(resolve, "JIHG".includes(ticker) ? 1000 : 10_000));
+        return { prices: { source: "test", points: fridays(tickers.indexOf(ticker)) } };
+      };
+      // Listed from the smallest: they are read from the largest.
+      const holdings = tickers.map((ticker, index) => holding(ticker, 100 * (index + 1)));
+      const pending = readHoldingRisk({ priceHistory }, "demo", holdings, { positions: tickers.map(position), instruments: [] }, NOW);
+      await vi.advanceTimersByTimeAsync(5000);
+      const result = await pending;
+      expect(asked.slice(0, 8)).toEqual(["J", "I", "H", "G", "F", "E", "D", "C"]);
+      expect(result.risk?.rows.map((row) => row.ticker).sort()).toEqual(["G", "H", "I", "J"]);
+      expect(result.riskMissing?.map((item) => [item.ticker, item.reason])).toEqual(["F", "E", "D", "C", "B", "A"].map((ticker) => [ticker, "later"]));
+      // G to J are 3400 of the 5500.
+      expect(result.risk?.covered).toBeCloseTo(3400 / 5500, 4);
+      // B and A were not reached: they are asked now, without waiting, so the next read finds them cached.
+      expect(asked.slice(8).sort()).toEqual(["A", "B"]);
+      // A year back from the start of the day, with the holding's last price to check the unit against.
+      expect(requests[0]).toMatchObject({ last: 42, minDays: 196 });
+      expect(requests[0]!.from.toISOString()).toBe("2025-10-10T00:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts a read the price history gave up waiting for as one for the next read", async () => {
+    const priceHistory = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => request.instrument.ticker === "SLOW"
+      ? { missing: "data", late: true, problem: "Stooq took more than 3 seconds." }
+      : { prices: { source: "test", points: fridays(request.instrument.ticker.length) } };
+    const result = await readHoldingRisk({ priceHistory }, "demo", [holding("A", 300), holding("BB", 200), holding("SLOW", 100)], { positions: [], instruments: ["A", "BB", "SLOW"].map(instrument) }, NOW);
+    expect(result.riskMissing).toEqual([{ ticker: "SLOW", reason: "later", problem: "SLOW's closes were not read in time; they are read now for the next read." }]);
+    expect(result.risk?.rows).toHaveLength(2);
+  });
+
+  it("says once when the quote provider gives no year of closes", async () => {
+    const priceHistory = async (): Promise<PriceHistoryResult> => ({ missing: "plan", problem: "The alphavantage free plan's daily prices reach about 145 days back, and this needs 196." });
+    const result = await readHoldingRisk({ priceHistory }, "demo", [holding("A", 300), holding("B", 200)], { positions: [], instruments: ["A", "B"].map(instrument) }, NOW);
+    expect(result).toEqual({ riskProblem: "It needs a year of daily closes from the quote provider. The alphavantage free plan's daily prices reach about 145 days back, and this needs 196." });
   });
 
   it("names the holdings it could not read, and why", async () => {
@@ -104,6 +130,19 @@ describe("the allocation tool's risk by holding", () => {
     const text = describePayload({ ...analysis, riskProblem: "Fewer than two holdings have daily closes to measure.", riskMissing: [{ ticker: "KO_US_EQ", reason: "symbol", problem: "No symbol for KO." }] });
     expect(text).toContain("No risk by holding: Fewer than two holdings have daily closes to measure.");
     expect(text).toContain("Risk by holding leaves out KO_US_EQ (No symbol for KO).");
+    // Several for one reason are named together; three holdings' pairs are listed once.
+    const risk = {
+      from: "2025-10-10", to: "2026-10-09", weeks: 52, volatility: 0.16, diversification: 1.3, covered: 0.8,
+      rows: [{ ticker: "A", weight: 0.5, volatility: 0.2, risk: 0.6, correlation: 0.9 }, { ticker: "B", weight: 0.3, volatility: 0.2, risk: 0.3, correlation: 0.8 }, { ticker: "C", weight: 0.2, volatility: 0.1, risk: 0.1, correlation: 0.4 }],
+      correlations: { tickers: ["A", "B", "C"], matrix: [[1, 0.6, 0.1], [0.6, 1, 0.3], [0.1, 0.3, 1]] },
+      jumps: ["GBX"],
+    };
+    const later = (ticker: string) => ({ ticker, reason: "later" as const, problem: `${ticker} later.` });
+    const grouped = describePayload({ ...analysis, risk, riskMissing: [later("D"), later("E"), { ticker: "F", reason: "unit", problem: "Another unit." }] });
+    expect(grouped).toContain("Correlations, most alike first: A–B 0.6, B–C 0.3, A–C 0.1.");
+    expect(grouped).not.toContain("least alike");
+    expect(grouped).toContain("Left out, closes that jump more than fivefold in a week (a change of unit or a split): GBX.");
+    expect(grouped).toContain("Risk by holding leaves out D, E (not read in time; they are being read for the next read); F (Another unit).");
   });
 
   it("adds the holdings' risk to the allocation and its text", async () => {

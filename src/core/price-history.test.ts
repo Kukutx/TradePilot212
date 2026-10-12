@@ -105,6 +105,10 @@ describe("the price chart's closes", () => {
     expect(await history({ QUOTE_PROVIDER: "finnhub", QUOTE_API_KEY: "k" })({ instrument: aapl, from })).toMatchObject({ missing: "plan" });
     expect(await history({})({ instrument: vusa, from })).toMatchObject({ missing: "symbol", problem: expect.stringContaining("QUOTE_SYMBOLS") });
     expect(await history({})({ instrument: { ...aapl, ticker: "ZZZZ_US_EQ" }, from })).toMatchObject({ missing: "data" });
+    // Alpha Vantage's free closes reach about 145 days back: a read that needs more is not spent on it.
+    const alpha = history({ QUOTE_PROVIDER: "alphavantage", QUOTE_API_KEY: "k" });
+    expect(await alpha({ instrument: aapl, from, minDays: 196 })).toMatchObject({ missing: "plan", problem: expect.stringContaining("about 145 days back, and this needs 196") });
+    expect(await history({})({ instrument: aapl, from, minDays: 196 })).toHaveProperty("prices");
   });
 
   it("refuses closes in another unit than Trading 212's price, and names the factor that maps them", async () => {
@@ -134,7 +138,7 @@ describe("the price chart's closes", () => {
     const wait = new Promise<void>((resolve) => { answer = resolve; });
     const quotes = provider({}, [], { now: false, wait });
     const slow = createPriceHistory({ sampleData: false, quotes, waitMs: 20 });
-    expect(await slow({ instrument: aapl, from, last: 101 })).toMatchObject({ missing: "data", problem: expect.stringContaining("took more than 0.02 seconds") });
+    expect(await slow({ instrument: aapl, from, last: 101 })).toMatchObject({ missing: "data", late: true, problem: expect.stringContaining("took more than 0.02 seconds") });
     answer();
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(await slow({ instrument: aapl, from, last: 101 })).toHaveProperty("prices");

@@ -6,7 +6,7 @@
 import type { HoldingRisk, HoldingRiskRow } from "./history.js";
 import type { PricePoint } from "./prices.js";
 
-/** Fewer weekly returns than this, together, say too little to read a volatility or a correlation from. */
+/** No more weekly returns than this, together, say too little to read a volatility or a correlation from. */
 export const MIN_WEEKS = 26;
 /** The correlations are shown between this many holdings at most, the largest by value. */
 export const MATRIX_SIZE = 10;
@@ -14,6 +14,13 @@ export const MATRIX_SIZE = 10;
 const WEEKS_A_YEAR = 52;
 /** Below this variance a year (a volatility of 0.1%) the holdings did not move: there is no risk to share. */
 const FLAT_VARIANCE = 1e-6;
+/**
+ * A holding with fewer weekly closes than this share of the most any has is left out, rather than cut the weeks all
+ * the others are read over (a holding bought into the year's second half, closes that stopped).
+ */
+const COVERAGE = 0.75;
+/** A week's close five times the last, or a fifth of it, is a change of unit (pounds to pence) or a split, not a move. */
+const JUMP = Math.log(5);
 
 const DAY_MS = 86_400_000;
 const round = (value: number, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
@@ -47,23 +54,52 @@ function weeklyCloses(points: PricePoint[], today: string): Map<number, { date: 
   return weeks;
 }
 
+type WeeklyInput = HoldingRiskInput & { weeks: Map<number, { date: string; close: number }> };
+
+/** The weeks every holding has a close in, oldest first. */
+function sharedWeeks(inputs: WeeklyInput[]): number[] {
+  if (!inputs.length) return [];
+  return [...inputs[0]!.weeks.keys()].filter((week) => inputs.every((input) => input.weeks.has(week))).sort((a, b) => a - b);
+}
+
+/** Whether a holding's closes jump, from one week's to the next, by more than any real move. */
+function jumps(weeks: WeeklyInput["weeks"]): boolean {
+  const closes = [...weeks].sort(([a], [b]) => a - b).map(([, week]) => week.close);
+  return closes.some((close, index) => index > 0 && Math.abs(Math.log(close / closes[index - 1]!)) > JUMP);
+}
+
 /**
  * Each holding's share of the portfolio's risk, from the weeks every holding measured has a close in. A holding with
- * fewer than MIN_WEEKS weekly returns of its own is left out (`short`), and the others are weighed among themselves;
- * `totalValue` is the value of all the holdings, those without closes included, for the share measured.
- * Undefined when fewer than two holdings, or fewer than MIN_WEEKS weeks together, are left, or nothing moved.
+ * no more than MIN_WEEKS weekly returns, or fewer than COVERAGE of the most any has, is left out (`short`), as is one
+ * whose weeks do not line up with the rest's when no more than MIN_WEEKS are shared, and one whose closes jump
+ * (`jumps`). The others are weighed among themselves; `totalValue` is the value of all the holdings, those without
+ * closes included, for the share measured. Undefined when fewer than two holdings, or no more than MIN_WEEKS weeks
+ * together, are left, or nothing moved.
  */
 export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number): HoldingRisk | undefined {
   const valued = inputs.filter((input) => input.value > 0 && Number.isFinite(input.value));
   // The holdings' value, those without closes included, for the share measured.
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input) => sum + input.value, 0));
-  const read = valued.map((input) => ({ ...input, weeks: weeklyCloses(input.points, today) }));
-  const short = read.filter((input) => input.weeks.size <= MIN_WEEKS).map((input) => input.ticker);
-  const measured = read.filter((input) => input.weeks.size > MIN_WEEKS);
-  if (measured.length < 2) return undefined;
-  // The weeks every holding measured has a close in.
-  const common = [...measured[0]!.weeks.keys()].filter((week) => measured.every((input) => input.weeks.has(week))).sort((a, b) => a - b);
-  if (common.length <= MIN_WEEKS) return undefined;
+  const read: WeeklyInput[] = valued.map((input) => ({ ...input, weeks: weeklyCloses(input.points, today) }));
+  const jumped = read.filter((input) => jumps(input.weeks));
+  const steady = read.filter((input) => !jumped.includes(input));
+  const most = Math.max(0, ...steady.map((input) => input.weeks.size));
+  // Weekly returns are one fewer than the weekly closes.
+  const enough = (input: WeeklyInput) => input.weeks.size - 1 > MIN_WEEKS && input.weeks.size >= most * COVERAGE;
+  const short = steady.filter((input) => !enough(input)).map((input) => input.ticker);
+  let measured = steady.filter(enough);
+  let common = sharedWeeks(measured);
+  // Weeks that do not line up (a gap in one, another's closes stopping early): leave out, one at a time, the holding
+  // whose absence leaves the most weeks shared, until enough are.
+  while (common.length - 1 <= MIN_WEEKS && measured.length > 2) {
+    const without = measured.map((left) => sharedWeeks(measured.filter((input) => input !== left)));
+    const best = without.reduce((at, weeks, index) => (weeks.length > without[at]!.length ? index : at), 0);
+    if (without[best]!.length <= common.length) break;
+    short.push(measured[best]!.ticker);
+    measured = measured.filter((_, index) => index !== best);
+    common = without[best]!;
+  }
+  if (measured.length < 2 || common.length - 1 <= MIN_WEEKS) return undefined;
   // Weekly log returns; a gap of whole weeks (a market shut all week) counts as that many weeks of variance.
   const returns = measured.map((input) => common.slice(1).map((week, index) => {
     const before = common[index]!;
@@ -102,5 +138,6 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
     rows,
     correlations: { tickers: largest.map((entry) => entry.ticker), matrix: largest.map((a) => largest.map((b) => correlation(a.i, b.i))) },
     ...(short.length ? { short } : {}),
+    ...(jumped.length ? { jumps: jumped.map((input) => input.ticker) } : {}),
   };
 }
