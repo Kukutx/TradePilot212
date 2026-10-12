@@ -69,11 +69,17 @@ function pickTickFields(alert: PriceAlert): Partial<PriceAlert> {
   return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate }).filter(([, value]) => value !== undefined));
 }
 
-/** An alert without its trigger: armed again. */
+/**
+ * An alert without its trigger: armed again. A day's-move alert keeps the trading day it last fired for, so it counts
+ * only from the day after it, whatever a later read takes the day to be.
+ */
 function untriggered(alert: PriceAlert): PriceAlert {
-  const { triggeredAt: _t, triggeredPrice: _p, triggeredDay: _d, highWatermark: _h, ...rest } = alert;
+  const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
   return rest;
 }
+
+/** Whether a day's-move alert has fired for `day` or a later one: only a day after the last it fired for counts. */
+const firedFor = (alert: PriceAlert, day: string | undefined) => day !== undefined && alert.triggeredDay !== undefined && day <= alert.triggeredDay;
 
 export class PriceAlerts {
   constructor(private readonly deps: {
@@ -82,8 +88,8 @@ export class PriceAlerts {
     trading: TradingService;
     /** A price's previous close (day's-move alerts); without it they wait. */
     dayClose?: (environment: TradingEnvironment, instrument: Instrument, price: number, quoted: boolean, now: Date) => Promise<DayClose>;
-    /** The trading day a price is from, so an alert that fired today costs no price read until the next one. */
-    tradingDay?: (environment: TradingEnvironment, instrument: Instrument, quoted: boolean, now: Date) => Promise<string>;
+    /** The trading day a price is from, so an alert that fired today costs no read until the next one; none when unknown. */
+    tradingDay?: (environment: TradingEnvironment, instrument: Instrument, quoted: boolean, now: Date) => Promise<string | undefined>;
   }) {}
 
   async list(environment?: TradingEnvironment): Promise<PriceAlert[]> {
@@ -127,7 +133,7 @@ export class PriceAlerts {
     await this.deps.store.delete(alertKey(id));
   }
 
-  /** Arm a triggered alert again; a trailing alert restarts from the next price it sees. */
+  /** Arm a triggered alert again; a trailing alert restarts from the next price it sees, a day's move from the next trading day. */
   async rearm(id: string): Promise<PriceAlert> {
     const alert = untriggered(await this.get(id));
     await this.deps.store.put(alertKey(id), alert);
@@ -135,17 +141,39 @@ export class PriceAlerts {
   }
 
   /**
+   * Whether a day's-move alert has already fired for the trading day of its price, held or quoted, from the instrument
+   * list (cached) and the schedules (cached) alone: then the tick reads neither positions nor prices for it.
+   */
+  private async firedToday(alert: PriceAlert, now: Date): Promise<boolean> {
+    if (alert.condition !== "day_move" || !alert.triggeredDay || !this.deps.tradingDay) return false;
+    try {
+      const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      if (!listed) return false;
+      // Held, Trading 212's price may be in the next day's pre-market; quoted, it is the regular session's.
+      const days = await Promise.all([false, true].map((quoted) => this.deps.tradingDay!(alert.environment, listed, quoted, now)));
+      return days.every((day) => firedFor(alert, day));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * One scheduler tick: one positions read per environment, then every armed alert is evaluated, and each day's-move
-   * alert that fired on an earlier trading day is armed again and evaluated.
+   * alert is armed again and evaluated once the trading day is a later one than it last fired for.
    */
   async check(now = new Date()): Promise<AlertReport[]> {
-    const due = (await this.list()).filter((alert) => !alert.triggeredAt || (alert.condition === "day_move" && alert.triggeredDay));
+    const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move");
     if (!due.length) return [];
     const credentials = credentialStatus(this.deps.config);
     const reports: AlertReport[] = [];
     const positions = new Map<TradingEnvironment, Position[] | Error>();
+    const waitDay = (alert: PriceAlert) => {
+      // A triggered one is quiet until the next day; one re-armed by hand says why it waits.
+      if (!alert.triggeredAt) reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: `${alert.ticker} fired for ${alert.triggeredDay} already; it counts from the next trading day.` });
+    };
     for (const alert of due) {
       if (!credentials[alert.environment]) continue;
+      if (await this.firedToday(alert, now)) { waitDay(alert); continue; }
       if (!positions.has(alert.environment)) {
         try {
           positions.set(alert.environment, await this.deps.trading.positions(alert.environment));
@@ -166,8 +194,6 @@ export class PriceAlerts {
           const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
           instrument = listed ? { ...(holding?.instrument ?? {}), ...listed } : holding?.instrument;
         }
-        // Fired on this trading day already: no price read until the next one.
-        if (alert.triggeredDay && instrument && this.deps.tradingDay && (await this.deps.tradingDay(alert.environment, instrument, quoted, now)) === alert.triggeredDay) continue;
         if (quoted) {
           // Not held: fall back to the external quote provider (price alerts only; cost-based alerts need a holding).
           const quote = instrument ? await this.deps.trading.externalQuote(instrument) : undefined;
@@ -193,11 +219,11 @@ export class PriceAlerts {
           reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: read.problem });
           continue;
         }
-        // Fired on this trading day already: it stays triggered until the next one.
-        if (alert.triggeredAt && alert.triggeredDay === read.day) continue;
+        // Fired for this trading day, or a later one, already: it counts again from the next.
+        if (firedFor(alert, read.day)) { waitDay(alert); continue; }
         dayClose = read;
       }
-      // A day's-move alert from an earlier day starts afresh.
+      // A day's-move alert that fired on an earlier day starts afresh.
       const rearmed = alert.triggeredAt !== undefined;
       const base = rearmed ? untriggered(alert) : alert;
       // A session that closed before the alert was set is not its to report; its move is still recorded.

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { createTranslator } from "../i18n";
-import { AlertForm, alertValueProblem, defaultAlertValue } from "./alerts";
+import { AlertActions, AlertForm, alertValueProblem, defaultAlertValue } from "./alerts";
 
 describe("alert form", () => {
   it("starts a price alert 5% either side of the last price, and a percent alert at a common level", () => {
@@ -20,6 +20,15 @@ describe("alert form", () => {
       .matchAll(/<option value="([a-z_]+)"/g)].map((match) => match[1]);
     expect(options(false)).toEqual(["below", "above", "day_move"]);
     expect(options(true)).toEqual(["below", "above", "day_move", "trailing_drop", "loss_percent", "gain_percent"]);
+  });
+
+  it("offers Re-arm on a triggered alert, except a day's move, which arms itself on the next trading day", () => {
+    const actions = (condition: "above" | "day_move") => renderToStaticMarkup(createElement(AlertActions, {
+      alert: { id: "alt_1", environment: "demo", ticker: "AAPL_US_EQ", condition, price: 1, createdAt: "2026-10-01T00:00:00Z", triggeredAt: "2026-10-09T15:00:00Z" },
+      t: createTranslator("en"), busy: false, onRearm: () => {}, onDelete: () => {},
+    }));
+    expect(actions("above")).toContain(">Re-arm</button>");
+    expect(actions("day_move")).not.toContain("Re-arm");
   });
 
   it("checks the value the way the server does", () => {

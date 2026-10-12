@@ -39375,13 +39375,17 @@ async function dayMove(deps, context, input2) {
   };
 }
 async function daySessionOf(deps, environment, instrument, quoted2, now = /* @__PURE__ */ new Date()) {
-  const exchanges = deps.schedules ? await settleWithin(deps.schedules(environment).catch(() => []), LIST_WAIT_MS) : void 0;
-  return sessionFinder(exchanges ?? [], now)(quoted2 ? { ...instrument, extendedHours: false } : instrument);
+  const exchanges = (deps.schedules ? await settleWithin(deps.schedules(environment).catch(() => []), LIST_WAIT_MS) : void 0) ?? [];
+  const id = instrument.workingScheduleId;
+  if (id !== void 0 && !exchanges.some((exchange) => (exchange.workingSchedules ?? []).some((schedule) => schedule.id === id))) return void 0;
+  return sessionFinder(exchanges, now)(quoted2 ? { ...instrument, extendedHours: false } : instrument);
 }
 async function dayCloseOf(deps, environment, instrument, price, quoted2, now = /* @__PURE__ */ new Date()) {
   const session = await daySessionOf(deps, environment, instrument, quoted2, now);
+  if (!session) return { missing: "data", problem: `Trading 212's exchange schedules could not be read, so the trading day of ${instrument.ticker}'s price is not known.` };
   const from = new Date(Math.floor(now.getTime() / DAY_MS6) * DAY_MS6 - 365 * DAY_MS6);
-  const move = await dayMove(deps, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
+  const closes2 = quoted2 ? deps.quotedCloses : deps.closes;
+  const move = await dayMove({ ...deps.priceHistory ? { priceHistory: deps.priceHistory } : {}, ...closes2 ? { closes: closes2 } : {} }, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
   if (!move.previousClose || move.change === void 0) return { missing: move.missing ?? "data", problem: move.problem ?? `No previous close for ${instrument.ticker}.` };
   return { day: session.day, close: move.previousClose.close, date: move.previousClose.date, change: move.change, ...session.ended === void 0 ? {} : { ended: session.ended } };
 }
@@ -40898,7 +40902,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "manage_price_alerts",
     {
       title: "Manage Price Alerts",
-      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost; day_move (the price is a percent or more above or below its previous close, the day's move as the dashboard shows it; it fires once per trading day and arms itself again on the next; a session that closed before the alert was set does not count). The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
+      description: "Create, delete or re-arm a price alert on a holding or any other instrument, such as one on the watchlist. Conditions: above or below a price; trailing_drop (falls a percent from the highest price seen, a trailing-stop style warning); gain_percent or loss_percent against the average cost; day_move (the price is a percent or more above or below its previous close, the day's move as the dashboard shows it; it fires once per trading day and arms itself again on the next, so it needs no rearm (a rearm still counts only from the next trading day); a session that closed before the alert was set does not count). The scheduler checks alerts every minute against the broker's last position price, logs a triggered alert once and sends it to the notification webhook when one is configured. Alerts never place orders. Held instruments use the broker price; others use the external quote provider when one is configured (US tickers automatically, others via QUOTE_SYMBOLS). Gain and loss alerts need a holding.",
       inputSchema: external_exports.object({
         action: external_exports.enum(["create", "delete", "rearm"]),
         alertId: external_exports.string().optional().describe("Required for delete and rearm"),
@@ -41619,9 +41623,10 @@ function pickTickFields(alert) {
   return Object.fromEntries(Object.entries({ lastPrice, lastCheckedAt, highWatermark, triggeredAt, triggeredPrice, triggeredDay, lastDayChange, lastCloseDate }).filter(([, value]) => value !== void 0));
 }
 function untriggered(alert) {
-  const { triggeredAt: _t, triggeredPrice: _p, triggeredDay: _d, highWatermark: _h, ...rest } = alert;
+  const { triggeredAt: _t, triggeredPrice: _p, highWatermark: _h, ...rest } = alert;
   return rest;
 }
+var firedFor = (alert, day2) => day2 !== void 0 && alert.triggeredDay !== void 0 && day2 <= alert.triggeredDay;
 var PriceAlerts = class {
   constructor(deps) {
     this.deps = deps;
@@ -41660,24 +41665,46 @@ var PriceAlerts = class {
     await this.get(id);
     await this.deps.store.delete(alertKey(id));
   }
-  /** Arm a triggered alert again; a trailing alert restarts from the next price it sees. */
+  /** Arm a triggered alert again; a trailing alert restarts from the next price it sees, a day's move from the next trading day. */
   async rearm(id) {
     const alert = untriggered(await this.get(id));
     await this.deps.store.put(alertKey(id), alert);
     return alert;
   }
   /**
+   * Whether a day's-move alert has already fired for the trading day of its price, held or quoted, from the instrument
+   * list (cached) and the schedules (cached) alone: then the tick reads neither positions nor prices for it.
+   */
+  async firedToday(alert, now) {
+    if (alert.condition !== "day_move" || !alert.triggeredDay || !this.deps.tradingDay) return false;
+    try {
+      const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      if (!listed) return false;
+      const days = await Promise.all([false, true].map((quoted2) => this.deps.tradingDay(alert.environment, listed, quoted2, now)));
+      return days.every((day2) => firedFor(alert, day2));
+    } catch {
+      return false;
+    }
+  }
+  /**
    * One scheduler tick: one positions read per environment, then every armed alert is evaluated, and each day's-move
-   * alert that fired on an earlier trading day is armed again and evaluated.
+   * alert is armed again and evaluated once the trading day is a later one than it last fired for.
    */
   async check(now = /* @__PURE__ */ new Date()) {
-    const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move" && alert.triggeredDay);
+    const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move");
     if (!due.length) return [];
     const credentials = credentialStatus(this.deps.config);
     const reports = [];
     const positions = /* @__PURE__ */ new Map();
+    const waitDay = (alert) => {
+      if (!alert.triggeredAt) reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: `${alert.ticker} fired for ${alert.triggeredDay} already; it counts from the next trading day.` });
+    };
     for (const alert of due) {
       if (!credentials[alert.environment]) continue;
+      if (await this.firedToday(alert, now)) {
+        waitDay(alert);
+        continue;
+      }
       if (!positions.has(alert.environment)) {
         try {
           positions.set(alert.environment, await this.deps.trading.positions(alert.environment));
@@ -41699,7 +41726,6 @@ var PriceAlerts = class {
           const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
           instrument = listed ? { ...holding2?.instrument ?? {}, ...listed } : holding2?.instrument;
         }
-        if (alert.triggeredDay && instrument && this.deps.tradingDay && await this.deps.tradingDay(alert.environment, instrument, quoted2, now) === alert.triggeredDay) continue;
         if (quoted2) {
           const quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
           if (!quote) {
@@ -41720,7 +41746,10 @@ var PriceAlerts = class {
           reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: read.problem });
           continue;
         }
-        if (alert.triggeredAt && alert.triggeredDay === read.day) continue;
+        if (firedFor(alert, read.day)) {
+          waitDay(alert);
+          continue;
+        }
         dayClose = read;
       }
       const rearmed = alert.triggeredAt !== void 0;
@@ -42392,8 +42421,8 @@ function createServices(input2) {
     store: deps.store,
     trading,
     // A day's-move alert sets the price against its previous close as the dashboard's day does.
-    dayClose: (environment, instrument, price, quoted2, now) => dayCloseOf({ priceHistory, closes: closes2, schedules }, environment, instrument, price, quoted2, now),
-    tradingDay: async (environment, instrument, quoted2, now) => (await daySessionOf({ schedules }, environment, instrument, quoted2, now)).day
+    dayClose: (environment, instrument, price, quoted2, now) => dayCloseOf({ priceHistory, closes: closes2, quotedCloses, schedules }, environment, instrument, price, quoted2, now),
+    tradingDay: async (environment, instrument, quoted2, now) => (await daySessionOf({ schedules }, environment, instrument, quoted2, now))?.day
   });
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
   const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
@@ -42409,6 +42438,7 @@ function createServices(input2) {
   });
   const schedules = (environment) => insights.schedules(environment);
   const closes2 = /* @__PURE__ */ new Map();
+  const quotedCloses = /* @__PURE__ */ new Map();
   const today = (environment, now) => portfolioToday({
     trading,
     priceHistory,

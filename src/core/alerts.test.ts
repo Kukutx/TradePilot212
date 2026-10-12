@@ -133,10 +133,14 @@ describe("price alert scheduler", () => {
     const events = await services.trading.getActivity("demo");
     expect(events.find((event) => event.type === "price_alert_triggered")?.outcome).toMatch(/\+6\.00% since the close.*check the news/);
 
-    // The same trading day: no report and no price read, however far it moves.
+    // The same trading day: no report, and neither a positions read nor a price read, however far it moves.
+    const positionReads = { count: 0 };
+    const positions = services.trading.positions.bind(services.trading);
+    services.trading.positions = async (environment) => { positionReads.count += 1; return positions(environment); };
     services.price.value = 80;
     expect(await alerts.check()).toEqual([]);
     expect(reads).toHaveLength(2);
+    expect(positionReads.count).toBe(0);
 
     // The next trading day: armed again, and it fires again on that day's move.
     day.value = "2026-10-13";
@@ -145,15 +149,48 @@ describe("price alert scheduler", () => {
     expect((await alerts.check())[0]).toMatchObject({ action: "triggered" });
     expect(await stored()).toMatchObject({ triggeredPrice: 90, triggeredDay: "2026-10-13" });
 
-    // A quiet day after it: armed, with the fire cleared.
+    // A quiet day after it: armed, with the fire cleared and the day it last fired for kept.
     day.value = "2026-10-14";
     day.close = 90;
     services.price.value = 91;
     expect((await alerts.check())[0]).toMatchObject({ action: "waiting" });
     const quiet = await stored();
     expect(quiet.triggeredAt).toBeUndefined();
-    expect(quiet.triggeredDay).toBeUndefined();
+    expect(quiet.triggeredDay).toBe("2026-10-13");
     expect(quiet).toMatchObject({ lastPrice: 91, note: "check the news", id: saved.id });
+  });
+
+  it("never fires twice for one trading day, even when a read takes the day to be another one for a while", async () => {
+    const services = setup();
+    const day = { value: "2026-10-12", close: 100 };
+    const alerts = new PriceAlerts({
+      config: services.config, store: services.store, trading: services.trading,
+      dayClose: async (_environment, _instrument, price) => ({ day: day.value, close: day.close, date: "2026-10-09", change: price / day.close - 1 }),
+      tradingDay: async () => day.value,
+    });
+    const saved = await alerts.create({ environment: "demo", instrument: "VUSA", condition: "day_move", percent: 5 });
+    services.price.value = 106;
+    expect((await alerts.check())[0]).toMatchObject({ action: "triggered" });
+    // A read that takes the day to be the next one, at no move from its close: armed again, without firing.
+    day.value = "2026-10-13";
+    day.close = 106;
+    expect((await alerts.check())[0]).toMatchObject({ action: "waiting" });
+    expect((await alerts.list())[0]).toMatchObject({ triggeredDay: "2026-10-12" });
+    // Back on Monday against Monday's previous close: it fired for Monday already.
+    day.value = "2026-10-12";
+    day.close = 100;
+    expect(await alerts.check()).toEqual([expect.objectContaining({ action: "waiting", message: "VUSA_EQ fired for 2026-10-12 already; it counts from the next trading day." })]);
+    // Re-armed by hand on the day it fired: it still counts from the next one.
+    services.price.value = 120;
+    await alerts.check();
+    const rearmed = await alerts.rearm(saved.id);
+    expect(rearmed).toMatchObject({ triggeredDay: "2026-10-12" });
+    expect(rearmed.triggeredAt).toBeUndefined();
+    expect((await alerts.check())[0]).toMatchObject({ action: "waiting" });
+    day.value = "2026-10-13";
+    day.close = 106;
+    expect((await alerts.check())[0]).toMatchObject({ action: "triggered" });
+    expect((await services.trading.getActivity("demo")).filter((event) => event.type === "price_alert_triggered")).toHaveLength(2);
   });
 
   it("leaves a session that closed before the alert was set to the next one", async () => {

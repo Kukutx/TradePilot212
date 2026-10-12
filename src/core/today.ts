@@ -249,16 +249,21 @@ export async function dayMove(deps: Pick<TodayDeps, "priceHistory" | "closes">, 
   };
 }
 
-/** The trading day an instrument's price is from: a quote's is the regular session's, Trading 212's may be extended hours'. */
+/**
+ * The trading day an instrument's price is from: a quote's is the regular session's, Trading 212's may be extended
+ * hours'. None when the instrument names a schedule that could not be read: a guessed day could be a day off.
+ */
 export async function daySessionOf(
   deps: Pick<TodayDeps, "schedules">,
   environment: TradingEnvironment,
   instrument: Pick<Instrument, "workingScheduleId" | "extendedHours">,
   quoted: boolean,
   now = new Date(),
-): Promise<Session> {
-  const exchanges = deps.schedules ? await settleWithin(deps.schedules(environment).catch((): Exchange[] => []), LIST_WAIT_MS) : undefined;
-  return sessionFinder(exchanges ?? [], now)(quoted ? { ...instrument, extendedHours: false } : instrument);
+): Promise<Session | undefined> {
+  const exchanges = (deps.schedules ? await settleWithin(deps.schedules(environment).catch((): Exchange[] => []), LIST_WAIT_MS) : undefined) ?? [];
+  const id = instrument.workingScheduleId;
+  if (id !== undefined && !exchanges.some((exchange) => (exchange.workingSchedules ?? []).some((schedule) => schedule.id === id))) return undefined;
+  return sessionFinder(exchanges, now)(quoted ? { ...instrument, extendedHours: false } : instrument);
 }
 
 /** A price against its previous close: the trading day, the close and its date, and the change. */
@@ -269,7 +274,10 @@ export type DayClose = { day: string; close: number; date: string; change: numbe
  * holding (which moves in the pre-market for an instrument traded then) or from a quote (which does not).
  */
 export async function dayCloseOf(
-  deps: Pick<TodayDeps, "priceHistory" | "closes" | "schedules">,
+  deps: Pick<TodayDeps, "priceHistory" | "closes" | "schedules"> & {
+    /** Closes read for a quote, kept apart: they are checked against the provider's own price, not Trading 212's. */
+    quotedCloses?: TodayDeps["closes"];
+  },
   environment: TradingEnvironment,
   instrument: Instrument,
   price: number,
@@ -277,8 +285,10 @@ export async function dayCloseOf(
   now = new Date(),
 ): Promise<DayClose> {
   const session = await daySessionOf(deps, environment, instrument, quoted, now);
+  if (!session) return { missing: "data", problem: `Trading 212's exchange schedules could not be read, so the trading day of ${instrument.ticker}'s price is not known.` };
   const from = new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS);
-  const move = await dayMove(deps, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
+  const closes = quoted ? deps.quotedCloses : deps.closes;
+  const move = await dayMove({ ...(deps.priceHistory ? { priceHistory: deps.priceHistory } : {}), ...(closes ? { closes } : {}) }, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
   if (!move.previousClose || move.change === undefined) return { missing: move.missing ?? "data", problem: move.problem ?? `No previous close for ${instrument.ticker}.` };
   return { day: session.day, close: move.previousClose.close, date: move.previousClose.date, change: move.change, ...(session.ended === undefined ? {} : { ended: session.ended }) };
 }

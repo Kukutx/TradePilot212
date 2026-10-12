@@ -94,7 +94,7 @@ export function AlertForm({ held, last, currency, t, busy, onSave, onCancel }: {
   );
 }
 
-/** Re-arm (once triggered) and delete for one alert; delete asks once more in place. */
+/** Re-arm (once triggered; a day's move arms itself on the next trading day) and delete for one alert; delete asks once more in place. */
 export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: PriceAlert; t: Translator; busy: boolean; onRearm: (id: string) => void; onDelete: (id: string) => void }) {
   const [confirming, setConfirming] = useState(false);
   if (confirming) {
@@ -108,7 +108,7 @@ export function AlertActions({ alert, t, busy, onRearm, onDelete }: { alert: Pri
   }
   return (
     <div className="alertActions">
-      {alert.triggeredAt && <button type="button" className="linkButton" disabled={busy} onClick={() => onRearm(alert.id)}>{t("rearmAlert")}</button>}
+      {alert.triggeredAt && alert.condition !== "day_move" && <button type="button" className="linkButton" disabled={busy} onClick={() => onRearm(alert.id)}>{t("rearmAlert")}</button>}
       <button type="button" className="linkButton danger" disabled={busy} onClick={() => setConfirming(true)}>{t("deleteAlert")}</button>
     </div>
   );
