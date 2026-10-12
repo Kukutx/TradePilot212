@@ -37313,8 +37313,8 @@ function summarizePerformance(input2) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function paidPerShare(dividends, to) {
-  const read = { from: new Date(scheduleStart(to.getTime())), to };
+function paidPerShare(dividends, from, to) {
+  const read = { from: new Date(from), to };
   const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
@@ -37324,7 +37324,7 @@ function paidPerShare(dividends, to) {
   return payments;
 }
 function expectedDividends(dividends, positions, from, until, to) {
-  const payments = paidPerShare(dividends, to);
+  const payments = paidPerShare(dividends, Math.min(scheduleStart(from), scheduleStart(to.getTime())), to);
   const expected = [];
   for (const position of positions) {
     const ticker = position.instrument?.ticker;
@@ -37335,7 +37335,7 @@ function expectedDividends(dividends, positions, from, until, to) {
   return expected.sort((a, b) => a.at - b.at || b.amount - a.amount).map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }));
 }
 function forwardDividends(dividends, positions, to, now = to) {
-  const payments = paidPerShare(dividends, to);
+  const payments = paidPerShare(dividends, scheduleStart(to.getTime()), to);
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
   const current = start === monthStart(now.getTime());
@@ -42216,10 +42216,10 @@ var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS12;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
-  const at = time3(mark?.at);
+  const at = Math.min(time3(mark?.at), now.getTime());
   const from = time3(mark?.from);
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
-  if (at <= now.getTime()) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
+  if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
   return { since: now.getTime() - DAY_MS12, known: false };
 }
@@ -42243,8 +42243,9 @@ function digestDividends(dividends, positions, window, now) {
   }
   const today = Math.floor(now.getTime() / DAY_MS12) * DAY_MS12;
   const day2 = new Date(today).toISOString().slice(0, 10);
-  const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, today - WEEK_MS, today + WEEK_MS, now);
-  const expected = upcoming.map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day2 }));
+  const weekAgo = new Date(today - WEEK_MS).toISOString().slice(0, 10);
+  const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(now.getTime()), today - WEEK_MS), today + WEEK_MS, now);
+  const expected = upcoming.filter((payment) => payment.on >= weekAgo).map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day2 }));
   return {
     received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round10(amount2) })),
     // Coming first: one due and not paid may never come, and should not crowd out the week's.
@@ -42309,6 +42310,10 @@ var DailyDigest = class {
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
+        const markKey = `digest-dividends:${environment}`;
+        const mark = await this.deps.store.get(markKey);
+        const { since, known } = dividendsSince(mark, now);
+        if (!known) await this.deps.store.put(markKey, { from: new Date(since).toISOString() });
         const dashboard = await this.deps.trading.getDashboard(environment);
         const account = dashboard.account;
         if (!account) {
@@ -42325,11 +42330,7 @@ var DailyDigest = class {
         const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         const day3 = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => void 0)) : void 0;
-        const markKey = `digest-dividends:${environment}`;
-        const mark = await this.deps.store.get(markKey);
-        const { since, known } = dividendsSince(mark, now);
-        if (!known) await this.deps.store.put(markKey, { from: new Date(since).toISOString() });
-        const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime()))), now).catch(() => void 0);
+        const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime() - WEEK_MS))), now).catch(() => void 0);
         const dividends = history ? digestDividends(history.items, dashboard.positions, { since, ...Array.isArray(mark?.seen) ? { seen: mark.seen } : {}, truncated: history.truncated }, now) : void 0;
         const text = digestText({
           environment,
@@ -42357,10 +42358,13 @@ var DailyDigest = class {
           continue;
         }
         delivered = true;
-        await this.deps.store.put(`digest-value:${environment}`, totalValue);
-        if (history) await this.deps.store.put(markKey, dividendMark(history.items, now));
-        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
+        const keep = (what, write) => write.catch((error62) => {
+          console.error(JSON.stringify({ message: `TradePilot digest sent; its ${what} was not saved`, environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+        });
+        if (history) await keep("dividend mark", this.deps.store.put(markKey, dividendMark(history.items, now)));
+        await keep("value", this.deps.store.put(`digest-value:${environment}`, totalValue));
+        await keep("activity entry", this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false }));
       } catch (error62) {
         if (!delivered) await this.deps.store.delete(claimKey2).catch(() => {
         });
