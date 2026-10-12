@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { holdingRiskOf, MATRIX_SIZE, MIN_WEEKS, type HoldingRiskInput } from "./holding-risk.js";
+import type { AllocationAnalysis } from "./history.js";
+import { equalRiskTargets, holdingRiskOf, MATRIX_SIZE, MAX_PARITY_TARGETS, MIN_WEEKS, parityOf, type HoldingRiskInput } from "./holding-risk.js";
 import type { PricePoint } from "./prices.js";
 
 const DAY_MS = 86_400_000;
@@ -25,9 +26,11 @@ describe("risk by holding", () => {
     const risk = holdingRiskOf([holding("A", 3000, moves), holding("B", 1000, moves)], TODAY)!;
     expect(risk).toMatchObject({ weeks: 52, covered: 1, diversification: 1, from: "2025-10-10", to: "2026-10-09" });
     expect(risk.rows).toEqual([
-      { ticker: "A", weight: 0.75, volatility: risk.volatility, risk: 0.75, correlation: 1 },
-      { ticker: "B", weight: 0.25, volatility: risk.volatility, risk: 0.25, correlation: 1 },
+      { ticker: "A", weight: 0.75, volatility: risk.volatility, risk: 0.75, correlation: 1, parity: 0.5 },
+      { ticker: "B", weight: 0.25, volatility: risk.volatility, risk: 0.25, correlation: 1, parity: 0.5 },
     ]);
+    // Moving as one, they bring the same risk at the same weight, which moves the same.
+    expect(risk.parityVolatility).toBe(risk.volatility);
     // The weekly moves' spread a year: √(mean square × 52 / 51 × 52).
     const mean = moves.reduce((sum, move) => sum + move, 0) / 52;
     const variance = moves.reduce((sum, move) => sum + (move - mean) ** 2, 0) / 51 * 52;
@@ -192,5 +195,121 @@ describe("risk by holding", () => {
     expect(risk.correlations.tickers).toEqual(Array.from({ length: MATRIX_SIZE }, (_, index) => `T${MATRIX_SIZE + 1 - index}`));
     expect(risk.correlations.matrix.every((row, i) => row.length === MATRIX_SIZE && row[i] === 1)).toBe(true);
     expect(risk.rows.reduce((sum, row) => sum + row.risk, 0)).toBeCloseTo(1, 4);
+  });
+});
+
+/** The share of x'Σx each holding brings: x_i(Σx)_i over the whole. */
+const shares = (covariance: number[][], x: number[]) => {
+  const each = x.map((value, i) => value * covariance[i]!.reduce((sum, cell, j) => sum + cell * x[j]!, 0));
+  const total = each.reduce((sum, value) => sum + value, 0);
+  return each.map((value) => value / total);
+};
+
+describe("equal-risk weights", () => {
+  it("weighs two unrelated holdings by their inverse volatilities, and the risk at those weights", () => {
+    const risk = holdingRiskOf([holding("A", 3000, pattern([1, -1, 1, -1])), holding("B", 1000, pattern([1, 1, -1, -1], 0.04))], TODAY)!;
+    const [a, b] = ["A", "B"].map((ticker) => risk.rows.find((row) => row.ticker === ticker)!);
+    // B moves twice as much: half A's weight brings as much risk.
+    expect(a!.parity).toBeCloseTo(2 / 3, 5);
+    expect(b!.parity).toBeCloseTo(1 / 3, 5);
+    // Unrelated: the variance is the sum of each one's, (2/3 σ)² + (1/3 · 2σ)².
+    expect(risk.parityVolatility).toBeCloseTo(Math.sqrt(2 * (2 / 3 * a!.volatility) ** 2), 5);
+  });
+
+  it("gives each holding the same share of the risk, whatever moves with what", () => {
+    const covariance = [[0.04, 0.03, -0.004], [0.03, 0.09, 0.006], [-0.004, 0.006, 0.0225]];
+    const parity = parityOf(covariance, [0.5, 0.3, 0.2], covariance.map((row, i) => Math.sqrt(row[i]!)))!;
+    expect(parity.reduce((sum, value) => sum + value, 0)).toBeCloseTo(1, 10);
+    for (const share of shares(covariance, parity)) expect(share).toBeCloseTo(1 / 3, 8);
+    // The one that offsets the others takes the most.
+    expect(Math.max(...parity)).toBe(parity[2]);
+  });
+
+  it("keeps the weight of a holding that barely moves, and the others share the rest at equal risk", () => {
+    const covariance = [[0.0001, 0, 0], [0, 0.04, 0], [0, 0, 0.16]];
+    const parity = parityOf(covariance, [0.2, 0.5, 0.3], [0.01, 0.2, 0.4])!;
+    expect(parity[0]).toBe(0.2);
+    expect(parity[1]).toBeCloseTo(0.8 * 2 / 3, 10);
+    expect(parity[2]).toBeCloseTo(0.8 / 3, 10);
+    // One that moves is no spread at all.
+    expect(parityOf(covariance, [0.2, 0.5, 0.3], [0.01, 0.01, 0.4])).toBeUndefined();
+  });
+
+  it("finds none for a perfect hedge, at whose weights there is no risk to share", () => {
+    const moves = pattern([1, -1, 2, -2]);
+    const risk = holdingRiskOf([holding("A", 3000, moves), holding("H", 1000, moves.map((move) => -move))], TODAY)!;
+    expect(risk.parityVolatility).toBeUndefined();
+    expect(risk.rows.every((row) => row.parity === undefined)).toBe(true);
+  });
+
+  it("does not chase the noise of many holdings over few weeks", () => {
+    // 40 unrelated holdings moving alike, over 52 weeks: the answer is about equal weights, whatever the sample's noise.
+    let seed = 11;
+    const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
+    const inputs = Array.from({ length: 40 }, (_, index) => holding(`N${index}`, 1000, Array.from({ length: 52 }, () => noise() * 0.06)));
+    const risk = holdingRiskOf(inputs, TODAY)!;
+    for (const row of risk.rows) expect(Math.abs(row.parity! * 40 - 1)).toBeLessThan(0.35);
+    // A holding whose price never moved keeps its weight, and does not stop the others being shrunk.
+    const still = holdingRiskOf([...inputs, holding("FLAT", 1000, Array.from({ length: 52 }, () => 0))], TODAY)!;
+    expect(still.rows.find((row) => row.ticker === "FLAT")!.parity).toBeCloseTo(1 / 41, 6);
+    for (const row of still.rows.filter((item) => item.ticker !== "FLAT")) expect(Math.abs(row.parity! * 41 - 1)).toBeLessThan(0.35);
+  });
+});
+
+describe("the targets that plan the move to equal risk", () => {
+  const analysis = (rows: Array<{ ticker: string; weight: number; parity?: number }>, values: Record<string, number>, extra: Partial<AllocationAnalysis> = {}) => ({
+    totalValue: 2000, cash: 500, availableCash: 450,
+    holdings: Object.entries(values).map(([ticker, value]) => ({ ticker, name: ticker, currency: "EUR", value, weight: value / 2000 })),
+    risk: { rows: rows.map((row) => ({ volatility: 0.2, risk: row.weight, correlation: 0.5, ...row })) } as AllocationAnalysis["risk"],
+    ...extra,
+  });
+
+  it("keeps the value of the holdings measured, and leaves the others and the free cash as they are", () => {
+    const plan = equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400, C: 500 }))!;
+    // The 1,000 measured, of 2,000: A 400, B 600; C is not measured and is not a target.
+    expect(plan.targets).toEqual([{ ticker: "A", weight: 0.2 }, { ticker: "B", weight: 0.3 }]);
+    expect(plan.cashWeight).toBe(0.225);
+    // A sells 200 of the 1,000 measured, which B buys.
+    expect(plan.sold).toBe(0.2);
+    expect(plan.partial).toBeUndefined();
+    // Without free cash, as the planner counts none, none is kept.
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400 }, { availableCash: undefined }))!.cashWeight).toBe(0);
+    // A holding measured but not among the holdings would be bought from nothing.
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600 }))).toBeUndefined();
+  });
+
+  it("never asks the planner for more than the account, however the values were rounded", () => {
+    // Fully invested, every holding measured: the rounded weights and values can come to a little more than 1.
+    let seed = 5;
+    const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const six = (value: number) => Math.round(value * 1e6) / 1e6;
+    for (let trial = 0; trial < 2000; trial += 1) {
+      const raw = Array.from({ length: 19 }, () => 50 + random() * 5000);
+      const total = raw.reduce((sum, value) => sum + value, 0);
+      const values = raw.map((value) => Math.round(value * 100) / 100);
+      const measured = values.reduce((sum, value) => sum + value, 0);
+      const spread = raw.map(() => random() + 0.2);
+      const rows = values.map((value, index) => ({ ticker: `T${index}`, weight: six(value / measured), parity: six(spread[index]! / spread.reduce((sum, item) => sum + item, 0)) }));
+      const plan = equalRiskTargets(analysis(rows, Object.fromEntries(values.map((value, index) => [`T${index}`, value])), { totalValue: Math.round(total * 100) / 100, cash: 0, availableCash: 0 }))!;
+      // The planner refuses more than 1 + 1e-9.
+      expect(plan.targets.reduce((sum, target) => sum + target.weight, 0) + plan.cashWeight).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it("moves the furthest from equal risk when a basket cannot take them all, keeping their value together", () => {
+    const rows = Array.from({ length: 25 }, (_, index) => ({ ticker: `T${index}`, weight: 0.04, parity: 0.04 + (index % 2 ? 1 : -1) * index / 10_000 }));
+    const plan = equalRiskTargets(analysis(rows, Object.fromEntries(rows.map((row) => [row.ticker, 40]))))!;
+    expect(plan.partial).toBe(true);
+    expect(plan.targets).toHaveLength(MAX_PARITY_TARGETS);
+    // The 20 furthest are T5 to T24.
+    expect(plan.targets.map((target) => target.ticker).sort()).toEqual(rows.slice(5).map((row) => row.ticker).sort());
+    // Together they keep their 800 of the 2,000: 0.4 of the account.
+    expect(plan.targets.reduce((sum, target) => sum + target.weight, 0)).toBeCloseTo(0.4, 4);
+    expect(plan.targets.reduce((sum, target) => sum + target.weight, 0) + plan.cashWeight).toBeLessThanOrEqual(1);
+  });
+
+  it("has none without equal-risk weights or an account value", () => {
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6 }, { ticker: "B", weight: 0.4 }], { A: 600, B: 400 }))).toBeUndefined();
+    expect(equalRiskTargets(analysis([{ ticker: "A", weight: 0.6, parity: 0.4 }, { ticker: "B", weight: 0.4, parity: 0.6 }], { A: 600, B: 400 }, { totalValue: 0 }))).toBeUndefined();
   });
 });
