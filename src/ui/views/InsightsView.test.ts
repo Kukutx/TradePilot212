@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseWindow } from "../../core/insights-service";
 import type { PerformanceSummary } from "../../shared/history";
 import { createTranslator } from "../i18n";
-import { PerformanceView, periodOf } from "./InsightsView";
+import { DrawdownChart, DrawdownNote, PerformanceView, periodOf } from "./InsightsView";
 
 describe("the period of a performance window", () => {
   const of = (period: "1m" | "3m" | "ytd" | "1y" | "all", now: string) => {
@@ -68,5 +68,40 @@ describe("the performance view's benchmark", () => {
     const html = render({ ...base, accountCurrency: "GBP", benchmarkChoice: "VUSAl_EQ", benchmark: { ticker: "VUSAl_EQ", shortName: "VUSA", currencyCode: "GBX", source: "stooq", return: 0.2442, series: [] } });
     expect(html).toContain("Level with VUSA");
     expect(html).not.toContain("currency moves");
+  });
+});
+
+describe("the performance view's drawdown", () => {
+  const series = [{ date: "2026-09-01", return: 0 }, { date: "2026-09-02", return: 0.1 }, { date: "2026-09-03", return: -0.12 }, { date: "2026-09-04", return: 0.045 }];
+  const twr = { return: 0.045, from: "2026-09-01", to: "2026-09-04", netFlows: 0, series, drawdown: { max: -0.2, peak: "2026-09-02", trough: "2026-09-03", current: -0.05, currentPeak: "2026-09-02" } };
+  const data = {
+    kind: "performance", environment: "demo", accountCurrency: "EUR", period: { to: "2026-09-04T12:00:00Z" }, timeWeighted: twr,
+    benchmark: { ticker: "VUSAl_EQ", shortName: "VUSA", source: "stooq", return: 0.02, series: series.map((point, index) => ({ date: point.date, return: [0, -0.05, 0.01, 0.02][index]! })), drawdown: { max: -0.05, peak: "2026-09-01", trough: "2026-09-02", recovered: "2026-09-03", current: 0 } },
+  } as PerformanceSummary;
+
+  it("draws each day's fall from the high beside the benchmark's, and says the deepest and where it stands", () => {
+    const chart = renderToStaticMarkup(createElement(DrawdownChart, { returns: twr, data, controls: null, locale: "en", t: createTranslator("en") }));
+    expect(chart).toContain("<span>Drawdown</span>");
+    expect(chart).toContain('class="lineCompare"');
+    // 0.88 against the high of 1.1 is 20% down, the axis's lowest gridline; 1.045 against it 5% down. Zero is the top.
+    expect(chart).toContain('aria-label="Drawdown: Sep 1, 2026 At the high, Sep 4, 2026 -5.00%; VUSA At the high"');
+    expect(chart).toMatch(/<text x="52" y="148\.\d+" dy="0\.32em" text-anchor="end">-20%<\/text>/);
+    expect(chart).toMatch(/<line class="lineZero" x1="60" x2="586" y1="23\.\d+"/);
+    const note = renderToStaticMarkup(createElement(DrawdownNote, { returns: twr, data, locale: "en", t: createTranslator("en") }));
+    expect(note).toContain('<strong class="negative">-20.0%</strong> · the largest fall from a high, from Sep 2, 2026 to Sep 3, 2026, not made up yet. Now 5.0% below the high of Sep 2, 2026. VUSA&#x27;s largest fall over the same days: -5.0%.');
+  });
+
+  it("says when it never fell, in Chinese", () => {
+    const flat = { ...twr, drawdown: { max: 0, current: 0 } };
+    const note = renderToStaticMarkup(createElement(DrawdownNote, { returns: flat, data: { ...data, timeWeighted: flat }, locale: "zh-CN", t: createTranslator("zh-CN") }));
+    expect(note).toContain("这 4 天里没有跌破此前的高点。");
+    expect(note).toContain("VUSA 同期最大回撤 -5.0%。");
+  });
+
+  it("keeps a flat line's scale at a percent either side, not a hundred", () => {
+    const flat = { ...twr, series: twr.series.map((point) => ({ ...point, return: 0 })), drawdown: { max: 0, current: 0 } };
+    const chart = renderToStaticMarkup(createElement(DrawdownChart, { returns: flat, data: { ...data, benchmark: undefined } as PerformanceSummary, controls: null, locale: "en", t: createTranslator("en") }));
+    expect(chart).toContain(">-1%</text>");
+    expect(chart).not.toContain("100%");
   });
 });

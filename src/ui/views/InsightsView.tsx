@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, IncomeSummary, PerformanceSummary, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
 import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
+import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
@@ -255,30 +256,78 @@ function BenchmarkPicker({ data, busy, t, onBenchmark }: { data: PerformanceSumm
  * return it opens on that instead, since the value also moves with every deposit and withdrawal, and draws the
  * benchmark's return over the same days beside it.
  */
+/** Each day's fall from the highest return before it, beside the benchmark's over the same days. */
+export function DrawdownChart({ returns, data, controls, locale, t }: {
+  returns: TimeWeightedReturn; data: PerformanceSummary; controls: ReactNode; locale: SupportedLocale; t: Translator;
+}) {
+  const percentAxis = (value: number, grid: Grid) => pct(value, locale, decimalsOf(grid.step * 100), { signed: value !== 0 });
+  const fallen = drawdownSeries(returns.series);
+  const benchmark = data.benchmark ? new Map(drawdownSeries(data.benchmark.series).map((point) => [point.date, point.return])) : undefined;
+  const display = (value: number) => value === 0 ? t("drawdownAtHighShort") : pct(value, locale, 2);
+  return (
+    <LineChart title={t("drawdownTitle")} nameHeader={t("dateColumn")} valueHeader={t("drawdownColumn")} labels={chartLabels(t)} zero flat={0.01} controls={controls}
+      axis={percentAxis}
+      {...(data.benchmark && benchmark ? {
+        compare: {
+          name: benchmarkName(data.benchmark),
+          mainName: t("benchmarkYou"),
+          points: fallen.map((point) => {
+            const value = benchmark.get(point.date);
+            return value === undefined ? undefined : { value, display: display(value) };
+          }),
+        },
+      } : {})}
+      data={fallen.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.return, display: display(point.return), time: Date.parse(`${point.date}T00:00:00Z`) }))} />
+  );
+}
+
+/** The deepest fall, whether it was made up, where the return stands against its high, and the benchmark's deepest. */
+export function DrawdownNote({ returns, data, locale, t }: { returns: TimeWeightedReturn; data: PerformanceSummary; locale: SupportedLocale; t: Translator }) {
+  const drawdown = returns.drawdown;
+  if (!drawdown) return null;
+  const day = (date: string | undefined) => date ? dayLabel(date, locale) : "";
+  const fall = data.benchmark?.drawdown;
+  return (
+    <p className="panelNote">
+      {drawdown.peak && drawdown.trough ? (
+        <>
+          <strong className="negative">{pct(drawdown.max, locale, 1)}</strong>
+          {" · "}{fill(t(drawdown.recovered ? "drawdownMadeUp" : "drawdownOpen"), { peak: day(drawdown.peak), trough: day(drawdown.trough), recovered: day(drawdown.recovered) })}
+          {" "}{drawdown.current < 0 ? fill(t("drawdownNow"), { amount: pct(-drawdown.current, locale, 1), date: day(drawdown.currentPeak) }) : t("drawdownAtHigh")}
+        </>
+      ) : fill(t("drawdownNone"), { days: String(returns.series.length) })}
+      {data.benchmark && fall && <>{" "}{fill(t("drawdownBenchmark"), { name: benchmarkName(data.benchmark), amount: pct(fall.max, locale, 1) })}</>}
+    </p>
+  );
+}
+
 function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, onBenchmark }: {
   points: ValuePoint[]; returns?: TimeWeightedReturn; data: PerformanceSummary; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
   onBenchmark?: (choice: string) => void;
 }) {
-  const [show, setShow] = useState<"return" | "value">("return");
+  const [show, setShow] = useState<"return" | "value" | "drawdown">("return");
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const change = last.totalValue - first.totalValue;
   const valueAxis = (value: number, grid: Grid) => axisMoney(value, grid, currency, locale);
   const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
   const asReturn = returns && show === "return";
+  const asDrawdown = returns && show === "drawdown";
   // As many decimals as the gridline step needs: "+10%" a step of 10%, "+7.5%" a step of 2.5%.
   const percentAxis = (value: number, grid: Grid) => pct(value, locale, decimalsOf(grid.step * 100), { signed: true });
   const controls = returns && (
     <div className="segmented" role="radiogroup" aria-label={t("chartShow")}>
-      {(["return", "value"] as const).map((key) => (
-        <button key={key} type="button" role="radio" aria-checked={show === key} className={show === key ? "active" : ""} onClick={() => setShow(key)}>{t(key === "return" ? "chartReturn" : "chartValue")}</button>
+      {(["return", "value", "drawdown"] as const).map((key) => (
+        <button key={key} type="button" role="radio" aria-checked={show === key} className={show === key ? "active" : ""} onClick={() => setShow(key)}>{t(key === "return" ? "chartReturn" : key === "value" ? "chartValue" : "chartDrawdown")}</button>
       ))}
     </div>
   );
   return (
     <section className="dataPanel">
-      {asReturn ? (
-        <LineChart title={t("returnHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("returnColumn")} labels={chartLabels(t)} zero controls={controls}
+      {asDrawdown ? (
+        <DrawdownChart returns={returns} data={data} controls={controls} locale={locale} t={t} />
+      ) : asReturn ? (
+        <LineChart title={t("returnHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("returnColumn")} labels={chartLabels(t)} zero flat={0.01} controls={controls}
           axis={percentAxis}
           {...(data.benchmark ? {
             compare: {
@@ -296,7 +345,7 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
         <LineChart title={t("valueHistoryTitle")} nameHeader={t("dateColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)} axis={valueAxis} {...(controls ? { controls } : {})}
           data={points.map((point) => ({ key: point.date, label: dayLabel(point.date, locale), value: point.totalValue, display: money(point.totalValue, currency, locale), time: time(point.date) }))} />
       )}
-      {asReturn ? (
+      {asDrawdown ? <DrawdownNote returns={returns} data={data} locale={locale} t={t} /> : asReturn ? (
         <p className="panelNote">
           <strong className={signedClass(returns.return)}>{pct(returns.return, locale, 1, { signed: true })}</strong>
           {" · "}{fill(t(returns.netFlows > 0 ? "returnHistoryNoteDeposits" : returns.netFlows < 0 ? "returnHistoryNoteWithdrawals" : "returnHistoryNote"), { days: String(returns.series.length), amount: money(Math.abs(returns.netFlows), currency, locale) })}
@@ -307,9 +356,9 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
           {" · "}{fill(t("valueHistoryNote"), { days: String(points.length) })}
         </p>
       )}
-      {asReturn && (
+      {(asReturn || asDrawdown) && (
         <div className="benchmarkRow">
-          <BenchmarkNote data={data} locale={locale} t={t} />
+          {asReturn ? <BenchmarkNote data={data} locale={locale} t={t} /> : <span />}
           {onBenchmark && <BenchmarkPicker data={data} busy={busy} t={t} onBenchmark={onBenchmark} />}
         </div>
       )}

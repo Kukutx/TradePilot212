@@ -5,6 +5,7 @@
 import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import type { BenchmarkOption, BenchmarkReturn, PerformanceSummary, ReturnPoint } from "../shared/history.js";
 import type { PricePoint } from "../shared/prices.js";
+import { drawdownOf } from "../shared/drawdown.js";
 import type { RuntimeConfig } from "./config.js";
 import { settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
@@ -31,7 +32,7 @@ const US_FUNDS: Record<string, string> = {
  * The benchmark's return on each day of `series`, from its close on or before that day against its close on or
  * before the first day. Undefined when its closes start after the first day (a week's slack for holidays).
  */
-export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[]): { return: number; series: ReturnPoint[] } | undefined {
+export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[]): Pick<BenchmarkReturn, "return" | "series" | "drawdown"> | undefined {
   const first = series[0];
   if (!first || series.length < 2) return undefined;
   let index = -1;
@@ -42,7 +43,8 @@ export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[]): {
   const base = closeOn(first.date);
   if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS) return undefined;
   const out = series.map((point) => ({ date: point.date, return: round(closeOn(point.date)!.close / base.close - 1) }));
-  return { return: out[out.length - 1]!.return, series: out };
+  const drawdown = drawdownOf(out);
+  return { return: out[out.length - 1]!.return, series: out, ...(drawdown ? { drawdown } : {}) };
 }
 
 /**

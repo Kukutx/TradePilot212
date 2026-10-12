@@ -7,7 +7,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, Drawdown, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
@@ -320,6 +320,7 @@ function performance(data: PerformanceSummary): string[] {
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num(data.trades.turnover)}.`,
     ...valueHistoryLines(data.valueHistory),
     ...(data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : []),
+    ...drawdownLines(data.timeWeighted?.drawdown),
     ...benchmarkLines(data),
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
@@ -342,6 +343,14 @@ function attributionLines(data: PerformanceSummary): string[] {
   ];
 }
 
+/** The time-weighted return's deepest fall from a high, and where it stands against its high now. */
+function drawdownLines(drawdown: Drawdown | undefined): string[] {
+  if (!drawdown) return [];
+  if (!drawdown.peak || !drawdown.trough) return ["Over these days it never fell below an earlier high."];
+  const now = drawdown.current < 0 ? ` Now ${num(-drawdown.current * 100, 1)}% below the high of ${drawdown.currentPeak}.` : " Now at its high.";
+  return [`Largest fall from a high (time-weighted): ${signed(drawdown.max * 100, 1)}%, from the high on ${drawdown.peak} to the low on ${drawdown.trough}, ${drawdown.recovered ? `made up on ${drawdown.recovered}` : "not made up yet"}.${now}`];
+}
+
 /** The benchmark over the same days, and how far ahead or behind the time-weighted return is. */
 function benchmarkLines(data: PerformanceSummary): string[] {
   const { benchmark, timeWeighted } = data;
@@ -353,7 +362,8 @@ function benchmarkLines(data: PerformanceSummary): string[] {
   const major = (currency: string | undefined) => (currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase());
   const currency = benchmark.currencyCode && major(benchmark.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
   const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
-  return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${standing}.${currency}`];
+  const fall = benchmark.drawdown && timeWeighted.drawdown ? ` Its largest fall from a high over these days: ${signed(benchmark.drawdown.max * 100, 1)}%.` : "";
+  return [`Benchmark ${name} over the same days: ${signed(benchmark.return * 100, 1)}% (${benchmark.source === "sample" ? "simulated" : benchmark.source} closes), so the time-weighted return is ${standing}.${fall}${currency}`];
 }
 
 function valueHistoryLines(points: PerformanceSummary["valueHistory"]): string[] {

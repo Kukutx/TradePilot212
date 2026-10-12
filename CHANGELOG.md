@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.41.0
+
+- Drawdown. The Performance tab's return chart has a third view, **Drawdown**: each recorded day's fall from the highest time-weighted return before it, with the benchmark's beside it. Below it: the deepest fall, from which high to which low, the day it was made up (or that it has not been yet), how far below its high the return is now, and the benchmark's deepest fall over the same days.
+- `get_portfolio_performance` gives the same as `timeWeighted.drawdown` and `benchmark.drawdown`, and says them in its text. Because it is read from the time-weighted return, deposits and withdrawals are neither rises nor falls.
+- A line chart whose values never move keeps a scale of ±1% when it shows percentages, not ±100%.
+
 ## 2.40.0
 
 - Gain by instrument. The Performance tab shows where the period's gain came from: one bar per instrument from a shared zero line, gains to the right and losses to the left, largest first, with the total, each one's return on the money at work (with more than ten, the largest gains and losses first), and a table view of its value at the start, buys, sells, dividends and value now. A name opens the instrument's page.

@@ -42,6 +42,8 @@ describe("benchmark returns", () => {
     expect(benchmarkReturns(series, points)).toEqual({
       return: 0.1,
       series: [{ date: "2026-09-07", return: 0 }, { date: "2026-09-12", return: 0.02 }, { date: "2026-09-14", return: -0.01 }, { date: "2026-10-12", return: 0.1 }],
+      // 99 against the high of 102: 2.9% down, back above it by 12 October.
+      drawdown: { max: -0.029412, peak: "2026-09-12", trough: "2026-09-14", recovered: "2026-10-12", current: 0 },
     });
   });
 
