@@ -51,6 +51,9 @@ function badWeekText(mix: HoldingMix | undefined): string {
 }
 
 /** The text carries the payload's facts too, for hosts that show the model only text. */
+/** How long the widget's covariance read waits for the holdings' closes: it waits for the answer, unlike the model. */
+const COVARIANCE_BUDGET_MS = 12_000;
+
 function result(data: unknown, text: string) {
   const detail = describePayload(data);
   return {
@@ -168,15 +171,15 @@ export function createMcpServer(
   /**
    * The allocation with risk by holding: a year of each holding's closes, read for a few seconds at most; the
    * allocation stands without it. `onCovariance` is handed the holdings' covariance, which the result leaves out; `only`
-   * measures those holdings alone.
+   * measures those holdings alone; `budgetMs` waits longer for the closes than a tool call's few seconds.
    */
-  const allocationWithRisk = async (environment: TradingEnvironment, limits: Parameters<typeof insights.allocation>[1] = {}, onCovariance?: (covariance: HoldingCovariance) => void,
-    only?: ReadonlySet<string>): Promise<AllocationAnalysis> => {
+  const allocationWithRisk = async (environment: TradingEnvironment, limits: Parameters<typeof insights.allocation>[1] = {},
+    { onCovariance, only, budgetMs }: { onCovariance?: (covariance: HoldingCovariance) => void; only?: ReadonlySet<string>; budgetMs?: number } = {}): Promise<AllocationAnalysis> => {
     let read: { positions: Position[]; instruments: Instrument[] } | undefined;
     const analysis = await insights.allocation(environment, limits, (positions) => { read = positions; });
     const holdings = only ? analysis.holdings.filter((holding) => only.has(holding.ticker)) : analysis.holdings;
     const risk = read
-      ? await readHoldingRisk({ priceHistory, ...(onCovariance ? { onCovariance } : {}) }, environment, holdings, read).catch((error: unknown) => ({ riskProblem: asStructuredError(error).message }))
+      ? await readHoldingRisk({ priceHistory, ...(onCovariance ? { onCovariance } : {}), ...(budgetMs ? { budgetMs } : {}) }, environment, holdings, read).catch((error: unknown) => ({ riskProblem: asStructuredError(error).message }))
       : {};
     return { ...analysis, ...risk };
   };
@@ -299,7 +302,7 @@ export function createMcpServer(
     async ({ environment, ...limits }) => {
       try {
         let covariance: HoldingCovariance | undefined;
-        const analysis = await allocationWithRisk(environment, limits, (found) => { covariance = found; });
+        const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => { covariance = found; } });
         // With targets saved, also the holdings' volatility at them.
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0]!.ticker} the largest share of it (${(data.risk.rows[0]!.risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
@@ -897,7 +900,7 @@ export function createMcpServer(
         try {
           // With risk by holding, the drift says what volatility the targets would give.
           let covariance: HoldingCovariance | undefined;
-          const read = await allocationWithRisk(environment, {}, (found) => { covariance = found; });
+          const read = await allocationWithRisk(environment, {}, { onCovariance: (found) => { covariance = found; } });
           analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
@@ -1482,7 +1485,8 @@ export function createMcpServer(
     async ({ environment, tickers }) => {
       try {
         let covariance: HoldingCovariance | undefined;
-        const analysis = await allocationWithRisk(environment, {}, (found) => { covariance = found; }, tickers ? new Set(tickers) : undefined);
+        // The widget waits for it, so the closes are waited for longer: a holding not read in time would not fit the screen.
+        const analysis = await allocationWithRisk(environment, {}, { onCovariance: (found) => { covariance = found; }, ...(tickers ? { only: new Set(tickers) } : {}), budgetMs: COVARIANCE_BUDGET_MS });
         // Ten decimals keep a quiet holding's variance (a money-market fund's is near 1e-5) to a few parts in a million.
         const exact = (value: number) => Math.round(value * 1e10) / 1e10 || 0;
         const data: HoldingCovariancePayload = covariance && analysis.risk

@@ -5,7 +5,7 @@ import type { AllocationAnalysis, HoldingCovariance, HoldingCovariancePayload } 
 import { targetRiskOf } from "../../shared/holding-risk";
 import { createTranslator } from "../i18n";
 import { AllocationView } from "../views/InsightsView";
-import { canUseParity, covarianceFits, loadCovariance, presetForm, readForm, riskOfForm, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, type TargetForm } from "./target-editor";
+import { canUseParity, covarianceFits, covarianceKey, loadCovariance, presetForm, readForm, riskOfForm, startingForm, TargetEditor, TargetRiskSummary, targetRows, typedTargets, type TargetForm } from "./target-editor";
 
 const holding = (ticker: string, value: number) => ({ ticker, name: ticker, currency: "USD", value, weight: value / 10_000 });
 const data = (extra: Partial<AllocationAnalysis> = {}) => ({
@@ -168,8 +168,8 @@ describe("the target weights form", () => {
     expect(summary({ state: { state: "reading" } })).toContain('<p role="status" class="panelNote">Reading the holdings');
     expect(summary({ state: { state: "reading" } })).toContain('aria-busy="true"');
     expect(summary({ state: { state: "none" } }, "zh-CN")).toContain("读不到这组目标下的风险");
-    expect(summary({ state: { state: "stale" } })).toContain("The holdings measured have changed since this page was read.");
-    expect(summary({ risk: "invalid" })).toContain("A share typed isn&#x27;t one from 0.01% to 100%");
+    expect(summary({ state: { state: "stale" } })).toContain("The holdings&#x27; risk read now doesn&#x27;t match the one on this page");
+    expect(summary({ risk: "invalid" })).toContain("A target or the cash share typed isn&#x27;t a valid share");
     expect(summary({ risk: "unmeasured" })).toContain("None of the holdings measured has a share at these targets");
     expect(summary({ risk: "invalid" })).not.toContain("<table");
   });
@@ -190,6 +190,9 @@ describe("the target weights form", () => {
     const sold = riskOfForm(covariance, holdings, { ...form({ VUSA: "40", AAPL: "", KO: "" }, ""), sell: true }, tickers);
     expect(typeof sold === "object" && sold.atTargets.volatility).toBeCloseTo(0.2, 10);
     expect(riskOfForm(covariance, holdings, form({ VUSA: "600", AAPL: "", KO: "" }), tickers)).toBe("invalid");
+    // A cash share that is not one is no whole account either.
+    expect(riskOfForm(covariance, holdings, form({ VUSA: "40", AAPL: "", KO: "" }, "abc"), tickers)).toBe("invalid");
+    expect(riskOfForm(covariance, holdings, form({ VUSA: "40", AAPL: "", KO: "" }, "-30"), tickers)).toBe("invalid");
     expect(riskOfForm(covariance, holdings, { ...form({ VUSA: "", AAPL: "", KO: "", EIMI: "50" }), sell: true }, [...tickers, "EIMI"])).toBe("unmeasured");
   });
 
@@ -211,6 +214,15 @@ describe("the target weights form", () => {
     // Closed before the read came back: nothing is shown.
     await load(async () => payload, false);
     expect(shown).toHaveLength(4);
+  });
+
+  it("reads the covariance again after a Refresh, for the holdings and weeks on screen", () => {
+    const shown = data({ risk: measured as AllocationAnalysis["risk"], timestamp: "2026-10-12T16:00:00Z" });
+    // A Refresh brings a new read time: the form reads again, and a read that fits comes from the App's cache.
+    expect(covarianceKey(shown)).not.toBe(covarianceKey({ ...shown, timestamp: "2026-10-12T16:05:00Z" }));
+    expect(covarianceKey({ ...shown, risk: { ...shown.risk!, weeks: 50 } })).not.toBe(covarianceKey(shown));
+    expect(covarianceKey({ ...shown, risk: { ...shown.risk!, rows: shown.risk!.rows.slice(0, 2) } })).not.toBe(covarianceKey(shown));
+    expect(covarianceKey(data())).toBe("");
   });
 
   it("reads the covariance as the form opens, only with risk by holding", () => {

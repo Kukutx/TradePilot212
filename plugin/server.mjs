@@ -41459,6 +41459,7 @@ function badWeekText(mix) {
   if (!mix) return "";
   return mix.badWeek < 0 ? `, a bad week one in 20 ${(mix.badWeek * 100).toFixed(mix.badWeek > -5e-4 ? 2 : 1)}%` : ", today's mix fell in fewer than one week in 20";
 }
+var COVARIANCE_BUDGET_MS = 12e3;
 function result(data, text) {
   const detail = describePayload(data);
   return {
@@ -41557,13 +41558,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
     return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
   };
-  const allocationWithRisk = async (environment, limits = {}, onCovariance, only) => {
+  const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs } = {}) => {
     let read;
     const analysis = await insights.allocation(environment, limits, (positions) => {
       read = positions;
     });
     const holdings = only ? analysis.holdings.filter((holding2) => only.has(holding2.ticker)) : analysis.holdings;
-    const risk = read ? await readHoldingRisk({ priceHistory, ...onCovariance ? { onCovariance } : {} }, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
+    const risk = read ? await readHoldingRisk({ priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {} }, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
     return { ...analysis, ...risk };
   };
   G(
@@ -41670,9 +41671,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     async ({ environment, ...limits }) => {
       try {
         let covariance;
-        const analysis = await allocationWithRisk(environment, limits, (found) => {
+        const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => {
           covariance = found;
-        });
+        } });
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config3), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
       } catch (error62) {
@@ -42241,9 +42242,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         let analysis;
         try {
           let covariance;
-          const read = await allocationWithRisk(environment, {}, (found) => {
+          const read = await allocationWithRisk(environment, {}, { onCovariance: (found) => {
             covariance = found;
-          });
+          } });
           analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error62) {
           const reason = error62 instanceof Error ? error62.message : String(error62);
@@ -42803,9 +42804,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     async ({ environment, tickers }) => {
       try {
         let covariance;
-        const analysis = await allocationWithRisk(environment, {}, (found) => {
+        const analysis = await allocationWithRisk(environment, {}, { onCovariance: (found) => {
           covariance = found;
-        }, tickers ? new Set(tickers) : void 0);
+        }, ...tickers ? { only: new Set(tickers) } : {}, budgetMs: COVARIANCE_BUDGET_MS });
         const exact2 = (value) => Math.round(value * 1e10) / 1e10 || 0;
         const data = covariance && analysis.risk ? { kind: "holding_covariance", environment, covariance: { tickers: covariance.tickers, matrix: covariance.matrix.map((row) => row.map(exact2)) }, weeks: analysis.risk.weeks, to: analysis.risk.to } : { kind: "holding_covariance", environment, problem: analysis.riskProblem ?? "The holdings' risk could not be measured." };
         return result(data, data.covariance ? `Covariance of ${data.covariance.tickers.length} holdings over ${data.weeks} weeks.` : `No covariance: ${data.problem}`);

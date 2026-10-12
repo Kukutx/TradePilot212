@@ -24,7 +24,7 @@ export interface TargetSave {
 
 export type TargetPreset = "today" | "equal" | "parity";
 
-type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk">;
+type Data = Pick<AllocationAnalysis, "holdings" | "cashWeight" | "cash" | "availableCash" | "totalValue" | "drift" | "risk"> & { timestamp?: string };
 
 export interface TargetForm {
   /** Percent typed for each ticker; empty for no target. */
@@ -160,6 +160,15 @@ export type CovarianceState = { state: "reading" } | { state: "read"; covariance
 /** What the risk by holding on screen measured: the covariance must be for the same. */
 export type MeasuredRisk = Pick<HoldingRisk, "rows" | "to" | "weeks">;
 
+/**
+ * What the covariance is read for: the risk on screen, and when it was read, so a Refresh reads it again (a read that
+ * fell short then gets another go; one that fits comes from the App's cache).
+ */
+export function covarianceKey(data: Pick<Data, "risk" | "timestamp">): string {
+  const { risk } = data;
+  return risk ? `${data.timestamp ?? ""}|${risk.to}|${risk.weeks}|${risk.rows.map((row) => row.ticker).sort().join(",")}` : "";
+}
+
 /** Whether a covariance read is for the holdings and the weeks of the risk on screen. */
 export function covarianceFits(payload: HoldingCovariancePayload, risk: MeasuredRisk): boolean {
   const tickers = payload.covariance?.tickers ?? [];
@@ -185,7 +194,8 @@ export async function loadCovariance(read: () => Promise<HoldingCovariancePayloa
  */
 export function riskOfForm(covariance: HoldingCovariance, holdings: Data["holdings"], form: TargetForm, tickers: string[]): TargetRisk | "invalid" | "unmeasured" {
   const read = readForm(form, tickers);
-  if (read.invalid.length) return "invalid";
+  // The cash share counts toward the whole account: one that is not a share is no whole account either.
+  if (read.invalid.length || read.problem === "cash") return "invalid";
   return targetRiskOf(covariance, holdings, typedTargets(form, tickers), form.sell, read.cash / 100) ?? "unmeasured";
 }
 
@@ -274,7 +284,7 @@ export function TargetEditor({ data, book, locale, t, busy, start, onSave, onCle
   const [confirmClear, setConfirmClear] = useState(false);
   // The risk by holding on screen, which the covariance is read for: again when a refresh measures other holdings or weeks.
   const measured = onReadCovariance ? data.risk : undefined;
-  const measuredKey = measured ? `${measured.to}|${measured.weeks}|${measured.rows.map((row) => row.ticker).sort().join(",")}` : "";
+  const measuredKey = measured ? covarianceKey(data) : "";
   const [covariance, setCovariance] = useState<CovarianceState | undefined>(measured ? { state: "reading" } : undefined);
   const errorId = useId();
   // Read as the form opens; the risk at the targets is then worked out as they are typed.
