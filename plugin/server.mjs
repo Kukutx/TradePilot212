@@ -34527,6 +34527,7 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   return {
     name,
     symbolFor,
+    hasFxRates: fxSymbol(name, "EUR", "USD") !== void 0,
     async quote(instrument) {
       const symbol2 = symbolFor(instrument);
       if (!symbol2) return void 0;
@@ -35830,7 +35831,7 @@ var TradingService = class {
       };
       const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice) : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      const reference = intent.type === "limit" || intent.type === "stop_limit" ? highest(referencePrice, current) ?? entry : entry;
+      const reference = intent.type === "market" ? entry : highest(referencePrice, current);
       if (reference !== referencePrice) {
         referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : void 0;
         referencePrice = reference;
@@ -35942,23 +35943,30 @@ var TradingService = class {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
+    const risky = !!draft.riskBudget && draft.side === "buy";
     let marketPrice = position?.currentPrice || void 0;
-    if (draft.riskBudget && draft.side === "buy" && !marketPrice) {
+    if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => void 0);
+      const valued = draft.type === "market" || draft.type === "stop";
       if (quote) {
         marketPrice = quote.price;
-        if ((draft.type === "market" || draft.type === "stop") && quote.price > (draft.referencePrice ?? 0)) {
-          draft.referencePrice = quote.price;
+        if (valued) {
+          if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
           draft.referencePriceAt = quote.asOf;
         }
+      } else if (valued && this.deps.quotes?.symbolFor(instrument)) {
+        fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
     }
-    const currencies = draft.fxRate && !draft.riskBudget ? [] : [instrument.currencyCode];
-    const { rates, quoted } = draft.riskBudget && draft.fxRate ? await this.ratesFor(positions, account.currency ?? "", currencies).catch(() => this.ratesFor(positions, account.currency ?? "", [])) : await this.ratesFor(positions, account.currency ?? "", currencies);
-    const fresh = draft.riskBudget && draft.fxRate ? quoted.get(instrument.currencyCode.toUpperCase()) : void 0;
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode]);
+    const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : void 0;
     if (fresh) {
       draft.fxRate = fresh.rate;
       draft.fxRateAt = fresh.asOf;
+    } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
     return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
@@ -36005,7 +36013,7 @@ var TradingService = class {
     if (draft.type === "stop")
       notices.push({
         code: "STOP_SLIPPAGE",
-        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the trigger, and a fill above it loses more" : ""}.`,
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the highest of its trigger, the reference price and the last price, and a fill above that loses more" : ""}.`,
         details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" }
       });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))

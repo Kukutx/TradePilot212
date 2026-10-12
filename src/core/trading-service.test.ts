@@ -424,9 +424,9 @@ describe("currencies, uncertain results and Live confirmations", () => {
   });
 
   it("checks a cross-currency risk buy at the exchange rate of the moment", async () => {
-    let rate = 0.94;
+    let rate: number | undefined = 0.94;
     const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "nesn.sw", quote: async () => ({ ticker: "NESNz_EQ", symbol: "nesn.sw", price: 100, asOf: new Date().toISOString(), source: "stooq" as const }),
-      fxRate: async (from, to) => ({ from, to, rate, asOf: new Date().toISOString(), source: "stooq" as const }) };
+      fxRate: async (from, to) => rate === undefined ? undefined : ({ from, to, rate, asOf: new Date().toISOString(), source: "stooq" as const }) };
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
     // 10 CHF a share to the stop is 10.64 EUR at 0.94 CHF per EUR, so 30 EUR buys 2.82 shares.
     const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "NESNz_EQ", side: "buy", type: "market", sizing: { mode: "risk", amount: 30, stopLossPrice: 90 } });
@@ -437,6 +437,41 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const moved = await service.prepareOrder({ ...sized.draft });
     expect(moved.draft.fxRate).toBe(0.8);
     expect(moved.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.details).toMatchObject({ budget: 30, accountCurrency: "EUR" });
+    // With no rate just now from a source that has them, the review is refused rather than checked at the old one...
+    rate = undefined;
+    await expect(service.prepareOrder({ ...sized.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "fx_rate", from: "EUR", to: "CHF" } });
+    // ...but a source that never has rates leaves the draft's own.
+    quotes.hasFxRates = false;
+    expect((await service.prepareOrder({ ...sized.draft })).draft.fxRate).toBe(0.94);
+  });
+
+  it("refuses a risk-sized Market or Stop buy it can't price at the moment, and keeps a Stop's reference a market price", async () => {
+    const writes: string[] = [];
+    let price: number | undefined = 216;
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "msft.us", fxRate: async () => undefined,
+      quote: async () => price === undefined ? undefined : ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price, asOf: new Date().toISOString(), source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true, writes }), quotes });
+    const risk = { mode: "risk", percent: 1, stopLossPrice: 200 } as const;
+    // A Stop at 220 rests above the 216 quote: it is sized from its trigger, but its reference is the quote, so the
+    // review does not take it for a Stop that has already triggered.
+    const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 220, sizing: risk });
+    expect(stop.risk?.entryPrice).toBe(220);
+    expect(stop.draft.referencePrice).toBe(216);
+    const stopReview = await service.prepareOrder({ ...stop.draft });
+    expect(stopReview.notices.map((notice) => notice.code)).not.toContain("STOP_ALREADY_TRIGGERED");
+    expect(stopReview.estimatedNotional).toBeCloseTo(stop.draft.quantity * 220, 6);
+    // A quote at or under the reference still dates it, so a reference-age policy sees a price just checked.
+    const market = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", referencePrice: 230, referencePriceAt: "2026-10-11T00:00:00.000Z", sizing: risk });
+    const before = Date.now();
+    const dated = await service.prepareOrder({ ...market.draft });
+    expect(dated.draft.referencePrice).toBe(230);
+    expect(Date.parse(dated.draft.referencePriceAt!)).toBeGreaterThanOrEqual(before - 1000);
+    // With the quote source unable to price it now, neither the review nor the send goes ahead at the old price.
+    const preview = await service.prepareOrder({ ...market.draft });
+    price = undefined;
+    await expect(service.prepareOrder({ ...market.draft })).rejects.toMatchObject({ code: "RISK_CHECK_UNAVAILABLE", details: { missing: "quote" } });
+    expect(await service.executeOrder(preview.token)).toMatchObject({ ok: false, error: { code: "RISK_CHECK_UNAVAILABLE" } });
+    expect(writes).toEqual([]);
   });
 
   it("counts a reference above a Stop's trigger, and carries the budget for the review to check", async () => {
@@ -447,7 +482,7 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(stop.draft).toMatchObject({ referencePrice: 230, riskBudget: { stopLossPrice: 200, budget: 30 } });
     // A Stop fills at the market once triggered, so its review warns that a gap fills above the trigger.
     const stopReview = await service.prepareOrder({ ...stop.draft, referencePriceAt: new Date().toISOString() });
-    expect(stopReview.notices.find((notice) => notice.code === "STOP_SLIPPAGE")).toMatchObject({ details: { side: "buy", riskSized: true }, message: expect.stringMatching(/fill above its trigger price; the loss at the stop-loss is counted from the trigger/) });
+    expect(stopReview.notices.find((notice) => notice.code === "STOP_SLIPPAGE")).toMatchObject({ details: { side: "buy", riskSized: true }, message: expect.stringMatching(/fill above its trigger price; the loss at the stop-loss is counted from the highest of its trigger, the reference price and the last price/) });
     const market = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     const fresh = { referencePriceAt: new Date().toISOString() };
     // As sized, the review finds the loss within the budget.

@@ -722,10 +722,12 @@ export class TradingService {
         : intent.type === "stop" ? highest(intent.stopPrice, current, referencePrice)
         : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
-      // The draft's reference is the entry for a Market or Stop, and for a Limit the higher of the price given
-      // and the last price. The review values the order and checks the limits at it, also after the type is
-      // changed in the editor, rather than at a lower price given. Its time is the holding's or the quote's.
-      const reference = intent.type === "limit" || intent.type === "stop_limit" ? highest(referencePrice, current) ?? entry : entry;
+      // The draft's reference is a market price: the higher of the price given and the last price, which for a
+      // Market order is its entry. The review values the order and checks the limits at it, also after the type
+      // is changed in the editor, rather than at a lower price given. A Stop's trigger is not one: the review
+      // already values a Stop buy at its trigger when that is higher, and it compares the trigger with the last
+      // price to tell a resting Stop from one that triggers at once. Its time is the holding's or the quote's.
+      const reference = intent.type === "market" ? entry : highest(referencePrice, current);
       if (reference !== referencePrice) {
         referencePriceAt = reference === position?.currentPrice ? fetchedAt : reference === quotePrice ? quoteAt : undefined;
         referencePrice = reference;
@@ -850,30 +852,39 @@ export class TradingService {
     const client = this.client(draft.environment);
     const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
     const position = this.positionFor(positions, instrument.ticker);
-    // A risk-sized buy of an instrument you do not hold reads the quote of the moment. A Market or Stop takes it
-    // when it is above the price it was sized at, so its value and its loss at the stop are not understated; any
-    // order type keeps it as the market price, so a fall to or under the stop-loss is seen too.
+    // A risk-sized buy of an instrument you do not hold reads the quote of the moment, kept as the market price so
+    // a fall to or under the stop-loss is seen. A Market or Stop also takes it as its reference when it is above
+    // the price it was sized at, so its value and its loss at the stop are not understated, and otherwise dates
+    // the reference by it: the reference has just been checked against the market. When the quote source can
+    // price the instrument but has no quote just now, a Market or Stop is refused rather than checked at an old
+    // price; with no quote source, the price given stands, as for any order.
+    const risky = !!draft.riskBudget && draft.side === "buy";
     let marketPrice = position?.currentPrice || undefined;
-    if (draft.riskBudget && draft.side === "buy" && !marketPrice) {
+    if (risky && !marketPrice) {
       const quote = await this.externalQuote(instrument).catch(() => undefined);
+      const valued = draft.type === "market" || draft.type === "stop";
       if (quote) {
         marketPrice = quote.price;
-        if ((draft.type === "market" || draft.type === "stop") && quote.price > (draft.referencePrice ?? 0)) {
-          draft.referencePrice = quote.price;
+        if (valued) {
+          if (quote.price > (draft.referencePrice ?? 0)) draft.referencePrice = quote.price;
           draft.referencePriceAt = quote.asOf;
         }
+      } else if (valued && this.deps.quotes?.symbolFor(instrument)) {
+        fail("RISK_CHECK_UNAVAILABLE", `The quote source has no price for ${instrument.ticker} just now, so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; try again in a moment.`, { missing: "quote", ticker: instrument.ticker });
       }
     }
     // A risk-sized buy also asks for the exchange rate of the moment instead of the one it was sized at, so an
-    // adverse move in the rate counts toward the loss at the stop; the draft keeps its own when there is none.
-    const currencies = draft.fxRate && !draft.riskBudget ? [] : [instrument.currencyCode];
-    const { rates, quoted } = draft.riskBudget && draft.fxRate
-      ? await this.ratesFor(positions, account.currency ?? "", currencies).catch(() => this.ratesFor(positions, account.currency ?? "", []))
-      : await this.ratesFor(positions, account.currency ?? "", currencies);
-    const fresh = draft.riskBudget && draft.fxRate ? quoted.get(instrument.currencyCode.toUpperCase()) : undefined;
+    // adverse move in the rate counts toward the loss at the stop. When the quote source has exchange rates but
+    // none just now, it is refused; with none, or a rate your holdings imply, the review goes on as before.
+    const accountCode = (account.currency ?? "").toUpperCase();
+    const instrumentCode = instrument.currencyCode.toUpperCase();
+    const { rates, quoted } = await this.ratesFor(positions, accountCode, draft.fxRate && !risky ? [] : [instrumentCode]);
+    const fresh = risky && draft.fxRate ? quoted.get(instrumentCode) : undefined;
     if (fresh) {
       draft.fxRate = fresh.rate;
       draft.fxRateAt = fresh.asOf;
+    } else if (risky && draft.fxRate && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
+      fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
     return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
@@ -926,7 +937,7 @@ export class TradingService {
     if (draft.type === "stop")
       notices.push({
         code: "STOP_SLIPPAGE",
-        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the trigger, and a fill above it loses more" : ""}.`,
+        message: `A Stop order becomes a Market order once triggered, so after a gap it can fill ${draft.side === "buy" ? "above" : "below"} its trigger price${draft.riskBudget && draft.side === "buy" ? "; the loss at the stop-loss is counted from the highest of its trigger, the reference price and the last price, and a fill above that loses more" : ""}.`,
         details: { side: draft.side, riskSized: !!draft.riskBudget && draft.side === "buy" },
       });
     if (draft.type === "market" && this.deps.marketStatus && (!market || market.session === "unknown"))

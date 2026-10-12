@@ -37,6 +37,8 @@ export interface QuoteProvider {
   quote(instrument: Instrument): Promise<ExternalQuote | undefined>;
   /** An exchange rate, for currencies none of your holdings price; undefined when the provider has none. */
   fxRate(from: string, to: string): Promise<ExternalFxRate | undefined>;
+  /** False when the provider never has exchange rates, so a missing one is not a failure of the moment. */
+  hasFxRates?: boolean;
 }
 
 const CACHE_MS = 60_000;
@@ -187,6 +189,7 @@ export function createQuoteProvider(config: RuntimeConfig, fetcher: Fetch = (inp
   return {
     name,
     symbolFor,
+    hasFxRates: fxSymbol(name, "EUR", "USD") !== undefined,
     async quote(instrument) {
       const symbol = symbolFor(instrument);
       if (!symbol) return undefined;

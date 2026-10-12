@@ -35,6 +35,7 @@ export type TradePilotErrorCode =
   | "EXECUTION_STATUS_UNKNOWN"
   | "EXECUTION_BUSY"
   | "RISK_CHANGED"
+  | "RISK_CHECK_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 export interface StructuredError {

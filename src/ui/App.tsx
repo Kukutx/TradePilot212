@@ -107,6 +107,9 @@ class ToolCallError extends Error {
   }
 }
 
+/** A send refused before anything reached Trading 212 because a risk-sized buy needs a new review. */
+const RISK_RECHECK: ReadonlySet<string> = new Set(["RISK_CHANGED", "RISK_CHECK_UNAVAILABLE"]);
+
 function textFromToolResult(value: Awaited<ReturnType<McpApp["callServerTool"]>>): string {
   return (
     value.content
@@ -559,6 +562,12 @@ export default function App() {
     const sent = await run("errorTitleOrderSend", async () => {
       const confirmationCode = preview["token"];
       const result = await callTool<OrderExecutionResult>("app_execute_order", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
+      // A risk-sized buy whose price moved after the review, or could not be read at the send, is not sent. Its
+      // draft stays in the editor, so the next review shows it at the new price; the used confirmation goes.
+      if (!result.ok && result.error && RISK_RECHECK.has(result.error.code)) {
+        setPreview(null);
+        throw new ToolCallError(result.error);
+      }
       setExecution(result);
       setExecutionKind("order");
       setVerification(null);

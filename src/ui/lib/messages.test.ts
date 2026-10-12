@@ -99,6 +99,10 @@ describe("structured server codes", () => {
       .toBe("The price moved after the review: at the stop-loss this order would now lose about €56.25, more than the review showed. Nothing was sent; review the order again.");
     expect(formatProblem({ code: "RISK_CHANGED", message: "x", details: { stopLossPrice: 200, price: 190, currency: "USD" } }, zh, "zh-CN"))
       .toBe("复核之后价格变了，已在止损价 US$200.00 或以下。订单没有发出，请重新复核。");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "fx_rate", from: "EUR", to: "CHF" } }, en, "en"))
+      .toBe("The quote source has no EUR to CHF exchange rate just now, so the loss at the stop-loss can't be checked. Nothing was sent; try again in a moment.");
+    expect(formatProblem({ code: "RISK_CHECK_UNAVAILABLE", message: "x", details: { missing: "quote", ticker: "MSFT_US_EQ" } }, zh, "zh-CN"))
+      .toBe("行情源暂时没有这只标的的价格，无法核对到止损价的亏损。订单没有发出，请稍后再试。");
   });
 
   it("words the new order notices from their values", () => {
@@ -110,7 +114,7 @@ describe("structured server codes", () => {
     expect(noticeText({ code: "MARKET_HOURS_UNKNOWN", message: "x", details: { reason: "no_schedule" } }, zh, "zh-CN")).toContain("没有提供该标的的交易时段");
     expect(noticeText({ code: "MARKET_HOURS_UNKNOWN", message: "Server text." }, en, "en")).toBe("Server text.");
     expect(noticeText({ code: "STOP_SLIPPAGE", message: "x", details: { side: "sell", riskSized: false } }, en, "en")).toBe("A Stop order becomes a Market order once it triggers, so after a gap it can fill below its trigger price.");
-    expect(noticeText({ code: "STOP_SLIPPAGE", message: "x", details: { side: "buy", riskSized: true } }, zh, "zh-CN")).toBe("止损单触发后按市价成交，价格跳空时可能高于触发价成交。到止损价的亏损从触发价算起，成交价更高时亏得更多。");
+    expect(noticeText({ code: "STOP_SLIPPAGE", message: "x", details: { side: "buy", riskSized: true } }, zh, "zh-CN")).toBe("止损单触发后按市价成交，价格跳空时可能高于触发价成交。到止损价的亏损按触发价、参考价和最新价中最高的一个计算，成交价更高时亏得更多。");
   });
 
   it("names statuses, types, providers and environments instead of showing codes", () => {
