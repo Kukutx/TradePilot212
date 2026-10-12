@@ -56,9 +56,10 @@ const sample = await session({ TRADEPILOT_SAMPLE_DATA: "true", T212_LIVE_API_KEY
 const [dashboard, live, holding, review] = sample.results;
 // The journal review reads the sample fills; a fresh store has no notes on them.
 if (review.isError || review.structuredContent?.kind !== "journal_review" || !(review.structuredContent.fills > 0) || review.structuredContent.withNote !== 0) throw new Error(`Journal review failed: ${JSON.stringify(review).slice(0, 300)}`);
-// One holding: its position, the sample stop-loss and a year of fills.
+// One holding: its position, the sample stop-loss, a year of fills and the simulated daily closes ending at the last price.
 const detail = holding.structuredContent;
 if (holding.isError || detail?.kind !== "holding" || detail.ticker !== "NVDA_US_EQ" || !detail.position || detail.orders?.length !== 1 || !detail.history?.fills?.length) throw new Error(`Holding detail failed: ${JSON.stringify(holding).slice(0, 300)}`);
+if (!(detail.prices?.points?.length > 200) || detail.prices.points.at(-1).close !== detail.position.currentPrice) throw new Error(`Holding detail lacks the daily closes: ${JSON.stringify(detail.prices ?? detail.pricesProblem).slice(0, 300)}`);
 if (dashboard.isError || !dashboard.structuredContent?.credentials?.sample || !(dashboard.structuredContent.positions?.length > 0)) throw new Error(`Sample dashboard failed: ${JSON.stringify(dashboard).slice(0, 300)}`);
 if (!live.isError && live.structuredContent?.credentials?.live) throw new Error("Live must stay off in sample mode");
 // Hosts that show only text get the holdings in the tool text too.

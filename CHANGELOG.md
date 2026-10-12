@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.31.0
+
+- A price chart on the holding page. The last year of daily closes as one line, each of your buys (▲) and sells (▼) on it at its price, and the average cost, open stops and limits and armed price alerts as dashed lines across it, in the colours of the price ladder below. Tags on the price axis give the last close and each line's price, pushed apart when two are close; a level too far from the prices to draw without flattening the line is named under the chart instead. **1M**, **3M**, **6M** and **1Y** pick the range (only those the closes cover), and the change over it, the high and the low head the chart.
+- Hover or tap a day for its close, how the price went from then to the last close, and any trade on it. With the chart focused, the arrow keys step a day, Home and End jump to the ends, and Page Up and Page Down jump to the previous or next trade. **Show as table** lists every close with your trades that day.
+- The closes come from the quote provider: Stooq's or Twelve Data's year, or Alpha Vantage's last 100 trading days; Finnhub's free plan has none. They are cached for half an hour. Closes ten times or more from Trading 212's price either way are taken to be in another unit and not drawn. When there is no chart, the page says why: no quote provider, no daily prices on its plan, no symbol for the instrument, no answer, or another unit.
+- `get_holding_detail` returns the closes under `prices`, or `pricesMissing` and `pricesProblem`, and its text gives the change over 1, 3, 6 and 12 months with the high and the low, so the chat can talk about the price without the widget.
+- The sample account draws a simulated path through its own fills that ends at the last price, and its fills now climb gently towards today's prices over the year.
+
 ## 2.30.0
 
 - Look back over the journal. A **Journal** tab next to Income sets each note on an order filled in the period against how that trade has gone since: the fill price, the price now (the broker's for a holding, the quote provider's otherwise, asked about 8 instruments at most, one at a time) and the edge, how far the price moved in the trade's favour, up for a buy and down for a sell. The edge leaves FX and costs out and counts each trade once, so it measures the call; a move under 0.05% reads as unchanged, and a quote ten times from the fill price, most likely in another unit, counts as no price. The overview gives the average edge, how many trades went your way, how many fills have a note and how many of those a look back, the trades due for one, and the realised P/L on the noted sells.

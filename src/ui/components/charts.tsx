@@ -9,7 +9,7 @@ export interface BarDatum { key: string; label: string; value: number; display: 
 /** Labels for the chart/table switch; the button names the view it switches to. */
 export interface ChartLabels { table: string; chart: string }
 
-function ViewSwitch({ asTable, labels, onToggle }: { asTable: boolean; labels: ChartLabels; onToggle: () => void }) {
+export function ViewSwitch({ asTable, labels, onToggle }: { asTable: boolean; labels: ChartLabels; onToggle: () => void }) {
   return <button type="button" className="linkButton" onClick={onToggle}>{asTable ? labels.chart : labels.table}</button>;
 }
 

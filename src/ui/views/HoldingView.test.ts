@@ -1,8 +1,10 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PriceAlert } from "../../shared/automation";
 import type { HoldingDetail } from "../../shared/holding";
 import { createTranslator } from "../i18n";
-import { priceLevels } from "./HoldingView";
+import { HoldingView, priceLevels } from "./HoldingView";
 
 const alert = (fields: Partial<PriceAlert>): PriceAlert => ({ id: `alt_${fields.condition}`, environment: "demo", ticker: "NVDA_US_EQ", condition: "below", createdAt: "2026-10-01T00:00:00Z", ...fields });
 
@@ -46,5 +48,22 @@ describe("holding price levels", () => {
       timestamp: "2026-10-11T00:00:00Z",
     } as unknown as HoldingDetail;
     expect(priceLevels(data, createTranslator("zh-CN"), "zh-CN").map((level) => level.label)).toEqual(["买入限价 · 3", "提醒：低于或等于"]);
+  });
+
+  it("draws the price chart from the closes, or says in the viewer's language why there is none", () => {
+    const base = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "AAPL_US_EQ", instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" },
+      orders: [], alerts: [], journal: [], timestamp: "2026-10-11T00:00:00Z",
+      history: { from: "2025-10-11T00:00:00Z", fills: [{ orderId: "9", filledAt: "2026-10-02T14:00:00Z", side: "BUY", quantity: 1, price: 101, priceCurrency: "USD" }], dividends: [], dividendTotal: 0, dividendCount: 0, fillsTruncated: false, dividendsTruncated: false },
+    } as unknown as HoldingDetail;
+    const render = (data: HoldingDetail, locale: "en" | "zh-CN" = "en") => renderToStaticMarkup(createElement(HoldingView, {
+      data, locale, t: createTranslator(locale), writeEnabled: false, busy: false,
+      onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
+    }));
+    const charted = render({ ...base, prices: { source: "stooq", symbol: "AAPL.US", points: [{ date: "2026-10-01", close: 100 }, { date: "2026-10-02", close: 101.5 }] } });
+    expect(charted).toContain('class="chartFigure priceChart"');
+    expect(charted.match(/class="tradeMark buy"/g)).toHaveLength(1);
+    expect(render({ ...base, pricesMissing: "provider", pricesProblem: "No quote provider is configured" }, "zh-CN")).toContain("还没有价格走势图：没有设置行情源");
+    expect(render(base)).not.toContain("priceChart");
   });
 });

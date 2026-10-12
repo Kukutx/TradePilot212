@@ -709,6 +709,45 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .lineTip span { display: block; color: var(--tp-muted); }
 .lineTip strong { display: block; font-variant-numeric: tabular-nums; }
 
+/* Price chart on the holding page: levels and trades in the colours of the price ladder below it. */
+.priceChart figcaption { flex-wrap: wrap; }
+.priceChart figcaption > span:first-child { white-space: nowrap; }
+/* On a phone the ranges and the table switch share the row under the title. */
+@container (max-width: 420px) {
+  .priceChart .chartControls { flex-wrap: nowrap; justify-content: space-between; width: 100%; }
+  .priceChart .chartControls .segmented button { padding: 0 7px; }
+  .priceChart .chartControls .linkButton { white-space: nowrap; font-size: 13px; }
+}
+.priceMove { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: -4px 0 8px; color: var(--tp-muted); font-size: 13px; }
+.priceMove strong { font-size: 20px; font-weight: 760; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.priceRange { margin-left: auto; font-variant-numeric: tabular-nums; }
+.priceGrid { stroke: var(--tp-border); stroke-width: 1; }
+.priceChart .lineAxis { font-size: 11.5px; }
+.priceLevel { stroke: var(--level, var(--tp-muted)); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.priceLevel.stop, .priceTag.stop, .legendLine.stop { --level: var(--tp-red); }
+.priceLevel.limit, .priceTag.limit, .legendLine.limit { --level: var(--tp-green); }
+.priceLevel.alert, .priceTag.alert, .legendLine.alert { --level: var(--tp-amber); }
+.priceTag.last { --level: var(--tp-chart); }
+.priceTag rect { fill: var(--level, var(--tp-muted)); }
+.priceTag line { stroke: var(--level, var(--tp-muted)); stroke-width: 1; }
+.priceTag text { fill: var(--tp-bg); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.tradeMark { stroke: var(--tp-bg); stroke-width: 2; stroke-linejoin: round; paint-order: stroke; }
+.tradeMark.buy { fill: var(--tp-green); }
+.tradeMark.sell { fill: var(--tp-red); }
+.priceTip { width: 190px; }
+.tipSince { display: block; color: var(--tp-muted); }
+.tipTrade { display: block; margin-top: 3px; font-weight: 650; }
+.tipTrade.buy { color: var(--tp-green); }
+.tipTrade.sell { color: var(--tp-red); }
+.priceLegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; padding: 0; list-style: none; color: var(--tp-muted); font-size: 12.5px; }
+.priceLegend li { display: inline-flex; align-items: center; gap: 6px; }
+.legendMark { width: 11px; height: 10px; }
+.legendMark.buy { background: var(--tp-green); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.legendMark.sell { background: var(--tp-red); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.legendLine { width: 18px; border-top: 2px dashed var(--level, var(--tp-muted)); }
+.priceChart .chartTable td:nth-child(2) { color: var(--tp-muted); }
+.priceChart .chartTable tr.withTrade td { color: var(--tp-text); font-weight: 650; }
+
 .panelHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 .panelActions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .panelHeading .panelTitle { margin: 0; }

@@ -7,6 +7,7 @@ import type { PriceAlerts } from "./alerts.js";
 import { asStructuredError } from "./errors.js";
 import type { InsightsService } from "./insights-service.js";
 import type { TradeJournal } from "./journal.js";
+import type { PriceAnchor, PriceHistoryRequest, PriceHistoryResult } from "./price-history.js";
 import type { TargetAllocations } from "./targets.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 
@@ -25,12 +26,14 @@ export interface HoldingDeps {
   alerts: PriceAlerts;
   journal: TradeJournal;
   targets: TargetAllocations;
+  /** Daily closes for the price chart; without it the page has none. */
+  priceHistory?: (request: PriceHistoryRequest) => Promise<PriceHistoryResult>;
 }
 
 /**
  * One instrument: the position (if held), its share of the account and saved target, open orders,
- * price alerts, journal notes, market session, and the last 12 months of fills and dividends. A failed history read
- * leaves the rest in place and says why.
+ * price alerts, journal notes, market session, the last 12 months of fills and dividends, and of daily closes.
+ * A failed history or price read leaves the rest in place and says why.
  */
 export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvironment, query: string, now = new Date()): Promise<HoldingDetail> {
   const dashboard = await deps.trading.getDashboard(environment);
@@ -53,17 +56,23 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const total = dashboard.account?.totalValue;
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
-  const [targets, alerts, notes, market, history] = await Promise.all([
+  const historyRead = Promise.all([
+    deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
+    deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
+  ]).catch((error: unknown) => asStructuredError(error));
+  const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
+    ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
+    : []));
+  const [targets, alerts, notes, market, history, prices] = await Promise.all([
     deps.targets.get(environment),
     deps.alerts.list(environment),
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position!.instrument, now),
-    Promise.all([
-      deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
-      deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
-    ]).catch((error: unknown) => asStructuredError(error)),
+    historyRead,
+    deps.priceHistory?.({ instrument: listed ?? position!.instrument, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : {}), fills })
+      .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message })),
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])) : []);
@@ -115,6 +124,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
           },
         }
       : { historyProblem: history.message }),
+    ...(prices && "prices" in prices ? { prices: prices.prices } : prices ? { pricesMissing: prices.missing, pricesProblem: prices.problem } : {}),
     timestamp: new Date().toISOString(),
   };
 }

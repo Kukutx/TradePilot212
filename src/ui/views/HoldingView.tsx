@@ -8,6 +8,9 @@ import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
 import { JournalForm, JournalNote, type JournalRequest } from "../components/journal";
+import { PriceChart, type ChartLevel, type ChartTrade } from "../components/price-chart";
+import type { PricesMissing } from "../../shared/prices";
+import type { MessageKey } from "../i18n";
 import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { alertConditionLabel, fill, instrumentTypeLabel, orderTypeLabel, type Translator } from "../lib/messages";
@@ -60,6 +63,26 @@ export function priceLevels(data: HoldingDetail, t: Translator, locale: Supporte
     levels.push({ key: `alert-${alert.id}`, kind: "alert", price, label: fill(t("levelAlert"), { condition }) });
   }
   return levels.sort((a, b) => b.price - a.price);
+}
+
+const MISSING_KEYS: Record<PricesMissing, MessageKey> = {
+  provider: "pricesMissingProvider",
+  plan: "pricesMissingPlan",
+  symbol: "pricesMissingSymbol",
+  data: "pricesMissingData",
+  unit: "pricesMissingUnit",
+  sample: "pricesMissingSample",
+};
+
+/** The fills as chart markers, each saying what was traded at what price. */
+export function chartTrades(fills: HoldingFill[], currency: string | undefined, t: Translator, locale: SupportedLocale): ChartTrade[] {
+  return fills.flatMap((item, index) => {
+    const time = item.filledAt ? Date.parse(item.filledAt) : Number.NaN;
+    if (!Number.isFinite(time) || !item.price || !(item.price > 0)) return [];
+    const sell = String(item.side ?? "").toUpperCase() === "SELL" || (item.quantity ?? 0) < 0;
+    const text = fill(t(sell ? "priceSold" : "priceBought"), { quantity: qty(Math.abs(item.quantity ?? 0), locale), price: amount(item.price, item.priceCurrency ?? currency, locale) });
+    return [{ key: `${item.orderId ?? "fill"}-${index}`, time, price: item.price, side: sell ? "sell" as const : "buy" as const, text }];
+  });
 }
 
 function marketText(data: HoldingDetail, t: Translator, locale: SupportedLocale): string | undefined {
@@ -186,6 +209,18 @@ export function HoldingView({
           </div>
         )}
       </section>
+
+      {data.prices && data.prices.points.length >= 2 ? (
+        <section className="dataPanel">
+          <PriceChart prices={data.prices} trades={chartTrades(fills, quote, t, locale)} levels={levels.filter((level): level is PriceLevel & ChartLevel => level.kind !== "last")}
+            {...(quote ? { currency: quote } : {})} locale={locale} t={t} />
+        </section>
+      ) : data.pricesMissing && (
+        <section className="dataPanel">
+          <div className="pieHeader"><h2>{t("priceChartTitle")}</h2></div>
+          <div className="emptyState compact">{t(MISSING_KEYS[data.pricesMissing])}</div>
+        </section>
+      )}
 
       {/* The protection line shows even when a missing price leaves too few levels for a ladder. */}
       {(levels.length >= 2 || guardNote) && <PriceLadder levels={levels} last={position?.currentPrice} currency={quote} locale={locale} t={t} {...(guardNote ? { guardNote, partial: !guard || guard.coverage < 1 } : {})} {...(guardDetail ? { guardDetail } : {})} {...(protect ? { action: protect } : {})} />}
