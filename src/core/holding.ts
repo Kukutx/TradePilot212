@@ -14,6 +14,8 @@ import { resolveInstrumentFromList, type TradingService } from "./trading-servic
 const DAY_MS = 86_400_000;
 /** Fills and dividends listed; the dividend total covers the whole window. */
 const MAX_FILLS = 20;
+/** Fills the price chart marks: the listed ones and, with only what a mark needs, older ones up to this many. */
+const MAX_CHART_FILLS = 200;
 const MAX_DIVIDENDS = 12;
 /** The newest journal notes listed, plus any on a listed fill. */
 const MAX_NOTES = 20;
@@ -57,25 +59,32 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
   const historyRead = Promise.all([
-    deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
+    deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
     deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
   ]).catch((error: unknown) => asStructuredError(error));
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
     ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
     : []));
+  const alertsRead = deps.alerts.list(environment);
+  // Where the open orders and armed above/below alerts sit: the unit check's reference for an instrument not held.
+  const levels = alertsRead.catch(() => []).then((list) => [
+    ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
+    ...list.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price),
+  ].filter((price): price is number => typeof price === "number" && price > 0));
   const [targets, alerts, notes, market, history, prices] = await Promise.all([
     deps.targets.get(environment),
-    deps.alerts.list(environment),
+    alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position!.instrument, now),
     historyRead,
-    deps.priceHistory?.({ instrument: listed ?? position!.instrument, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : {}), fills })
+    deps.priceHistory?.({ instrument: listed ?? position!.instrument, from: window.from, ...(position?.currentPrice ? { last: position.currentPrice } : {}), levels, fills })
       .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message })),
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
-  const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])) : []);
+  const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
+  const filled = new Set(listedFills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])));
   const onFill = (note: JournalEntry) => note.orderId !== undefined && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
@@ -98,7 +107,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
       ? {
           history: {
             from: window.from.toISOString(),
-            fills: history[0].fills.map((fill) => ({
+            fills: listedFills.map((fill) => ({
               ...(fill.orderId ? { orderId: fill.orderId } : {}),
               ...(fill.filledAt ? { filledAt: fill.filledAt } : {}),
               ...(fill.side ? { side: fill.side } : {}),
@@ -110,6 +119,11 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
               ...(fill.accountCurrency ? { accountCurrency: fill.accountCurrency } : {}),
               ...(fill.realisedProfitLoss === undefined ? {} : { realisedProfitLoss: fill.realisedProfitLoss }),
             })),
+            ...(history[0].fills.length > MAX_FILLS ? {
+              olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => (fill.filledAt && fill.price
+                ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }]
+                : [])),
+            } : {}),
             dividends: history[1].items.map((item) => ({
               date: item.date,
               amount: item.amount,

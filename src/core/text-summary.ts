@@ -3,7 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
-import { PRICE_RANGES, priceMove, pricesIn } from "../shared/prices.js";
+import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
@@ -277,7 +277,8 @@ function priceLine(data: HoldingDetail): string[] {
   const year = priceMove(prices.points);
   if (!year) return [];
   const unit = data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : "";
-  const shorter = PRICE_RANGES.filter(([key]) => key !== "1y").flatMap(([key, days]) => {
+  // Only the ranges the closes reach back over, so a 3-month figure is never a shorter stretch's.
+  const shorter = PRICE_RANGES.filter(([key, days]) => key !== "1y" && rangeCovered(prices.points, days)).flatMap(([key, days]) => {
     const move = priceMove(pricesIn(prices.points, days));
     return move ? [`${key.toUpperCase()} ${signedPct(move.change)}`] : [];
   });
@@ -302,7 +303,7 @@ function holding(data: HoldingDetail): string[] {
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...(history
       ? [
-          ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+          ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
           `Dividends since ${history.from.slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
         ]
       : [`History not read: ${data.historyProblem ?? "unknown error"}.`]),

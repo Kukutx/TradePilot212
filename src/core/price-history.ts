@@ -18,7 +18,9 @@ export interface PriceHistoryRequest {
   from: Date;
   /** Trading 212's last price, when held: the provider's closes are checked against it for the unit. */
   last?: number;
-  /** The account's fills of the instrument: the unit check's fallback when not held, and the sample path's anchors. */
+  /** The prices of the instrument's open orders and armed alerts: the unit check's reference when it is not held. */
+  levels?: Promise<number[]>;
+  /** The account's fills of the instrument: the unit check's last resort, and the sample path's anchors. */
   fills?: Promise<PriceAnchor[]>;
 }
 
@@ -26,11 +28,22 @@ export type PriceHistoryResult = { prices: PriceHistory } | { missing: PricesMis
 
 /**
  * A provider's close this many times Trading 212's price, either way, is taken to be in another unit (a fund
- * quoted in pounds that Trading 212 prices in pence), not a real move.
+ * quoted in pounds that Trading 212 prices in pence), not a real move. A past fill may sit far from today's
+ * closes after a split, so against a fill only a gap of UNIT_RATIO_FILL counts.
  */
 const UNIT_RATIO = 10;
+const UNIT_RATIO_FILL = 50;
+/** The holding page waits this long for the closes; a slower answer is cached for the next look. */
+const HISTORY_WAIT_MS = 3000;
 
-export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuoteProvider; now?: () => Date }) {
+/** The QUOTE_SYMBOLS factor that brings closes at `last` to Trading 212's `reference`: a power of ten times the one mapped. */
+export function unitFactor(last: number, reference: number, mapped = 1): number {
+  return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
+}
+
+const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+
+export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuoteProvider; now?: () => Date; waitMs?: number }) {
   const now = deps.now ?? (() => new Date());
   return async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
     const { instrument } = request;
@@ -43,13 +56,30 @@ export function createPriceHistory(deps: { sampleData: boolean; quotes?: QuotePr
     if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
     const symbol = quotes.symbolFor(instrument);
     if (!symbol) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
-    const prices = await quotes.history(instrument, request.from);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => { timer = setTimeout(() => resolve("late"), deps.waitMs ?? HISTORY_WAIT_MS); });
+    let prices: Awaited<ReturnType<NonNullable<QuoteProvider["history"]>>> | "late";
+    try {
+      prices = await Promise.race([quotes.history(instrument, request.from), late]);
+    } catch (error) {
+      return { missing: "data", problem: `${quotes.name} gave no daily prices for ${symbol}: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1000} seconds for ${symbol}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol}.` };
+    // The unit is checked against the last price, else the open orders and alerts, else the newest fill.
+    const levels = (await request.levels ?? []).filter((price) => price > 0);
     const newest = (await request.fills ?? []).reduce<PriceAnchor | undefined>((best, item) => (!best || item.at > best.at ? item : best), undefined);
-    const reference = request.last ?? newest?.price;
+    const check = request.last ? { price: request.last, ratio: UNIT_RATIO, what: "last price" }
+      : levels.length ? { price: middle(levels)!, ratio: UNIT_RATIO, what: "order and alert prices" }
+      : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" }
+      : undefined;
     const last = prices.points[prices.points.length - 1]!.close;
-    if (reference && (last / reference >= UNIT_RATIO || last / reference <= 1 / UNIT_RATIO)) {
-      return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol} (last ${last}) are far from Trading 212's price (${reference}), so they look like another unit; map it with a factor in QUOTE_SYMBOLS, e.g. ${instrument.ticker}=${symbol}*100.` };
+    if (check && (last / check.price >= check.ratio || check.price / last >= check.ratio)) {
+      const factor = unitFactor(last, check.price, prices.factor);
+      const mapping = `${instrument.ticker}=${symbol}${factor === 1 ? "" : `*${factor}`}`;
+      return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol} (last ${last}) are far from Trading 212's ${check.what} (${check.price}), so they look like another unit; map it in QUOTE_SYMBOLS as ${mapping}.` };
     }
     return { prices };
   };

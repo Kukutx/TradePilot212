@@ -34474,6 +34474,10 @@ function closes(rows2) {
     return typeof date5 === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date5) && price ? [{ date: date5, close: price }] : [];
   });
 }
+function providerSays(provider, key, said) {
+  const text = (typeof said === "string" ? said : JSON.stringify(said)).replace(/\s+/g, " ").trim();
+  return new Error(`${provider}: ${(key ? text.replaceAll(key, "***") : text).slice(0, 200)}`);
+}
 function historyFetcher(name, key, fetcher) {
   switch (name) {
     case "stooq":
@@ -34484,7 +34488,8 @@ function historyFetcher(name, key, fetcher) {
         const [header = "", ...rows2] = (await response.text()).trim().split(/\r?\n/);
         const columns = header.split(",");
         const close = columns.indexOf("Close");
-        if (columns[0] !== "Date" || close < 0) return [];
+        if (/^no data/i.test(header)) return [];
+        if (columns[0] !== "Date" || close < 0) throw providerSays("Stooq", key, /^\s*</.test(header) ? "answered with a web page instead of prices" : header);
         return closes(rows2.map((row) => {
           const cells = row.split(",");
           return { date: cells[0], close: cells[close] };
@@ -34493,11 +34498,14 @@ function historyFetcher(name, key, fetcher) {
     case "twelvedata":
       return async (symbol2, from) => {
         const body = await getJson(fetcher, `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol2)}&interval=1day&start_date=${isoDay(from)}&outputsize=5000&apikey=${encodeURIComponent(key)}`);
+        if (body?.status === "error") throw providerSays("Twelve Data", key, body.message ?? "error");
         return closes((body.values ?? []).map((row) => ({ date: row.datetime?.slice(0, 10), close: row.close })));
       };
     case "alphavantage":
       return async (symbol2) => {
         const body = await getJson(fetcher, `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol2)}&outputsize=compact&apikey=${encodeURIComponent(key)}`);
+        const said = body?.Note ?? body?.Information ?? body?.["Error Message"];
+        if (said !== void 0) throw providerSays("Alpha Vantage", key, said);
         return closes(Object.entries(body["Time Series (Daily)"] ?? {}).map(([date5, row]) => ({ date: date5, close: row["4. close"] })));
       };
     case "finnhub":
@@ -34576,16 +34584,23 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
         const start = isoDay(from);
         const key = `${symbol2}*${factor}:${start}`;
         const cached2 = historyCache.get(key);
-        if (cached2 && cached2.expiresAt > Date.now()) return cached2.history;
+        if (cached2 && cached2.expiresAt > Date.now()) {
+          if (cached2.failure) throw new Error(cached2.failure);
+          return cached2.history;
+        }
         let history;
+        let failure2;
         try {
           const byDay = new Map((await fetchHistory(symbol2, from)).filter((point) => point.date >= start).map((point) => [point.date, Math.round(point.close * factor * 1e6) / 1e6]));
           const points2 = [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([date5, close]) => ({ date: date5, close }));
-          if (points2.length >= 2) history = { source: name, symbol: symbol2, points: points2 };
+          if (points2.length >= 2) history = { source: name, symbol: symbol2, ...factor === 1 ? {} : { factor }, points: points2 };
         } catch (error62) {
-          console.error(JSON.stringify({ message: "TradePilot price history failed", provider: name, symbol: symbol2, error: error62 instanceof Error ? error62.message : String(error62) }));
+          failure2 = error62 instanceof Error ? error62.message : String(error62);
+          console.error(JSON.stringify({ message: "TradePilot price history failed", provider: name, symbol: symbol2, error: failure2 }));
         }
-        historyCache.set(key, { expiresAt: Date.now() + (history ? HISTORY_CACHE_MS : CACHE_MS), history });
+        for (const [entry, value] of historyCache) if (value.expiresAt <= Date.now()) historyCache.delete(entry);
+        historyCache.set(key, { expiresAt: Date.now() + (history ? HISTORY_CACHE_MS : CACHE_MS), history, ...failure2 ? { failure: failure2 } : {} });
+        if (failure2) throw new Error(failure2);
         return history;
       }
     } : {},
@@ -35161,8 +35176,8 @@ function impliedFxRates(positions, accountCurrency) {
   const rates = {};
   for (const [currency, values] of samples) {
     const sorted = [...values].sort((a, b) => a - b);
-    const middle = Math.floor(sorted.length / 2);
-    rates[currency] = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    const middle2 = Math.floor(sorted.length / 2);
+    rates[currency] = sorted.length % 2 ? sorted[middle2] : (sorted[middle2 - 1] + sorted[middle2]) / 2;
   }
   return rates;
 }
@@ -36941,13 +36956,13 @@ function moneyWeightedReturn(flows) {
   let atLow = value(low), atHigh = value(high);
   if (!Number.isFinite(atLow) || !Number.isFinite(atHigh) || Math.sign(atLow) === Math.sign(atHigh)) return void 0;
   for (let step = 0; step < 200 && high - low > 1e-10; step++) {
-    const middle = (low + high) / 2;
-    const atMiddle = value(middle);
+    const middle2 = (low + high) / 2;
+    const atMiddle = value(middle2);
     if (Math.sign(atMiddle) === Math.sign(atLow)) {
-      low = middle;
+      low = middle2;
       atLow = atMiddle;
     } else {
-      high = middle;
+      high = middle2;
       atHigh = atMiddle;
     }
   }
@@ -38322,6 +38337,12 @@ var PRICE_RANGES = [
   ["1y", 366]
 ];
 var DAY_MS4 = 864e5;
+var RANGE_SLACK_DAYS = 6;
+function rangeCovered(points2, days) {
+  const first = points2[0];
+  const last = points2[points2.length - 1];
+  return !!first && !!last && Date.parse(`${first.date}T00:00:00Z`) <= Date.parse(`${last.date}T00:00:00Z`) - (days - RANGE_SLACK_DAYS) * DAY_MS4;
+}
 function pricesIn(points2, days) {
   const last = points2[points2.length - 1];
   if (!last) return [];
@@ -38551,7 +38572,7 @@ function priceLine(data) {
   const year = priceMove(prices.points);
   if (!year) return [];
   const unit = data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : "";
-  const shorter = PRICE_RANGES.filter(([key]) => key !== "1y").flatMap(([key, days]) => {
+  const shorter = PRICE_RANGES.filter(([key, days]) => key !== "1y" && rangeCovered(prices.points, days)).flatMap(([key, days]) => {
     const move = priceMove(pricesIn(prices.points, days));
     return move ? [`${key.toUpperCase()} ${signedPct(move.change)}`] : [];
   });
@@ -38574,7 +38595,7 @@ function holding(data) {
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...history ? [
-      ...section(`Fills since ${history.from.slice(0, 10)} (${history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+      ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money2(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
       `Dividends since ${history.from.slice(0, 10)}: ${money2(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money2(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
@@ -38900,6 +38921,7 @@ function describePayload(data) {
 // src/core/holding.ts
 var DAY_MS5 = 864e5;
 var MAX_FILLS = 20;
+var MAX_CHART_FILLS = 200;
 var MAX_DIVIDENDS = 12;
 var MAX_NOTES = 20;
 var HISTORY_PAGES = 2;
@@ -38924,22 +38946,28 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const value = position?.walletImpact?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS5) * DAY_MS5 - 365 * DAY_MS5), to: now };
   const historyRead = Promise.all([
-    deps.insights.tradeHistory(environment, window, ticker, MAX_FILLS, HISTORY_PAGES),
+    deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
     deps.insights.cashHistory(environment, window, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
   const fills = historyRead.then((read) => Array.isArray(read) ? read[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
+  const alertsRead = deps.alerts.list(environment);
+  const levels = alertsRead.catch(() => []).then((list2) => [
+    ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
+    ...list2.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price)
+  ].filter((price) => typeof price === "number" && price > 0));
   const [targets, alerts, notes, market, history, prices] = await Promise.all([
     deps.targets.get(environment),
-    deps.alerts.list(environment),
+    alertsRead,
     // All of the account's notes: one on a listed fill may name another instrument. A store that cannot be
     // read leaves the page without notes rather than without everything else.
     deps.journal.list(environment).catch(() => []),
     deps.insights.tryMarketStatus(environment, listed ?? position.instrument, now),
     historyRead,
-    deps.priceHistory?.({ instrument: listed ?? position.instrument, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : {}, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }))
+    deps.priceHistory?.({ instrument: listed ?? position.instrument, from: window.from, ...position?.currentPrice ? { last: position.currentPrice } : {}, levels, fills }).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }))
   ]);
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
-  const filled = new Set(Array.isArray(history) ? history[0].fills.flatMap((fill) => fill.orderId ? [fill.orderId] : []) : []);
+  const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
+  const filled = new Set(listedFills.flatMap((fill) => fill.orderId ? [fill.orderId] : []));
   const onFill = (note) => note.orderId !== void 0 && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
@@ -38961,7 +38989,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...Array.isArray(history) ? {
       history: {
         from: window.from.toISOString(),
-        fills: history[0].fills.map((fill) => ({
+        fills: listedFills.map((fill) => ({
           ...fill.orderId ? { orderId: fill.orderId } : {},
           ...fill.filledAt ? { filledAt: fill.filledAt } : {},
           ...fill.side ? { side: fill.side } : {},
@@ -38973,6 +39001,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
           ...fill.accountCurrency ? { accountCurrency: fill.accountCurrency } : {},
           ...fill.realisedProfitLoss === void 0 ? {} : { realisedProfitLoss: fill.realisedProfitLoss }
         })),
+        ...history[0].fills.length > MAX_FILLS ? {
+          olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => fill.filledAt && fill.price ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }] : [])
+        } : {},
         dividends: history[1].items.map((item) => ({
           date: item.date,
           amount: item.amount,
@@ -39510,7 +39541,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_holding_detail",
     {
       title: "Trading 212 Holding Detail",
-      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and the last 12 months of daily closes from the quote provider (the change over 1, 3, 6 and 12 months and the high and low are in the text). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
+      description: "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, instrument: external_exports.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -41130,6 +41161,12 @@ function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(in
 // src/core/price-history.ts
 var DAY_MS9 = 864e5;
 var UNIT_RATIO = 10;
+var UNIT_RATIO_FILL = 50;
+var HISTORY_WAIT_MS = 3e3;
+function unitFactor(last, reference, mapped = 1) {
+  return Number((mapped * 10 ** Math.round(Math.log10(reference / last))).toPrecision(6));
+}
+var middle = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 function createPriceHistory(deps) {
   const now = deps.now ?? (() => /* @__PURE__ */ new Date());
   return async (request) => {
@@ -41143,13 +41180,28 @@ function createPriceHistory(deps) {
     if (!quotes.history) return { missing: "plan", problem: `The ${quotes.name} free plan has no daily prices; QUOTE_PROVIDER=stooq, twelvedata or alphavantage draws the chart.` };
     const symbol2 = quotes.symbolFor(instrument);
     if (!symbol2) return { missing: "symbol", problem: `${instrument.ticker} has no ${quotes.name} symbol; add it to QUOTE_SYMBOLS for a price chart.` };
-    const prices = await quotes.history(instrument, request.from);
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve("late"), deps.waitMs ?? HISTORY_WAIT_MS);
+    });
+    let prices;
+    try {
+      prices = await Promise.race([quotes.history(instrument, request.from), late]);
+    } catch (error62) {
+      return { missing: "data", problem: `${quotes.name} gave no daily prices for ${symbol2}: ${error62 instanceof Error ? error62.message : String(error62)}` };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (prices === "late") return { missing: "data", problem: `${quotes.name} took more than ${(deps.waitMs ?? HISTORY_WAIT_MS) / 1e3} seconds for ${symbol2}'s daily prices; they show the next time the page opens.` };
     if (!prices) return { missing: "data", problem: `${quotes.name} returned no daily prices for ${symbol2}.` };
+    const levels = (await request.levels ?? []).filter((price) => price > 0);
     const newest = (await request.fills ?? []).reduce((best, item) => !best || item.at > best.at ? item : best, void 0);
-    const reference = request.last ?? newest?.price;
+    const check2 = request.last ? { price: request.last, ratio: UNIT_RATIO, what: "last price" } : levels.length ? { price: middle(levels), ratio: UNIT_RATIO, what: "order and alert prices" } : newest ? { price: newest.price, ratio: UNIT_RATIO_FILL, what: "newest fill" } : void 0;
     const last = prices.points[prices.points.length - 1].close;
-    if (reference && (last / reference >= UNIT_RATIO || last / reference <= 1 / UNIT_RATIO)) {
-      return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol2} (last ${last}) are far from Trading 212's price (${reference}), so they look like another unit; map it with a factor in QUOTE_SYMBOLS, e.g. ${instrument.ticker}=${symbol2}*100.` };
+    if (check2 && (last / check2.price >= check2.ratio || check2.price / last >= check2.ratio)) {
+      const factor = unitFactor(last, check2.price, prices.factor);
+      const mapping = `${instrument.ticker}=${symbol2}${factor === 1 ? "" : `*${factor}`}`;
+      return { missing: "unit", problem: `${quotes.name}'s closes for ${symbol2} (last ${last}) are far from Trading 212's ${check2.what} (${check2.price}), so they look like another unit; map it in QUOTE_SYMBOLS as ${mapping}.` };
     }
     return { prices };
   };

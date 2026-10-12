@@ -13,7 +13,7 @@ Produce a factual review of the user's Trading 212 account. Every number must co
 2. Call `get_portfolio_performance` for the window. If `coverage.truncated` is true, say the figures cover only the most recent history and offer to rerun with a larger `maxPages`.
 3. Call `get_income_summary` for the same window.
 4. Call `analyze_portfolio_allocation`.
-5. Optionally call `get_portfolio_dashboard` to show the interactive view. When the user asks about one holding, call `get_holding_detail` for it. It returns the position, the holding's share of the account against any target, its open orders and alerts, the last 12 months of fills and dividends, and how the price moved over 1, 3, 6 and 12 months with the year's high and low. Quote those figures rather than working out a price history from memory.
+5. Optionally call `get_portfolio_dashboard` to show the interactive view. When the user asks about one holding, call `get_holding_detail` for it. It returns the position, the holding's share of the account against any target, its open orders and alerts, the last 12 months of fills and dividends, and how the price moved over the closes it has and over each of 1, 3 and 6 months they cover, with the high and low. Quote those figures rather than working out a price history from memory.
 6. If the user asks what made up a total, list the items for the same window:
    - dividends, interest, deposits and withdrawals: `get_cash_history`, filtered by `types` or `ticker`;
    - trading costs (FX conversion fees, commissions, stamp duty): `get_trade_history`, whose fills carry their `costItems`, plus any account-level fees from `get_cash_history` with type `FEE`.

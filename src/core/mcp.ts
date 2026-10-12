@@ -421,7 +421,7 @@ export function createMcpServer(
     {
       title: "Trading 212 Holding Detail",
       description:
-        "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and the last 12 months of daily closes from the quote provider (the change over 1, 3, 6 and 12 months and the high and low are in the text). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
+        "Show one instrument in the account: the position (quantity, average price, last price, value, P/L, share of the account and any saved target weight), its pending orders with how far each stop or limit is from the last price, its price alerts, the market session, the last 12 months of fills and dividends, and up to 12 months of daily closes from the quote provider (the text gives their dates, the change over them and over each of 1, 3 and 6 months they cover in full, and the high and low). Works for instruments not held too. Renders the holding view with a price chart marking each fill and the average, stop, limit and alert prices; read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, instrument: z.string().min(1).describe("Exact Trading 212 ticker, symbol, ISIN or name") }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },

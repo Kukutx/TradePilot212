@@ -66,6 +66,22 @@ describe("holding detail", () => {
     expect(describePayload(detail)).toMatch(/^Daily closes \(simulated for the sample account\) \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: [\d.]+ to 128\.75 USD \([+-][\d.]+%\); 1M [+-][\d.]+%, 3M [+-][\d.]+%, 6M [+-][\d.]+%; high [\d.]+ on \d{4}-\d{2}-\d{2}, low [\d.]+ on \d{4}-\d{2}-\d{2}\.$/m);
   });
 
+  it("lists the newest 20 fills and gives the chart the older ones with only what a mark needs", async () => {
+    const services = sample();
+    const trades = services.insights.tradeHistory.bind(services.insights);
+    services.insights.tradeHistory = async (...args) => {
+      const read = await trades(...args);
+      const one = read.fills[0]!;
+      const fills = Array.from({ length: 26 }, (_, index) => ({ ...one, orderId: String(500 + index), filledAt: new Date(Date.parse(one.filledAt!) - index * 7 * 86_400_000).toISOString(), quantity: index % 5 === 4 ? -1 : 1 }));
+      return { ...read, fills };
+    };
+    const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");
+    expect(detail.history?.fills).toHaveLength(20);
+    expect(detail.history?.olderFills).toHaveLength(6);
+    expect(detail.history?.olderFills?.[4]).toEqual({ filledAt: expect.any(String), side: "SELL", quantity: 1, price: expect.any(Number) });
+    expect(describePayload(detail)).toMatch(/Fills since \d{4}-\d{2}-\d{2} \(newest 20 of 26\)/);
+  });
+
   it("keeps the rest when the daily closes cannot be read", async () => {
     const services = { ...sample(), priceHistory: async () => { throw new Error("quote provider down"); } };
     const detail = await holdingDetail(services, "demo", "AAPL_US_EQ");

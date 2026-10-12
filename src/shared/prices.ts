@@ -13,6 +13,8 @@ export interface PriceHistory {
   source: string;
   /** The provider's symbol for the instrument. */
   symbol?: string;
+  /** The QUOTE_SYMBOLS factor the provider's closes were multiplied by, when not 1. */
+  factor?: number;
   /** Oldest first. */
   points: PricePoint[];
 }
@@ -34,6 +36,16 @@ export const PRICE_RANGES = [
 export type PriceRange = (typeof PRICE_RANGES)[number][0];
 
 const DAY_MS = 86_400_000;
+
+/** Slack for a range's start falling on a weekend or holiday, so a year of trading days counts as a year. */
+export const RANGE_SLACK_DAYS = 6;
+
+/** Whether the closes reach back over a whole range of `days` before the newest close. */
+export function rangeCovered(points: PricePoint[], days: number): boolean {
+  const first = points[0];
+  const last = points[points.length - 1];
+  return !!first && !!last && Date.parse(`${first.date}T00:00:00Z`) <= Date.parse(`${last.date}T00:00:00Z`) - (days - RANGE_SLACK_DAYS) * DAY_MS;
+}
 
 /** The closes in a range: from `days` before the newest close to it. */
 export function pricesIn(points: PricePoint[], days: number): PricePoint[] {

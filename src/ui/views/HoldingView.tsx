@@ -212,13 +212,15 @@ export function HoldingView({
 
       {data.prices && data.prices.points.length >= 2 ? (
         <section className="dataPanel">
-          <PriceChart prices={data.prices} trades={chartTrades(fills, quote, t, locale)} levels={levels.filter((level): level is PriceLevel & ChartLevel => level.kind !== "last")}
+          <PriceChart prices={data.prices} trades={chartTrades([...fills, ...(data.history?.olderFills ?? [])], quote, t, locale)} levels={levels.filter((level): level is PriceLevel & ChartLevel => level.kind !== "last")}
             {...(quote ? { currency: quote } : {})} locale={locale} t={t} />
         </section>
       ) : data.pricesMissing && (
         <section className="dataPanel">
           <div className="pieHeader"><h2>{t("priceChartTitle")}</h2></div>
           <div className="emptyState compact">{t(MISSING_KEYS[data.pricesMissing])}</div>
+          {/* The provider's own words (a limit, a plan, the factor to map) for the cases only it can explain. */}
+          {(data.pricesMissing === "data" || data.pricesMissing === "unit") && data.pricesProblem && <p className="panelNote">{data.pricesProblem}</p>}
         </section>
       )}
 

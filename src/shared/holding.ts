@@ -58,6 +58,8 @@ export interface HoldingDetail {
   history?: {
     from: string;
     fills: HoldingFill[];
+    /** Fills older than the 20 listed, up to 200 in all, with only what the price chart marks. */
+    olderFills?: Array<{ filledAt: string; side: "BUY" | "SELL"; quantity: number; price: number }>;
     dividends: HoldingDividend[];
     /** Dividends received in the window, in the account currency, and how many payments; `dividends` lists the newest. */
     dividendTotal: number;
