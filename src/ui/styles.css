@@ -349,13 +349,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .reviewEdgeNote { margin: -6px 4px 0; font-size: 12px; }
 .reviewTags { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .reviewTag { display: grid; grid-template-columns: minmax(0, 1fr) minmax(64px, 30%) 64px; grid-template-areas: "name track edge" "facts track edge"; align-items: center; gap: 2px 12px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--tp-text); font: inherit; text-align: left; cursor: pointer; }
-.reviewTag:hover { background: var(--tp-bg-soft); }
+button.reviewTag:hover:not(:disabled) { background: var(--tp-bg-soft); }
+.reviewTag.static { cursor: default; }
+.viewToolbar.reviewToolbar { flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.reviewFilter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13px; font-weight: 650; }
 .reviewTag.active { border-color: var(--tp-border-strong); background: var(--tp-bg-soft); }
 .reviewTagName { grid-area: name; overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .reviewTagFacts { grid-area: facts; color: var(--tp-muted); font-size: 12px; }
 .reviewTagEdge { grid-area: edge; font-size: 14px; font-weight: 720; font-variant-numeric: tabular-nums; text-align: right; }
 .edgeTrack { grid-area: track; position: relative; height: 8px; border-radius: 999px; background: var(--tp-bg-soft); }
-.reviewTag:hover .edgeTrack, .reviewTag.active .edgeTrack { background: var(--tp-bg); }
+button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack { background: var(--tp-bg); }
 .edgeTrack::before { content: ""; position: absolute; left: calc(50% - 1px); top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--tp-border-strong); }
 .edgeFill { position: absolute; top: 0; bottom: 0; background: var(--tp-muted); }
 .edgeFill.positive { border-radius: 0 999px 999px 0; background: var(--tp-green); }

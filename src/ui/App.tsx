@@ -233,8 +233,10 @@ export default function App() {
   const [base, setBase] = useState<BasePayload | null>(null);
   // The dashboard a holding was opened from, so Back returns to it without a new read.
   const [holdingFrom, setHoldingFrom] = useState<DashboardPayload | null>(null);
-  // The view a holding was opened from, such as the journal, so Back returns to it.
-  const [holdingTab, setHoldingTab] = useState<PortfolioTab>("holdings");
+  // The view a holding was opened from, such as the journal, and its account, so Back returns to it.
+  const [holdingReturn, setHoldingReturn] = useState<{ tab: PortfolioTab; environment: TradingEnvironment } | null>(null);
+  // The tag the journal tab shows, kept when its period changes or a note is saved; none shows every trade.
+  const [journalTag, setJournalTag] = useState<string | undefined>(undefined);
   const [tab, setTab] = useState<PortfolioTab>("holdings");
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
@@ -303,12 +305,13 @@ export default function App() {
     setBase(payload);
     // A page the host hands over starts fresh: Back from a holding then reads the dashboard again.
     setHoldingFrom(null);
-    setHoldingTab("holdings");
+    setHoldingReturn(null);
     setProblem(null);
     setInsightError(null);
     const env = initialEnvironment(payload);
     setEnvironment(env);
     if (isInsight(payload)) {
+      if (payload.kind === "journal_review") setJournalTag(payload.tag);
       setInsights({ [payload.kind]: payload });
       setTab(payload.kind);
       if (payload.kind !== "allocation") setPeriod(periodOf(payload.period));
@@ -420,16 +423,20 @@ export default function App() {
     }, () => void protectAll());
   }
 
-  async function loadInsight(kind: InsightKind, env = environment, range = period): Promise<void> {
+  /** Read a tab. The journal keeps the tag it shows unless `tag` changes it (null shows every trade). */
+  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null): Promise<void> {
     setStatus("loading");
     setProblem(null);
     setInsightError(null);
+    const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
-      const args = kind === "allocation" ? { environment: env } : { environment: env, period: range };
+      const args = kind === "allocation" ? { environment: env }
+        : { environment: env, period: range, ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}) };
       const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
+      if (payload.kind === "journal_review") setJournalTag(payload.tag);
       setInsights((current) => ({ ...current, [kind]: payload }));
     } catch (requestError) {
-      const retry = () => void loadInsight(kind, env, range);
+      const retry = () => void loadInsight(kind, env, range, tag);
       const failure = problemFrom("errorTitleLoad", requestError, retry);
       // With nothing to show, the error takes the view's place; otherwise the older data stays below it.
       if (insights[kind]) setProblem(failure);
@@ -445,7 +452,13 @@ export default function App() {
       if (base?.kind !== "portfolio" || base.environment !== environment) await refresh(environment, "holdings");
       return;
     }
-    if (!insights[next]) await loadInsight(next);
+    if (stale(next)) await loadInsight(next);
+  }
+
+  /** A tab needs reading when it is not loaded, or was read for another period than the switch shows. */
+  function stale(kind: InsightKind): boolean {
+    const loaded = insights[kind];
+    return !loaded || loaded.environment !== environment || (loaded.kind !== "allocation" && periodOf(loaded.period) !== period);
   }
 
   async function changePeriod(next: InsightPeriod): Promise<void> {
@@ -491,9 +504,15 @@ export default function App() {
     const done = await run("errorTitleJournal", async () => {
       await callTool("manage_trade_journal", { environment: env, ...input });
     });
-    if (done && base?.kind === "holding" && base.environment === env) await refresh(env, "holdings");
-    else if (done && tab === "journal_review" && environment === env) await loadInsight("journal_review", env);
-    return done;
+    if (!done) return false;
+    if (tab === "journal_review" && base?.kind !== "holding" && environment === env) {
+      await loadInsight("journal_review", env);
+      return true;
+    }
+    // The journal tab read before no longer matches; it is read again when it next shows.
+    setInsights(({ journal_review: _old, ...rest }) => rest);
+    if (base?.kind === "holding" && base.environment === env) await refresh(env, "holdings");
+    return true;
   }
 
   /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
@@ -502,15 +521,15 @@ export default function App() {
       const detail = await callTool<HoldingDetail>("app_get_holding", { environment, instrument: ticker });
       setHoldingFrom(base?.kind === "portfolio" ? base : null);
       // The tab views stay hidden behind the holding until Back returns to the one it was opened from.
-      setHoldingTab(tab);
+      setHoldingReturn({ tab, environment });
       setTab("holdings");
       setBase(detail);
     }, () => void openHolding(ticker));
   }
 
-  /** Back from a holding goes to the view it was opened from, when that is still loaded for this account. */
+  /** Back from a holding goes to the view it was opened from, in the same account; otherwise to the holdings. */
   function backTab(): PortfolioTab {
-    return holdingTab !== "holdings" && insights[holdingTab]?.environment === environment ? holdingTab : "holdings";
+    return holdingReturn && holdingReturn.environment === environment ? holdingReturn.tab : "holdings";
   }
 
   async function backFromHolding(): Promise<void> {
@@ -518,14 +537,16 @@ export default function App() {
     if (holdingFrom && holdingFrom.environment === environment) {
       setBase(holdingFrom);
       setHoldingFrom(null);
-      setTab(returnTab);
-      return;
+    } else {
+      setHoldingFrom(null);
+      if (!await run("errorTitleRefresh", async () => {
+        setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment }));
+      }, () => void backFromHolding())) return;
     }
-    setHoldingFrom(null);
-    await run("errorTitleRefresh", async () => {
-      setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment }));
-      setTab(returnTab);
-    }, () => void backFromHolding());
+    setHoldingReturn(null);
+    setTab(returnTab);
+    // A note written on the holding, or another period chosen meanwhile, reads the tab again.
+    if (returnTab !== "holdings" && stale(returnTab)) await loadInsight(returnTab);
   }
 
   async function switchEnvironment(next: TradingEnvironment): Promise<void> {
@@ -875,19 +896,20 @@ export default function App() {
                 : insightError?.kind === tab ? <ErrorCard title={t(insightError.problem.title)} message={insightError.problem.message} retryLabel={t("retry")} busy={loading} {...(insightError.problem.retry ? { onRetry: insightError.problem.retry } : {})} />
                 : <EmptyRetry text={t("noData")} retryLabel={t("retry")} onRetry={() => void loadInsight(tab)} />
             )}
-            {tab === "allocation" && insights.allocation && (
+            {portfolioLike && tab === "allocation" && insights.allocation && (
               <AllocationView data={insights.allocation} book={book} locale={locale} t={t} busy={loading}
                 {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})} />
             )}
-            {tab === "performance" && insights.performance && (
+            {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
             )}
-            {tab === "income" && insights.income && (
+            {portfolioLike && tab === "income" && insights.income && (
               <IncomeView data={insights.income} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
             )}
             {portfolioLike && tab === "journal_review" && insights.journal_review && (
               <JournalReviewView data={insights.journal_review} book={book} locale={locale} t={t} period={period} busy={loading}
-                onPeriod={(next) => void changePeriod(next)} onOpen={(ticker) => void openHolding(ticker)} onSaveNote={changeNote} />
+                onPeriod={(next) => void changePeriod(next)} onTag={(tag) => void loadInsight("journal_review", environment, period, tag)}
+                onOpen={(ticker) => void openHolding(ticker)} onSaveNote={changeNote} />
             )}
             {base?.kind === "trade_plan" && (
               <TradePlanView

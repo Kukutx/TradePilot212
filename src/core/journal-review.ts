@@ -3,7 +3,7 @@
 
 import type { TradingEnvironment } from "../shared/contracts.js";
 import type { HistoryOrderItem } from "../shared/history.js";
-import { REVIEW_AFTER_DAYS, type JournalEntry, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
+import { EDGE_FLAT, journalTagFilter, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { HistoryWindow } from "./analytics.js";
 import { DEFAULT_HISTORY_PAGES, type InsightsService } from "./insights-service.js";
 import type { TradeJournal } from "./journal.js";
@@ -12,8 +12,6 @@ import type { TradingService } from "./trading-service.js";
 const DAY_MS = 86_400_000;
 /** Trades listed, newest first; the counts and tags cover them all. */
 export const MAX_REVIEW_TRADES = 50;
-/** Instruments priced by the quote provider in one review, newest trades first; held ones are priced by the broker. */
-const MAX_QUOTES = 12;
 
 const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
 
@@ -29,7 +27,7 @@ function stats(trades: JournalTrade[], tag?: string): JournalTagStats {
     ...(tag === undefined ? {} : { tag }),
     trades: trades.length,
     priced: priced.length,
-    inFavour: edges.filter((edge) => edge > 0).length,
+    inFavour: edges.filter((edge) => edge > EDGE_FLAT).length,
     ...(edges.length ? { averageEdge: round(edges.reduce((sum, edge) => sum + edge, 0) / edges.length, 6) } : {}),
     realisedProfitLoss: round(trades.reduce((sum, trade) => sum + (trade.realisedProfitLoss ?? 0), 0), 2),
   };
@@ -43,6 +41,13 @@ export interface JournalReviewInput {
   window: HistoryWindow;
   /** The price now per ticker, in the instrument's currency. */
   prices: Map<string, number>;
+  /**
+   * Tickers priced by the quote provider. Its symbol map can name a price in another unit (pounds for a fund in
+   * pence), so a quote ten times from the fill price either way counts as no price.
+   */
+  quoted?: Set<string>;
+  /** Tickers left unpriced because of the quote limit. */
+  notQuoted?: string[];
   names?: Map<string, string>;
   truncated: boolean;
   /** Only notes with this tag (any case). */
@@ -50,7 +55,7 @@ export interface JournalReviewInput {
   now?: Date;
 }
 
-const tagKey = (tag: string | undefined) => tag?.trim().replace(/^#+/, "").trim().toLowerCase() || undefined;
+const tagKey = (tag: string | undefined) => journalTagFilter(tag)?.toLowerCase();
 const tickerOf = (item: HistoryOrderItem, entry: JournalEntry) => item.order?.ticker ?? item.order?.instrument?.ticker ?? entry.ticker;
 
 /** The notes on orders filled in the window, each with its fill, newest fill first; and what did not match. */
@@ -93,8 +98,10 @@ export function summarizeJournalReview(input: JournalReviewInput): JournalReview
     const price = fill.price!;
     const side = orderSide(item);
     const ticker = tickerOf(item, entry);
-    const priceNow = input.prices.get(ticker);
-    const move = priceNow !== undefined && priceNow > 0 ? priceNow / price - 1 : undefined;
+    const quotedPrice = input.prices.get(ticker);
+    const ratio = quotedPrice !== undefined && quotedPrice > 0 ? quotedPrice / price : undefined;
+    const priceNow = ratio !== undefined && !(input.quoted?.has(ticker) && (ratio >= 10 || ratio <= 0.1)) ? quotedPrice : undefined;
+    const move = priceNow !== undefined ? priceNow / price - 1 : undefined;
     const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt!)) / DAY_MS));
     const name = input.names?.get(ticker) ?? item.order?.instrument?.name;
     const realised = side === "sell" ? fill.walletImpact?.realisedProfitLoss : undefined;
@@ -137,7 +144,7 @@ export function summarizeJournalReview(input: JournalReviewInput): JournalReview
     environment: input.environment,
     period: { ...(input.window.from ? { from: input.window.from.toISOString() } : {}), to: input.window.to.toISOString() },
     ...(accountCurrency ? { accountCurrency } : {}),
-    ...(wanted ? { tag: input.tag!.trim().replace(/^#+/, "").trim() } : {}),
+    ...(wanted ? { tag: journalTagFilter(input.tag)! } : {}),
     fills: fillCount,
     withNote: trades.length,
     overall: stats(trades),
@@ -148,7 +155,8 @@ export function summarizeJournalReview(input: JournalReviewInput): JournalReview
     tradesTotal: trades.length,
     unmatched,
     withoutOrder,
-    unpriced,
+    unpriced: unpriced.filter((ticker) => !input.notQuoted?.includes(ticker)),
+    notQuoted: (input.notQuoted ?? []).filter((ticker) => unpriced.includes(ticker)),
     truncated: input.truncated,
     timestamp: now.toISOString(),
   };
@@ -162,7 +170,8 @@ export interface JournalReviewDeps {
 
 /**
  * Read the notes, the window's order history (shared with the performance view's cache) and the prices now:
- * the broker's for held instruments, the quote provider's for up to MAX_QUOTES others.
+ * the broker's for held instruments, the quote provider's for up to MAX_REVIEW_QUOTES others, asked one at a
+ * time, since free plans allow only a few requests a minute and price alerts share them.
  */
 export async function journalReview(deps: JournalReviewDeps, environment: TradingEnvironment, window: HistoryWindow, options: { tag?: string; maxPages?: number } = {}, now = new Date()): Promise<JournalReview> {
   const [notes, history, positions, instruments] = await Promise.all([
@@ -179,11 +188,14 @@ export async function journalReview(deps: JournalReviewDeps, environment: Tradin
   // Price only what a note is on, newest trades first, so the quote provider is asked about a few instruments.
   const { matched } = matchNotes({ notes, orders: history.items, window, ...(options.tag ? { tag: options.tag } : {}) });
   const wanted = [...new Set(matched.map(({ entry, item }) => tickerOf(item, entry)))].filter((ticker) => !prices.has(ticker));
-  const quoted = await Promise.all(wanted.slice(0, MAX_QUOTES).map(async (ticker) => {
+  const quoted = new Set<string>();
+  for (const ticker of wanted.slice(0, MAX_REVIEW_QUOTES)) {
     const instrument = instruments.find((item) => item.ticker === ticker);
     const quote = instrument ? await deps.trading.externalQuote(instrument).catch(() => undefined) : undefined;
-    return [ticker, quote?.price] as const;
-  }));
-  for (const [ticker, price] of quoted) if (price && price > 0) prices.set(ticker, price);
-  return summarizeJournalReview({ environment, notes, orders: history.items, window, prices, names, truncated: history.truncated, ...(options.tag ? { tag: options.tag } : {}), now });
+    if (quote?.price && quote.price > 0) { prices.set(ticker, quote.price); quoted.add(ticker); }
+  }
+  return summarizeJournalReview({
+    environment, notes, orders: history.items, window, prices, quoted, notQuoted: wanted.slice(MAX_REVIEW_QUOTES), names,
+    truncated: history.truncated, ...(options.tag ? { tag: options.tag } : {}), now,
+  });
 }

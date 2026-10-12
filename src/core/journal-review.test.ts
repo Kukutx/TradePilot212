@@ -72,6 +72,47 @@ describe("journal review", () => {
     expect(text).toContain("due for a look back");
   });
 
+  it("reads a tiny move as unchanged, and a quote in another unit as no price", () => {
+    const flat = summarizeJournalReview({ environment: "demo", notes: [notes[0]!], orders, window, prices: new Map([["AAPL_US_EQ", 100.03]]), truncated: false, now });
+    expect(flat.trades[0]!.edge).toBeCloseTo(0.0003, 6);
+    expect(flat.overall).toMatchObject({ priced: 1, inFavour: 0 });
+    // Pounds for a fund the broker prices in pence: a hundredth of the fill price. The broker's own price is
+    // trusted however far it moved; the quote provider's is not, past ten times either way.
+    const pence = [order(7, "VUSAl_EQ", "BUY", 9000, 1, 50)];
+    const noteOnFund = [note("jrn_9", { orderId: "7", ticker: "VUSAl_EQ", thesis: "Index" })];
+    const quoted = summarizeJournalReview({ environment: "demo", notes: noteOnFund, orders: pence, window, prices: new Map([["VUSAl_EQ", 91.75]]), quoted: new Set(["VUSAl_EQ"]), truncated: false, now });
+    expect(quoted).toMatchObject({ unpriced: ["VUSAl_EQ"], overall: { priced: 0 } });
+    const held = summarizeJournalReview({ environment: "demo", notes: noteOnFund, orders: pence, window, prices: new Map([["VUSAl_EQ", 91.75]]), truncated: false, now });
+    expect(held.trades[0]!.edge).toBeCloseTo(-0.9898, 4);
+  });
+
+  it("asks the quote provider about a few instruments, one at a time, and names the rest", async () => {
+    const tickers = Array.from({ length: 10 }, (_, index) => `T${index}_US_EQ`);
+    const many = tickers.map((ticker, index) => order(100 + index, ticker, "BUY", 10, 1, 10 + index));
+    const noted = tickers.map((ticker, index) => note(`jrn_q${index}`, { orderId: String(100 + index), ticker, thesis: "x" }));
+    let inFlight = 0, most = 0;
+    const asked: string[] = [];
+    const deps = {
+      journal: { list: async () => noted },
+      insights: { collect: async () => ({ items: many, truncated: false }) },
+      trading: {
+        positions: async () => [],
+        instruments: async () => tickers.map((ticker) => ({ ticker, name: ticker, shortName: ticker, currencyCode: "USD", type: "STOCK" })),
+        externalQuote: async (instrument: { ticker: string }) => {
+          inFlight++; most = Math.max(most, inFlight); asked.push(instrument.ticker);
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          inFlight--;
+          return { ticker: instrument.ticker, symbol: "X", price: 11, asOf: now.toISOString(), source: "stooq" as const };
+        },
+      },
+    } as unknown as Parameters<typeof journalReview>[0];
+    const review = await journalReview(deps, "demo", window, {}, now);
+    expect(most).toBe(1);
+    expect(asked).toEqual(tickers.slice(0, 8));
+    expect(review).toMatchObject({ notQuoted: tickers.slice(8), unpriced: [], overall: { trades: 10, priced: 8 } });
+    expect(describePayload(review)).toContain("Not priced this time, since one review asks the quote provider about 8 instruments at most: T8_US_EQ, T9_US_EQ.");
+  });
+
   it("finds the trade just sent, past the history read a moment before", async () => {
     const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
     const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
@@ -118,5 +159,8 @@ describe("journal review tool", () => {
     expect(text).toContain("#theme: 1 trade(s)");
     const none = await client.callTool({ name: "get_journal_review", arguments: { environment: "demo", tag: "missing" } });
     expect(none.structuredContent).toMatchObject({ withNote: 0, tags: [], trades: [] });
+    // A tag is matched as stored, whatever its case and with or without '#'; one with nothing in it is refused.
+    expect((await client.callTool({ name: "get_journal_review", arguments: { environment: "demo", tag: " #THEME " } })).structuredContent).toMatchObject({ tag: "THEME", withNote: 1 });
+    expect((await client.callTool({ name: "get_journal_review", arguments: { environment: "demo", tag: "#" } })).isError).toBe(true);
   });
 });

@@ -3,7 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
-import { REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
+import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, ExportReport, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
@@ -79,9 +79,10 @@ function journalReview(data: JournalReview): string[] {
     `Edge = the price move since the fill in the trade's favour (a buy gains when the price rose, a sell when it fell); FX and costs are left out and each trade counts once.`,
     ...(data.overall.trades ? [`${tagStatsLine(data.overall, currency, "All")}.`] : []),
     ...(data.due ? [`${data.due} trade(s) are ${REVIEW_AFTER_DAYS}+ days old with a reason and no look back yet.`] : []),
-    ...(data.unmatched ? [`${data.unmatched} note(s) are on orders not among these fills (still open, cancelled, or filled before the period).`] : []),
+    ...(data.unmatched ? [`${data.unmatched} note(s) are on orders not among these fills (still open, cancelled, filled before the period, or reported without a price).`] : []),
     ...(data.withoutOrder ? [`${data.withoutOrder} note(s) are on an instrument rather than a filled order.`] : []),
-    ...(data.unpriced.length ? [`No price now for ${data.unpriced.join(", ")}.`] : []),
+    ...(data.unpriced.length ? [`No usable price now for ${data.unpriced.join(", ")}.`] : []),
+    ...(data.notQuoted.length ? [`Not priced this time, since one review asks the quote provider about ${MAX_REVIEW_QUOTES} instruments at most: ${data.notQuoted.join(", ")}.`] : []),
     ...(data.truncated ? ["History was cut at the page limit; older fills are not counted."] : []),
     ...section("By tag", rows(data.tags, (row) => tagStatsLine(row, currency))),
     ...section(`Trades with a note${data.tradesTotal > data.trades.length ? ` (newest ${data.trades.length} of ${data.tradesTotal})` : ""}`, rows(data.trades, journalTradeLine)),

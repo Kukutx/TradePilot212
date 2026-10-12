@@ -35,6 +35,15 @@ export interface JournalPayload {
 
 /** A trade at least this many days old, with a reason but no look back yet, is due for one. */
 export const REVIEW_AFTER_DAYS = 30;
+/** A smaller edge, either way, reads as unchanged and does not count as going your way. */
+export const EDGE_FLAT = 0.0005;
+/** Instruments not held that one review asks the quote provider about, one at a time, newest trades first. */
+export const MAX_REVIEW_QUOTES = 8;
+
+/** A tag as a filter: trimmed, without a leading '#', cut like a stored tag; undefined when nothing is left. */
+export function journalTagFilter(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : journalTags([value])?.[0];
+}
 
 /** A note on a filled order, with how the trade has gone since. */
 export interface JournalTrade {
@@ -69,7 +78,7 @@ export interface JournalTagStats {
   trades: number;
   /** Trades with a price now; the rest of the figures are worked out from these. */
   priced: number;
-  /** Priced trades that have moved in the trade's favour. */
+  /** Priced trades whose edge is above EDGE_FLAT. */
   inFavour: number;
   /** The mean edge of the priced trades, each counting once whatever its size. */
   averageEdge?: number;
@@ -96,12 +105,14 @@ export interface JournalReview {
   /** Newest first, at most 50; `tradesTotal` counts them all. */
   trades: JournalTrade[];
   tradesTotal: number;
-  /** Notes on orders that are not among the window's fills: still open, cancelled, or filled before it. */
+  /** Notes on orders that are not among the window's fills with a price: still open, cancelled, or filled before it. */
   unmatched: number;
   /** Notes on an instrument rather than an order, and on orders whose result was unclear. */
   withoutOrder: number;
-  /** Tickers with no price now; their trades count without an edge. */
+  /** Tickers with no price now, or a quote far from the fill price that looks like another unit; their trades count without an edge. */
   unpriced: string[];
+  /** Tickers not priced because the review already asked the quote provider about MAX_REVIEW_QUOTES others. */
+  notQuoted: string[];
   truncated: boolean;
   timestamp: string;
 }

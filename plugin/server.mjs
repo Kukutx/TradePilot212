@@ -35057,6 +35057,11 @@ var MAX_JOURNAL_TEXT = 1e3;
 var MAX_JOURNAL_TAGS = 8;
 var MAX_JOURNAL_TAG = 24;
 var REVIEW_AFTER_DAYS = 30;
+var EDGE_FLAT = 5e-4;
+var MAX_REVIEW_QUOTES = 8;
+function journalTagFilter(value) {
+  return value === void 0 ? void 0 : journalTags([value])?.[0];
+}
 function cut(value, max) {
   return value.length <= max ? value : Array.from(value).slice(0, max).join("");
 }
@@ -37287,6 +37292,8 @@ var InsightsService = class {
   }
   deps;
   historyCache = /* @__PURE__ */ new Map();
+  /** Bumped by each order or cancellation sent, so a read that was under way then is not kept. */
+  historyGeneration = /* @__PURE__ */ new Map();
   exchangeCache = /* @__PURE__ */ new Map();
   client(environment) {
     requireCredentials(this.deps.config, environment);
@@ -37294,6 +37301,7 @@ var InsightsService = class {
   }
   /** Read the account's history afresh next time: an order or a cancellation was just sent. */
   forgetHistory(environment) {
+    this.historyGeneration.set(environment, (this.historyGeneration.get(environment) ?? 0) + 1);
     for (const key of this.historyCache.keys()) if (key.startsWith(`${environment}:`)) this.historyCache.delete(key);
   }
   /** Walk newest-first history pages until the window start or the page budget is reached. */
@@ -37303,6 +37311,7 @@ var InsightsService = class {
     const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached2 = this.historyCache.get(key);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.value;
+    const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);
     const items = [];
     let next;
@@ -37320,7 +37329,7 @@ var InsightsService = class {
       if (page === pages - 1) truncated = true;
     }
     const value = { items, truncated };
-    this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
+    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
     return value;
   }
   async allocation(environment, limits) {
@@ -38297,9 +38306,10 @@ function journalReview(data) {
     `Edge = the price move since the fill in the trade's favour (a buy gains when the price rose, a sell when it fell); FX and costs are left out and each trade counts once.`,
     ...data.overall.trades ? [`${tagStatsLine(data.overall, currency, "All")}.`] : [],
     ...data.due ? [`${data.due} trade(s) are ${REVIEW_AFTER_DAYS}+ days old with a reason and no look back yet.`] : [],
-    ...data.unmatched ? [`${data.unmatched} note(s) are on orders not among these fills (still open, cancelled, or filled before the period).`] : [],
+    ...data.unmatched ? [`${data.unmatched} note(s) are on orders not among these fills (still open, cancelled, filled before the period, or reported without a price).`] : [],
     ...data.withoutOrder ? [`${data.withoutOrder} note(s) are on an instrument rather than a filled order.`] : [],
-    ...data.unpriced.length ? [`No price now for ${data.unpriced.join(", ")}.`] : [],
+    ...data.unpriced.length ? [`No usable price now for ${data.unpriced.join(", ")}.`] : [],
+    ...data.notQuoted.length ? [`Not priced this time, since one review asks the quote provider about ${MAX_REVIEW_QUOTES} instruments at most: ${data.notQuoted.join(", ")}.`] : [],
     ...data.truncated ? ["History was cut at the page limit; older fills are not counted."] : [],
     ...section("By tag", rows(data.tags, (row) => tagStatsLine(row, currency))),
     ...section(`Trades with a note${data.tradesTotal > data.trades.length ? ` (newest ${data.trades.length} of ${data.tradesTotal})` : ""}`, rows(data.trades, journalTradeLine))
@@ -38878,7 +38888,6 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
 // src/core/journal-review.ts
 var DAY_MS5 = 864e5;
 var MAX_REVIEW_TRADES = 50;
-var MAX_QUOTES = 12;
 var round6 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function orderSide(item) {
   const side = (item.order?.side ?? "").toUpperCase();
@@ -38891,12 +38900,12 @@ function stats(trades, tag) {
     ...tag === void 0 ? {} : { tag },
     trades: trades.length,
     priced: priced.length,
-    inFavour: edges.filter((edge) => edge > 0).length,
+    inFavour: edges.filter((edge) => edge > EDGE_FLAT).length,
     ...edges.length ? { averageEdge: round6(edges.reduce((sum, edge) => sum + edge, 0) / edges.length, 6) } : {},
     realisedProfitLoss: round6(trades.reduce((sum, trade) => sum + (trade.realisedProfitLoss ?? 0), 0), 2)
   };
 }
-var tagKey = (tag) => tag?.trim().replace(/^#+/, "").trim().toLowerCase() || void 0;
+var tagKey = (tag) => journalTagFilter(tag)?.toLowerCase();
 var tickerOf = (item, entry) => item.order?.ticker ?? item.order?.instrument?.ticker ?? entry.ticker;
 function matchNotes(input2) {
   const wanted = tagKey(input2.tag);
@@ -38937,8 +38946,10 @@ function summarizeJournalReview(input2) {
     const price = fill.price;
     const side = orderSide(item);
     const ticker = tickerOf(item, entry);
-    const priceNow = input2.prices.get(ticker);
-    const move = priceNow !== void 0 && priceNow > 0 ? priceNow / price - 1 : void 0;
+    const quotedPrice = input2.prices.get(ticker);
+    const ratio2 = quotedPrice !== void 0 && quotedPrice > 0 ? quotedPrice / price : void 0;
+    const priceNow = ratio2 !== void 0 && !(input2.quoted?.has(ticker) && (ratio2 >= 10 || ratio2 <= 0.1)) ? quotedPrice : void 0;
+    const move = priceNow !== void 0 ? priceNow / price - 1 : void 0;
     const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt)) / DAY_MS5));
     const name = input2.names?.get(ticker) ?? item.order?.instrument?.name;
     const realised = side === "sell" ? fill.walletImpact?.realisedProfitLoss : void 0;
@@ -38981,7 +38992,7 @@ function summarizeJournalReview(input2) {
     environment: input2.environment,
     period: { ...input2.window.from ? { from: input2.window.from.toISOString() } : {}, to: input2.window.to.toISOString() },
     ...accountCurrency ? { accountCurrency } : {},
-    ...wanted ? { tag: input2.tag.trim().replace(/^#+/, "").trim() } : {},
+    ...wanted ? { tag: journalTagFilter(input2.tag) } : {},
     fills: fillCount,
     withNote: trades.length,
     overall: stats(trades),
@@ -38992,7 +39003,8 @@ function summarizeJournalReview(input2) {
     tradesTotal: trades.length,
     unmatched,
     withoutOrder,
-    unpriced,
+    unpriced: unpriced.filter((ticker) => !input2.notQuoted?.includes(ticker)),
+    notQuoted: (input2.notQuoted ?? []).filter((ticker) => unpriced.includes(ticker)),
     truncated: input2.truncated,
     timestamp: now.toISOString()
   };
@@ -39011,13 +39023,28 @@ async function journalReview2(deps, environment, window, options = {}, now = /* 
   const names = new Map(instruments.map((instrument) => [instrument.ticker, instrument.name ?? instrument.shortName ?? instrument.ticker]));
   const { matched } = matchNotes({ notes, orders: history.items, window, ...options.tag ? { tag: options.tag } : {} });
   const wanted = [...new Set(matched.map(({ entry, item }) => tickerOf(item, entry)))].filter((ticker) => !prices.has(ticker));
-  const quoted2 = await Promise.all(wanted.slice(0, MAX_QUOTES).map(async (ticker) => {
+  const quoted2 = /* @__PURE__ */ new Set();
+  for (const ticker of wanted.slice(0, MAX_REVIEW_QUOTES)) {
     const instrument = instruments.find((item) => item.ticker === ticker);
     const quote = instrument ? await deps.trading.externalQuote(instrument).catch(() => void 0) : void 0;
-    return [ticker, quote?.price];
-  }));
-  for (const [ticker, price] of quoted2) if (price && price > 0) prices.set(ticker, price);
-  return summarizeJournalReview({ environment, notes, orders: history.items, window, prices, names, truncated: history.truncated, ...options.tag ? { tag: options.tag } : {}, now });
+    if (quote?.price && quote.price > 0) {
+      prices.set(ticker, quote.price);
+      quoted2.add(ticker);
+    }
+  }
+  return summarizeJournalReview({
+    environment,
+    notes,
+    orders: history.items,
+    window,
+    prices,
+    quoted: quoted2,
+    notQuoted: wanted.slice(MAX_REVIEW_QUOTES),
+    names,
+    truncated: history.truncated,
+    ...options.tag ? { tag: options.tag } : {},
+    now
+  });
 }
 
 // src/core/mcp.ts
@@ -39930,7 +39957,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_journal_review",
     {
       title: "Trade Journal Review",
-      description: "Look back over the trade journal: each note on an order filled in the period, next to how that trade has gone since. The fill price is set against the price now (the broker's for holdings, the quote provider's otherwise); the edge is the move in the trade's favour (up for a buy, down for a sell), with FX and costs left out and each trade counting once. Per tag: how many trades went your way and the average edge, plus realised P/L on sells. Also counts the fills without a note and the trades due for a look back (a reason, no review, 30 days or more since the fill). Use manage_trade_journal to save a review. Read-only.",
+      description: `Look back over the trade journal: each note on an order filled in the period, next to how that trade has gone since. The fill price is set against the price now (the broker's for holdings, the quote provider's otherwise); the edge is the move in the trade's favour (up for a buy, down for a sell), with FX and costs left out and each trade counting once. Per tag: how many trades went your way and the average edge, plus realised P/L on sells. Also counts the fills without a note and the trades due for a look back (a reason, no review, ${REVIEW_AFTER_DAYS} days or more since the fill). Instruments not held are priced by the quote provider, ${MAX_REVIEW_QUOTES} at most per call. Use manage_trade_journal to save a review. Read-only.`,
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,
@@ -39942,7 +39969,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     async ({ environment, period, from, to, maxPages, tag }) => {
       try {
         const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
-        const review = await journalReview2({ journal, insights, trading }, environment, window, { ...tag ? { tag } : {}, maxPages });
+        const filter = tag === void 0 ? void 0 : journalTagFilter(tag);
+        if (tag !== void 0 && !filter) return toolError(new Error("tag needs a letter or digit"));
+        const review = await journalReview2({ journal, insights, trading }, environment, window, { ...filter ? { tag: filter } : {}, maxPages });
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...review };
         const { overall } = review;
         const edge = overall.averageEdge === void 0 ? "" : `; ${overall.inFavour} of ${overall.priced} went your way, average edge ${overall.averageEdge >= 0 ? "+" : ""}${num2(overall.averageEdge * 100, 1)}%`;

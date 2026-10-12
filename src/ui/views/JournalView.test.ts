@@ -33,13 +33,14 @@ const review: JournalReview = {
   unmatched: 1,
   withoutOrder: 2,
   unpriced: [],
+  notQuoted: [],
   truncated: false,
   timestamp: "2026-10-12T00:00:00Z",
 };
 
 const render = (data: JournalReview, locale: "en" | "zh-CN" = "en") => renderToStaticMarkup(createElement(JournalReviewView, {
   data, locale, t: createTranslator(locale), period: "all", busy: false,
-  onPeriod: () => {}, onOpen: () => {}, onSaveNote: async () => true,
+  onPeriod: () => {}, onTag: () => {}, onOpen: () => {}, onSaveNote: async () => true,
 }));
 
 describe("journal review view", () => {
@@ -60,6 +61,18 @@ describe("journal review view", () => {
     expect(html.match(/Due for a look back/g)).toHaveLength(2);
     expect(html.match(/Add a look back/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Open Coca-Cola"');
+  });
+
+  it("says when only one tag is shown, keeps untagged trades out of the filter, and names what was not priced", () => {
+    const untagged = { tag: undefined, trades: 1, priced: 1, inFavour: 1, averageEdge: 0.1, realisedProfitLoss: 0 };
+    const html = render({ ...review, tags: [...review.tags, untagged], notQuoted: ["T8_US_EQ"] });
+    expect(html).toContain('<div class="reviewTag static">');
+    expect(html.match(/<button type="button" class="reviewTag/g)).toHaveLength(2);
+    expect(html).toContain("Not priced this time, since one look asks the quote provider about 8 instruments at most: T8.");
+    expect(html).not.toContain("Only the trades tagged");
+    const filtered = render({ ...review, tag: "pullback" });
+    expect(filtered).toContain("Only the trades tagged #pullback");
+    expect(filtered).toContain(">All trades</button>");
   });
 
   it("explains an empty period, in Chinese too", () => {
