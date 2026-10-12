@@ -7,6 +7,7 @@ import { stopOutcome, stopProtection, suggestedStop } from "../../shared/protect
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
+import { DayLine } from "../components/day";
 import { JournalForm, JournalNote, type JournalRequest } from "../components/journal";
 import { PriceChart, type ChartLevel, type ChartTrade } from "../components/price-chart";
 import type { PricesMissing } from "../../shared/prices";
@@ -205,10 +206,12 @@ export function HoldingView({
               <div className={`pnlBadge ${signedClass(pnl)}`}>
                 {t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}{cost && pnl !== undefined ? ` (${pct(pnl / cost, locale, 1, { signed: true })})` : ""}
               </div>
+              {data.day && <DayLine move={data.day} timestamp={data.timestamp} currency={currency} locale={locale} t={t} />}
             </>
           ) : (
             <>
               {data.quote && <strong className="heroValue small">{amount(data.quote.price, quote, locale)}</strong>}
+              {data.day && ((data.quote && data.day.change !== undefined) || data.day.profitLoss !== undefined) && <DayLine move={data.day} timestamp={data.timestamp} currency={currency} locale={locale} t={t} />}
               <div className="pnlBadge">{t("notHeld")}{data.targetWeight === undefined ? "" : ` · ${fill(t("targetShare"), { percent: pct(data.targetWeight, locale) })}`}</div>
               {data.quote && <small className="quoteNote">{data.quote.source === "sample" ? t("quoteFromSample") : fill(t("quoteFrom"), { source: quoteProviderLabel(data.quote.source, t), symbol: data.quote.symbol, time: dateTime(data.quote.asOf, locale) })}</small>}
             </>

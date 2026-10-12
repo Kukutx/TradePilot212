@@ -454,12 +454,20 @@ export class TradingService {
     return cached && cached.expiresAt > Date.now() ? cached.instruments : undefined;
   }
 
+  /** Instrument-list reads under way: Trading 212 allows few, so callers at the same moment share one. */
+  private readonly instrumentReads = new Map<TradingEnvironment, Promise<Instrument[]>>();
+
   async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;
-    const instruments = await this.client(environment).getInstruments();
-    this.cache.set(environment, { instruments, expiresAt: Date.now() + 600_000 });
-    return instruments;
+    const pending = this.instrumentReads.get(environment);
+    if (pending) return pending;
+    const read = this.client(environment).getInstruments().then((instruments) => {
+      this.cache.set(environment, { instruments, expiresAt: Date.now() + 600_000 });
+      return instruments;
+    }).finally(() => this.instrumentReads.delete(environment));
+    this.instrumentReads.set(environment, read);
+    return read;
   }
 
   /**

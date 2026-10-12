@@ -5,6 +5,7 @@ import type { CredentialStatus, Instrument, PendingOrder, Position, TradingEnvir
 import type { MarketStatus } from "./history.js";
 import type { JournalEntry } from "./journal.js";
 import type { PriceHistory, PricesMissing } from "./prices.js";
+import type { DayMove } from "./today.js";
 
 /** One fill of an order on this instrument, newest first. */
 export interface HoldingFill {
@@ -81,5 +82,10 @@ export interface HoldingDetail {
   pricesMissing?: PricesMissing;
   /** Why there are no daily closes: no quote provider, no symbol for the instrument, or the provider's answer. */
   pricesProblem?: string;
+  /**
+   * The day's move since the last close before the trading day of the price (as on the dashboard): for a holding,
+   * what it made or lost in the account currency too. Absent without daily closes.
+   */
+  day?: DayMove;
   timestamp: string;
 }

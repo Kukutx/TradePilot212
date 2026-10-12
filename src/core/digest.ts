@@ -5,6 +5,7 @@
 import type { TradingEnvironment } from "../shared/contracts.js";
 import { stopProtection } from "../shared/protection.js";
 import type { DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
+import type { PortfolioToday } from "../shared/today.js";
 import { analyzeAllocation, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import type { Notifier } from "./notify.js";
@@ -16,6 +17,9 @@ import type { TradingService } from "./trading-service.js";
 const DAY_MS = 86_400_000;
 const round = (value: number) => Math.round(value * 100) / 100;
 const signed = (value: number) => `${value >= 0 ? "+" : ""}${round(value)}`;
+const signedPct = (value: number) => `${value >= 0 ? "+" : ""}${round(value * 100)}%`;
+/** Holdings named as the day's biggest movers. */
+const MOVERS = 3;
 
 export interface DigestInput {
   environment: TradingEnvironment;
@@ -37,6 +41,24 @@ export interface DigestInput {
    * stops wants to see the gaps, someone who never does would read the same list every day.
    */
   uncovered?: string[];
+  /** The holdings' move on their last session (the dashboard's day), and the biggest movers by amount. */
+  day?: { days: string[]; profitLoss: number; change?: number; counted: number; of: number; movers: Array<{ name: string; change?: number; profitLoss: number }> };
+}
+
+/** The digest's day from the dashboard's: the total and the holdings that moved most in the account currency. */
+export function digestDay(today: PortfolioToday | undefined): DigestInput["day"] {
+  const total = today?.total;
+  if (!today || !total) return undefined;
+  const counted = today.moves.filter((move) => move.profitLoss !== undefined);
+  return {
+    days: [...new Set(counted.map((move) => move.day))].sort(),
+    profitLoss: total.profitLoss,
+    ...(total.change === undefined ? {} : { change: total.change }),
+    counted: total.counted,
+    of: total.of,
+    // The moves come biggest first.
+    movers: counted.slice(0, MOVERS).map((move) => ({ name: move.shortName ?? move.ticker, ...(move.change === undefined ? {} : { change: move.change }), profitLoss: move.profitLoss! })),
+  };
 }
 
 /** Plain-text digest; kept short so it reads well in a chat notification. */
@@ -44,8 +66,12 @@ export function digestText(input: DigestInput): string {
   const change = input.previousTotalValue === undefined ? "" : ` (${signed(input.totalValue - input.previousTotalValue)} since the last digest)`;
   const top = [...input.positions].sort((a, b) => b.value - a.value).slice(0, 3)
     .map((item) => `${item.ticker} ${round(item.value)}${item.profitLoss === undefined ? "" : ` (${signed(item.profitLoss)})`}`);
+  const day = input.day;
   return [
     `Total ${round(input.totalValue)} ${input.currency}${change}`,
+    day ? `day ${signed(day.profitLoss)}${day.change === undefined ? "" : ` (${signedPct(day.change)})`} on ${day.days.join(", ")}${day.counted < day.of ? ` for ${day.counted} of ${day.of} instruments` : ""}` : undefined,
+    // One sold out on the day has no price to compare: its sells' amount instead.
+    day?.movers.length ? `movers: ${day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? `${signed(mover.profitLoss)} ${input.currency}`.trim() : signedPct(mover.change)}`).join(", ")}` : undefined,
     `cash ${round(input.cash)}`,
     input.unrealized === undefined ? undefined : `unrealized ${signed(input.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : undefined,
@@ -64,6 +90,8 @@ export class DailyDigest {
   constructor(private readonly deps: {
     config: RuntimeConfig; store: StateStore; trading: TradingService; notify?: Notifier;
     targets?: (environment: TradingEnvironment) => Promise<TargetAllocation | undefined>;
+    /** The holdings' day; a read that fails leaves it out of the digest. */
+    today?: (environment: TradingEnvironment, now: Date) => Promise<PortfolioToday>;
   }) {}
 
   /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
@@ -100,6 +128,8 @@ export class DailyDigest {
         const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : undefined;
         const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
+        // The day reuses the account read just made; the quote provider's closes may be missing or late.
+        const day = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => undefined)) : undefined;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -117,6 +147,7 @@ export class DailyDigest {
           filledOrders,
           ...(maxDrift === undefined ? {} : { maxDrift }),
           ...(uncovered.length ? { uncovered } : {}),
+          ...(day ? { day } : {}),
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };
         if (!(await this.deps.notify!(event, { force: true }))) {

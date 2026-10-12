@@ -244,6 +244,11 @@ function portfolio(data: PortfolioSnapshot): string[] {
 /** One instrument's move on the day: against which close, its profit or loss, and the shares traded on the day. */
 function dayMoveLine(move: DayMove, currency?: string): string {
   const name = `${move.name ?? move.ticker}${move.shortName && move.shortName !== move.name ? ` (${move.shortName})` : ""}`;
+  return `${name}: ${dayMoveText(move, currency)}`;
+}
+
+/** One instrument's move on the day, without its name. */
+function dayMoveText(move: DayMove, currency?: string): string {
   const traded = [move.bought ? `bought ${num(move.bought, 8)}` : "", move.sold ? `sold ${num(move.sold, 8)}` : ""].filter(Boolean).join(", ");
   const tradedText = traded ? ` (${traded} on the day, from the fill price)` : "";
   const close = move.previousClose ? `the close on ${move.previousClose.date} (${num(move.previousClose.close, 6)}${move.currencyCode ? ` ${move.currencyCode}` : ""})` : "";
@@ -252,9 +257,9 @@ function dayMoveLine(move: DayMove, currency?: string): string {
       move.change !== undefined ? `${signedPct(move.change)} since ${close}` : move.quantity === 0 ? `sold out on the day against ${close}` : "",
       move.profitLoss !== undefined ? `${signed(move.profitLoss)}${currency ? ` ${currency}` : ""}` : "",
     ].filter(Boolean);
-    return `${name}: ${parts.join(", ")}${tradedText}${move.problem ? `; ${move.problem}` : ""}`;
+    return `${parts.join(", ")}${tradedText}${move.problem ? `; ${move.problem}` : ""}`;
   }
-  return `${name}: no move for the day; ${move.problem ?? "no previous close"}`;
+  return `no move for the day; ${move.problem ?? "no previous close"}`;
 }
 
 /** The day's moves: the total, then each holding, biggest in the account currency first. */
@@ -380,6 +385,7 @@ function holding(data: HoldingDetail): string[] {
     `${data.ticker}${name} on ${env(data.environment)}${data.instrument.type ? `, ${data.instrument.type}` : ""}${data.instrument.currencyCode ? ` in ${data.instrument.currencyCode}` : ""}${market}.`,
     data.position ? `Holding: ${positionLine(data.position)}${weight}.` : `Not held${data.quote ? `; price ${num(data.quote.price, 6)}${data.instrument.currencyCode ? ` ${data.instrument.currencyCode}` : ""} (${data.quote.source === "sample" ? "simulated for the sample account" : `${data.quote.source} ${data.quote.symbol}, ${minute(data.quote.asOf)}`})` : ""}${data.targetWeight === undefined ? "" : `; target ${pct(data.targetWeight)}`}.`,
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
+    ...(data.day ? [`On the day (${data.day.day}): ${dayMoveText(data.day, c).replace(/\.$/, "")}.`] : []),
     ...priceLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),

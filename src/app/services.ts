@@ -84,7 +84,7 @@ export function createServices(input: ServiceDependencies) {
     closes,
     fills: (env, from) => insights.tradeHistory(env, { from, to: new Date() }, undefined, 200, DAY_ORDER_PAGES),
   }, environment, now);
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), ...(notify ? { notify } : {}) });
+  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today, ...(notify ? { notify } : {}) });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
@@ -148,5 +148,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }

@@ -130,7 +130,7 @@ const windowSchema = {
 };
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, automationOverview }: Services,
+  { trading, insights, automation, alerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -142,7 +142,7 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
-  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist };
+  const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist, closes };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);

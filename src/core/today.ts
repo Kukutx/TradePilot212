@@ -7,7 +7,7 @@ import type { Exchange } from "../shared/history.js";
 import type { PricePoint } from "../shared/prices.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
 import { asStructuredError } from "./errors.js";
-import { knownFxRates, toAccountCurrency } from "./fx.js";
+import { knownFxRates, toAccountCurrency, type FxRates } from "./fx.js";
 import { eachLimited, settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 import type { TradingService } from "./trading-service.js";
 
@@ -144,6 +144,113 @@ const fillsFrom = (session: Session) => session.previousClose ?? Date.parse(`${s
 
 const sideOf = (fill: { side?: string; quantity?: number }): "buy" | "sell" => (String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "sell" : "buy");
 
+/** What one instrument's day is read against. */
+export interface DayContext {
+  environment: TradingEnvironment;
+  now: Date;
+  /** How far back the closes are read (shared with the holding page's chart, so one cached read serves both). */
+  from: Date;
+  accountCurrency?: string;
+  /** Exchange rates implied by Trading 212's valuation of the holdings. */
+  rates: FxRates;
+}
+
+/** One instrument: held (`position`), sold out on the day, or only priced by a quote (`price`). */
+export interface DayInput {
+  ticker: string;
+  instrument?: Instrument;
+  position?: Position;
+  /** The price now when Trading 212 has none for it (not held): a quote's. */
+  price?: number;
+  session: Session;
+  /** Its fills since its previous close. */
+  fills: DayFill[];
+}
+
+export function dayIdentity(input: DayInput) {
+  const { ticker, instrument, position, session } = input;
+  const currency = (instrument?.currencyCode ?? (position?.instrument as { currency?: string } | undefined)?.currency)?.toUpperCase();
+  const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : input.price && input.price > 0 ? input.price : undefined;
+  return {
+    ticker,
+    ...(instrument?.name ? { name: instrument.name } : {}),
+    ...(instrument?.shortName ? { shortName: instrument.shortName } : {}),
+    ...(currency ? { currencyCode: currency } : {}),
+    quantity: position?.quantity ?? 0,
+    ...(price ? { price } : {}),
+    day: session.day,
+  };
+}
+
+/** One instrument's move since its previous close, and what it made or lost on the day in the account currency. */
+export async function dayMove(deps: Pick<TodayDeps, "priceHistory" | "closes">, context: DayContext, input: DayInput): Promise<DayMove> {
+  const { environment, now, from, accountCurrency, rates } = context;
+  const { ticker, instrument, session, fills: own } = input;
+  const identity = dayIdentity(input);
+  const { day, previous: lastSession, previousClose: lastClosed } = session;
+  const price = identity.price;
+  const currency = identity.currencyCode;
+  if (!instrument || !deps.priceHistory) return { ...identity, missing: deps.priceHistory ? "data" : "provider", problem: deps.priceHistory ? `Trading 212 does not list ${ticker} at the moment.` : "No quote provider is configured." };
+  const lastFill = [...own].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).pop();
+  const key = `${environment}:${ticker}:${day}`;
+  let previousClose = deps.closes?.get(key);
+  if (!previousClose) {
+    // Trading 212's price checks the provider's unit; for one sold out, the day's last fill does.
+    const reference = price ?? lastFill?.price;
+    const read = await deps.priceHistory({ instrument, from, ...(reference ? { last: reference } : {}) })
+      .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message }));
+    if (!("prices" in read)) return { ...identity, missing: read.missing, problem: read.problem };
+    const before = read.prices.points.filter((point) => point.date < day);
+    const close: PricePoint | undefined = before[before.length - 1];
+    const symbol = read.prices.symbol ?? ticker;
+    if (!close || !(close.close > 0)) return { ...identity, missing: "data", problem: `${read.prices.source} has no close for ${symbol} before ${day}.` };
+    previousClose = { ...close, source: read.prices.source };
+    if (lastSession && close.date < lastSession && lastClosed !== undefined && now.getTime() - lastClosed < LAG_WINDOW_MS) {
+      return { ...identity, previousClose, missing: "lag", problem: `${read.prices.source}'s closes for ${symbol} end on ${close.date}, before the last session (${lastSession}); the day's move shows once they have it.` };
+    }
+    // The last session's close, or the last one once the provider has had time to add it, will not change today.
+    if (deps.closes && lastSession && (close.date === lastSession || (lastClosed !== undefined && now.getTime() - lastClosed >= LAG_WINDOW_MS))) {
+      if (deps.closes.size > 1000) deps.closes.clear();
+      deps.closes.set(key, previousClose);
+    }
+  }
+  const previous = previousClose.close;
+  const figures = dayFigures({
+    quantity: identity.quantity,
+    ...(price ? { price } : {}),
+    previous,
+    fills: own.map((fill) => ({ ...fill, price: inCloseUnit(fill.price, previous) })),
+  });
+  // Neither held nor traded on the day: only the change.
+  const owned = identity.quantity > 0 || own.length > 0;
+  const inAccount = (amount: number) => (accountCurrency && currency ? toAccountCurrency(amount, currency, accountCurrency, rates) : undefined);
+  const profitLoss = !owned || figures.profitLoss === undefined ? undefined : inAccount(figures.profitLoss);
+  const base = owned ? inAccount(figures.base) : undefined;
+  return {
+    ...identity,
+    previousClose,
+    ...(figures.change !== undefined ? { change: figures.change } : {}),
+    ...(profitLoss !== undefined ? { profitLoss: round(profitLoss, 2) } : {}),
+    ...(base !== undefined ? { base: round(base, 2) } : {}),
+    ...(figures.bought ? { bought: figures.bought } : {}),
+    ...(figures.sold ? { sold: figures.sold } : {}),
+    ...(owned && figures.profitLoss !== undefined && profitLoss === undefined
+      ? { missing: "fx" as const, problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` }
+      : {}),
+  };
+}
+
+/** An instrument's fills since its session's previous close, from fill records as Trading 212's history gives them. */
+export function fillsOfDay(items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string }>, ticker: string, session: Session): DayFill[] {
+  const start = fillsFrom(session);
+  return dayFillsOf(items).filter((fill) => fill.ticker === ticker && Date.parse(fill.at) >= start);
+}
+
+const dayFillsOf = (items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string }>): DayFill[] =>
+  items.flatMap((item) => (item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity
+    ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }]
+    : []));
+
 /** Each holding's move since its previous close, the instruments sold out on the day, and the total in the account currency. */
 export async function portfolioToday(deps: TodayDeps, environment: TradingEnvironment, now = new Date()): Promise<PortfolioToday> {
   const dashboard = await deps.trading.getDashboard(environment, DASHBOARD_REUSE_MS);
@@ -171,9 +278,7 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
     else if ("problem" in read) fillsProblem = read.problem;
     else {
       if (read.truncated) fillsProblem = `The day has more orders than one read covers (${DAY_ORDER_PAGES * 50}); the oldest of them are left out.`;
-      fills = read.fills.flatMap((item) => (item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity
-        ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }]
-        : []));
+      fills = dayFillsOf(read.fills);
     }
   }
   /** An instrument's fills since its previous close. */
@@ -191,68 +296,16 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
   type Item = { ticker: string; position?: Position };
   const items: Item[] = [...positions.map((position) => ({ ticker: position.instrument.ticker, position })), ...soldOut.map((ticker) => ({ ticker }))];
 
-  const move = async ({ ticker, position }: Item, ask: boolean): Promise<DayMove> => {
-    const instrument = listed.get(ticker) ?? (position?.instrument as Instrument | undefined);
-    const currency = (instrument?.currencyCode ?? (position?.instrument as { currency?: string } | undefined)?.currency)?.toUpperCase();
-    const { day, previous: lastSession, previousClose: lastClosed } = session(ticker);
-    const own = dayFills(ticker);
-    const price = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : undefined;
-    const lastFill = [...own].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).pop();
-    const identity = {
+  const context: DayContext = { environment, now, from, ...(accountCurrency ? { accountCurrency } : {}), rates };
+  const move = ({ ticker, position }: Item, ask: boolean): Promise<DayMove> => {
+    const input: DayInput = {
       ticker,
-      ...(instrument?.name ? { name: instrument.name } : {}),
-      ...(instrument?.shortName ? { shortName: instrument.shortName } : {}),
-      ...(currency ? { currencyCode: currency } : {}),
-      quantity: position?.quantity ?? 0,
-      ...(price ? { price } : {}),
-      day,
+      ...(listed.get(ticker) ?? position?.instrument ? { instrument: listed.get(ticker) ?? (position!.instrument as Instrument) } : {}),
+      ...(position ? { position } : {}),
+      session: session(ticker),
+      fills: dayFills(ticker),
     };
-    if (!ask) return { ...identity, missing: "later", problem: "Asked on the next read: this one ran out of time." };
-    if (!instrument || !deps.priceHistory) return { ...identity, missing: deps.priceHistory ? "data" : "provider", problem: deps.priceHistory ? `Trading 212 does not list ${ticker} at the moment.` : "No quote provider is configured." };
-    const key = `${environment}:${ticker}:${day}`;
-    let previousClose = deps.closes?.get(key);
-    if (!previousClose) {
-      // Trading 212's price checks the provider's unit; for one sold out, the day's last fill does.
-      const reference = price ?? lastFill?.price;
-      const read = await deps.priceHistory({ instrument, from, ...(reference ? { last: reference } : {}) })
-        .catch((error: unknown): PriceHistoryResult => ({ missing: "data", problem: asStructuredError(error).message }));
-      if (!("prices" in read)) return { ...identity, missing: read.missing, problem: read.problem };
-      const before = read.prices.points.filter((point) => point.date < day);
-      const close: PricePoint | undefined = before[before.length - 1];
-      const symbol = read.prices.symbol ?? ticker;
-      if (!close || !(close.close > 0)) return { ...identity, missing: "data", problem: `${read.prices.source} has no close for ${symbol} before ${day}.` };
-      previousClose = { ...close, source: read.prices.source };
-      if (lastSession && close.date < lastSession && lastClosed !== undefined && now.getTime() - lastClosed < LAG_WINDOW_MS) {
-        return { ...identity, previousClose, missing: "lag", problem: `${read.prices.source}'s closes for ${symbol} end on ${close.date}, before the last session (${lastSession}); the day's move shows once they have it.` };
-      }
-      // The last session's close, or the last one once the provider has had time to add it, will not change today.
-      if (deps.closes && lastSession && (close.date === lastSession || (lastClosed !== undefined && now.getTime() - lastClosed >= LAG_WINDOW_MS))) {
-        if (deps.closes.size > 1000) deps.closes.clear();
-        deps.closes.set(key, previousClose);
-      }
-    }
-    const previous = previousClose.close;
-    const figures = dayFigures({
-      quantity: identity.quantity,
-      ...(price ? { price } : {}),
-      previous,
-      fills: own.map((fill) => ({ ...fill, price: inCloseUnit(fill.price, previous) })),
-    });
-    const inAccount = (amount: number) => (accountCurrency && currency ? toAccountCurrency(amount, currency, accountCurrency, rates) : undefined);
-    const profitLoss = figures.profitLoss === undefined ? undefined : inAccount(figures.profitLoss);
-    const base = inAccount(figures.base);
-    return {
-      ...identity,
-      previousClose,
-      ...(figures.change !== undefined ? { change: figures.change } : {}),
-      ...(profitLoss !== undefined ? { profitLoss: round(profitLoss, 2) } : {}),
-      ...(base !== undefined ? { base: round(base, 2) } : {}),
-      ...(figures.bought ? { bought: figures.bought } : {}),
-      ...(figures.sold ? { sold: figures.sold } : {}),
-      ...(figures.profitLoss !== undefined && profitLoss === undefined
-        ? { missing: "fx" as const, problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` }
-        : {}),
-    };
+    return ask ? dayMove(deps, context, input) : Promise.resolve({ ...dayIdentity(input), missing: "later", problem: "Asked on the next read: this one ran out of time." });
   };
 
   const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS);

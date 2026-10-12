@@ -348,12 +348,20 @@ export class InsightsService {
     return { kind: "trade_history" as const, environment, fills, ...(unfilled ? { unfilled } : {}), truncated: collected.truncated, timestamp: new Date().toISOString() };
   }
 
+  /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */
+  private readonly exchangeReads = new Map<TradingEnvironment, Promise<Exchange[]>>();
+
   private async exchanges(environment: TradingEnvironment) {
     const cached = this.exchangeCache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.exchanges;
-    const exchanges = await this.client(environment).getExchanges();
-    this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
-    return exchanges;
+    const pending = this.exchangeReads.get(environment);
+    if (pending) return pending;
+    const read = this.client(environment).getExchanges().then((exchanges) => {
+      this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
+      return exchanges;
+    }).finally(() => this.exchangeReads.delete(environment));
+    this.exchangeReads.set(environment, read);
+    return read;
   }
 
   /** Trading 212's exchanges with their working schedules, cached for ten minutes. */
