@@ -10,6 +10,7 @@ import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
 import { HoldingMixPanel } from "../components/holding-mix";
 import { HoldingParityPanel, type EqualRiskPlan } from "../components/holding-parity";
+import { TargetEditor, type TargetPreset, type TargetSave } from "../components/target-editor";
 import { HoldingRiskPanel } from "../components/holding-risk";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
@@ -85,8 +86,10 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
 /** Below this much spare cash, in the account currency, a buy-only plan has nothing to buy (the planner's minimum trade). */
 const MIN_SPARE_CASH = 1;
 
-function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCash, busy }: {
-  drift: AllocationDrift; spareCash: number; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; busy?: boolean;
+function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCash, onEdit, focusEdit, busy }: {
+  drift: AllocationDrift; spareCash: number; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; onEdit?: () => void;
+  /** Focus Edit targets as it shows: the target form it opened has just closed. */
+  focusEdit?: boolean; busy?: boolean;
 }) {
   // Buying with spare cash needs free cash above the cash target; it never sells.
   const investCash = spareCash >= MIN_SPARE_CASH ? onInvestCash : undefined;
@@ -101,8 +104,9 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
     <section className="dataPanel">
       <div className="panelHeading">
         <h2 className="panelTitle">{t("driftTitle")}</h2>
-        {(onRebalance || investCash) && (
+        {(onRebalance || investCash || onEdit) && (
           <div className="panelActions">
+            {onEdit && <button type="button" className="secondaryButton compactButton" autoFocus={focusEdit} disabled={busy} onClick={onEdit}>{t("targetsEdit")}</button>}
             {investCash && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={investCash}>{t("investCashByTargets")}</button>}
             {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onRebalance}>{t("rebalanceToTargets")}</button>}
           </div>
@@ -140,11 +144,19 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   );
 }
 
-export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, busy }: {
+export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, busy }: {
   data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void;
   /** Drafts the rebalance to the equal-risk weights as a basket to review; only with order tools. */
-  onPlanEqualRisk?: (plan: EqualRiskPlan) => void; busy?: boolean;
+  onPlanEqualRisk?: (plan: EqualRiskPlan) => void;
+  /** Save or remove the target weights; each resolves true once done. Targets never trade. */
+  onSaveTargets?: (save: TargetSave) => Promise<boolean>;
+  onClearTargets?: () => Promise<boolean>;
+  busy?: boolean;
 }) {
+  // The target form, open on the saved targets or filled from a preset.
+  const [editing, setEditing] = useState<TargetPreset | "saved" | null>(null);
+  // Closed, the form hands the focus back to the button that opens it.
+  const [refocus, setRefocus] = useState(false);
   const currency = data.accountCurrency || "EUR";
   const tableProps = { labels: chartLabels(t), valueHeader: t("weightColumn") };
   // The bars are shares of the total account value, cash included, so the parts add up to 100%.
@@ -174,7 +186,22 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
           : <ul className="flagList">{data.flags.map((flag) => <li key={flag.code}><span className="flagIcon" aria-hidden="true">!</span>{t(FLAG_KEYS[flag.code])}</li>)}</ul>}
       </section>
 
-      {data.drift && <DriftPanel drift={data.drift} spareCash={(data.availableCash ?? data.cash) - data.drift.cash.target * data.totalValue} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(onInvestCash ? { onInvestCash } : {})} {...(busy === undefined ? {} : { busy })} />}
+      {onSaveTargets && editing ? (
+        // Opened again from another button (Use as targets while editing), it starts afresh from that.
+        <TargetEditor key={editing} data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(busy === undefined ? {} : { busy })} {...(editing === "saved" ? {} : { start: editing })}
+          onSave={onSaveTargets} {...(data.drift && onClearTargets ? { onClear: onClearTargets } : {})} onClose={() => { setEditing(null); setRefocus(true); }} />
+      ) : data.drift ? (
+        <DriftPanel drift={data.drift} spareCash={(data.availableCash ?? data.cash) - data.drift.cash.target * data.totalValue} book={book} locale={locale} t={t} {...(onRebalance ? { onRebalance } : {})} {...(onInvestCash ? { onInvestCash } : {})}
+          {...(onSaveTargets ? { onEdit: () => setEditing("saved") } : {})} focusEdit={refocus} {...(busy === undefined ? {} : { busy })} />
+      ) : onSaveTargets && data.holdings.length > 0 && (
+        <section className="dataPanel">
+          <div className="panelHeading">
+            <h2 className="panelTitle">{t("targetsTitle")}</h2>
+            <div className="panelActions"><button type="button" className="secondaryButton compactButton" autoFocus={refocus} disabled={busy} onClick={() => setEditing("saved")}>{t("targetsSet")}</button></div>
+          </div>
+          <p className="panelNote">{t("targetsEmpty")}</p>
+        </section>
+      )}
 
       <section className="dataPanel">
         {data.holdings.length === 0 ? <div className="emptyState compact">{t("noPositions")}</div> : (
@@ -190,7 +217,8 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
 
       <HoldingRiskPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} />
       {data.risk?.mix && <HoldingMixPanel mix={data.risk.mix} currency={currency} locale={locale} t={t} />}
-      <HoldingParityPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(onPlanEqualRisk ? { onPlan: onPlanEqualRisk } : {})} {...(busy === undefined ? {} : { busy })} />
+      <HoldingParityPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(onPlanEqualRisk ? { onPlan: onPlanEqualRisk } : {})}
+        {...(onSaveTargets ? { onUseAsTargets: () => setEditing("parity") } : {})} {...(busy === undefined ? {} : { busy })} />
 
       <div className="twoColumn">
         <section className="dataPanel">

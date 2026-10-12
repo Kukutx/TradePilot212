@@ -38976,7 +38976,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.48.0"
+  version: "2.49.0"
 };
 
 // src/shared/holding-risk.ts

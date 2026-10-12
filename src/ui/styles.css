@@ -1327,3 +1327,27 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
   .corrTable thead td:first-child, .corrTable tbody th { width: 44px; }
   .corrTable td { height: 24px; }
 }
+
+/* ---- Target weights: a row per holding with today's share and the target typed in ---- */
+.targetPresets { align-items: center; color: var(--tp-muted); font-size: 12px; }
+.targetRows { display: grid; gap: 8px; margin: 12px 0 14px; padding: 0; list-style: none; }
+.targetRows li { display: grid; grid-template-columns: minmax(0, 1fr) auto 112px; align-items: center; gap: 12px; }
+.targetNow { color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.targetField input { height: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.targetField .fieldControl.withUnit input { padding-right: 30px; }
+.targetSettings { margin-top: 4px; }
+.targetToggle { margin-top: 10px; }
+.targetTotal { margin: 12px 0 0; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.targetTotal.over { color: var(--tp-red); }
+.targetError { margin: 8px 0 0; }
+.targetClear { margin-right: auto; color: var(--tp-red); }
+@container (max-width: 640px) {
+  .targetRows li { grid-template-columns: minmax(0, 1fr) 96px; gap: 4px 10px; }
+  .targetNow { grid-column: 1; grid-row: 2; }
+  .targetField { grid-column: 2; grid-row: 1 / span 2; }
+}
+
+.targetFieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.targetEditor .panelTitle:focus { outline: none; }
+.targetEditor .panelTitle:focus-visible { outline: 2px solid var(--tp-focus, var(--tp-chart)); outline-offset: 3px; border-radius: 4px; }
+.targetEditor .alertFormActions { flex-wrap: wrap; }
