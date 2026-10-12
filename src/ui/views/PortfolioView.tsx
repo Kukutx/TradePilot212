@@ -121,7 +121,11 @@ function ProtectionBar({ positions, orders, currency, locale, t, busy, onProtect
   if (!summary.holdings) return null;
   const full = summary.covered === summary.holdings;
   // What the stops already in place would cost from here: the downside they still leave.
-  const atStops = summary.atStops === undefined ? [] : [fill(t(summary.atStopsShare === undefined ? "protectionAtStopsShort" : "protectionAtStops"), {
+  // A stop-limit is counted at its limit, which it reaches only if it fills, so the line says so.
+  const atStopsKey = summary.atStopsLimited
+    ? (summary.atStopsShare === undefined ? "protectionAtStopsFillsShort" : "protectionAtStopsFills")
+    : (summary.atStopsShare === undefined ? "protectionAtStopsShort" : "protectionAtStops");
+  const atStops = summary.atStops === undefined ? [] : [fill(t(atStopsKey), {
     change: money(-summary.atStops, currency, locale, { signed: true }),
     share: pct(summary.atStopsShare, locale, 1),
   })];

@@ -35019,6 +35019,7 @@ function portfolioProtection(positions, orders) {
   let unknown2 = 0;
   let atStops = 0;
   let stopped = 0;
+  let limited = false;
   for (const position of held) {
     const guard = stopProtection(position, orders);
     if (guard?.coverage === 1) covered += 1;
@@ -35028,6 +35029,7 @@ function portfolioProtection(positions, orders) {
       stopped += 1;
       const outcome = stopOutcome(position, guard);
       atStops = outcome && atStops !== void 0 ? atStops + outcome.drop : void 0;
+      if (guard.levels.some((level) => level.limitPrice !== void 0)) limited = true;
     }
     if (suggestedStop(position, guard)) protectable += 1;
     const value = position.walletImpact?.currentValue;
@@ -35045,7 +35047,7 @@ function portfolioProtection(positions, orders) {
     // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
     ...valued && !unknown2 && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {},
     ...unknown2 ? { unknown: unknown2 } : {},
-    ...stopped && atStops !== void 0 ? { atStops, ...valued && total > 0 ? { atStopsShare: atStops / total } : {} } : {}
+    ...stopped && atStops !== void 0 ? { atStops, ...valued && total > 0 ? { atStopsShare: atStops / total } : {}, ...limited ? { atStopsLimited: true } : {} } : {}
   };
 }
 
@@ -35715,11 +35717,16 @@ var TradingService = class {
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : void 0;
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
-    if (needsPrice) {
+    const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
+    let quotePrice;
+    if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
       if (quote) {
-        referencePrice = quote.price;
-        referencePriceAt = quote.asOf;
+        quotePrice = quote.price;
+        if (needsPrice) {
+          referencePrice = quote.price;
+          referencePriceAt = quote.asOf;
+        }
       }
     }
     const fxRate = (from, given) => {
@@ -35780,7 +35787,7 @@ var TradingService = class {
       if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
       positiveNumber("stopLossPrice", sizing.stopLossPrice);
       if (sizing.amount === void 0 === (sizing.percent === void 0)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
-      const current = position?.currentPrice;
+      const current = position?.currentPrice || quotePrice;
       const highest = (...prices) => {
         const known = prices.filter((price) => typeof price === "number" && Number.isFinite(price) && price > 0);
         return known.length ? Math.max(...known) : void 0;

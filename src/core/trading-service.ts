@@ -577,9 +577,16 @@ export class TradingService {
     // Amount-based sizing of an instrument you do not hold falls back to the external quote provider.
     const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === undefined
       && !position?.currentPrice && intent.type === "market";
-    if (needsPrice) {
+    // A risk-sized Market or Stop buy of one you do not hold reads it too, given a price or not: it can fill
+    // near the quote, and when that is higher the loss at the stop is larger.
+    const needsRiskQuote = sizing.mode === "risk" && !position?.currentPrice && (intent.type === "market" || intent.type === "stop");
+    let quotePrice: number | undefined;
+    if (needsPrice || needsRiskQuote) {
       const quote = await this.externalQuote(instrument);
-      if (quote) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
+      if (quote) {
+        quotePrice = quote.price;
+        if (needsPrice) { referencePrice = quote.price; referencePriceAt = quote.asOf; }
+      }
     }
     /** The given rate, else the one your holdings imply or the quote provider gives; `from` → instrument currency. */
     const fxRate = (from: string, given: number | undefined) => {
@@ -647,8 +654,9 @@ export class TradingService {
       if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
       // The worst price the buy can fill at, so the loss at the stop is never understated. A Limit or Stop Limit
       // buy fills at its limit or below. A Market buy, or a Stop whose trigger the price has already passed,
-      // fills near the last price, so the higher of that and the price given is taken.
-      const current = position?.currentPrice;
+      // fills near the last price (the holding's, or the quote source's for one you do not hold), so the higher of
+      // that and the price given is taken.
+      const current = position?.currentPrice || quotePrice;
       const highest = (...prices: Array<number | undefined>) => {
         const known = prices.filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price > 0);
         return known.length ? Math.max(...known) : undefined;

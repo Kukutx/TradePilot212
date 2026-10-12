@@ -488,6 +488,8 @@ export const zhCN: Record<MessageKey, string> = {
   protectionUnprotected: "未保护 {value}（占持仓 {share}）",
   protectionAtStops: "止损全部触发时：{change}（占持仓 {share}）",
   protectionAtStopsShort: "止损全部触发时：{change}",
+  protectionAtStopsFills: "止损全部触发并成交时：{change}（占持仓 {share}）",
+  protectionAtStopsFillsShort: "止损全部触发并成交时：{change}",
   addStopLosses: "全部设置止损",
   protectRest: "为其余持仓设置止损",
   takeProfit: "止盈",

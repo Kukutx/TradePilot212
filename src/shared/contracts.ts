@@ -298,7 +298,10 @@ export interface RiskSizing {
    * the higher of the price given (or the trigger) and the last price.
    */
   entryPrice: number;
-  /** The held position's last price when it was sized, which a Market or triggered Stop buy fills near. */
+  /**
+   * The last price when it was sized, which a Market or triggered Stop buy fills near: the holding's, or the
+   * quote source's for an instrument you do not hold.
+   */
   currentPrice?: number;
   /** Account-currency loss per share from entryPrice down to the stop. */
   perShare: number;

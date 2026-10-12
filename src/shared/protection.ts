@@ -164,6 +164,8 @@ export interface PortfolioProtection {
    */
   atStops?: number;
   atStopsShare?: number;
+  /** A stop-limit is among them: its shares are counted at the limit, which a gap can skip without a fill. */
+  atStopsLimited?: boolean;
 }
 
 /** Stop-loss coverage across the portfolio, for one line above the holdings. */
@@ -178,6 +180,7 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
   let unknown = 0;
   let atStops: number | undefined = 0;
   let stopped = 0;
+  let limited = false;
   for (const position of held) {
     const guard = stopProtection(position, orders);
     if (guard?.coverage === 1) covered += 1;
@@ -187,6 +190,7 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
       stopped += 1;
       const outcome = stopOutcome(position, guard);
       atStops = outcome && atStops !== undefined ? atStops + outcome.drop : undefined;
+      if (guard.levels.some((level) => level.limitPrice !== undefined)) limited = true;
     }
     if (suggestedStop(position, guard)) protectable += 1;
     const value = (position.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
@@ -204,6 +208,6 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
     // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
     ...(valued && !unknown && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {}),
     ...(unknown ? { unknown } : {}),
-    ...(stopped && atStops !== undefined ? { atStops, ...(valued && total > 0 ? { atStopsShare: atStops / total } : {}) } : {}),
+    ...(stopped && atStops !== undefined ? { atStops, ...(valued && total > 0 ? { atStopsShare: atStops / total } : {}), ...(limited ? { atStopsLimited: true } : {}) } : {}),
   };
 }

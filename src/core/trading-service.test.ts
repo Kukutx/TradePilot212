@@ -266,7 +266,7 @@ describe("flexible order intent", () => {
 });
 
 /** A fake Trading 212 with a GBX ETF and a USD stock in a EUR account, valued as the broker values them. */
-function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[] } = {}): typeof fetch {
+function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[]; unheld?: boolean } = {}): typeof fetch {
   const vusa: Record<string, unknown> = { ticker: "VUSAl_EQ", name: "Vanguard S&P 500 (Dist)", shortName: "VUSA", currency: "GBX", type: "ETF" };
   const aapl: Record<string, unknown> = { ticker: "AAPL_US_EQ", name: "Apple Inc.", shortName: "AAPL", currency: "USD", type: "STOCK" };
   return (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -276,7 +276,8 @@ function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[] } = {}
       options.writes?.push(`${init.method} ${new URL(url).pathname}`);
       return new Response(options.writeBody?.() ?? "{}", { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (url.endsWith("/equity/metadata/instruments")) return json([{ ...vusa, currencyCode: "GBX" }, { ...aapl, currencyCode: "USD" }]);
+    if (url.endsWith("/equity/metadata/instruments")) return json([{ ...vusa, currencyCode: "GBX" }, { ...aapl, currencyCode: "USD" },
+      ...(options.unheld ? [{ ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD", type: "STOCK" }] : [])]);
     // The positions endpoint names the currency `currency`, not `currencyCode`.
     if (url.endsWith("/equity/positions")) return json([
       { instrument: vusa, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 8000, currentPrice: 8475, walletImpact: { currency: "EUR", currentValue: 1000 } },
@@ -361,6 +362,20 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(capped.draft.quantity).toBe(5);
     expect(capped.risk?.cashCapped).toBe(true);
     expect(capped.note).toMatch(/all the available cash \(1000\.00 EUR\) buys, so at the stop it would lose about 27\.78 EUR/);
+  });
+
+  it("sizes a risk buy of an instrument you do not hold from the quote when that is higher", async () => {
+    const quotes = { name: "stooq" as const, symbolFor: () => "msft.us", fxRate: async () => undefined,
+      quote: async () => ({ ticker: "MSFT_US_EQ", symbol: "msft.us", price: 216, asOf: "2026-10-12T00:00:00.000Z", source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
+    const risk = { mode: "risk", percent: 1, stopLossPrice: 200 } as const;
+    // A reference of 210 would size for a 10 USD fall; the quote says it fills near 216.
+    const market = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "market", referencePrice: 210, sizing: risk });
+    expect(market.risk).toMatchObject({ entryPrice: 216, currentPrice: 216 });
+    expect(market.draft.quantity).toBe(2.025);
+    // A Stop at 210 has been passed, so it fills near the quote too.
+    const stop = await service.resolveOrderIntent({ environment: "demo", instrument: "MSFT", side: "buy", type: "stop", stopPrice: 210, sizing: risk });
+    expect(stop.risk?.entryPrice).toBe(216);
   });
 
   it("refuses risk sizing that cannot work", async () => {

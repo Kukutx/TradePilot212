@@ -486,6 +486,8 @@ export const en = {
   protectionUnprotected: "Unprotected {value} ({share} of holdings)",
   protectionAtStops: "If every stop triggers: {change} ({share} of holdings)",
   protectionAtStopsShort: "If every stop triggers: {change}",
+  protectionAtStopsFills: "If every stop triggers and fills: {change} ({share} of holdings)",
+  protectionAtStopsFillsShort: "If every stop triggers and fills: {change}",
   addStopLosses: "Add stop-losses",
   protectRest: "Protect the rest",
   takeProfit: "Take-profit",

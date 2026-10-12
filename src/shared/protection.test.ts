@@ -104,6 +104,10 @@ describe("stop-loss protection", () => {
     expect(portfolioProtection([nvda, amd], [...stops, { ticker: "NVDA_US_EQ", side: "SELL", quantity: -15, stopPrice: 110 }, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 90 }]))
       .toEqual({ holdings: 2, covered: 2, partial: 0, protectable: 0, unprotectedValue: 0, unprotectedShare: 0, atStops: 640, atStopsShare: 0.16 });
     expect(portfolioProtection([nvda, amd], [])).not.toHaveProperty("atStops");
+    // A stop-limit counts at its limit, which it only reaches if it fills; the total says it includes one.
+    const limited: PendingOrder[] = [{ ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, stopPrice: 110, limitPrice: 108 }];
+    expect(portfolioProtection([nvda, amd], limited)).toMatchObject({ atStops: 102, atStopsLimited: true });
+    expect(portfolioProtection([nvda, amd], stops)).not.toHaveProperty("atStopsLimited");
     // A stop the price is already under has no outcome, so there is no total either.
     expect(portfolioProtection([nvda, amd], [...stops, { ticker: "AMD_US_EQ", side: "SELL", quantity: -10, stopPrice: 130 }])).not.toHaveProperty("atStops");
     // A stop placed by amount leaves the holding's coverage unknown, so there is no uncovered value either.
