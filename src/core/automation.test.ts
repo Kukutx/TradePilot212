@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
 import { nextRunAt, planLimitPrice } from "./automation.js";
@@ -221,16 +221,23 @@ describe("standing plans", () => {
   });
 
   it("announces a due plan once and waits for confirmation without Demo automation", async () => {
-    const { automation, trading, writes } = setup();
-    const plan = await automation.createPlan({ environment: "demo", label: "Monthly", legs: [{ ticker: "VUSA", amount: 250 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
-    const due = new Date(Date.parse(plan.nextRunAt) + 60_000);
-    expect((await automation.runDuePlans(due))[0]?.mode).toBe("awaiting_confirmation");
-    await automation.runDuePlans(due);
-    expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
-    expect(writes).toHaveLength(0);
+    // The store expires the announcement against the clock, so the clock is the plan's due time here.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { automation, trading, writes } = setup();
+      const plan = await automation.createPlan({ environment: "demo", label: "Monthly", legs: [{ ticker: "VUSA", amount: 250 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+      const due = new Date(Date.parse(plan.nextRunAt) + 60_000);
+      vi.setSystemTime(due);
+      expect((await automation.runDuePlans(due))[0]?.mode).toBe("awaiting_confirmation");
+      await automation.runDuePlans(due);
+      expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
+      expect(writes).toHaveLength(0);
 
-    const review = await automation.reviewPlan(plan.id);
-    expect(review.legs[0]?.draft).toMatchObject({ ticker: "VUSA_EQ", side: "buy", quantity: 2.5 });
+      const review = await automation.reviewPlan(plan.id);
+      expect(review.legs[0]?.draft).toMatchObject({ ticker: "VUSA_EQ", side: "buy", quantity: 2.5 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("invests a plan's amount across the saved targets, most to the furthest below", async () => {
@@ -344,14 +351,21 @@ describe("standing plans", () => {
   });
 
   it("waits for the user when an unattended run may already have been sent", async () => {
-    const { automation, store, writes, trading } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
-    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
-    await store.put(`plan:${plan.id}`, { ...plan, inFlightDueAt: plan.nextRunAt });
-    const due = new Date(Date.parse(plan.nextRunAt) + 60_000);
-    expect((await automation.runDuePlans(due))[0]?.mode).toBe("awaiting_confirmation");
-    await automation.runDuePlans(new Date(due.getTime() + 15 * 60_000));
-    expect(writes).toHaveLength(0);
-    expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { automation, store, writes, trading } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+      const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+      await store.put(`plan:${plan.id}`, { ...plan, inFlightDueAt: plan.nextRunAt });
+      const due = new Date(Date.parse(plan.nextRunAt) + 60_000);
+      vi.setSystemTime(due);
+      expect((await automation.runDuePlans(due))[0]?.mode).toBe("awaiting_confirmation");
+      vi.setSystemTime(due.getTime() + 15 * 60_000);
+      await automation.runDuePlans(new Date(due.getTime() + 15 * 60_000));
+      expect(writes).toHaveLength(0);
+      expect((await trading.getActivity("demo")).filter((event) => event.type === "plan_due")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not send a basket priced before the plan's legs were changed", async () => {

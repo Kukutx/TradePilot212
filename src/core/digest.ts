@@ -24,7 +24,13 @@ const signedPct = (value: number) => `${value >= 0 ? "+" : ""}${round(value * 10
 const MOVERS = 3;
 /** Expected dividends named: the soonest in the coming week. */
 const EXPECTED_DIVIDENDS = 3;
+/** Instruments named among the dividends received; the rest are counted. */
+const RECEIVED_DIVIDENDS = 5;
 const WEEK_MS = 7 * DAY_MS;
+/** A dividend can reach the history a few days after the time it is dated; the digest looks back this far for one it has not named. */
+const LATE_DIVIDEND_MS = 3 * DAY_MS;
+/** Dividends received are named from at most this long ago, however long since the last digest that read them. */
+const MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS;
 
 export interface DigestInput {
   environment: TradingEnvironment;
@@ -57,27 +63,57 @@ export interface DigestDividends {
   expected: Array<{ name: string; on: string; amount: number; due: boolean }>;
 }
 
+/** What the last digest with dividends read: when, and the payments dated in the few days before that it had seen. */
+export interface DividendMark { at: string; seen: string[] }
+
+/** A payment's identity in the history: Trading 212's reference, or what it paid and when. */
+const dividendKey = (item: HistoryDividendItem) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
+
+/** Where the digest names dividends received from: a little before the last digest that read them, or the last day for the first. */
+export function dividendsSince(mark: DividendMark | undefined, now: Date): number {
+  const at = typeof mark?.at === "string" ? Date.parse(mark.at) : Number.NaN;
+  if (!(at <= now.getTime())) return now.getTime() - DAY_MS;
+  return Math.max(at - LATE_DIVIDEND_MS, now.getTime() - MAX_DIVIDEND_LOOKBACK_MS);
+}
+
+/** The mark to keep after a digest named the dividends of `dividends`: every payment dated in the few days before `now` was seen. */
+export function dividendMark(dividends: HistoryDividendItem[], now: Date): DividendMark {
+  const from = now.getTime() - LATE_DIVIDEND_MS;
+  const seen = dividends.filter((item) => {
+    const at = Date.parse(item.paidOn ?? "");
+    return at > from && at <= now.getTime();
+  });
+  return { at: now.toISOString(), seen: [...new Set(seen.map(dividendKey))] };
+}
+
 /**
  * The digest's dividends from the dividend history (read from the first day of this month a year ago, as the income
- * summary's expected dividends are): each instrument's payments since `since`, largest first, and the payments the
- * holdings are expected to make by a week from `now`, soonest first, as the Income tab's calendar lists them.
+ * summary's expected dividends are). Received: each instrument's payments dated after `since` that the last digest had
+ * not seen, largest first; a payment that reached the history late is named the day it appears. Expected: the payments
+ * the holdings are expected to make in the coming seven days, soonest first, then any due in the last seven days and
+ * not paid yet; none when the history read stopped short of the year the expected payments are read from.
  */
-export function digestDividends(dividends: HistoryDividendItem[], positions: Position[], since: Date, now: Date): DigestDividends {
+export function digestDividends(dividends: HistoryDividendItem[], positions: Position[], window: { since: number; seen?: string[]; truncated?: boolean }, now: Date): DigestDividends {
   const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
+  const seen = new Set(window.seen ?? []);
   const received = new Map<string, number>();
   for (const item of dividends) {
     const at = Date.parse(item.paidOn ?? "");
     const ticker = item.ticker ?? item.instrument?.ticker;
-    if (!ticker || !item.amount || !(at > since.getTime() && at <= now.getTime())) continue;
+    if (!ticker || !item.amount || !(at > window.since && at <= now.getTime()) || seen.has(dividendKey(item))) continue;
     received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
   }
-  const today = now.toISOString().slice(0, 10);
-  const weekOn = new Date(now.getTime() + WEEK_MS).toISOString().slice(0, 10);
-  const upcoming = forwardDividends(dividends, positions, now, now).upcoming ?? [];
+  const day = (offset: number) => new Date(now.getTime() + offset).toISOString().slice(0, 10);
+  const today = day(0);
+  const weekOn = day(WEEK_MS);
+  const weekAgo = day(-WEEK_MS);
+  const upcoming = window.truncated ? [] : forwardDividends(dividends, positions, now, now).upcoming ?? [];
+  const expected = upcoming.filter((payment) => payment.on >= weekAgo && payment.on < weekOn)
+    .map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < today }));
   return {
     received: [...received].filter(([, amount]) => amount > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount]) => ({ name: names.get(ticker) ?? ticker, amount: round(amount) })),
-    expected: upcoming.filter((payment) => payment.on <= weekOn)
-      .map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < today })),
+    // Coming first: one due and not paid may never come, and should not crowd out the week's.
+    expected: [...expected.filter((payment) => !payment.due), ...expected.filter((payment) => payment.due)],
   };
 }
 
@@ -116,7 +152,7 @@ export function digestText(input: DigestInput): string {
     input.triggeredAlerts ? `${input.triggeredAlerts} alert(s) triggered in the last day` : undefined,
     input.filledOrders ? `${input.filledOrders} order(s) filled in the last day` : undefined,
     input.dividends?.received.length
-      ? `dividends ${round(input.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input.dividends.received.map((item) => `${item.name} ${round(item.amount)}`).join(", ")}`
+      ? `dividends ${round(input.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round(item.amount)}`).join(", ")}${input.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}`
       : undefined,
     input.dividends?.expected.length
       ? `dividends expected this week: ${input.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}`
@@ -134,8 +170,11 @@ export class DailyDigest {
     targets?: (environment: TradingEnvironment) => Promise<TargetAllocation | undefined>;
     /** The holdings' day; a read that fails leaves it out of the digest. */
     today?: (environment: TradingEnvironment, now: Date) => Promise<PortfolioToday>;
-    /** The dividend history from `from`; a read that fails leaves dividends out of the digest. */
-    dividends?: (environment: TradingEnvironment, from: Date, now: Date) => Promise<HistoryDividendItem[]>;
+    /**
+     * The dividend history from `from`, newest first, and whether it stopped at the page limit; a read that fails leaves
+     * dividends out of the digest, and the next digest names what it missed.
+     */
+    dividends?: (environment: TradingEnvironment, from: Date, now: Date) => Promise<{ items: HistoryDividendItem[]; truncated: boolean }>;
   }) {}
 
   /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
@@ -174,11 +213,14 @@ export class DailyDigest {
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         // The day reuses the account read just made; the quote provider's closes may be missing or late.
         const day = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => undefined)) : undefined;
-        // Paid since the last digest (the last day for the first one), and expected from the same read.
-        const lastSent = await this.deps.store.get<string>(`digest-at:${environment}`);
-        const since = new Date(lastSent && Date.parse(lastSent) < now.getTime() ? Date.parse(lastSent) : now.getTime() - DAY_MS);
-        const history = await this.deps.dividends?.(environment, new Date(Math.min(since.getTime(), scheduleStart(now.getTime()))), now).catch(() => undefined);
-        const dividends = history ? digestDividends(history, dashboard.positions, since, now) : undefined;
+        // Paid since the last digest that read them (the last day for the first one), and expected from the same read.
+        const markKey = `digest-dividends:${environment}`;
+        const mark = await this.deps.store.get<DividendMark>(markKey);
+        const since = dividendsSince(mark, now);
+        const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime()))), now).catch(() => undefined);
+        const dividends = history
+          ? digestDividends(history.items, dashboard.positions, { since, ...(Array.isArray(mark?.seen) ? { seen: mark.seen } : {}), truncated: history.truncated }, now)
+          : undefined;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -206,7 +248,8 @@ export class DailyDigest {
           continue;
         }
         await this.deps.store.put(`digest-value:${environment}`, totalValue);
-        await this.deps.store.put(`digest-at:${environment}`, now.toISOString());
+        // A read that failed leaves the mark where it was, so the next digest names what this one missed.
+        if (history) await this.deps.store.put(markKey, dividendMark(history.items, now));
         await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
         sent.push(environment);
       } catch (error) {

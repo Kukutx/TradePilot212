@@ -31,9 +31,6 @@ export interface ServiceDependencies {
 
 export type Services = ReturnType<typeof createServices>;
 
-/** Pages of dividend history the daily digest reads: a year of dividends for a large account. */
-const DIGEST_DIVIDEND_PAGES = 4;
-
 /** Build the runtime-neutral services shared by the HTTP and stdio transports and the scheduler. */
 // One simulated account per process, so the HTTP handlers and the scheduler see the same sample data.
 let processSampleBroker: typeof fetch | undefined;
@@ -96,8 +93,9 @@ export function createServices(input: ServiceDependencies) {
   }, environment, now);
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
-    // A year of dividends is a page or two of Trading 212's history, once a day.
-    dividends: async (environment, from, now) => (await insights.collect(environment, "dividends", { from, to: now }, DIGEST_DIVIDEND_PAGES)).items,
+    // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads, so
+    // the digest expects what its calendar does.
+    dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
     ...(notify ? { notify } : {}),
   });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price alerts, target drift and the daily digest. */
