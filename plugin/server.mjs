@@ -35494,7 +35494,8 @@ function riskNotices(draft, current) {
   const price = current.estimatedNotional / draft.quantity;
   const instrumentCurrency = current.estimatedNotionalCurrency;
   const accountCurrency = current.accountCurrency ?? instrumentCurrency;
-  const lowest = current.marketPrice && current.marketPrice > 0 ? Math.min(price, current.marketPrice) : price;
+  const resting = (draft.type === "stop" || draft.type === "stop_limit") && !!draft.stopPrice && !!current.marketPrice && draft.stopPrice > current.marketPrice;
+  const lowest = current.marketPrice && current.marketPrice > 0 && !resting ? Math.min(price, current.marketPrice) : price;
   if (!(lowest > limit.stopLossPrice)) {
     return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round3(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round3(lowest, 6), currency: instrumentCurrency } }];
   }
@@ -35952,7 +35953,13 @@ var TradingService = class {
         }
       }
     }
-    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
+    const currencies = draft.fxRate && !draft.riskBudget ? [] : [instrument.currencyCode];
+    const { rates, quoted } = draft.riskBudget && draft.fxRate ? await this.ratesFor(positions, account.currency ?? "", currencies).catch(() => this.ratesFor(positions, account.currency ?? "", [])) : await this.ratesFor(positions, account.currency ?? "", currencies);
+    const fresh = draft.riskBudget && draft.fxRate ? quoted.get(instrument.currencyCode.toUpperCase()) : void 0;
+    if (fresh) {
+      draft.fxRate = fresh.rate;
+      draft.fxRateAt = fresh.asOf;
+    }
     return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
   async snapshot(environment) {

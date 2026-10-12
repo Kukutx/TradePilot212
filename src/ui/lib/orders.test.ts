@@ -72,10 +72,11 @@ describe("risk at the stop", () => {
 });
 
 describe("switching accounts", () => {
-  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "limit", quantity: 7, limitPrice: 208, timeValidity: "DAY", referencePrice: 216 };
+  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "limit", quantity: 7, limitPrice: 208, timeValidity: "DAY", referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z" };
   it("sizes again what depends on the account, with the draft's own prices", () => {
     const risk: OrderResolution = { sizing: { mode: "risk", percent: 1, stopLossPrice: 200 }, resolvedQuantity: 2 };
-    expect(intentForAccount(draft, risk, "live")).toEqual({ environment: "live", instrument: "AAPL_US_EQ", side: "buy", type: "limit", sizing: risk.sizing, limitPrice: 208, timeValidity: "DAY" });
+    // The dated reference carries over, for an instrument neither account holds and no quote source prices.
+    expect(intentForAccount(draft, risk, "live")).toEqual({ environment: "live", instrument: "AAPL_US_EQ", side: "buy", type: "limit", sizing: risk.sizing, limitPrice: 208, referencePrice: 216, referencePriceAt: "2026-10-12T00:00:00.000Z", timeValidity: "DAY" });
     expect(intentForAccount(draft, { sizing: { mode: "cash_percent", percent: 10 }, resolvedQuantity: 2 }, "live")).toMatchObject({ sizing: { mode: "cash_percent" } });
   });
 

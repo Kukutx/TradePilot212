@@ -316,8 +316,8 @@ export function validateOrderAgainstSnapshot(
  * A risk-sized buy checked again at the prices of the moment: the loss at its stop-loss, valued as the review
  * values the order (the limit, or the highest of the trigger, reference and last price). Over the budget it was
  * sized for, because the price moved or the quantity was changed, it says so before you confirm. So it does
- * when the order's price, or the market price (`marketPrice`, the holding's or the quote's), is at or under the
- * stop-loss: the stop would trigger as soon as the buy fills.
+ * when the order's price, or the market price (`marketPrice`, the holding's or the quote's) for an order that can
+ * fill now, is at or under the stop-loss: the stop would trigger as soon as the buy fills.
  */
 export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: number; accountNotional?: number; estimatedNotionalCurrency: string; accountCurrency?: string; marketPrice?: number }): OrderNotice[] {
   const limit = draft.riskBudget;
@@ -325,7 +325,9 @@ export function riskNotices(draft: OrderDraft, current: { estimatedNotional?: nu
   const price = current.estimatedNotional / draft.quantity;
   const instrumentCurrency = current.estimatedNotionalCurrency;
   const accountCurrency = current.accountCurrency ?? instrumentCurrency;
-  const lowest = current.marketPrice && current.marketPrice > 0 ? Math.min(price, current.marketPrice) : price;
+  // A Stop or Stop Limit buy whose trigger is still above the market cannot fill until the price rises to it.
+  const resting = (draft.type === "stop" || draft.type === "stop_limit") && !!draft.stopPrice && !!current.marketPrice && draft.stopPrice > current.marketPrice;
+  const lowest = current.marketPrice && current.marketPrice > 0 && !resting ? Math.min(price, current.marketPrice) : price;
   if (!(lowest > limit.stopLossPrice)) {
     return [{ code: "RISK_STOP_ABOVE_PRICE", message: `The price (${round(lowest, 6)} ${instrumentCurrency}) is already at or below the stop-loss of ${limit.stopLossPrice} ${instrumentCurrency} this order was sized for.`, details: { stopLossPrice: limit.stopLossPrice, price: round(lowest, 6), currency: instrumentCurrency } }];
   }
@@ -862,7 +864,17 @@ export class TradingService {
         }
       }
     }
-    const { rates } = await this.ratesFor(positions, account.currency ?? "", draft.fxRate ? [] : [instrument.currencyCode]);
+    // A risk-sized buy also asks for the exchange rate of the moment instead of the one it was sized at, so an
+    // adverse move in the rate counts toward the loss at the stop; the draft keeps its own when there is none.
+    const currencies = draft.fxRate && !draft.riskBudget ? [] : [instrument.currencyCode];
+    const { rates, quoted } = draft.riskBudget && draft.fxRate
+      ? await this.ratesFor(positions, account.currency ?? "", currencies).catch(() => this.ratesFor(positions, account.currency ?? "", []))
+      : await this.ratesFor(positions, account.currency ?? "", currencies);
+    const fresh = draft.riskBudget && draft.fxRate ? quoted.get(instrument.currencyCode.toUpperCase()) : undefined;
+    if (fresh) {
+      draft.fxRate = fresh.rate;
+      draft.fxRateAt = fresh.asOf;
+    }
     return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates) };
   }
 

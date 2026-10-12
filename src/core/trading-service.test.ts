@@ -278,7 +278,8 @@ function fxFetch(options: { writeBody?: () => BodyInit; writes?: string[]; unhel
       return new Response(options.writeBody?.() ?? "{}", { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.endsWith("/equity/metadata/instruments")) return json([{ ...vusa, currencyCode: "GBX" }, { ...aapl, currencyCode: "USD" },
-      ...(options.unheld ? [{ ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD", type: "STOCK" }] : [])]);
+      ...(options.unheld ? [{ ticker: "MSFT_US_EQ", name: "Microsoft", shortName: "MSFT", currencyCode: "USD", type: "STOCK" },
+        { ticker: "NESNz_EQ", name: "Nestle", shortName: "NESN", currencyCode: "CHF", type: "STOCK" }] : [])]);
     // The positions endpoint names the currency `currency`, not `currencyCode`.
     if (url.endsWith("/equity/positions")) return json([
       { instrument: vusa, quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 8000, currentPrice: 8475, walletImpact: { currency: "EUR", currentValue: 1000 } },
@@ -422,6 +423,22 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(limit.notices.map((notice) => notice.code)).toContain("RISK_STOP_ABOVE_PRICE");
   });
 
+  it("checks a cross-currency risk buy at the exchange rate of the moment", async () => {
+    let rate = 0.94;
+    const quotes: QuoteProvider = { name: "stooq", symbolFor: () => "nesn.sw", quote: async () => ({ ticker: "NESNz_EQ", symbol: "nesn.sw", price: 100, asOf: new Date().toISOString(), source: "stooq" as const }),
+      fxRate: async (from, to) => ({ from, to, rate, asOf: new Date().toISOString(), source: "stooq" as const }) };
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch({ unheld: true }), quotes });
+    // 10 CHF a share to the stop is 10.64 EUR at 0.94 CHF per EUR, so 30 EUR buys 2.82 shares.
+    const sized = await service.resolveOrderIntent({ environment: "demo", instrument: "NESNz_EQ", side: "buy", type: "market", sizing: { mode: "risk", amount: 30, stopLossPrice: 90 } });
+    expect(sized.draft).toMatchObject({ fxRate: 0.94, riskBudget: { budget: 30 } });
+    expect((await service.prepareOrder({ ...sized.draft })).notices.map((notice) => notice.code)).not.toContain("RISK_OVER_BUDGET");
+    // The franc strengthens to 0.8 per euro: the same 10 CHF is 12.50 EUR a share, and the review reads the new rate.
+    rate = 0.8;
+    const moved = await service.prepareOrder({ ...sized.draft });
+    expect(moved.draft.fxRate).toBe(0.8);
+    expect(moved.notices.find((notice) => notice.code === "RISK_OVER_BUDGET")?.details).toMatchObject({ budget: 30, accountCurrency: "EUR" });
+  });
+
   it("counts a reference above a Stop's trigger, and carries the budget for the review to check", async () => {
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
     // Trigger 220, last price 216, but the price given is 230: 30 USD a share to the stop, not 20.
@@ -446,6 +463,11 @@ describe("currencies, uncertain results and Live confirmations", () => {
   it("says when the price is already under the stop-loss a buy was sized for", () => {
     const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 2, riskBudget: { stopLossPrice: 200, budget: 30 } };
     expect(riskNotices(draft, { estimatedNotional: 390, accountNotional: 361.11, estimatedNotionalCurrency: "USD", accountCurrency: "EUR" }).map((notice) => notice.code)).toEqual(["RISK_STOP_ABOVE_PRICE"]);
+    // A Stop buy at 220 rests while the market is at 190, so the fall is no reason to warn; one at 185 has triggered.
+    const stop: OrderDraft = { ...draft, type: "stop", stopPrice: 220, quantity: 1.5 };
+    const at = { estimatedNotional: 330, accountNotional: 305.56, estimatedNotionalCurrency: "USD", accountCurrency: "EUR", marketPrice: 190 };
+    expect(riskNotices(stop, at)).toEqual([]);
+    expect(riskNotices({ ...stop, stopPrice: 185 }, at).map((notice) => notice.code)).toEqual(["RISK_STOP_ABOVE_PRICE"]);
     expect(riskNotices({ ...draft, side: "sell" }, { estimatedNotional: 390, accountNotional: 361.11, estimatedNotionalCurrency: "USD" })).toEqual([]);
   });
 
