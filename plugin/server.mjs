@@ -37313,14 +37313,29 @@ function summarizePerformance(input2) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function forwardDividends(dividends, positions, to, now = to) {
-  const read = { from: new Date(scheduleStart(to.getTime())), to };
+function paidPerShare(dividends, from, to) {
+  const read = { from: new Date(from), to };
   const payments = /* @__PURE__ */ new Map();
   for (const item of dividends) {
     const ticker = item.ticker ?? item.instrument?.ticker ?? "";
     if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
     payments.set(ticker, [...payments.get(ticker) ?? [], { at: Date.parse(item.paidOn), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
   }
+  return payments;
+}
+function expectedDividends(dividends, positions, from, until, to) {
+  const payments = paidPerShare(dividends, Math.min(scheduleStart(from), scheduleStart(to.getTime())), to);
+  const expected = [];
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : void 0;
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
+    expected.push(...expectedPayments(schedule, position.quantity, from, until).map((payment) => ({ ticker, ...payment })));
+  }
+  return expected.sort((a, b) => a.at - b.at || b.amount - a.amount).map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }));
+}
+function forwardDividends(dividends, positions, to, now = to) {
+  const payments = paidPerShare(dividends, scheduleStart(to.getTime()), to);
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
   const current = start === monthStart(now.getTime());
@@ -38546,7 +38561,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.38.0"
+  version: "2.39.0"
 };
 
 // src/shared/prices.ts
@@ -42193,6 +42208,50 @@ var round10 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round10(value)}`;
 var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round10(value * 100)}%`;
 var MOVERS = 3;
+var EXPECTED_DIVIDENDS = 3;
+var RECEIVED_DIVIDENDS = 5;
+var WEEK_MS = 7 * DAY_MS12;
+var LATE_DIVIDEND_MS = 3 * DAY_MS12;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS12;
+var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
+function dividendsSince(mark, now) {
+  const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
+  const at = Math.min(time3(mark?.at), now.getTime());
+  const from = time3(mark?.from);
+  const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
+  if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
+  if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
+  return { since: now.getTime() - DAY_MS12, known: false };
+}
+function dividendMark(dividends, now) {
+  const from = now.getTime() - LATE_DIVIDEND_MS;
+  const seen = dividends.filter((item) => {
+    const at = Date.parse(item.paidOn ?? "");
+    return at > from && at <= now.getTime();
+  });
+  return { at: now.toISOString(), seen: [...new Set(seen.map(dividendKey))] };
+}
+function digestDividends(dividends, positions, window, now) {
+  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
+  const seen = new Set(window.seen ?? []);
+  const received = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const at = Date.parse(item.paidOn ?? "");
+    const ticker = item.ticker ?? item.instrument?.ticker;
+    if (!ticker || !item.amount || !(at > window.since && at <= now.getTime()) || seen.has(dividendKey(item))) continue;
+    received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
+  }
+  const today = Math.floor(now.getTime() / DAY_MS12) * DAY_MS12;
+  const day2 = new Date(today).toISOString().slice(0, 10);
+  const weekAgo = new Date(today - WEEK_MS).toISOString().slice(0, 10);
+  const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(now.getTime()), today - WEEK_MS), today + WEEK_MS, now);
+  const expected = upcoming.filter((payment) => payment.on >= weekAgo).map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day2 }));
+  return {
+    received: [...received].filter(([, amount2]) => amount2 > 0).sort((a, b) => b[1] - a[1]).map(([ticker, amount2]) => ({ name: names.get(ticker) ?? ticker, amount: round10(amount2) })),
+    // Coming first: one due and not paid may never come, and should not crowd out the week's.
+    expected: [...expected.filter((payment) => !payment.due), ...expected.filter((payment) => payment.due)]
+  };
+}
 function digestDay(today) {
   const total = today?.total;
   if (!today || !total) return void 0;
@@ -42223,6 +42282,8 @@ function digestText(input2) {
     input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
     input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
     input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
+    input2.dividends?.received.length ? `dividends ${round10(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round10(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
+    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round10(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
     input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
     input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
   ].filter(Boolean).join(" \xB7 ");
@@ -42247,7 +42308,12 @@ var DailyDigest = class {
       const claimKey2 = `digest:${environment}:${day2}`;
       const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS12, now.getTime());
       if (claim2.count > 1) continue;
+      let delivered = false;
       try {
+        const markKey = `digest-dividends:${environment}`;
+        const mark = await this.deps.store.get(markKey);
+        const { since, known } = dividendsSince(mark, now);
+        if (!known) await this.deps.store.put(markKey, { from: new Date(since).toISOString() });
         const dashboard = await this.deps.trading.getDashboard(environment);
         const account = dashboard.account;
         if (!account) {
@@ -42264,6 +42330,8 @@ var DailyDigest = class {
         const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
         const day3 = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => void 0)) : void 0;
+        const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime() - WEEK_MS))), now).catch(() => void 0);
+        const dividends = history ? digestDividends(history.items, dashboard.positions, { since, ...Array.isArray(mark?.seen) ? { seen: mark.seen } : {}, truncated: history.truncated }, now) : void 0;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -42281,18 +42349,24 @@ var DailyDigest = class {
           filledOrders,
           ...maxDrift === void 0 ? {} : { maxDrift },
           ...uncovered.length ? { uncovered } : {},
-          ...day3 ? { day: day3 } : {}
+          ...day3 ? { day: day3 } : {},
+          ...dividends ? { dividends } : {}
         });
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {
           await this.deps.store.delete(claimKey2);
           continue;
         }
-        await this.deps.store.put(`digest-value:${environment}`, totalValue);
-        await this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false });
+        delivered = true;
         sent.push(environment);
+        const keep = (what, write) => write.catch((error62) => {
+          console.error(JSON.stringify({ message: `TradePilot digest sent; its ${what} was not saved`, environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+        });
+        if (history) await keep("dividend mark", this.deps.store.put(markKey, dividendMark(history.items, now)));
+        await keep("value", this.deps.store.put(`digest-value:${environment}`, totalValue));
+        await keep("activity entry", this.deps.trading.recordActivity("daily_digest", environment, { outcome: text }, { notify: false }));
       } catch (error62) {
-        await this.deps.store.delete(claimKey2).catch(() => {
+        if (!delivered) await this.deps.store.delete(claimKey2).catch(() => {
         });
         console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
       }
@@ -42588,7 +42662,16 @@ function createServices(input2) {
     closes: closes2,
     fills: (env2, from) => insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, DAY_ORDER_PAGES)
   }, environment, now);
-  const digest = new DailyDigest({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today, ...notify ? { notify } : {} });
+  const digest = new DailyDigest({
+    config: deps.config,
+    store: deps.store,
+    trading,
+    targets: (environment) => targets.get(environment),
+    today,
+    // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
+    dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
+    ...notify ? { notify } : {}
+  });
   const stage = async (name, run) => {
     try {
       return await run();

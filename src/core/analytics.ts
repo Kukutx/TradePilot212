@@ -377,6 +377,35 @@ export function summarizePerformance(input: {
   };
 }
 
+/** Each instrument's payments per share from `from` to `to`, for its dividend schedule. */
+function paidPerShare(dividends: HistoryDividendItem[], from: number, to: Date): Map<string, PaidDividend[]> {
+  const read = { from: new Date(from), to };
+  const payments = new Map<string, PaidDividend[]>();
+  for (const item of dividends) {
+    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
+    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
+    payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
+  }
+  return payments;
+}
+
+/**
+ * The payments the holdings are expected to make from `from` until before `until`, soonest first, on the schedules the
+ * dividend calendar uses (read up to `to`): one due since `from` and not paid yet is still expected. The schedules are
+ * read from the first day of `from`'s month a year before, so a yearly payment due then is still seen.
+ */
+export function expectedDividends(dividends: HistoryDividendItem[], positions: Position[], from: number, until: number, to: Date): Array<{ ticker: string; on: string; amount: number }> {
+  const payments = paidPerShare(dividends, Math.min(scheduleStart(from), scheduleStart(to.getTime())), to);
+  const expected: Array<{ ticker: string; at: number; amount: number }> = [];
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    const schedule = ticker ? dividendSchedule(payments.get(ticker) ?? []) : undefined;
+    if (!ticker || !schedule || !(position.quantity > 0)) continue;
+    expected.push(...expectedPayments(schedule, position.quantity, from, until).map((payment) => ({ ticker, ...payment })));
+  }
+  return expected.sort((a, b) => a.at - b.at || b.amount - a.amount).map(({ ticker, at, amount }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount }));
+}
+
 /**
  * Next-12-month dividends from each holding's net payments per share over the last year (from the first day of this
  * month a year ago), at the current quantity. A holding bought during the year has fewer paydays than its schedule,
@@ -385,13 +414,7 @@ export function summarizePerformance(input: {
  * this month; for a period ending in another month there is no calendar.
  */
 export function forwardDividends(dividends: HistoryDividendItem[], positions: Position[], to: Date, now: Date = to): NonNullable<IncomeSummary["forwardAnnual"]> {
-  const read = { from: new Date(scheduleStart(to.getTime())), to };
-  const payments = new Map<string, PaidDividend[]>();
-  for (const item of dividends) {
-    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
-    if (!ticker || !item.quantity || item.quantity <= 0 || !item.amount || !inWindow(item.paidOn, read)) continue;
-    payments.set(ticker, [...(payments.get(ticker) ?? []), { at: Date.parse(item.paidOn!), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }]);
-  }
+  const payments = paidPerShare(dividends, scheduleStart(to.getTime()), to);
   const start = monthStart(to.getTime());
   const end = addMonths(start, 12);
   const current = start === monthStart(now.getTime());

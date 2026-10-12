@@ -38,7 +38,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - price alerts on holdings or any quoted instrument (above / below a price, a day's move either way from the previous close that arms itself again each trading day, trailing drop from the high, gain or loss against average cost), checked every minute
 - a built-in sample account (`TRADEPILOT_SAMPLE_DATA=true`) for trying everything without an API key ([docs/TRY_IT.md](./docs/TRY_IT.md))
 - quotes for instruments you do not hold from a pluggable source (free Stooq by default, or Finnhub, Twelve Data or Alpha Vantage with your key), used by price alerts, plans, rebalancing and the journal review
-- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest
+- optional webhook notifications (Slack, Discord or your own endpoint) for due plans, sent orders, fills, alerts and unclear results, plus an optional daily account digest with the day's move, the dividends paid since the last one and those expected in the coming week
 - an automation overview in the widget: plans, alerts, linked pairs, today's budget use and settings
 - expected dividend income for the next 12 months from each holding's trailing payments, as a dividend calendar (paid this month and expected per month) with each payment's approximate date, and a holding's next payments on its page
 - an account value chart from TradePilot's own daily record (Trading 212's API has no value history)

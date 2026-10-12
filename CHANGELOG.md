@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.39.0
+
+- The daily digest names the dividends paid since the previous digest ("dividends 10.95 in: KO 9.7, VUSA 1.25", the five largest and then how many more) and those expected in the coming seven days, then any due in the last seven days and not paid yet, marked as due ("dividends expected this week: AAPL ~2.4 10-14, MSFT ~4.15 due 10-08"). The expected ones come from the Income tab's dividend calendar.
+- It reads Trading 212's dividend history for this on each attempt, from the first day of the month a week ago, a year before (at most ten pages, as the Income tab), so a payment due late last month is still marked as due. A digest whose dividends cannot be read goes out without them and the next one names what it missed; a dividend that reaches the history up to three days late is named by the next digest after it appears, and none twice.
+
 ## 2.38.0
 
 - A dividend calendar. The Income tab shows this month and the next 11: what was paid so far this month and what each month is expected to bring, from each holding's payments over the last year at the quantity held now, then the payments themselves soonest first, with their approximate dates and amounts. A payment due this month that has not come yet says so.

@@ -3,7 +3,8 @@ import type { Instrument } from "../shared/contracts.js";
 import { createServices } from "../app/services.js";
 import { createConfig } from "./config.js";
 import type { PortfolioToday } from "../shared/today.js";
-import { DailyDigest, digestDay, digestText } from "./digest.js";
+import { forwardDividends } from "./analytics.js";
+import { DailyDigest, digestDay, digestDividends, digestText, dividendsSince } from "./digest.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const instrument: Instrument = { ticker: "VUSA_EQ", name: "VUSA ETF", shortName: "VUSA", currencyCode: "EUR", type: "ETF" };
@@ -86,6 +87,207 @@ describe("daily digest", () => {
     expect(texts[1]).toBe("Total 2000 EUR (+0 since the last digest) · cash 1000 · unrealized +100 · top: VUSA_EQ 1000 (+100)");
   });
 
+  it("names the dividends paid since the last digest and those expected in the coming week", () => {
+    const position = (ticker: string, shortName: string, quantity: number) => ({ instrument: { ticker, name: shortName, shortName, currencyCode: "USD" }, quantity, quantityAvailableForTrading: quantity, quantityInPies: 0, averagePricePaid: 1, currentPrice: 1 });
+    const positions = [position("KO_US_EQ", "KO", 20), position("AAPL_US_EQ", "AAPL", 10), position("MSFT_US_EQ", "MSFT", 5)];
+    const quarterly = (ticker: string, amount: number, quantity: number, days: string[]) => days.map((day) => ({ ticker, amount, quantity, paidOn: `${day}T12:00:00Z` }));
+    const history = [
+      ...quarterly("KO_US_EQ", 9.7, 20, ["2025-10-01", "2026-01-02", "2026-04-01", "2026-07-01", "2026-10-09"]),
+      // Paid a quarter ago and due again in four days.
+      ...quarterly("AAPL_US_EQ", 2.4, 10, ["2025-11-14", "2026-02-14", "2026-05-14", "2026-07-14"]),
+      // Due two days ago and not paid yet.
+      ...quarterly("MSFT_US_EQ", 4.15, 5, ["2025-12-08", "2026-03-08", "2026-06-08", "2026-07-08"]),
+      { ticker: "SOLD_EQ", amount: 1.25, quantity: 5, paidOn: "2026-10-09T15:00:00Z" },
+    ];
+    const now = new Date("2026-10-10T07:00:00Z");
+    const dividends = digestDividends(history, positions, { since: Date.parse("2026-10-09T07:00:00Z") }, now);
+    expect(dividends.received).toEqual([{ name: "KO", amount: 9.7 }, { name: "SOLD_EQ", amount: 1.25 }]);
+    // The week's first, then the one due and not paid.
+    expect(dividends.expected).toEqual([
+      { name: "AAPL", on: "2026-10-14", amount: 2.4, due: false },
+      { name: "MSFT", on: "2026-10-08", amount: 4.15, due: true },
+    ]);
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 10, cash: 0, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, dividends }))
+      .toBe("Total 10 EUR · cash 0 · dividends 10.95 in: KO 9.7, SOLD_EQ 1.25 · dividends expected this week: AAPL ~2.4 10-14, MSFT ~4.15 due 10-08");
+    // A payment the last digest saw is not named again.
+    const ko = history.find((item) => item.ticker === "KO_US_EQ" && item.paidOn.startsWith("2026-10-09"))!;
+    expect(digestDividends([{ ...ko, reference: "ko-1" }], positions, { since: Date.parse("2026-10-07T07:00:00Z"), seen: ["ko-1"] }, now).received).toEqual([]);
+    // The week is seven days from today; one due more than a week ago has likely been cut or moved, and is left out.
+    const expectedOn = (day: string) => {
+      const at = new Date(`${day}T07:00:00Z`);
+      return digestDividends(history.filter((item) => Date.parse(item.paidOn) <= at.getTime()), positions, { since: at.getTime() }, at).expected.map((payment) => `${payment.name} ${payment.on}${payment.due ? " due" : ""}`);
+    };
+    expect(expectedOn("2026-10-07")).toEqual(["MSFT 2026-10-08", "KO 2026-10-01 due"]);
+    expect(expectedOn("2026-10-15")).toEqual(["MSFT 2026-10-08 due", "AAPL 2026-10-14 due"]);
+    expect(expectedOn("2026-10-16")).toEqual(["AAPL 2026-10-14 due"]);
+    // A payment due late last month stays due into the next, for a week.
+    const dueOn = (late: typeof history, day: string) => digestDividends(late, positions, { since: Date.parse(`${day}T07:00:00Z`) }, new Date(`${day}T07:00:00Z`)).expected.map((payment) => `${payment.on}${payment.due ? " due" : ""}`);
+    const late = quarterly("KO_US_EQ", 9.7, 20, ["2026-01-29", "2026-04-29", "2026-07-29"]);
+    expect(dueOn(late, "2026-11-03")).toEqual(["2026-10-29 due"]);
+    expect(dueOn(late, "2026-11-05")).toEqual(["2026-10-29 due"]);
+    expect(dueOn(late, "2026-11-06")).toEqual([]);
+    // Yearly and half-yearly too, though the payment a year before falls in last month.
+    expect(dueOn(quarterly("KO_US_EQ", 9.7, 20, ["2025-10-29"]), "2026-11-02")).toEqual(["2026-10-29 due"]);
+    expect(dueOn(quarterly("KO_US_EQ", 9.7, 20, ["2025-10-29", "2026-04-29"]), "2026-11-02")).toEqual(["2026-10-29 due"]);
+    // A history cut short at the page limit may lack a payment of the year before: nothing expected rather than too little.
+    expect(digestDividends(history, positions, { since: Date.parse("2026-10-09T07:00:00Z"), truncated: true }, now)).toEqual({ received: dividends.received, expected: [] });
+  });
+
+  it("names the five largest dividends received and counts the rest", () => {
+    const received = ["A", "B", "C", "D", "E", "F", "G"].map((name, index) => ({ name, amount: 7 - index }));
+    expect(digestText({ environment: "demo", currency: "EUR", totalValue: 10, cash: 0, positions: [], pendingOrders: 0, duePlans: [], triggeredAlerts: 0, dividends: { received, expected: [] } }))
+      .toBe("Total 10 EUR · cash 0 · dividends 28 in: A 7, B 6, C 5, D 4, E 3 +2");
+  });
+
+  it("names each dividend once: after a failed first digest, days without one, a webhook outage, a failed read, and when it reaches the history late", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const services = setup({ DIGEST_HOUR_UTC: "7" });
+      const texts: string[] = [];
+      const reads: string[] = [];
+      const history: Array<{ reference: string; ticker: string; amount: number; quantity: number; paidOn: string }> = [];
+      let fail = false;
+      let hookDown = false;
+      const digest = new DailyDigest({
+        config: services.config, store: services.store, trading: services.trading,
+        notify: async (event) => { if (hookDown) return false; texts.push(event.outcome ?? ""); return true; },
+        dividends: async (_environment, from) => {
+          reads.push(from.toISOString());
+          if (fail) throw new Error("rate limit");
+          // Newest first, as Trading 212 lists them.
+          return { items: [...history].sort((a, b) => b.paidOn.localeCompare(a.paidOn)), truncated: false };
+        },
+      });
+      const runAt = (time: string) => { vi.setSystemTime(new Date(time)); return digest.run(new Date()); };
+      const paid = (reference: string, amount: number, paidOn: string) => history.push({ reference, ticker: "VUSA_EQ", amount, quantity: 10, paidOn });
+      const named = () => texts.at(-1)?.match(/dividends ([\d.]+) in/)?.[1];
+
+      // The first digest's read fails: the next names the dividends of the first one's day.
+      paid("d1", 3.1, "2026-10-10T20:00:00Z");
+      fail = true;
+      expect(await runAt("2026-10-11T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
+      fail = false;
+      expect(await runAt("2026-10-12T07:00:00Z")).toEqual(["demo"]);
+      // Read from the first day of this month a year ago, for the expected payments.
+      expect(reads.at(-1)).toBe("2025-10-01T00:00:00.000Z");
+      expect(named()).toBe("3.1");
+      expect(await runAt("2026-10-12T08:00:00Z")).toEqual([]);
+
+      // No digest for a day: the next names what came in meanwhile.
+      paid("d2", 1, "2026-10-13T20:00:00Z");
+      expect(await runAt("2026-10-15T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("1");
+
+      // The webhook refuses the digest: the retry names the same dividends.
+      paid("d3", 2, "2026-10-15T15:00:00Z");
+      hookDown = true;
+      expect(await runAt("2026-10-16T07:00:00Z")).toEqual([]);
+      hookDown = false;
+      expect(await runAt("2026-10-16T07:16:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("2");
+
+      // A read that fails leaves dividends out, and the next digest names what it missed.
+      paid("d4", 4, "2026-10-16T15:00:00Z");
+      fail = true;
+      expect(await runAt("2026-10-17T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
+      fail = false;
+      expect(await runAt("2026-10-18T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("4");
+
+      // One dated before the last digest that reached the history only after it.
+      paid("d5", 0.5, "2026-10-18T06:00:00Z");
+      expect(await runAt("2026-10-19T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("0.5");
+      // Each is named once.
+      expect(await runAt("2026-10-20T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBeUndefined();
+
+      // After six weeks without a digest, only the last 31 days are named.
+      paid("d6", 6, "2026-10-25T20:00:00Z");
+      paid("d7", 7, "2026-11-20T20:00:00Z");
+      expect(await runAt("2026-12-01T07:00:00Z")).toEqual(["demo"]);
+      expect(named()).toBe("7");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shares a payer's year over the same payments as the Income tab's calendar", () => {
+    // Every two weeks for over a year, in amounts that vary: each payment is shared out as the one a year before it was,
+    // and the cents as over the calendar's payments from the first of the month.
+    const amounts = [1, 1.37, 1.74, 2.11, 0.6, 1.2, 0.9];
+    const fortnightly = Array.from({ length: 26 }, (_, index) => ({ ticker: "KO_US_EQ", amount: amounts[(index * 5) % amounts.length]!, quantity: 20, paidOn: new Date(Date.parse("2025-08-10T12:00:00Z") + index * 14 * 86_400_000).toISOString() }));
+    const position = { instrument: { ticker: "KO_US_EQ", name: "KO", shortName: "KO", currencyCode: "USD" }, quantity: 20, quantityAvailableForTrading: 20, quantityInPies: 0, averagePricePaid: 1, currentPrice: 1 };
+    const now = new Date("2026-10-17T07:00:00Z");
+    const calendar = forwardDividends(fortnightly, [position], now).upcoming!;
+    const digest = digestDividends(fortnightly, [position], { since: now.getTime() }, now).expected;
+    expect(digest.length).toBeGreaterThan(0);
+    for (const payment of digest) expect(calendar.find((item) => item.on === payment.on)?.amount).toBe(payment.amount);
+  });
+
+  it("keeps the dividends' start through a failed first day, a clock ahead, and a record that fails after sending", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const services = setup({ DIGEST_HOUR_UTC: "7" });
+      const texts: string[] = [];
+      const items = [{ reference: "d1", ticker: "VUSA_EQ", amount: 3, quantity: 10, paidOn: "2026-10-10T20:00:00Z" }];
+      let failValue = false;
+      const store = services.store;
+      const put = store.put.bind(store);
+      store.put = async (key: string, value: unknown, expiresAt?: number) => {
+        if (failValue && key.startsWith("digest-value:")) { failValue = false; throw new Error("store down"); }
+        return put(key, value, expiresAt);
+      };
+      const digest = new DailyDigest({
+        config: services.config, store, trading: services.trading,
+        notify: async (event) => { texts.push(event.outcome ?? ""); return true; },
+        dividends: async () => ({ items, truncated: false }),
+      });
+      const runAt = (time: string) => { vi.setSystemTime(new Date(time)); return digest.run(new Date()); };
+      // Trading 212 is down for every attempt of the first day.
+      services.outage.on = true;
+      for (const time of ["07:00", "07:15", "07:30"]) expect(await runAt(`2026-10-11T${time}:00Z`)).toEqual([]);
+      services.outage.on = false;
+      // The next day names the first day's dividend; the value record then fails, but the digest counts as sent.
+      failValue = true;
+      expect(await runAt("2026-10-12T07:00:00Z")).toEqual(["demo"]);
+      expect(texts.at(-1)).toMatch(/· dividends 3 in: VUSA 3/);
+      expect(await runAt("2026-10-12T07:20:00Z")).toEqual([]);
+      // The dividend mark was still kept: not named again.
+      expect(await runAt("2026-10-13T07:00:00Z")).toEqual(["demo"]);
+      expect(texts.at(-1)).not.toMatch(/dividends [\d.]+ in/);
+      expect(texts).toHaveLength(2);
+      // A mark written by a clock ahead of this one still counts, as of now, its payments seen.
+      expect(dividendsSince({ at: "2026-10-20T07:00:00Z", seen: [] }, new Date("2026-10-14T07:00:00Z"))).toEqual({ since: Date.parse("2026-10-11T07:00:00Z"), known: true });
+      await store.put("digest-dividends:demo", { at: "2026-10-20T07:00:00Z", seen: ["d2"] });
+      items.unshift({ reference: "d2", ticker: "VUSA_EQ", amount: 4, quantity: 10, paidOn: "2026-10-13T20:00:00Z" });
+      expect(await runAt("2026-10-14T07:00:00Z")).toEqual(["demo"]);
+      expect(texts.at(-1)).not.toMatch(/dividends [\d.]+ in/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves expected dividends out when the history read stopped at its page limit", async () => {
+    const services = setup({ DIGEST_HOUR_UTC: "7" });
+    const texts: string[] = [];
+    let truncated = false;
+    // Quarterly, and due again on 10-20.
+    const items = ["2026-07-20", "2026-04-20", "2026-01-20", "2025-10-20"].map((day, index) => ({ reference: `q${index}`, ticker: "VUSA_EQ", amount: 2.5, quantity: 10, paidOn: `${day}T12:00:00Z` }));
+    const digest = new DailyDigest({
+      config: services.config, store: services.store, trading: services.trading,
+      notify: async (event) => { texts.push(event.outcome ?? ""); return true; },
+      dividends: async () => ({ items, truncated }),
+    });
+    expect(await digest.run(new Date("2026-10-15T07:00:00Z"))).toEqual(["demo"]);
+    expect(texts.at(-1)).toMatch(/· dividends expected this week: VUSA ~2\.5 10-20(?: ·|$)/);
+    truncated = true;
+    expect(await digest.run(new Date("2026-10-16T07:00:00Z"))).toEqual(["demo"]);
+    expect(texts.at(-1)).not.toMatch(/expected/);
+  });
+
   it("names holdings a stop does not fully cover, once any stop is in place", async () => {
     const services = setup({ DIGEST_HOUR_UTC: "7" });
     expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
@@ -105,15 +307,22 @@ describe("daily digest", () => {
   });
 
   it("sends once per day at the configured hour and reports the change since the last one", async () => {
-    const services = setup({ DIGEST_HOUR_UTC: "7" });
-    expect(await services.digest.run(new Date("2026-10-11T06:59:00Z"))).toEqual([]);
-    expect(await services.digest.run(new Date("2026-10-11T07:00:00Z"))).toEqual(["demo"]);
-    expect(await services.digest.run(new Date("2026-10-11T08:00:00Z"))).toEqual([]);
-    services.total.value = 2050;
-    expect(await services.digest.run(new Date("2026-10-12T07:01:00Z"))).toEqual(["demo"]);
-    expect(services.hooks).toHaveLength(2);
-    expect(services.hooks[0]).toMatch(/^\[TradePilot DEMO\] Daily digest · Total 2000 EUR · cash 1000 · unrealized \+100 · top: VUSA_EQ 1000 \(\+100\)/);
-    expect(services.hooks[1]).toMatch(/\+50 since the last digest/);
+    // The store expires the day's claim against the clock, so the clock moves with the scheduler here.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const services = setup({ DIGEST_HOUR_UTC: "7" });
+      const runAt = (time: string) => { vi.setSystemTime(new Date(time)); return services.digest.run(new Date()); };
+      expect(await runAt("2026-10-11T06:59:00Z")).toEqual([]);
+      expect(await runAt("2026-10-11T07:00:00Z")).toEqual(["demo"]);
+      expect(await runAt("2026-10-11T08:00:00Z")).toEqual([]);
+      services.total.value = 2050;
+      expect(await runAt("2026-10-12T07:01:00Z")).toEqual(["demo"]);
+      expect(services.hooks).toHaveLength(2);
+      expect(services.hooks[0]).toMatch(/^\[TradePilot DEMO\] Daily digest · Total 2000 EUR · cash 1000 · unrealized \+100 · top: VUSA_EQ 1000 \(\+100\)/);
+      expect(services.hooks[1]).toMatch(/\+50 since the last digest/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed digest every 15 minutes for the rest of the day", async () => {
