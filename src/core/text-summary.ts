@@ -378,6 +378,7 @@ function driftLines(drift: AllocationDrift): string[] {
     ...(drift.untargeted.length ? [`- No target${drift.sellUntargeted ? " (sold by a rebalance to these targets)" : " (kept by a rebalance)"}: ${drift.untargeted.map((item) => `${item.ticker} ${pct(item.current)}`).join(", ")}`] : []),
     ...(drift.volatility ? [targetVolatilityLine(drift.volatility)] : []),
     ...(drift.rebalance ? [driftTradesLine(drift.rebalance)] : []),
+    ...(drift.rebalanceOver ? [driftTradesLine(drift.rebalanceOver.totals, `A rebalance of only the ones more than ${num(drift.threshold * 100, 1)} points off (${drift.rebalanceOver.tickers.join(", ")}; plan_portfolio_rebalance with band ${drift.threshold})`)] : []),
   ]);
 }
 
@@ -390,17 +391,17 @@ function fxFeeClause(totals: TradeTotals): string {
     : `; ${money(totals.converted, totals.currency)} of it in other currencies${unknown}, no conversion fee counted (FX_FEE_RATE is 0)`;
 }
 
-function driftTradesLine(totals: TradeTotals): string {
+function driftTradesLine(totals: TradeTotals, lead = "A rebalance to the targets"): string {
   if (!(totals.bought > 0) && !(totals.sold > 0)) {
     return totals.buysScaled !== undefined
-      ? "- A rebalance to the targets would buy nothing: no cash is free above the cash target, and nothing is to be sold to pay for the buys."
-      : "- A rebalance to the targets would trade nothing: every change is below 1 in the account currency or within the rounding of a target.";
+      ? `- ${lead} would buy nothing: no cash is free above the cash target, and nothing is to be sold to pay for the buys.`
+      : `- ${lead} would trade nothing: every change is below 1 in the account currency or within the rounding of a target.`;
   }
   const trades = [totals.bought > 0 ? `buy about ${money(totals.bought, totals.currency)}` : "", totals.sold > 0 ? `sell about ${money(totals.sold, totals.currency)}` : ""].filter(Boolean).join(" and ");
   const scaled = totals.buysScaled === undefined ? "" : totals.bought > 0
     ? ` The cash to spare, with what the sells raise, pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys.`
     : " The cash to spare, with what the sells raise, pays for none of the buys.";
-  return `- A rebalance to the targets would ${trades}${fxFeeClause(totals)}.${scaled} By weight; whole shares can trade a little less.`;
+  return `- ${lead} would ${trades}${fxFeeClause(totals)}.${scaled} By weight; whole shares can trade a little less.`;
 }
 
 function targetVolatilityLine(volatility: NonNullable<AllocationDrift["volatility"]>): string {

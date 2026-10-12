@@ -148,6 +148,45 @@ describe("rebalance planner", () => {
     expect(plan.trades[0]).toMatchObject({ ticker: "BOND", side: "sell", quantity: 40 });
   });
 
+  it("trades only the targets further off than the band and says how many it leaves", () => {
+    // EQ is 8 points over its 52% and BOND 2 over its 18%: a 5-point band trades EQ alone.
+    const targets = [{ ticker: "EQ", weight: 0.52 }, { ticker: "BOND", weight: 0.18 }];
+    const full = planRebalance("demo", account, positions, targets, { cashWeight: 0.3, quantityDecimals: 0 });
+    expect(full.trades.map((trade) => [trade.side, trade.ticker, trade.quantity])).toEqual([["sell", "EQ", 8], ["sell", "BOND", 4]]);
+    const banded = planRebalance("demo", account, positions, targets, { cashWeight: 0.3, quantityDecimals: 0, band: 0.05 });
+    expect(banded.trades.map((trade) => [trade.side, trade.ticker, trade.quantity])).toEqual([["sell", "EQ", 8]]);
+    expect(banded.band).toBe(0.05);
+    expect(banded.noteDetails?.find((note) => note.code === "within_band")).toEqual({
+      code: "within_band", message: "Only the targets more than 5 points off their weight are traded; 1 of 2 is left as it is.", details: { count: 1, total: 2, band: 0.05 },
+    });
+    expect(full.noteDetails?.map((note) => note.code)).not.toContain("within_band");
+  });
+
+  it("trades nothing when every target is within the band, without calling it the minimum trade", () => {
+    const plan = planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.52 }, { ticker: "BOND", weight: 0.18 }], { cashWeight: 0.3, band: 0.1 });
+    expect(plan.trades).toEqual([]);
+    expect(plan.notes[0]).toBe("Every target is within 10 points of its weight, so nothing is traded.");
+    expect(plan.noteDetails?.map((note) => note.code)).not.toContain("within_threshold");
+  });
+
+  it("funds the buys over the band from its sells and the spare cash, and keeps holdings without a target within it", () => {
+    // EQ 10 points over its 50% pays for NEW, 6 points under its 6%; BOND, 1 point under, stays.
+    const plan = planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.5 }, { ticker: "BOND", weight: 0.21 }, { ticker: "NEW", weight: 0.06, referencePrice: 10 }], { cashWeight: 0.2, quantityDecimals: 0, band: 0.05 }, () => "EUR");
+    expect(plan.trades.map((trade) => [trade.side, trade.ticker, trade.quantity])).toEqual([["sell", "EQ", 10], ["buy", "NEW", 60]]);
+    expect(plan.cashAfter).toBe(2400);
+    // A holding without a target is sold only when its whole weight is over the band.
+    expect(planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.6 }], { sellUntargeted: true, band: 0.25 }).trades).toEqual([]);
+    expect(planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.6 }], { sellUntargeted: true, band: 0.1 }).trades[0]).toMatchObject({ ticker: "BOND", side: "sell", quantity: 40 });
+  });
+
+  it("ignores the band when only investing cash, and refuses one outside 0 to 1", () => {
+    const plan = planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.62 }, { ticker: "BOND", weight: 0.3 }], { buyOnly: true, band: 0.05, quantityDecimals: 0 });
+    expect(plan.band).toBeUndefined();
+    expect(plan.trades.map((trade) => trade.ticker).sort()).toEqual(["BOND", "EQ"]);
+    expect(() => planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.5 }], { band: 0 })).toThrow(/band must be/);
+    expect(() => planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.5 }], { band: 1 })).toThrow(/band must be/);
+  });
+
   it("rejects targets above 100% and duplicates", () => {
     expect(() => planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.8 }, { ticker: "BOND", weight: 0.3 }])).toThrow(/exceed 100%/);
     expect(() => planRebalance("demo", account, positions, [{ ticker: "EQ", weight: 0.3 }, { ticker: "eq", weight: 0.3 }])).toThrow(/more than once/);

@@ -137,6 +137,10 @@ describe("text summaries for hosts that only show text", () => {
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, bought: 0 } } })).toContain("- A rebalance to the targets would trade nothing");
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, bought: 0, buysScaled: 0 } } })).toContain("- A rebalance to the targets would buy nothing: no cash is free above the cash target");
     expect(describePayload({ ...analysis, drift: { ...analysis.drift!, rebalance: { ...rebalance, buysScaled: 0.4567 } } })).toContain("none of it in another currency. The cash to spare, with what the sells raise, pays for about 45% of the buys. By weight;");
+    // Only the ones over the threshold, with the call that plans it.
+    const rebalanceOver = { tickers: ["AAPL_US_EQ", "KO_US_EQ"], totals: { ...rebalance, bought: 0, sold: 900 } };
+    expect(describePayload({ ...analysis, drift: { ...analysis.drift!, threshold: 0.05, rebalance, rebalanceOver } }))
+      .toContain("- A rebalance of only the ones more than 5 points off (AAPL_US_EQ, KO_US_EQ; plan_portfolio_rebalance with band 0.05) would sell about 900 EUR; none of it in another currency. By weight;");
   });
 
   it("gives a day's-move alert's change since the previous close", async () => {

@@ -13,6 +13,7 @@ import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import { MAX_ACCOUNT_ALERTS } from "./account-alerts.js";
 import type { PieChangeDraft } from "../shared/pies.js";
 import type { AllocationAnalysis, AllocationDrift, HoldingCovariance, HoldingCovariancePayload, HoldingMix } from "../shared/history.js";
+import type { TradeTotals } from "../shared/trade-cost.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
 import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
@@ -54,7 +55,9 @@ function badWeekText(mix: HoldingMix | undefined): string {
 function driftTradeText(drift: AllocationDrift): string {
   const totals = drift.rebalance;
   if (!totals || !(totals.bought > 0 || totals.sold > 0)) return "";
-  return `, a rebalance to them about ${Math.round(totals.bought + totals.sold)} ${totals.currency} traded${totals.fxFee > 0 ? ` and at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""}${totals.buysScaled === undefined ? "" : ` (the cash pays for about ${Math.floor(totals.buysScaled * 100)}% of the buys)`}`;
+  const traded = (part: TradeTotals) => `about ${Math.round(part.bought + part.sold)} ${part.currency} traded${part.fxFee > 0 ? ` and at most ${part.fxFee} ${part.currency} in conversion fees` : ""}${part.buysScaled === undefined ? "" : ` (the cash pays for about ${Math.floor(part.buysScaled * 100)}% of the buys)`}`;
+  const over = drift.rebalanceOver;
+  return `, a rebalance to them ${traded(totals)}${over && (over.totals.bought > 0 || over.totals.sold > 0) ? `, only the ${over.tickers.length} over the threshold ${traded(over.totals)}` : ""}`;
 }
 
 /** The text carries the payload's facts too, for hosts that show the model only text. */
@@ -301,7 +304,7 @@ export function createMcpServer(
     {
       title: "Portfolio Allocation Analysis",
       description:
-        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, drift.rebalance: what a rebalance to them would buy and sell (by weight, in the account currency, the buys fitted to the cash above the cash target and what the sells raise, with buysScaled the share paid for when that falls short) and the currency conversion fee on the part in other currencies (FX_FEE_RATE, 0.15% by default; at most that, as a trade paid from a balance in the instrument's currency converts nothing), and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
+        "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, drift.rebalance: what a rebalance to them would buy and sell (by weight, in the account currency, the buys fitted to the cash above the cash target and what the sells raise, with buysScaled the share paid for when that falls short) and the currency conversion fee on the part in other currencies (FX_FEE_RATE, 0.15% by default; at most that, as a trade paid from a balance in the instrument's currency converts nothing), drift.rebalanceOver: the same for only the targets more than the drift threshold off their weight (plan_portfolio_rebalance with band set to drift.threshold), when that trades fewer, and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         maxSingleWeight: z.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -715,7 +718,7 @@ export function createMcpServer(
     {
       title: "Plan a Rebalance",
       description:
-        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint. totals gives what the buys and sells come to and the currency conversion fee on the trades in other currencies (FX_FEE_RATE, 0.15% by default; none on a trade paid from or into a balance in that currency); the buys leave room for that fee, and cashAfter is net of it.",
+        "Compute the sells and buys that move the account toward target weights (shares of total account value), using the broker's position prices, the cash on hand and an optional cash reserve. Leave out targets to use the ones saved with manage_target_allocation (and their cash weight). Sells fund buys; buys are scaled down when cash is short. With buyOnly (or investAmount) nothing is sold and only cash above the cash weight is invested, for example after a deposit. This never places orders: with order tools enabled it opens the trades as one basket for the user to review and confirm. Instruments you do not hold are priced from the external quote provider when it can map them; otherwise pass a referencePrice, because Trading 212 has no quote endpoint. totals gives what the buys and sells come to and the currency conversion fee on the trades in other currencies (FX_FEE_RATE, 0.15% by default; none on a trade paid from or into a balance in that currency); the buys leave room for that fee, and cashAfter is net of it. With band, only the targets more than that share of the account off their weight are traded (for example the saved drift threshold, so a rebalance trades only what the drift notice flagged, with fewer trades and fees); cash over its target is not a target, so invest it with buyOnly.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         targets: z.array(z.object({
@@ -729,27 +732,30 @@ export function createMcpServer(
         sellUntargeted: z.boolean().optional().describe("Sell holdings that have no target. Default false, or the saved choice when the saved targets are used. Ignored with buyOnly"),
         buyOnly: z.boolean().optional().describe("Sell nothing: invest only the cash above the cash weight, in the targets below their weight, most to the furthest below"),
         investAmount: z.number().positive().optional().describe("Invest at most this amount, in the account currency, conversion fees included; implies buyOnly"),
+        band: z.number().gt(0).lt(1).optional().describe("Trade only the targets (and, with sellUntargeted, holdings without one) more than this share of the account off their weight, e.g. 0.05 for 5 points or the saved driftThreshold; the rest stay as they are. Ignored with buyOnly"),
         wholeSharesOnly: z.boolean().default(false),
         fxRates: z.record(z.string(), z.number().positive()).optional().describe("Instrument-currency units per 1 account-currency unit, e.g. {\"USD\": 1.08} for a EUR account. Optional: by default each rate comes from the broker's valuation of a holding in that currency"),
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
-    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, buyOnly, investAmount, wholeSharesOnly, fxRates }) => {
+    async ({ environment, targets, cashWeight, minTradeValue, sellUntargeted, buyOnly, investAmount, band, wholeSharesOnly, fxRates }) => {
       try {
         const saved = targets ? undefined : await targetAllocations.get(environment);
         if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
         const plan = await trading.planRebalance(environment, targets ?? saved!.targets, {
           cashWeight: cashWeight ?? saved?.cashWeight ?? 0, minTradeValue, sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
           quantityDecimals: wholeSharesOnly ? 0 : 4, ...(fxRates ? { fxRates } : {}),
-          ...(buyOnly ? { buyOnly } : {}), ...(investAmount === undefined ? {} : { investAmount }),
+          ...(buyOnly ? { buyOnly } : {}), ...(investAmount === undefined ? {} : { investAmount }), ...(band === undefined ? {} : { band }),
         });
         const data = { ...(await trading.withInstruments(trading.rebalanceBasket(plan))), rebalance: plan, credentials: credentialStatus(config), writeEnabled: canWrite };
         const totals = plan.totals;
         const traded = totals && plan.trades.length
           ? ` (${[totals.bought > 0 ? `buys ${totals.bought} ${totals.currency}` : "", totals.sold > 0 ? `sells ${totals.sold} ${totals.currency}` : "", totals.fxFee > 0 ? `at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""].filter(Boolean).join(", ")})`
           : "";
-        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}: ${plan.trades.length} trade(s)${traded}${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
+        const held = plan.noteDetails?.find((item) => item.code === "within_band");
+        const banded = plan.band === undefined ? "" : ` of the targets more than ${Number((plan.band * 100).toFixed(2))} points off${held ? `, ${held.details?.count} left as they are` : ""}`;
+        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}${banded}: ${plan.trades.length} trade(s)${traded}${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -884,7 +890,7 @@ export function createMcpServer(
     "manage_target_allocation",
     {
       title: "Target Allocation",
-      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target. With a quote provider, drift.volatility gives the volatility a year the targets would give, beside today's (as analyze_portfolio_allocation). Never places orders.",
+      description: "Show, save or clear target weights for an environment. Targets are shares of total account value; cashWeight is the share meant to stay in cash (by default whatever the targets leave over). Once saved, analyze_portfolio_allocation shows how far each holding is from its target, plan_portfolio_rebalance uses them when called without targets, and the scheduler checks about once an hour and notifies (activity log and webhook) at most once a day while any holding or cash is more than driftThreshold (default 0.05, 5 points) from its target; plan_portfolio_rebalance with band set to that threshold trades only the ones over it. With a quote provider, drift.volatility gives the volatility a year the targets would give, beside today's (as analyze_portfolio_allocation). Never places orders.",
       inputSchema: z.object({
         action: z.enum(["get", "set", "clear"]),
         environment: environmentWithDefault,

@@ -245,6 +245,12 @@ export interface AllocationDrift {
    * 2.52. Holdings without a target count only when the targets sell them.
    */
   rebalance?: TradeTotals;
+  /**
+   * What a rebalance of only the targets more than the threshold off their weight would trade (plan_portfolio_rebalance
+   * with band set to the threshold), estimated as `rebalance` is: present when it leaves out some that a rebalance to
+   * every target trades, from 2.53. `tickers` are the ones it trades, largest drift first.
+   */
+  rebalanceOver?: { tickers: string[]; totals: TradeTotals };
 }
 
 /**

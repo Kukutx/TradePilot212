@@ -25,6 +25,7 @@ import {
   quoteProviderLabel,
   rebalanceNoteText,
   rebalanceSkipText,
+  tradeEstimateText,
   validityLabel,
   sizingText,
 } from "./messages";
@@ -76,6 +77,36 @@ describe("rebalance notes", () => {
     expect(notes.find((note) => note.includes("汇兑费"))).toMatch(/^这些交易中有 €[\d,.]+ 涉及其他货币，按 0\.15% 的汇兑费计约 €[\d,.]+；/);
     expect(notes.every((note) => !/[a-z]{5,}/.test(note))).toBe(true);
     expect(plan.skipped.map((item) => rebalanceSkipText(item, zh))).toEqual(["没有价格：未持有，报价源也取不到。"]);
+  });
+
+  it("says what a band leaves as it is, and names the basket it plans", async () => {
+    const { planRebalance } = await import("../../core/rebalance");
+    const held = (ticker: string, quantity: number, price: number) => ({
+      instrument: { ticker, name: ticker, shortName: ticker, currencyCode: "EUR" }, quantity, quantityAvailableForTrading: quantity, quantityInPies: 0, averagePricePaid: price, currentPrice: price,
+    });
+    const account = { currency: "EUR", totalValue: 10_000, cash: { availableToTrade: 2000 } };
+    const positions = [held("EQ", 60, 100), held("BOND", 40, 50)];
+    const targets = [{ ticker: "EQ", weight: 0.52 }, { ticker: "BOND", weight: 0.18 }];
+    const en = createTranslator("en");
+    const zh = createTranslator("zh-CN");
+    const band = (plan: ReturnType<typeof planRebalance>) => plan.noteDetails!.find((note) => note.code === "within_band")!;
+    const some = planRebalance("demo", account, positions, targets, { cashWeight: 0.3, band: 0.05 });
+    expect(rebalanceNoteText(band(some), en, "en")).toBe("Only the targets more than 5.0 points off their weight are traded; 1 of 2 is left as it is.");
+    expect(rebalanceNoteText(band(some), zh, "zh-CN")).toBe("只调整偏离目标超过 5.0 个百分点的；2 个目标中有 1 个保持不变。");
+    expect(rebalanceNoteText({ code: "within_band", message: "x", details: { count: 2, total: 3, band: 0.025 } }, en, "en")).toBe("Only the targets more than 2.5 points off their weight are traded; 2 of 3 are left as they are.");
+    const none = planRebalance("demo", account, positions, targets, { cashWeight: 0.3, band: 0.1 });
+    expect(rebalanceNoteText(band(none), zh, "zh-CN")).toBe("每个目标的偏离都在 10.0 个百分点以内，无需交易。");
+    expect(basketTitle({ purpose: "rebalance", title: "Rebalance what drifted", legs: [] }, zh)).toBe("只调偏离过大的");
+  });
+
+  it("estimates a rebalance of only the targets over the threshold, naming them", () => {
+    const en = createTranslator("en");
+    const zh = createTranslator("zh-CN");
+    const totals = { currency: "EUR", bought: 0, sold: 1200, converted: 1200, fxFee: 1.8, fxFeeRate: 0.0015 };
+    const vars = { points: "5.0", list: "Apple" };
+    expect(tradeEstimateText(totals, "over", en, "en", vars)).toBe("Rebalancing only those more than 5.0 points off (Apple) would sell about €1,200.00. €1,200.00 of it is in other currencies: about €1.80 in FX fees at 0.15%, none on a trade paid from or into a balance in that currency.");
+    expect(tradeEstimateText({ ...totals, sold: 0, converted: 0, fxFee: 0, buysScaled: 0 }, "over", zh, "zh-CN", { ...vars, list: "苹果、可口可乐" }))
+      .toBe("只调偏离超过 5.0 个百分点的（苹果、可口可乐）买不了任何标的：目标现金之外没有可用现金，它们之中也没有可卖出的来筹钱。");
   });
 });
 

@@ -5,7 +5,7 @@
 import type { TradingEnvironment } from "../shared/contracts.js";
 import type { TargetAllocation } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift } from "../shared/history.js";
-import { DEFAULT_FX_FEE_RATE, knownCurrency, rebalanceEstimate } from "../shared/trade-cost.js";
+import { DEFAULT_FX_FEE_RATE, knownCurrency, rebalanceEstimate, weightTrades } from "../shared/trade-cost.js";
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
@@ -56,11 +56,17 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
   const { totalValue, accountCurrency } = analysis;
   // The buys a rebalance can pay for: the cash free to trade above the cash target, and what the sells raise.
   const freeCash = analysis.availableCash ?? analysis.cash;
-  const rebalance = totalValue && totalValue > 0 && accountCurrency
-    ? rebalanceEstimate([
-        ...rows,
-        ...(saved.sellUntargeted ? untargeted.map((item) => ({ ...item, target: 0, ...(currencyOf(item.ticker) ? { currency: currencyOf(item.ticker)! } : {}) })) : []),
-      ], totalValue, accountCurrency, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash === undefined ? undefined : freeCash - saved.cashWeight * totalValue)
+  const moves = [
+    ...rows,
+    ...(saved.sellUntargeted ? untargeted.map((item) => ({ ...item, target: 0, drift: item.current, ...(currencyOf(item.ticker) ? { currency: currencyOf(item.ticker)! } : {}) })) : []),
+  ];
+  const estimate = (chosen: typeof moves) => rebalanceEstimate(chosen, totalValue!, accountCurrency!, options.fxFeeRate ?? DEFAULT_FX_FEE_RATE, freeCash === undefined ? undefined : freeCash - saved.cashWeight * totalValue!);
+  const rebalance = totalValue && totalValue > 0 && accountCurrency ? estimate(moves) : undefined;
+  // Only the ones over the threshold, as the drift list marks them, when that leaves out some a full rebalance trades.
+  const overMoves = moves.filter((move) => Math.abs(move.drift) > saved.driftThreshold + 1e-9).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+  const overTrades = rebalance ? weightTrades(overMoves, totalValue!) : [];
+  const rebalanceOver = overTrades.length && overTrades.length < weightTrades(moves, totalValue!).length
+    ? { tickers: overTrades.map((trade) => trade.ticker), totals: estimate(overMoves) }
     : undefined;
   return {
     threshold: saved.driftThreshold,
@@ -72,6 +78,7 @@ export function allocationDrift(saved: TargetAllocation, analysis: Pick<Allocati
     ...(saved.sellUntargeted ? { sellUntargeted: true } : {}),
     savedAt: saved.updatedAt,
     ...(rebalance ? { rebalance } : {}),
+    ...(rebalanceOver ? { rebalanceOver } : {}),
   };
 }
 

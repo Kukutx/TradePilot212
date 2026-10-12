@@ -27,6 +27,11 @@ export interface RebalanceOptions {
   quotedFxRates?: Record<string, ExternalFxRate>;
   /** Trading 212's currency conversion fee, for the estimate of what the trades in other currencies cost (default 0.15%). */
   fxFeeRate?: number;
+  /**
+   * Trade only the targets more than this share of the account off their weight (0.05 is 5 points), as the saved
+   * drift threshold flags them; the rest are left as they are. Ignored with buyOnly.
+   */
+  band?: number;
 }
 
 const floorTo = (value: number, digits: number) => {
@@ -37,6 +42,8 @@ const money = (value: number) => Math.round(value * 100) / 100;
 const share = (value: number) => Math.round(value * 10_000) / 10_000;
 /** A fee rate as a percent with no trailing zeros, to three decimals as the widget shows it: 0.0015 is "0.15%". */
 const feePercent = (rate: number) => `${Number((rate * 100).toFixed(3))}%`;
+/** Weight points with no trailing zeros: 0.05 is "5". */
+const points = (value: number) => `${Number((value * 100).toFixed(2))}`;
 
 interface Line {
   ticker: string;
@@ -69,6 +76,8 @@ export function planRebalance(
   const cashWeight = options.cashWeight ?? 0;
   const buyOnly = !!options.buyOnly || options.investAmount !== undefined;
   if (options.investAmount !== undefined && !(options.investAmount > 0)) fail("INVALID_INPUT", "investAmount must be a positive amount in the account currency", { field: "investAmount" });
+  if (options.band !== undefined && !(options.band > 0 && options.band < 1)) fail("INVALID_INPUT", "band must be a share of the account above 0 and below 1, such as 0.05 for 5 points", { field: "band" });
+  const band = buyOnly ? undefined : options.band;
   const minTradeValue = options.minTradeValue ?? 1;
   const decimals = options.quantityDecimals ?? 4;
   const targetSum = targets.reduce((sum, target) => sum + target.weight, 0);
@@ -137,6 +146,15 @@ export function planRebalance(
     });
   }
 
+  // With a band, a target within it of its weight is left as it is; only the ones further off trade, sells funding buys.
+  const within = band === undefined ? [] : lines.filter((line) => Math.abs(line.currentValue / totalValue - line.targetWeight) <= band + 1e-9);
+  const active = within.length ? lines.filter((line) => !within.includes(line)) : lines;
+  if (band !== undefined && within.length) {
+    note("within_band", active.length
+      ? `Only the targets more than ${points(band)} points off their weight are traded; ${within.length} of ${lines.length} ${within.length === 1 ? "is left as it is" : "are left as they are"}.`
+      : `Every target is within ${points(band)} points of its weight, so nothing is traded.`, { count: within.length, total: lines.length, band });
+  }
+
   const trades: RebalanceTrade[] = [];
   const valueAfter = new Map(lines.map((line) => [line.ticker, line.currentValue]));
   let cash = cashBefore;
@@ -146,7 +164,7 @@ export function planRebalance(
   const feeOf = (line: Line) => (currencyOfAccount(line.currency) === currencyOfAccount(accountCurrency) ? 0 : feeRate);
 
   // Sells first: they fund the buys.
-  for (const line of buyOnly ? [] : lines) {
+  for (const line of buyOnly ? [] : active) {
     const excess = line.currentValue - line.targetWeight * totalValue;
     if (excess < minTradeValue) continue;
     const wantedQuantity = line.targetWeight === 0 ? line.heldQuantity : floorTo(excess * line.fx / line.price, decimals);
@@ -161,7 +179,7 @@ export function planRebalance(
 
   // Buys share whatever cash is left above the reserve, in proportion to their shortfall.
   const reserve = cashWeight * totalValue;
-  const shortfalls = lines
+  const shortfalls = active
     .map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue }))
     .filter((item) => item.gap >= minTradeValue);
   const wantedCash = shortfalls.reduce((sum, item) => sum + item.gap * (1 + feeOf(item.line)), 0);
@@ -203,7 +221,7 @@ export function planRebalance(
   if (!trades.length) {
     if (skipped.length && !lines.length) note("nothing_possible", "No trades could be planned: every target was skipped.");
     else if (wantedCash > 0 && scale === 0) note("no_cash", `Some targets are below their weight, but no cash is available above the reserve to buy with${buyOnly ? " and nothing is sold" : ""}.`);
-    else note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
+    else if (active.length) note("within_threshold", "The portfolio is already within the minimum trade value of every target.");
   }
   note("price_source", "Prices are the broker's last position prices, quotes from the quote source, or the reference prices you supplied; Market orders can fill elsewhere.");
 
@@ -215,6 +233,7 @@ export function planRebalance(
     cashBefore: money(cashBefore),
     cashAfter: money(cash),
     ...(buyOnly ? { buyOnly: true } : {}),
+    ...(band === undefined ? {} : { band }),
     trades,
     totals,
     skipped,
