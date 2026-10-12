@@ -173,6 +173,13 @@ describe("time-weighted return", () => {
     // A few euros left over count as empty next to the money moved.
     const leftOver = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 5)], [{ at: at("2026-09-01", "13:00:00.000"), amount: -998 }]);
     expect(leftOver?.return).toBeCloseTo(0.003, 6);
+    // A withdrawal before the deposit, or a deposit after the withdrawal, doesn't move where the money was in.
+    const late = timeWeightedReturn([reading("2026-09-01", 50), reading("2026-09-02", 10_100)],
+      [{ at: at("2026-09-01", "13:00:00.000"), amount: -50 }, { at: at("2026-09-02", "11:00:00.000"), amount: 10_000 }]);
+    expect(late?.return).toBeCloseTo(0.01, 6);
+    const topUp = timeWeightedReturn([reading("2026-09-01", 1000), reading("2026-09-02", 5)],
+      [{ at: at("2026-09-01", "13:00:00.000"), amount: -1003 }, { at: at("2026-09-02", "11:00:00.000"), amount: 5 }]);
+    expect(topUp?.return).toBeCloseTo(0.003, 6);
   });
 
   it("starts measuring once money is in and gives up on a gain from nothing", () => {

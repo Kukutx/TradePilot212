@@ -3,7 +3,7 @@ import type { AllocationAnalysis, AllocationDrift, IncomeSummary, PerformanceSum
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
-import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels } from "../components/charts";
+import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -200,11 +200,11 @@ function ValueHistoryPanel({ points, returns, currency, locale, t }: { points: V
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const change = last.totalValue - first.totalValue;
-  const valueAxis = (value: number, step: number) => axisMoney(value, step, currency, locale);
+  const valueAxis = (value: number, grid: Grid) => axisMoney(value, grid, currency, locale);
   const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
   const asReturn = returns && show === "return";
   // As many decimals as the gridline step needs: "+10%" a step of 10%, "+7.5%" a step of 2.5%.
-  const percentAxis = (value: number, step: number) => pct(value, locale, decimalsOf(step * 100), { signed: true });
+  const percentAxis = (value: number, grid: Grid) => pct(value, locale, decimalsOf(grid.step * 100), { signed: true });
   const controls = returns && (
     <div className="segmented" role="radiogroup" aria-label={t("chartShow")}>
       {(["return", "value"] as const).map((key) => (

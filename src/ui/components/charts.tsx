@@ -122,16 +122,18 @@ export function decimalsOf(step: number): number {
   return 4;
 }
 
+/** The gridlines of a chart: their values and the distance between them. */
+export interface Grid { ticks: number[]; step: number }
+
 /**
- * A gridline value in the account currency: short ("€14K", "€1.025M", "1.425万") when that is exact, else in
- * full with the decimals the step needs. Whether the next gridline is exact too decides it, so a step the
- * short form can't show writes every gridline in full rather than some short and some long.
+ * A gridline value in the account currency: short ("€14K", "€1.025M", "1.425万") when the short form is exact
+ * for every gridline, else every one in full with the decimals the step needs, so one axis never mixes the two.
  */
-export function axisMoney(value: number, step: number, currency: string, locale: SupportedLocale): string {
+export function axisMoney(value: number, grid: Grid, currency: string, locale: SupportedLocale): string {
   const short = (digits: number) => new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, notation: "compact", minimumFractionDigits: 0, maximumFractionDigits: digits });
   const exact = (amount: number) => short(3).format(amount) === short(8).format(amount);
-  if (exact(value) && exact(value + step)) return short(3).format(value);
-  return new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: decimalsOf(step) }).format(value);
+  if (grid.ticks.every(exact)) return short(3).format(value);
+  return new Intl.NumberFormat(localeTag(locale), { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: decimalsOf(grid.step) }).format(value);
 }
 
 /**
@@ -145,8 +147,8 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
   labels: ChartLabels;
   nameHeader: string;
   valueHeader: string;
-  /** Short form of a gridline value; `step` is the distance between gridlines, for its precision. */
-  axis: (value: number, step: number) => string;
+  /** Short form of a gridline value; `grid` holds every gridline and the step between them, for its precision. */
+  axis: (value: number, grid: Grid) => string;
   zero?: boolean;
   /** Shown in the caption beside the table switch. */
   controls?: ReactNode;
@@ -219,7 +221,7 @@ export function LineChart({ data, title, labels, nameHeader, valueHeader, axis, 
             {grid.ticks.map((tick) => (
               <g key={tick} className="lineGrid">
                 <line x1={LINE_PAD.left} x2={width - LINE_PAD.right} y1={y(tick)} y2={y(tick)} />
-                <text x={LINE_PAD.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{axis(tick, grid.step)}</text>
+                <text x={LINE_PAD.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{axis(tick, grid)}</text>
               </g>
             ))}
             {zero && <line className="lineZero" x1={LINE_PAD.left} x2={width - LINE_PAD.right} y1={floor} y2={floor} />}

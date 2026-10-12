@@ -35,8 +35,8 @@ describe("gridline decimals", () => {
 
 describe("money on the value axis", () => {
   const labels = (min: number, max: number, locale: "en" | "zh-CN") => {
-    const { ticks, step } = niceTicks(min, max);
-    return ticks.map((value) => axisMoney(value, step, "EUR", locale));
+    const grid = niceTicks(min, max);
+    return grid.ticks.map((value) => axisMoney(value, grid, "EUR", locale));
   };
 
   it("writes round values short, without trailing zeros", () => {
@@ -48,5 +48,10 @@ describe("money on the value axis", () => {
     expect(labels(5_000, 5_090, "en")).toEqual(["€5K", "€5.025K", "€5.05K", "€5.075K"]);
     expect(labels(14_000, 14_900, "zh-CN")).toEqual(["€1.4万", "€1.425万", "€1.45万", "€1.475万"]);
     expect(labels(10_000, 10_000.01, "en")).toEqual(["€10,000", "€10,000.005", "€10,000.01"]);
+  });
+
+  it("writes one axis in one form, also across a unit", () => {
+    expect(labels(995_000, 1_004_000, "en")).toEqual(["€995,000", "€997,500", "€1,000,000", "€1,002,500"]);
+    expect(labels(-1_004_000, -995_000, "en")).toEqual(["-€1,002,500", "-€1,000,000", "-€997,500", "-€995,000"]);
   });
 });

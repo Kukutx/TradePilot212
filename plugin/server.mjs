@@ -36834,9 +36834,10 @@ function timeWeightedReturn(points2, flows) {
     const inside = flows.filter((flow) => Number.isFinite(flow.amount) && flow.at > start.at && flow.at <= end.at);
     const total = inside.reduce((sum, flow) => sum + flow.amount, 0);
     const empty = (value) => value < Math.max(MIN_INVESTED, EMPTY_SHARE * inside.reduce((sum, flow) => sum + Math.abs(flow.amount), 0));
-    const times = inside.map((flow) => flow.at);
-    const from = empty(start.point.totalValue) && times.length ? Math.min(...times) : start.at;
-    const to = empty(end.point.totalValue) && times.length ? Math.max(...times) : end.at;
+    const deposits = inside.filter((flow) => flow.amount > 0).map((flow) => flow.at);
+    const withdrawals = inside.filter((flow) => flow.amount < 0).map((flow) => flow.at);
+    const from = empty(start.point.totalValue) && deposits.length ? Math.min(...deposits) : start.at;
+    const to = empty(end.point.totalValue) && withdrawals.length ? Math.max(...withdrawals) : end.at;
     const length = to - from;
     const share3 = (at) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
     const weighted = inside.reduce((sum, flow) => sum + flow.amount * share3(flow.at), 0);

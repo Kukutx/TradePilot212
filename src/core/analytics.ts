@@ -207,9 +207,10 @@ export function timeWeightedReturn(points: ValuePoint[], flows: Array<{ at: numb
     // The part of the stretch anything was invested in: from the first deposit into an empty account, up to the
     // withdrawal that emptied it.
     const empty = (value: number) => value < Math.max(MIN_INVESTED, EMPTY_SHARE * inside.reduce((sum, flow) => sum + Math.abs(flow.amount), 0));
-    const times = inside.map((flow) => flow.at);
-    const from = empty(start.point.totalValue) && times.length ? Math.min(...times) : start.at;
-    const to = empty(end.point.totalValue) && times.length ? Math.max(...times) : end.at;
+    const deposits = inside.filter((flow) => flow.amount > 0).map((flow) => flow.at);
+    const withdrawals = inside.filter((flow) => flow.amount < 0).map((flow) => flow.at);
+    const from = empty(start.point.totalValue) && deposits.length ? Math.min(...deposits) : start.at;
+    const to = empty(end.point.totalValue) && withdrawals.length ? Math.max(...withdrawals) : end.at;
     const length = to - from;
     const share = (at: number) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
     const weighted = inside.reduce((sum, flow) => sum + flow.amount * share(flow.at), 0);
