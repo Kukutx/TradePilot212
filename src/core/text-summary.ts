@@ -321,9 +321,22 @@ function performance(data: PerformanceSummary): string[] {
     ...valueHistoryLines(data.valueHistory),
     ...(data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : []),
     ...benchmarkLines(data),
+    ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
     ...data.notes,
+  ];
+}
+
+/** Each instrument's gain over the period, largest first, and the ones it could not value. */
+function attributionLines(data: PerformanceSummary): string[] {
+  const attribution = data.attribution;
+  if (!attribution) return data.attributionProblem ? [`No gains by instrument: ${data.attributionProblem}`] : [];
+  const since = attribution.from ? `since the close before ${attribution.from}` : "over all history";
+  return [
+    ...section(`Gain by instrument ${since}: ${signed(attribution.total)} in all (value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate)`,
+      rows(attribution.holdings, (holding) => `${holding.ticker}: ${signed(holding.gain)}${holding.return === undefined ? "" : ` (${signed(holding.return * 100, 1)}%)`}, start ${num(holding.startValue)}${holding.startClose ? ` (${num(holding.startQuantity, 8)} at ${num(holding.startClose.price, 6)} on ${holding.startClose.date})` : ""}, now ${num(holding.value)}${holding.bought ? `, bought ${num(holding.bought)}` : ""}${holding.sold ? `, sold ${num(holding.sold)}` : ""}${holding.dividends ? `, dividends ${num(holding.dividends)}` : ""}`)),
+    ...(attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []),
   ];
 }
 

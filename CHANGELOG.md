@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.40.0
+
+- Gain by instrument. The Performance tab shows where the period's gain came from: one bar per instrument from a shared zero line, gains to the right and losses to the left, largest first, with the total, each one's return on the money at work, and a table view of its value at the start, buys, sells, dividends and value now. A name opens the instrument's page.
+- For 1 month, 3 months, this year or 12 months, the start is the shares held then (today's, less the buys since, plus the sells since) at the quote provider's close before the first day, at today's exchange rate; over all history it is Trading 212's realised and unrealised P/L plus dividends. Instruments that cannot be valued (no closes, or shares that do not add up after a split) are named rather than guessed.
+- `get_portfolio_performance` returns it as `attribution` (or `attributionProblem`), and says the total and the three largest in its text.
+
 ## 2.39.0
 
 - The daily digest names the dividends paid since the previous digest ("dividends 10.95 in: KO 9.7, VUSA 1.25", the five largest and then how many more) and those expected in the coming seven days, then any due in the last seven days and not paid yet, marked as due ("dividends expected this week: AAPL ~2.4 10-14, MSFT ~4.15 due 10-08"). The expected ones come from the Income tab's dividend calendar.

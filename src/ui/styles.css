@@ -702,6 +702,22 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .barFill { display: block; height: 100%; border-radius: 4px; background: var(--tp-chart); }
 .barFill.negative { background: var(--tp-red); }
 .barValue { min-width: 56px; color: var(--tp-text); font-size: 13px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+/* Gains by instrument: bars from a shared zero line, gains right and losses left. */
+.gainTotal { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 12px; }
+.gainTotal strong { font-size: 22px; font-weight: 760; font-variant-numeric: tabular-nums; }
+.gainTotal span { color: var(--tp-muted); font-size: 12px; }
+.gainBars { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.gainBars li { position: relative; display: grid; grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) minmax(92px, auto); align-items: center; gap: 10px; min-height: 28px; }
+.gainBars .barLabel .reviewName { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.gainTrack { position: relative; height: 10px; border-radius: 4px; background: color-mix(in srgb, var(--tp-border) 45%, transparent); }
+.gainZero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--tp-border-strong); }
+.gainFill { position: absolute; top: 0; bottom: 0; }
+.gainFill.up { border-radius: 0 4px 4px 0; background: var(--tp-green); }
+.gainFill.down { border-radius: 4px 0 0 4px; background: var(--tp-red); }
+.gainTableWrap { width: 100%; overflow-x: auto; }
+.gainTable td, .gainTable th { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.gainTable td:first-child, .gainTable th:first-child { text-align: left; white-space: normal; }
+.gainTable small { color: var(--tp-muted); font-size: 12px; }
 
 .columnChart { display: flex; align-items: flex-end; gap: 4px; height: 168px; padding-top: 18px; border-bottom: 1px solid var(--tp-border); }
 .column { position: relative; flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
@@ -813,6 +829,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 @container (max-width: 640px) {
   .twoColumn { grid-template-columns: minmax(0, 1fr); }
   .barList li { grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) auto; gap: 7px; }
+  .gainBars li { grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) minmax(80px, auto); gap: 7px; }
   .columnLabel { display: none; }
   .column:last-child .columnLabel, .column:first-child .columnLabel { display: block; }
 }
@@ -1171,3 +1188,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 }
 .nextDividends h3 .headingDetail { color: var(--tp-muted); font-size: 12px; font-weight: 650; letter-spacing: 0; }
 .calendarLegend .calendarRange { color: var(--tp-text); font-weight: 650; }
+@media (forced-colors: active) {
+  .gainFill.up { background: CanvasText; }
+  .gainFill.down { background: Canvas; border: 1px dashed CanvasText; }
+  .gainZero { background: CanvasText; }
+}

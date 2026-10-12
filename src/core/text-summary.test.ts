@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
+import { readAttribution } from "./attribution.js";
 import { createConfig } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
 import { describePayload } from "./text-summary.js";
@@ -47,6 +48,19 @@ describe("text summaries for hosts that only show text", () => {
     expect(performance.annualizedReturn).toBeTypeOf("number");
     expect(performance.byTicker.map((item) => item.ticker)).toContain("VUSAl_EQ");
     expect(describePayload(performance)).toMatch(/Annualized return \(money-weighted, since \d{4}-\d{2}-\d{2}\) [+-]?\d/);
+  });
+
+  it("says each instrument's gain over the period and the ones it could not value", async () => {
+    const services = sample();
+    const window = { from: new Date(Date.now() - 365 * 86_400_000), to: new Date() };
+    const performance = await services.insights.performance("demo", window);
+    const attributed = await readAttribution({ config: { sampleData: true }, trading: services.trading, insights: services.insights, priceHistory: services.priceHistory }, "demo", window);
+    const text = describePayload({ ...performance, ...attributed });
+    expect(text).toMatch(/Gain by instrument since the close before \d{4}-\d{2}-\d{2}: [+-]\d[\d.]* in all/);
+    expect(text).toMatch(/- VUSAl_EQ: [+-]\d[\d.]* \([+-][\d.]+%\), start [\d.]+ \(40 at [\d.]+ on \d{4}-\d{2}-\d{2}\), now [\d.]+/);
+    // The sample account's TSLA fills do not add up to what it holds.
+    expect(text).toMatch(/Not valued: TSLA_US_EQ \(TSLA_US_EQ's shares do not add up/);
+    expect(describePayload({ ...performance, attributionProblem: "Only today's holdings are known." })).toContain("No gains by instrument: Only today's holdings are known.");
   });
 
   it("gives the time-weighted return over recorded days with the withdrawal taken out", async () => {

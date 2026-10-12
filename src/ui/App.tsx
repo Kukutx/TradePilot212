@@ -975,6 +975,7 @@ export default function App() {
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}
+                onOpen={(ticker) => void openHolding(ticker)}
                 onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)} />
             )}
             {portfolioLike && tab === "income" && insights.income && (

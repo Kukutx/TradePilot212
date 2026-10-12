@@ -6,6 +6,7 @@ import { localeTag } from "../i18n";
 import { Metric, SectionHeader } from "../components/common";
 import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
 import { DividendCalendar } from "../components/dividend-calendar";
+import { GainChart } from "../components/gains";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, instrumentTypeLabel, type Translator } from "../lib/messages";
@@ -316,10 +317,12 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
   );
 }
 
-export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, busy }: {
+export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, onOpen, busy }: {
   data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; onPeriod: (next: InsightPeriod) => void; busy: boolean;
   /** Read the performance again compared with another fund, or "none". */
   onBenchmark?: (choice: string) => void;
+  /** Open an instrument's page. */
+  onOpen?: (ticker: string) => void;
 }) {
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined) => money(value, currency, locale);
@@ -359,6 +362,12 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
         <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} data={data} currency={currency} locale={locale} t={t} busy={busy}
           {...(onBenchmark ? { onBenchmark } : {})} />
       )}
+
+      {data.attribution ? (
+        <section className="dataPanel">
+          <GainChart attribution={data.attribution} currency={currency} book={book} locale={locale} t={t} busy={busy} {...(onOpen ? { onOpen } : {})} />
+        </section>
+      ) : data.attributionProblem ? <div className="notice compactNotice">{t("gainsUnavailable")}</div> : null}
 
       <div className="twoColumn">
         <section className="dataPanel">

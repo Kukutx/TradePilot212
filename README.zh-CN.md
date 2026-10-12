@@ -54,6 +54,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入；分红日历按月显示本月已到账和预计金额，列出每笔预计分红的大概日期，持仓页也会显示这只标的接下来的分红
 - 账户市值走势图，来自 TradePilot 自己每天的记录（Trading 212 的 API 没有历史市值）
 - 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 收益来源：近 1 个月、3 个月、今年、12 个月或全部历史里，每个标的赚了或亏了多少（现值对比期初市值，加减买入、卖出和分红），画成零线两侧的条形图（[docs/ANALYTICS.md](./docs/ANALYTICS.md#gain-by-instrument)）
 - 年化资金加权收益（XIRR），以及按税务年度汇总：已实现盈利和亏损分开列、股息、利息和费用（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
 - Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进、再平衡和税务年度七个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
 - 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally)）
