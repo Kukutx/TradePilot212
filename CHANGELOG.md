@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.43.0
+
+- Your position. The holding page draws the holding's value at each daily close beside a dashed line of what it would be had the price not moved since the first close (the shares then, plus buys less sells at their fill prices). The gap is what the price did for the position, whatever was traded; the note gives it in the account currency.
+- `get_holding_detail`'s text says the same. When the shares do not add up from the fills, or not all of the year's fills were read, the chart is left out and the page says why.
+
 ## 2.42.0
 
 - Monthly returns. The Performance tab has a year-by-month grid of the time-weighted return, latest year first, with each year's return at the end of its row. Each cell is tinted green or red by its size, with the value written in it. Months only partly recorded, or reaching back over days with no reading, are outlined and in italics. On a narrow screen each year is a grid of four months a row.

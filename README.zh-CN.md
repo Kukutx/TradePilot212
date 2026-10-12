@@ -54,6 +54,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入；分红日历按月显示本月已到账和预计金额，列出每笔预计分红的大概日期，持仓页也会显示这只标的接下来的分红
 - 账户市值走势图，来自 TradePilot 自己每天的记录（Trading 212 的 API 没有历史市值）
 - 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 持仓走势：持仓详情页画出该持仓每天收盘时的市值，并和“价格不变时”的虚线对比，看出价格本身为这笔持仓赚了或亏了多少，不受买卖影响（[docs/ANALYTICS.md](./docs/ANALYTICS.md#your-position)）
 - 月度收益：按月、按年的时间加权收益，用红绿深浅的年×月表格展示（[docs/ANALYTICS.md](./docs/ANALYTICS.md#monthly-returns)）
 - 回撤：时间加权收益距前高的最大跌幅、哪天回到前高、目前比高点低多少，以及同期指数基金的最大回撤，在收益图里切到“回撤”查看（[docs/ANALYTICS.md](./docs/ANALYTICS.md#drawdown)）
 - 收益来源：近 1 个月、3 个月、今年、12 个月或全部历史里，每个标的赚了或亏了多少（现值对比期初市值，加减买入、卖出和分红），画成零线两侧的条形图（[docs/ANALYTICS.md](./docs/ANALYTICS.md#gain-by-instrument)）

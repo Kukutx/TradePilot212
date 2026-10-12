@@ -3,6 +3,7 @@
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
 import type { HoldingDetail } from "../shared/holding.js";
+import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
@@ -416,6 +417,17 @@ function priceLine(data: HoldingDetail): string[] {
   return [`Daily closes (${source}) ${year.first.date} to ${year.last.date}: ${num(year.first.close, 6)} to ${num(year.last.close, 6)}${unit} (${signedPct(year.change)})${shorter.length ? `; ${shorter.join(", ")}` : ""}; high ${num(year.high.close, 6)} on ${year.high.date}, low ${num(year.low.close, 6)} on ${year.low.date}.`];
 }
 
+/** What the price did for the position over the closes, against the start at the first close plus the trading since. */
+function positionHistoryLine(data: HoldingDetail): string[] {
+  const history = holdingPositionHistory(data);
+  if (history === "quantity") return ["No position history: the shares do not add up from the year's fills (a split, or shares moved in or out)."];
+  if (history === "fills") return ["No position history: not all of the year's fills were read."];
+  if (!history) return [];
+  const first = history.days[0]!, last = history.days[history.days.length - 1]!;
+  const c = data.accountCurrency ? ` ${data.accountCurrency}` : "";
+  return [`Position from ${first.date} to ${last.date} at the closes, at today's exchange rate: value ${num(last.value)}${c} against ${num(last.base)}${c} had the price not moved (${num(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num(Math.abs(history.gain))}${c}.`];
+}
+
 function holding(data: HoldingDetail): string[] {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
@@ -429,6 +441,7 @@ function holding(data: HoldingDetail): string[] {
     ...(data.position ? [holdingStopLine(data.position, data.orders, c)] : []),
     ...(data.day ? [`On the day (${data.day.day}): ${dayMoveText(data.day, c).replace(/\.$/, "")}.`] : []),
     ...priceLine(data),
+    ...positionHistoryLine(data),
     ...section(`Pending orders (${data.orders.length})`, rows(data.orders, (order) => orderLine(order, data.position ? [data.position] : []))),
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
