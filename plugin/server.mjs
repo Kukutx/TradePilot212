@@ -35780,7 +35780,12 @@ var TradingService = class {
       if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
       positiveNumber("stopLossPrice", sizing.stopLossPrice);
       if (sizing.amount === void 0 === (sizing.percent === void 0)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
-      const entry = (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : void 0) ?? (intent.type === "stop" ? intent.stopPrice : void 0) ?? referencePrice ?? position?.currentPrice;
+      const current = position?.currentPrice;
+      const highest = (...prices) => {
+        const known = prices.filter((price) => typeof price === "number" && Number.isFinite(price) && price > 0);
+        return known.length ? Math.max(...known) : void 0;
+      };
+      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : intent.type === "stop" ? highest(intent.stopPrice, current) : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
       if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
       referencePrice ??= entry;
@@ -35817,7 +35822,7 @@ var TradingService = class {
       if (cashCapped) quantity = affordable;
       if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
       estimatedQuoteNotional = entry * quantity;
-      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...cashCapped ? { cashCapped } : {} };
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...typeof current === "number" && current > 0 ? { currentPrice: current } : {}, ...cashCapped ? { cashCapped } : {} };
       const loss = quantity * perShareQuote / rate;
       note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round3(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round3(estimatedQuoteNotional, 2)} ${instrumentCurrency}.` + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "") + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {

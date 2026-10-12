@@ -87,7 +87,10 @@ export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | unde
   const risk = resolution?.risk;
   if (!risk || resolution.sizing.mode !== "risk") return undefined;
   const stop = resolution.sizing.stopLossPrice;
-  const entry = (draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : draft.referencePrice) ?? risk.entryPrice;
+  // As the server sizes it: the limit, or the higher of the trigger or reference price and the last price.
+  const given = draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : draft.referencePrice;
+  const entry = draft.type === "limit" || draft.type === "stop_limit" ? given ?? risk.entryPrice
+    : Math.max(...[given ?? risk.entryPrice, risk.currentPrice].filter((price): price is number => typeof price === "number" && Number.isFinite(price)));
   const base = { budget: risk.budget, cashCapped: !!risk.cashCapped };
   if (!(entry > stop) || !(risk.entryPrice > stop)) return { ...base, over: false };
   const loss = draft.quantity * (entry - stop) * (risk.perShare / (risk.entryPrice - stop));

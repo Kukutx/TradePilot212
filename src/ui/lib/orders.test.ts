@@ -50,6 +50,15 @@ describe("risk at the stop", () => {
     expect(riskAtStop({ ...draft, type: "limit", limitPrice: 195 }, resolution)).toEqual({ budget: 30, over: false, cashCapped: false });
   });
 
+  it("counts a Market or passed Stop buy from the last price when that is higher", () => {
+    const held: OrderResolution = { ...resolution, risk: { ...resolution.risk!, currentPrice: 216 } };
+    // Lowering the reference price does not lower the loss: the order fills near 216.
+    expect(riskAtStop({ ...draft, referencePrice: 205 }, held)?.loss).toBeCloseTo(30, 8);
+    // A Stop at 208 has been passed and fills near 216; one at 224 fills at its trigger.
+    expect(riskAtStop({ ...draft, type: "stop", stopPrice: 208 }, held)?.loss).toBeCloseTo(30, 8);
+    expect(riskAtStop({ ...draft, type: "stop", stopPrice: 224 }, held)?.loss).toBeCloseTo(45, 8);
+  });
+
   it("is only for risk-sized drafts", () => {
     expect(riskAtStop(draft, undefined)).toBeUndefined();
     expect(riskAtStop(draft, { sizing: { mode: "quantity", quantity: 2 }, resolvedQuantity: 2 })).toBeUndefined();

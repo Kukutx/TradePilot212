@@ -645,11 +645,17 @@ export class TradingService {
       if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
       positiveNumber("stopLossPrice", sizing.stopLossPrice);
       if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
-      // The order's own price is where it buys, so it wins over a reference price; that is for Market orders.
-      const entry = (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : undefined)
-        ?? (intent.type === "stop" ? intent.stopPrice : undefined)
-        ?? referencePrice
-        ?? position?.currentPrice;
+      // The worst price the buy can fill at, so the loss at the stop is never understated. A Limit or Stop Limit
+      // buy fills at its limit or below. A Market buy, or a Stop whose trigger the price has already passed,
+      // fills near the last price, so the higher of that and the price given is taken.
+      const current = position?.currentPrice;
+      const highest = (...prices: Array<number | undefined>) => {
+        const known = prices.filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price > 0);
+        return known.length ? Math.max(...known) : undefined;
+      };
+      const entry = intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice
+        : intent.type === "stop" ? highest(intent.stopPrice, current)
+        : highest(referencePrice, current);
       positiveNumber("referencePrice", entry);
       if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
       referencePrice ??= entry;
@@ -688,7 +694,7 @@ export class TradingService {
       if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
       estimatedQuoteNotional = entry * quantity;
       // The budget is a loss, not an amount to spend, so it travels as risk.budget rather than requestedNotional.
-      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...(cashCapped ? { cashCapped } : {}) };
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...(typeof current === "number" && current > 0 ? { currentPrice: current } : {}), ...(cashCapped ? { cashCapped } : {}) };
       const loss = quantity * perShareQuote / rate;
       note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round(estimatedQuoteNotional, 2)} ${instrumentCurrency}.`
         + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "")

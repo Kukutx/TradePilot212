@@ -293,8 +293,13 @@ export interface ResolvedOrderIntent {
 export interface RiskSizing {
   /** The most the buy should lose at the stop, in the account currency. */
   budget: number;
-  /** The price the quantity was sized at: the limit, stop or last price. */
+  /**
+   * The price the quantity was sized at, the worst the buy can fill at: the limit, or for a Market or Stop buy
+   * the higher of the price given (or the trigger) and the last price.
+   */
   entryPrice: number;
+  /** The held position's last price when it was sized, which a Market or triggered Stop buy fills near. */
+  currentPrice?: number;
   /** Account-currency loss per share from entryPrice down to the stop. */
   perShare: number;
   /** The available cash, not the budget, set the quantity. */

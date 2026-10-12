@@ -335,7 +335,7 @@ describe("currencies, uncertain results and Live confirmations", () => {
     // 1% of the 3000 EUR account is 30 EUR, or 32.40 USD at the 1.08 the AAPL holding implies; 216 down to 200 is 16 USD a share.
     const apple = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
     expect(apple.draft).toMatchObject({ quantity: 2.025, referencePrice: 216 });
-    expect(apple.risk).toEqual({ budget: 30, entryPrice: 216, perShare: expect.closeTo(16 / 1.08, 8) });
+    expect(apple.risk).toEqual({ budget: 30, entryPrice: 216, currentPrice: 216, perShare: expect.closeTo(16 / 1.08, 8) });
     expect(apple.note).toMatch(/^Risk 1% of the account value \(30\.00 EUR\) with a stop-loss at 200 USD: 16 USD a share from 216 down to the stop, converted at 1\.08 USD\/EUR/);
     expect(apple.note).toMatch(/set it once the buy fills/);
     // A limit order is sized from its limit; pence work like any other currency (84.75 GBX per EUR).
@@ -346,6 +346,16 @@ describe("currencies, uncertain results and Live confirmations", () => {
     const referenced = await service.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "limit", limitPrice: 8400, referencePrice: 8200, sizing: { mode: "risk", amount: 40, stopLossPrice: 8000 } });
     expect(referenced.draft.quantity).toBe(8.475);
     expect(referenced.risk?.entryPrice).toBe(8400);
+    // A Market buy fills near the last price, so a lower reference does not inflate the size either.
+    const low = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 210, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(low.draft.quantity).toBe(2.025);
+    expect(low.risk?.entryPrice).toBe(216);
+    // A Stop the price has already passed triggers at once, so it is sized from the last price too...
+    const passed = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "stop", stopPrice: 210, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(passed.risk?.entryPrice).toBe(216);
+    // ...and one above it from its trigger.
+    const above = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "stop", stopPrice: 220, sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(above.risk?.entryPrice).toBe(220);
     // 300 EUR at 6 USD a share would be 54 shares, but 1000 EUR of cash buys 5.
     const capped = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", amount: 300, stopLossPrice: 210 } });
     expect(capped.draft.quantity).toBe(5);
