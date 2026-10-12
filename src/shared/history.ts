@@ -2,6 +2,7 @@
 // Broker fields are optional because the Public API is still marked Beta and omits empty values.
 
 import type { TradingEnvironment } from "./contracts.js";
+import type { PricesMissing } from "./prices.js";
 
 export interface BrokerTax {
   name?: string;
@@ -185,6 +186,28 @@ export interface TimeWeightedReturn {
   series: ReturnPoint[];
 }
 
+/** An instrument to compare the return with. */
+export interface BenchmarkOption {
+  ticker: string;
+  name?: string;
+  shortName?: string;
+}
+
+/**
+ * A benchmark's price over the days of the time-weighted return, from its close on or before each day: how the
+ * same money would have done in it. In the benchmark's own currency, without its dividends unless it accumulates.
+ */
+export interface BenchmarkReturn extends BenchmarkOption {
+  currencyCode?: string;
+  /** Where the closes came from: a quote provider, or "sample". */
+  source: string;
+  symbol?: string;
+  /** From the first recorded day to the last, as a fraction. */
+  return: number;
+  /** On each day of the time-weighted return's series. */
+  series: ReturnPoint[];
+}
+
 export interface PerformanceSummary {
   kind: "performance";
   environment: TradingEnvironment;
@@ -212,6 +235,15 @@ export interface PerformanceSummary {
   valueHistory?: ValuePoint[];
   /** The time-weighted return over those days, when every deposit and withdrawal between them was read. */
   timeWeighted?: TimeWeightedReturn;
+  /** The benchmark's return over the same days, with the time-weighted return. */
+  benchmark?: BenchmarkReturn;
+  /** The choice this read used: the instrument compared with or tried, the query that found none, or "none". */
+  benchmarkChoice?: string;
+  /** Why there is no benchmark beside the time-weighted return ("instrument": Trading 212 matched none, or several). */
+  benchmarkMissing?: PricesMissing | "instrument";
+  benchmarkProblem?: string;
+  /** The instruments it can be compared with: the default, then the ETFs held and on the watchlist. */
+  benchmarkOptions?: BenchmarkOption[];
   notes: string[];
   timestamp: string;
 }

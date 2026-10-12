@@ -448,6 +448,12 @@ export class TradingService {
     return account;
   }
 
+  /** The instrument list when it was read in the last ten minutes, without asking Trading 212. */
+  cachedInstruments(environment: TradingEnvironment): Instrument[] | undefined {
+    const cached = this.cache.get(environment);
+    return cached && cached.expiresAt > Date.now() ? cached.instruments : undefined;
+  }
+
   async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;

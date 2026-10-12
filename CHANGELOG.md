@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.33.0
+
+- Your return against the market. The Performance tab's return chart draws an index fund's price over the same days as a dashed grey line beside your time-weighted return, with a legend, both values in the hover readout and a column in the table view. Under it, how many percentage points you are ahead of it or behind it, and its own return. **Compare with** picks the fund: the default, the ETFs you hold or watch, or none; the choice stays as you switch periods.
+- The default is the S&P 500 through SPY, which every quote provider maps without `QUOTE_SYMBOLS`; set `BENCHMARK` to another Trading 212 ticker or a US symbol (`BENCHMARK=VWRLl_EQ`, mapped in `QUOTE_SYMBOLS` when it is not a US listing; a symbol Trading 212 lists on several exchanges names its listings rather than guessing one), or `none`. `get_portfolio_performance` takes `benchmark` for one call and returns `benchmark` with its return on each recorded day, or `benchmarkMissing` and `benchmarkProblem`, the choice it used under `benchmarkChoice` and the choices under `benchmarkOptions`. Its text gives the gap in words. A read without a comparison asks Trading 212 for nothing more, and one with a comparison waits at most 3 seconds for its instrument list and holdings.
+- The fund's return is its price from its close on or before the first recorded day to its close on or before each later one, in its own currency: a fund priced in another currency than the account says so, since currency moves are not in it, and a distributing fund's dividends are not in its price. Its closes must reach back to within a week before the first recorded day, else the page says they start too late. They come from the quote provider and are cached for half an hour, like the holding page's chart.
+- The sample account compares with its own S&P 500 fund, VUSA, drawn offline.
+- The Chinese README lists the holding page, the price chart, the trade journal, the watchlist and the benchmark.
+
 ## 2.32.0
 
 - A watchlist. A **Watchlist** tab next to Holdings follows instruments you hold or not: each row gives the price now, its change since the previous close or over 1, 3 or 12 months (**1D**, **1M**, **3M**, **1Y**, in words as well as colour), a three-month line that is green when it ends above where it started, where the price sits in its 12-month range (or since the first close, when there is less than a year of them) and how far below the high, the nearest open order or armed alert with its distance from the price, how it has moved since you added it, and your note on why it is there. Sort by the order added, the biggest move over the period or the nearest order or alert.

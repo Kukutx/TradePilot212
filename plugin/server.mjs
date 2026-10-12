@@ -4144,7 +4144,7 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
   defineLazyInternal(inst, "optout", (zod) => zod.def.options.some((o) => o._zod.optout === "optional") ? "optional" : void 0);
   defineLazyInternal(inst, "values", (zod) => {
     if (zod.def.options.every((o) => o._zod.values)) {
-      return new Set(zod.def.options.flatMap((option) => Array.from(option._zod.values)));
+      return new Set(zod.def.options.flatMap((option2) => Array.from(option2._zod.values)));
     }
     return void 0;
   });
@@ -4162,8 +4162,8 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
     }
     let async = false;
     const results = [];
-    for (const option of def.options) {
-      const result2 = option._zod.run({
+    for (const option2 of def.options) {
+      const result2 = option2._zod.run({
         value: payload.value,
         issues: []
       }, ctx);
@@ -4222,8 +4222,8 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
     }
     let async = false;
     const results = [];
-    for (const option of def.options) {
-      const result2 = option._zod.run({
+    for (const option2 of def.options) {
+      const result2 = option2._zod.run({
         value: payload.value,
         issues: []
       }, ctx);
@@ -4248,24 +4248,24 @@ function getDiscriminatedOption(union2, value) {
     map2 = discriminatorMap(internals.def);
     internals.bag.optionsMap = map2;
   }
-  const option = map2.get(value);
-  if (option === null)
+  const option2 = map2.get(value);
+  if (option2 === null)
     throw new Error(`Ambiguous discriminator value "${String(value)}"`);
-  return option;
+  return option2;
 }
 function discriminatorMap(def) {
   const map2 = /* @__PURE__ */ new Map();
-  for (const option of def.options) {
-    const values = option._zod.propValues?.[def.discriminator];
+  for (const option2 of def.options) {
+    const values = option2._zod.propValues?.[def.discriminator];
     if (!values || values.size === 0)
-      throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(option)}"`);
+      throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(option2)}"`);
     for (const value of values) {
       if (map2.has(value)) {
         if (value !== void 0)
           throw new Error(`Duplicate discriminator value "${String(value)}"`);
         map2.set(value, null);
       } else {
-        map2.set(value, option);
+        map2.set(value, option2);
       }
     }
   }
@@ -4278,10 +4278,10 @@ var $ZodDiscriminatedUnion = /* @__PURE__ */ $constructor("$ZodDiscriminatedUnio
   defineLazyInternal(inst, "propValues", (zod) => {
     const propValues = {};
     let undefinedCount = 0;
-    for (const option of zod.def.options) {
-      const pv = option._zod.propValues;
+    for (const option2 of zod.def.options) {
+      const pv = option2._zod.propValues;
       if (!pv || Object.keys(pv).length === 0)
-        throw new Error(`Invalid discriminated union option at index "${zod.def.options.indexOf(option)}"`);
+        throw new Error(`Invalid discriminated union option at index "${zod.def.options.indexOf(option2)}"`);
       if (pv[zod.def.discriminator]?.has(void 0))
         undefinedCount++;
       for (const [k, v] of Object.entries(pv)) {
@@ -4297,8 +4297,8 @@ var $ZodDiscriminatedUnion = /* @__PURE__ */ $constructor("$ZodDiscriminatedUnio
       propValues[zod.def.discriminator]?.delete(void 0);
     return propValues;
   });
-  def.options.forEach((option, i) => {
-    const propShape = rawShape(option._zod.def);
+  def.options.forEach((option2, i) => {
+    const propShape = rawShape(option2._zod.def);
     if (propShape && !Object.prototype.hasOwnProperty.call(propShape, def.discriminator)) {
       throw new Error(`Invalid discriminated union option at index "${i}"`);
     }
@@ -14601,8 +14601,8 @@ function generateDiscriminatedUnionCheck(doc, ctx, def, accessor) {
   doc.write(`let ${outputVar};`);
   let firstBranch = true;
   const claimed = /* @__PURE__ */ new Set();
-  for (const option of def.options) {
-    const values = option._zod.propValues?.[def.discriminator];
+  for (const option2 of def.options) {
+    const values = option2._zod.propValues?.[def.discriminator];
     if (!values || values.size === 0) {
       throw new ZodCompileUnsupportedError("discriminated union option without static discriminator values");
     }
@@ -14616,7 +14616,7 @@ function generateDiscriminatedUnionCheck(doc, ctx, def, accessor) {
     const prefix = firstBranch ? "if" : "else if";
     doc.write(`${prefix} (${conditions.join(" || ")}) {`);
     doc.indented((d) => {
-      const branchOutput = generateCheck(d, ctx, option, accessor);
+      const branchOutput = generateCheck(d, ctx, option2, accessor);
       d.write(`${outputVar} = ${branchOutput};`);
     });
     doc.write(`}`);
@@ -16186,14 +16186,14 @@ function compactTypeUnion(schema) {
   if (!Array.isArray(options) || options.length === 0 || schema.type !== void 0)
     return;
   const types = [];
-  for (const option of options) {
-    if (!option || typeof option !== "object")
+  for (const option2 of options) {
+    if (!option2 || typeof option2 !== "object")
       return;
-    compactTypeUnion(option);
-    const keys = Object.keys(option);
+    compactTypeUnion(option2);
+    const keys = Object.keys(option2);
     if (keys.length !== 1 || keys[0] !== "type")
       return;
-    const type = option.type;
+    const type = option2.type;
     for (const member of Array.isArray(type) ? type : [type]) {
       if (typeof member !== "string")
         return;
@@ -16483,8 +16483,8 @@ function isTransforming(_schema, _ctx) {
     return false;
   }
   if (def.type === "union") {
-    for (const option of def.options) {
-      if (isTransforming(option, ctx))
+    for (const option2 of def.options) {
+      if (isTransforming(option2, ctx))
         return true;
     }
     return false;
@@ -32702,10 +32702,10 @@ var LegacyInputRequiredShim = class {
     const { maxRounds, roundTimeoutMs } = this._host;
     const outerSignal = ctx.mcpReq.signal;
     let current = firstResult;
-    let round10 = 0;
+    let round11 = 0;
     while (true) {
-      round10 += 1;
-      if (round10 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
+      round11 += 1;
+      if (round11 > maxRounds) return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
       const inputRequests = current.inputRequests;
       const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
       const requestState = typeof current.requestState === "string" ? current.requestState : void 0;
@@ -34906,6 +34906,11 @@ function fail(code, message, details) {
 function isLoopbackHost(hostname3) {
   return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
 }
+function benchmark(env2, sampleData) {
+  const raw = env2.BENCHMARK?.trim();
+  if (raw && /^(none|off|false)$/i.test(raw)) return "";
+  return raw || (sampleData ? "VUSAl_EQ" : "SPY_US_EQ");
+}
 function positive2(env2, name, fallback) {
   const raw = env2[name];
   if (!raw) return fallback;
@@ -34998,6 +35003,7 @@ function createConfig(env2, requestOrigin) {
     quoteProvider: sampleData ? "none" : quoteProvider(env2),
     quoteApiKey: env2.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
+    benchmark: benchmark(env2, sampleData),
     ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
     sampleData,
     oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
@@ -35713,6 +35719,11 @@ var TradingService = class {
     const account = await this.client(environment).getAccountSummary();
     if (account.currency) this.currencies.set(environment, account.currency);
     return account;
+  }
+  /** The instrument list when it was read in the last ten minutes, without asking Trading 212. */
+  cachedInstruments(environment) {
+    const cached2 = this.cache.get(environment);
+    return cached2 && cached2.expiresAt > Date.now() ? cached2.instruments : void 0;
   }
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
@@ -38366,7 +38377,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.32.0"
+  version: "2.33.0"
 };
 
 // src/shared/prices.ts
@@ -38618,10 +38629,22 @@ function performance(data) {
     `Trades: ${data.trades.buys} buys, ${data.trades.sells} sells, turnover ${num2(data.trades.turnover)}.`,
     ...valueHistoryLines(data.valueHistory),
     ...data.timeWeighted ? [`Time-weighted return from ${data.timeWeighted.from} to ${data.timeWeighted.to}: ${signed(data.timeWeighted.return * 100, 1)}%${data.timeWeighted.netFlows ? `, with ${num2(Math.abs(data.timeWeighted.netFlows))} of net ${data.timeWeighted.netFlows < 0 ? "withdrawals" : "deposits"} in between taken out` : ""}. It measures how the money invested did, whatever was paid in or taken out.`] : [],
+    ...benchmarkLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : [],
     ...data.notes
   ];
+}
+function benchmarkLines(data) {
+  const { benchmark: benchmark2, timeWeighted } = data;
+  if (!timeWeighted) return [];
+  if (!benchmark2) return data.benchmarkProblem ? [`No benchmark comparison: ${data.benchmarkProblem}`] : [];
+  const name = `${benchmark2.shortName ?? benchmark2.ticker}${benchmark2.name ? ` (${benchmark2.name})` : ""}`;
+  const gap = (timeWeighted.return - benchmark2.return) * 100;
+  const major = (currency2) => currency2?.toUpperCase() === "GBX" ? "GBP" : currency2?.toUpperCase();
+  const currency = benchmark2.currencyCode && major(benchmark2.currencyCode) !== major(data.accountCurrency) ? ` It is in ${benchmark2.currencyCode}, so currency moves against ${data.accountCurrency} are not in it.` : "";
+  const standing = Math.abs(gap) < 0.05 ? "level with it" : `${num2(Math.abs(gap), 1)} percentage points ${gap > 0 ? "ahead of" : "behind"} it`;
+  return [`Benchmark ${name} over the same days: ${signed(benchmark2.return * 100, 1)}% (${benchmark2.source === "sample" ? "simulated" : benchmark2.source} closes), so the time-weighted return is ${standing}.${currency}`];
 }
 function valueHistoryLines(points2) {
   if (!points2 || points2.length < 2) return [];
@@ -39628,6 +39651,105 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
   };
 }
 
+// src/core/benchmark.ts
+var DAY_MS9 = 864e5;
+var START_SLACK_DAYS = 7;
+var LIST_WAIT_MS = 3e3;
+var MAX_OPTIONS = 8;
+var round8 = (value) => Math.round(value * 1e6) / 1e6;
+var US_FUNDS = {
+  SPY: "SPDR S&P 500 ETF",
+  VOO: "Vanguard S&P 500 ETF",
+  QQQ: "Invesco QQQ (Nasdaq-100)",
+  VT: "Vanguard Total World Stock ETF",
+  URTH: "iShares MSCI World ETF"
+};
+function benchmarkReturns(series, points2) {
+  const first = series[0];
+  if (!first || series.length < 2) return void 0;
+  let index = -1;
+  const closeOn = (date5) => {
+    while (index + 1 < points2.length && points2[index + 1].date <= date5) index++;
+    return index >= 0 ? points2[index] : void 0;
+  };
+  const base = closeOn(first.date);
+  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS9) return void 0;
+  const out = series.map((point) => ({ date: point.date, return: round8(closeOn(point.date).close / base.close - 1) }));
+  return { return: out[out.length - 1].return, series: out };
+}
+function benchmarkInstrument(instruments, query) {
+  const wanted = query.trim().toUpperCase();
+  const us = /^[A-Z][A-Z.]{0,5}_US_EQ$/.test(wanted) ? wanted.replace(/_US_EQ$/, "") : void 0;
+  const synthetic = (symbol2) => ({ instrument: { ticker: `${symbol2}_US_EQ`, name: US_FUNDS[symbol2] ?? symbol2, shortName: symbol2, currencyCode: "USD", type: "ETF" } });
+  if (!instruments) return us ? synthetic(us) : { problem: `Trading 212's instrument list could not be read, so ${query} could not be looked up; try again.` };
+  try {
+    return { instrument: resolveInstrumentFromList(instruments, query) };
+  } catch (error62) {
+    const message = error62 instanceof Error ? error62.message : String(error62);
+    const symbol2 = us ?? (/^[A-Z]{1,5}$/.test(wanted) ? wanted : void 0);
+    return symbol2 && message.startsWith("No Trading 212 instrument matched") ? synthetic(symbol2) : { problem: message };
+  }
+}
+var option = (instrument) => ({
+  ticker: instrument.ticker,
+  ...instrument.name && instrument.name !== instrument.shortName ? { name: instrument.name } : {},
+  ...instrument.shortName ? { shortName: instrument.shortName } : {}
+});
+async function compareWithBenchmark(deps, environment, summary, choice, now = /* @__PURE__ */ new Date()) {
+  if (!summary.timeWeighted || !deps.priceHistory) return {};
+  const wanted = choice?.trim() || deps.config.benchmark;
+  const none = !wanted || /^none$/i.test(wanted);
+  const [instruments, positions, watched] = await Promise.all([
+    none ? Promise.resolve(deps.trading.cachedInstruments(environment)) : settleWithin(deps.trading.instruments(environment).catch(() => void 0), LIST_WAIT_MS),
+    none ? Promise.resolve([]) : settleWithin(deps.trading.positions(environment).catch(() => []), LIST_WAIT_MS),
+    deps.watchlist?.list(environment).catch(() => []) ?? []
+  ]);
+  const listed = new Map((instruments ?? []).map((instrument2) => [instrument2.ticker, instrument2]));
+  const funds = [...(positions ?? []).map((position) => position.instrument?.ticker), ...watched.map((item) => item.ticker)].flatMap((ticker) => {
+    const instrument2 = ticker ? listed.get(ticker) : void 0;
+    return instrument2?.type === "ETF" ? [instrument2] : [];
+  });
+  const lookup = (query) => {
+    const found2 = benchmarkInstrument(instruments, query);
+    return "instrument" in found2 ? found2.instrument : void 0;
+  };
+  const fallback = deps.config.benchmark ? lookup(deps.config.benchmark) : void 0;
+  const found = none ? void 0 : benchmarkInstrument(instruments, wanted);
+  const instrument = found && "instrument" in found ? found.instrument : void 0;
+  const seen = /* @__PURE__ */ new Set();
+  const benchmarkOptions = [fallback, instrument, ...funds].filter((item) => !!item && !seen.has(item.ticker) && !!seen.add(item.ticker)).slice(0, MAX_OPTIONS).map(option);
+  const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
+  if (none) return { ...offered, benchmarkChoice: "none" };
+  if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
+  const yearAgo = Math.floor(now.getTime() / DAY_MS9) * DAY_MS9 - 365 * DAY_MS9;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS9));
+  const read = await deps.priceHistory({
+    instrument,
+    from,
+    ...deps.config.sampleData ? { quote: deps.trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) } : {}
+  }).catch((error62) => ({ missing: "data", problem: error62 instanceof Error ? error62.message : String(error62) }));
+  const tried = { ...offered, benchmarkChoice: instrument.ticker };
+  if (!("prices" in read)) return { ...tried, benchmarkMissing: read.missing, benchmarkProblem: read.problem };
+  const compared = benchmarkReturns(summary.timeWeighted.series, read.prices.points);
+  if (!compared) {
+    return {
+      ...tried,
+      benchmarkMissing: "data",
+      benchmarkProblem: `${read.prices.source}'s closes for ${read.prices.symbol ?? instrument.ticker} start on ${read.prices.points[0]?.date}, after the first recorded day (${summary.timeWeighted.from}).`
+    };
+  }
+  return {
+    ...tried,
+    benchmark: {
+      ...option(instrument),
+      ...instrument.currencyCode ? { currencyCode: instrument.currencyCode } : {},
+      source: read.prices.source,
+      ...read.prices.symbol ? { symbol: read.prices.symbol } : {},
+      ...compared
+    }
+  };
+}
+
 // src/core/mcp.ts
 var WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 var SAMPLE_INSTRUCTIONS = "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212.";
@@ -39829,17 +39951,22 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, j
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. Read-only.",
-      inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. With it, benchmark gives an index fund's return over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. Read-only.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        ...windowSchema,
+        benchmark: external_exports.string().min(1).max(40).optional().describe(`Trading 212 ticker, symbol, ISIN or name of the fund to compare the time-weighted return with, or a US symbol; "none" for no comparison. Default: the server's BENCHMARK, else SPY`)
+      }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, period, from, to, maxPages }) => {
+    async ({ environment, period, from, to, maxPages, benchmark: benchmark2 }) => {
       try {
         const window = parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} });
         const summary = await insights.performance(environment, window, maxPages, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }));
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary };
-        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        const compared = await compareWithBenchmark({ config: config3, trading, watchlist: watchlist2, priceHistory }, environment, summary, benchmark2);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared };
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -41366,13 +41493,13 @@ var TradeJournal = class {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS9 = 864e5;
+var DAY_MS10 = 864e5;
 var watchKey2 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS9).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS10).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -41479,7 +41606,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS9);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS10);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -41487,15 +41614,15 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS10 = 864e5;
-var round8 = (value) => Math.round(value * 100) / 100;
-var signed2 = (value) => `${value >= 0 ? "+" : ""}${round8(value)}`;
+var DAY_MS11 = 864e5;
+var round9 = (value) => Math.round(value * 100) / 100;
+var signed2 = (value) => `${value >= 0 ? "+" : ""}${round9(value)}`;
 function digestText(input2) {
   const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round8(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round9(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
   return [
-    `Total ${round8(input2.totalValue)} ${input2.currency}${change}`,
-    `cash ${round8(input2.cash)}`,
+    `Total ${round9(input2.totalValue)} ${input2.currency}${change}`,
+    `cash ${round9(input2.cash)}`,
     input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
     top.length ? `top: ${top.join(", ")}` : void 0,
     input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
@@ -41524,7 +41651,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS10, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS11, now.getTime());
       if (claim2.count > 1) continue;
       try {
         const dashboard = await this.deps.trading.getDashboard(environment);
@@ -41535,7 +41662,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
-        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS10);
+        const alerts = (await this.deps.store.list("alert:")).map((entry) => entry.value).filter((alert) => alert.environment === environment && alert.triggeredAt && Date.parse(alert.triggeredAt) > now.getTime() - DAY_MS11);
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
@@ -41750,7 +41877,7 @@ var ProtectiveLinks = class {
 var HOUR_MS2 = 36e5;
 var KEEP_MS = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
-var round9 = (value) => Math.round(value * 100) / 100;
+var round10 = (value) => Math.round(value * 100) / 100;
 var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
 function within(point, bound, side) {
   if (!bound) return true;
@@ -41782,9 +41909,9 @@ var ValueHistory = class {
       const read = new Date(now.getTime() + Date.now() - started);
       const point = {
         date: read.toISOString().slice(0, 10),
-        totalValue: round9(account.totalValue),
-        ...typeof account.cash?.availableToTrade === "number" ? { cash: round9(account.cash.availableToTrade) } : {},
-        ...typeof account.investments?.currentValue === "number" ? { invested: round9(account.investments.currentValue) } : {},
+        totalValue: round10(account.totalValue),
+        ...typeof account.cash?.availableToTrade === "number" ? { cash: round10(account.cash.availableToTrade) } : {},
+        ...typeof account.investments?.currentValue === "number" ? { invested: round10(account.investments.currentValue) } : {},
         at: read.toISOString(),
         ...typeof account.id === "number" ? { account: account.id } : {}
       };

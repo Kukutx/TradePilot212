@@ -24,6 +24,7 @@ Produce a factual review of the user's Trading 212 account. Every number must co
 Lead with three numbers: realized P/L, unrealized P/L, and income for the period, in the account currency. Then cover, briefly:
 
 - **Contributions:** deposits, withdrawals, and net. Report `simpleReturn` only when the tool returned it (all-time, untruncated), and call it a simple return on net contributions. Report `annualizedReturn` only when the tool returned it, as the money-weighted yearly return since `annualizedSince`; it counts when each deposit was made, so it differs from the simple return.
+- **Against the market:** when the tool returned `timeWeighted` and `benchmark`, give both returns over the same days and the gap in percentage points. Name the fund, say when it is priced in another currency than the account (part of the gap is then the exchange rate), and that a distributing fund's price leaves out its dividends. When `benchmarkProblem` is set instead, say in a few words why there is no comparison. Compare with another fund only when the user names one, by calling the tool again with `benchmark`.
 - **Costs:** total and the two largest cost types. FX conversion fees are often the biggest; point that out when true.
 - **Winners and losers:** the top contributors from `byTicker`.
 - **Allocation:** cash share, largest holding, top-5 share, effective number of holdings, currency exposure, and every flag the tool raised.

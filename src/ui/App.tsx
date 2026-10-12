@@ -242,6 +242,8 @@ export default function App() {
   const [holdingReturn, setHoldingReturn] = useState<{ tab: PortfolioTab; environment: TradingEnvironment } | null>(null);
   // The tag the journal tab shows, kept when its period changes or a note is saved; none shows every trade.
   const [journalTag, setJournalTag] = useState<string | undefined>(undefined);
+  /** The fund the performance tab compares with, once picked; the server's default until then. */
+  const [benchmark, setBenchmark] = useState<string | undefined>(undefined);
   const [tab, setTab] = useState<PortfolioTab>("holdings");
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
@@ -317,6 +319,8 @@ export default function App() {
     setEnvironment(env);
     if (isInsight(payload)) {
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
+      // The fund the host's read compared with stays for the next period or refresh.
+      if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights({ [payload.kind]: payload });
       setTab(payload.kind);
       if (payload.kind !== "allocation" && payload.kind !== "watchlist") setPeriod(periodOf(payload.period));
@@ -429,19 +433,25 @@ export default function App() {
   }
 
   /** Read a tab. The journal keeps the tag it shows unless `tag` changes it (null shows every trade). */
-  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null): Promise<void> {
+  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null, compareWith = benchmark): Promise<void> {
     setStatus("loading");
     setProblem(null);
     setInsightError(null);
     const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
       const args = timeless(kind) ? { environment: env }
-        : { environment: env, period: range, ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}) };
+        : {
+          environment: env, period: range,
+          ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}),
+          ...(kind === "performance" && compareWith ? { benchmark: compareWith } : {}),
+        };
       const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
+      // A choice holds once a read made with it came back.
+      if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights((current) => ({ ...current, [kind]: payload }));
     } catch (requestError) {
-      const retry = () => void loadInsight(kind, env, range, tag);
+      const retry = () => void loadInsight(kind, env, range, tag, compareWith);
       const failure = problemFrom("errorTitleLoad", requestError, retry);
       // With nothing to show, the error takes the view's place; otherwise the older data stays below it.
       if (insights[kind]) setProblem(failure);
@@ -940,7 +950,8 @@ export default function App() {
                 {...(insights.allocation.drift && writeEnabled && connected ? { onRebalance: () => void rebalanceToTargets(), onInvestCash: () => void rebalanceToTargets(true) } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
-              <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
+              <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}
+                onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)} />
             )}
             {portfolioLike && tab === "income" && insights.income && (
               <IncomeView data={insights.income} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />

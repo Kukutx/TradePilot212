@@ -227,7 +227,7 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
               </div>
               <label className="watchSort">
                 <span>{t("watchSortLabel")}</span>
-                <select value={sort} onChange={(event) => setSort(event.target.value as WatchSort)}>
+                <select value={sort} aria-label={t("watchSortLabel")} onChange={(event) => setSort(event.target.value as WatchSort)}>
                   <option value="added">{t("watchSortAdded")}</option>
                   <option value="move">{t("watchSortMove")}</option>
                   <option value="level">{t("watchSortLevel")}</option>
