@@ -29,7 +29,7 @@ export interface PositionHistory {
   gain: number;
   /** Older fills were not read, so it starts on the day of the oldest one read. */
   shortened?: true;
-  /** Nothing in the instrument's currency is held now, so amounts are at its fills' exchange rates, not today's. */
+  /** Today's exchange rate is not known (nothing in the instrument's currency is held), so amounts are at its fills'. */
   fillRates?: true;
 }
 
@@ -119,8 +119,8 @@ export function holdingPositionHistory(data: HoldingDetail): PositionHistory | P
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   let rate: number | undefined;
   let fillRates = false;
-  if (position && position.quantity > 0) {
-    if (typeof value === "number" && value > 0 && position.currentPrice > 0) rate = (position.quantity * position.currentPrice) / value;
+  if (position && position.quantity > 0 && typeof value === "number" && value > 0 && position.currentPrice > 0) {
+    rate = (position.quantity * position.currentPrice) / value;
   } else if (data.accountRate && data.accountRate > 0) {
     rate = data.accountRate;
   } else {

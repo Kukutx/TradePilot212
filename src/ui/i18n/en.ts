@@ -302,7 +302,7 @@ export const en = {
   positionNote: "made by the price since {date}: the value against the net put in, which is the {shares} shares held then at that close, plus what was bought since, less what was sold.",
   positionNoteBought: "made by the price since {date}: the value against the net put in, which is what was bought, less what was sold.",
   positionRateToday: "Amounts are at today's exchange rate.",
-  positionRateFills: "Amounts are at its fills' exchange rates, as nothing in its currency is held now.",
+  positionRateFills: "Amounts are at its fills' exchange rates, as today's is not known: nothing in its currency is held.",
   positionShortened: "Older fills were not read, so it starts on {date}.",
   positionQuantity: "Going back through the fills leaves fewer than no shares on some day (a split, or shares moved out without a fill), so the position's history is not drawn.",
   positionSplit: "The closes or the fill prices jump as across a split, so the shares before it cannot be matched to the closes and the position's history is not drawn.",

@@ -38714,8 +38714,8 @@ function holdingPositionHistory(data) {
   const value = position?.walletImpact?.currentValue;
   let rate;
   let fillRates = false;
-  if (position && position.quantity > 0) {
-    if (typeof value === "number" && value > 0 && position.currentPrice > 0) rate = position.quantity * position.currentPrice / value;
+  if (position && position.quantity > 0 && typeof value === "number" && value > 0 && position.currentPrice > 0) {
+    rate = position.quantity * position.currentPrice / value;
   } else if (data.accountRate && data.accountRate > 0) {
     rate = data.accountRate;
   } else {
@@ -39093,7 +39093,7 @@ function positionHistoryLine(data) {
   if (!history) return [];
   const first = history.days[0], last = history.days[history.days.length - 1];
   const c = data.accountCurrency ? ` ${data.accountCurrency}` : "";
-  const rate = !foreign(data) ? "" : history.fillRates ? ", at its fills' exchange rates (nothing in its currency is held now)" : ", at today's exchange rate";
+  const rate = !foreign(data) ? "" : history.fillRates ? ", at its fills' exchange rates (today's is not known: nothing in its currency is held)" : ", at today's exchange rate";
   const since = history.shortened ? ` Older fills were not read, so it starts on ${first.date}.` : "";
   return [`Position from ${first.date} to ${last.date} at the closes${rate}: value ${num2(last.value)}${c} against ${num2(last.base)}${c} net put in (${num2(history.startShares, 8)} shares at the first close, plus buys less sells at their prices), so the price ${history.gain >= 0 ? "added" : "took"} ${num2(Math.abs(history.gain))}${c}.${since}`];
 }

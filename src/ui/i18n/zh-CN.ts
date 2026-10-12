@@ -304,7 +304,7 @@ export const zhCN: Record<MessageKey, string> = {
   positionNote: "自 {date} 以来价格带来的：市值对比净投入，即当时持有的 {shares} 股按当天收盘价计的市值，加上此后买入、减去卖出的金额。",
   positionNoteBought: "自 {date} 以来价格带来的：市值对比净投入，即买入减去卖出的金额。",
   positionRateToday: "金额按今天的汇率换算。",
-  positionRateFills: "目前没有持有该币种的资产，金额按各笔成交时的汇率换算。",
+  positionRateFills: "没有持有该币种的资产，不知道今天的汇率，金额按各笔成交时的汇率换算。",
   positionShortened: "更早的成交没有读到，所以从 {date} 开始画。",
   positionQuantity: "按成交记录往回推算，某天的股数会小于零（可能有拆股，或股票没有经过成交就转出），所以不画持仓走势。",
   positionSplit: "收盘价或成交价出现拆股式的跳变，拆股前的股数对不上收盘价，所以不画持仓走势。",

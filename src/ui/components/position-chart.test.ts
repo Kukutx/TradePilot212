@@ -29,7 +29,7 @@ describe("position chart", () => {
     const soldOut = { ...history, shortened: true as const, fillRates: true as const, days: [...history.days, { date: "2026-09-08", shares: 0, value: 0, base: -150 }] };
     const html = renderToStaticMarkup(createElement(PositionChart, { history: soldOut, currency: "EUR", quoteCurrency: "USD", locale: "en", t: createTranslator("en") }));
     expect(html).toMatch(/text-anchor="end">€0<\/text>/);
-    expect(html).toContain("Amounts are at its fills&#x27; exchange rates, as nothing in its currency is held now. Older fills were not read, so it starts on Sep 1, 2026.");
+    expect(html).toContain("Amounts are at its fills&#x27; exchange rates, as today&#x27;s is not known: nothing in its currency is held. Older fills were not read, so it starts on Sep 1, 2026.");
     // In the account's own currency (or pence in a pound account), no rate is said.
     expect(renderToStaticMarkup(createElement(PositionChart, { history, currency: "GBP", quoteCurrency: "GBX", locale: "en", t: createTranslator("en") }))).not.toContain("exchange rate");
   });
