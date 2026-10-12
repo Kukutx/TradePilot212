@@ -2,9 +2,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { parseWindow } from "../../core/insights-service";
-import type { PerformanceSummary } from "../../shared/history";
+import type { AllocationAnalysis, AllocationDrift, PerformanceSummary } from "../../shared/history";
 import { createTranslator } from "../i18n";
-import { DrawdownChart, DrawdownNote, PerformanceView, periodOf } from "./InsightsView";
+import { AllocationView, DrawdownChart, DrawdownNote, PerformanceView, periodOf } from "./InsightsView";
 
 describe("the period of a performance window", () => {
   const of = (period: "1m" | "3m" | "ytd" | "1y" | "all", now: string) => {
@@ -109,5 +109,38 @@ describe("the performance view's drawdown", () => {
     expect(chart).toContain(">-1.0%</text>");
     expect(chart).not.toContain("+1%");
     expect(chart).not.toContain("100%");
+  });
+});
+
+describe("the drift panel", () => {
+  const totals = { currency: "EUR", converted: 0, fxFee: 0, fxFeeRate: 0.0015 };
+  const drift: AllocationDrift = {
+    threshold: 0.05, maxDrift: 0.08, over: true, savedAt: "2026-10-12T10:00:00Z", untargeted: [],
+    rows: [{ ticker: "A", target: 0.4, current: 0.48, drift: 0.08 }, { ticker: "B", target: 0.5, current: 0.48, drift: -0.02 }],
+    cash: { target: 0.1, current: 0.04, drift: -0.06 },
+    rebalance: { ...totals, bought: 200, sold: 800 },
+    rebalanceOver: { tickers: ["A"], totals: { ...totals, bought: 0, sold: 800 } },
+  };
+  const data = {
+    kind: "allocation", environment: "demo", accountCurrency: "EUR", totalValue: 10_000, cash: 400, cashWeight: 0.04, timestamp: "2026-10-12T10:00:00Z",
+    holdings: [{ ticker: "A", name: "Alpha", currency: "EUR", value: 4800, weight: 0.48 }, { ticker: "B", name: "Beta", currency: "EUR", value: 4800, weight: 0.48 }],
+    byCurrency: [], byType: [], concentration: { largestWeight: 0.5, top5Weight: 1, herfindahl: 0.5, effectiveHoldings: 2 }, flags: [], drift,
+  } as unknown as AllocationAnalysis;
+  const render = (analysis: AllocationAnalysis, onRebalance?: (band?: number) => void, locale: "en" | "zh-CN" = "en") =>
+    renderToStaticMarkup(createElement(AllocationView, { data: analysis, locale, t: createTranslator(locale), ...(onRebalance ? { onRebalance } : {}) }));
+
+  it("says what rebalancing only those over the threshold would trade, and offers it", () => {
+    const html = render(data, () => {});
+    expect(html).toContain("Rebalancing only those more than 5.0 points off (A) would sell about €800.00.");
+    expect(html).toContain('title="Trades only the 1 more than 5.0 points off their target; the rest stay as they are.">Rebalance what drifted</button>');
+    expect(render(data, () => {}, "zh-CN")).toContain("只调偏离超过 5.0 个百分点的（A），约需卖出 €800.00。");
+    // Without order tools, the estimate but no button; without the estimate, neither.
+    expect(render(data)).not.toContain("Rebalance what drifted");
+    // Buys within the threshold with the cash that would otherwise stay too far over its target, named.
+    const cashTo = render({ ...data, drift: { ...drift, rebalanceOver: { tickers: ["A"], cashTo: ["B"], totals: { ...totals, bought: 300, sold: 800 } } } } as unknown as AllocationAnalysis, () => {});
+    expect(cashTo).toContain("would buy about €300.00 and sell about €800.00. The buys include B, within the threshold, so the cash doesn&#x27;t stay more than 5.0 points over its target.");
+    const full = render({ ...data, drift: { ...drift, rebalanceOver: undefined } } as unknown as AllocationAnalysis, () => {});
+    expect(full).not.toContain("Rebalancing only");
+    expect(full).not.toContain("Rebalance what drifted");
   });
 });

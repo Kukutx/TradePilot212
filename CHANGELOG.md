@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.53.0
+
+- Rebalance only what drifted. `plan_portfolio_rebalance` takes a `band`: only the targets more than that share of the account off their weight trade, sells of those over it paying for buys of those under it, and the rest stay as they are. Cash that would then stay more than the band over its target goes to the targets below their weight within it, so the plan doesn't leave a new drift behind. A note says how many it leaves, and its basket is titled **Rebalance what drifted**. Fewer trades, and fewer conversion fees, for the cost of leaving small drifts.
+- Saved targets offer it at their notice threshold. Under the drift, the Allocation tab says what rebalancing only the ones the drift list marks would buy and sell, naming them, with the conversion fee, beside the full rebalance; **Rebalance what drifted** opens that plan as a basket to review. `analyze_portfolio_allocation` and `manage_target_allocation` return it as `drift.rebalanceOver` and say it in their text, with the `band` that plans it.
+
 ## 2.52.0
 
 - What a rebalance trades, and what converting costs. A rebalance plan now gives what its buys and sells come to and, for the trades in another currency than the account's, Trading 212's 0.15% currency conversion fee on them: the basket's summary shows **Buys**, **Sells** and **FX fee, at most**, a note says it, and `plan_portfolio_rebalance` returns it as `totals`. Pence count as pounds. The buys now leave room for the fee, and the cash after is net of it, so a plan that spends all the free cash doesn't run short at its last order; an `investAmount` includes it. A plan short only of the fee doesn't say its buys are scaled, and a scaled one never says 100%. It is at most that, as a trade paid from or into a balance held in the instrument's own currency converts nothing.

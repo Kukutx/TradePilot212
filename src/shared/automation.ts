@@ -118,7 +118,7 @@ export interface RebalanceTrade {
 }
 
 export type RebalanceSkipCode = "no_fx_rate" | "no_price" | "below_one_share" | "below_minimum";
-export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "buy_only" | "amount_capped" | "no_cash" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source" | "fx_fee";
+export type RebalanceNoteCode = "untargeted_kept" | "sell_limited" | "buys_scaled" | "buy_only" | "amount_capped" | "no_cash" | "implied_rates" | "quoted_rates" | "nothing_possible" | "within_threshold" | "price_source" | "fx_fee" | "within_band" | "band_cash";
 
 /** A plan note with the facts behind it, so the widget can say it in its own language. */
 export interface RebalanceNote {
@@ -136,6 +136,8 @@ export interface RebalancePlan {
   cashAfter: number;
   /** Only buys, from cash above the reserve; nothing is sold. */
   buyOnly?: boolean;
+  /** Only the targets more than this share of the account off their weight are traded: from 2.53. */
+  band?: number;
   trades: RebalanceTrade[];
   /** What the trades buy and sell, and the conversion fee on the part in other currencies: from 2.52. */
   totals?: TradeTotals;

@@ -140,3 +140,28 @@ export function rebalanceEstimate(moves: ReadonlyArray<WeightMove>, totalValue: 
   // Down to 0.01%, so a share just short of all never reads as all.
   return funded.scale < 1 ? { ...totals, buysScaled: Math.floor(funded.scale * 10_000) / 10_000 } : totals;
 }
+
+/**
+ * What a rebalance of only the moves further off than the band would trade (plan_portfolio_rebalance with `band`),
+ * estimated as `rebalanceEstimate` estimates a full one: `over` move to their targets, their buys fitted to the cash.
+ * When the cash is known and more than the band would be left above the cash target, it goes, as the planner puts
+ * it, to the moves in `within` below their target. `tickers` are the ones over the band traded, `cashTo` those within
+ * it bought with that cash.
+ */
+export function bandEstimate(over: ReadonlyArray<WeightMove>, within: ReadonlyArray<WeightMove>, band: number, totalValue: number, accountCurrency: string, fxFeeRate = DEFAULT_FX_FEE_RATE, spareCash?: number):
+  { tickers: string[]; cashTo: string[]; totals: TradeTotals } {
+  const feeOf = (trade: TradeValue) => (converts(trade.currency, accountCurrency) ? fxFeeRate : 0);
+  const wanted = weightTrades(over, totalValue);
+  const funded = spareCash === undefined ? { trades: wanted, scale: 1 } : fundBuys(wanted, spareCash, accountCurrency, fxFeeRate);
+  let extra: Array<TradeValue & { ticker: string }> = [];
+  if (spareCash !== undefined && totalValue > 0) {
+    const left = funded.trades.reduce((sum, trade) => sum + (trade.side === "sell" ? trade.value * (1 - feeOf(trade)) : -trade.value * (1 + feeOf(trade))), spareCash);
+    if (left / totalValue > band + 1e-9) extra = fundBuys(weightTrades(within.filter((move) => move.target > move.current), totalValue), left, accountCurrency, fxFeeRate).trades;
+  }
+  const totals = tradeTotals([...funded.trades, ...extra], accountCurrency, fxFeeRate);
+  return {
+    tickers: funded.trades.map((trade) => trade.ticker),
+    cashTo: extra.map((trade) => trade.ticker),
+    totals: funded.scale < 1 ? { ...totals, buysScaled: Math.floor(funded.scale * 10_000) / 10_000 } : totals,
+  };
+}

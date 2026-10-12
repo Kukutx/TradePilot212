@@ -17,7 +17,7 @@ import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
-import { fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
+import { bandPoints, fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
@@ -88,7 +88,9 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
 const MIN_SPARE_CASH = 1;
 
 function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCash, onEdit, focusEdit, busy }: {
-  drift: AllocationDrift; spareCash: number; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void; onEdit?: () => void;
+  drift: AllocationDrift; spareCash: number; book?: InstrumentBook; locale: SupportedLocale; t: Translator;
+  /** Plans the rebalance to the targets; with a band, of only the ones further off than it. */
+  onRebalance?: (band?: number) => void; onInvestCash?: () => void; onEdit?: () => void;
   /** Focus Edit targets as it shows: the target form it opened has just closed. */
   focusEdit?: boolean; busy?: boolean;
 }) {
@@ -102,6 +104,15 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
   const points = new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
   const share = (value: number) => `${Math.min(100, (value / scale) * 100)}%`;
   const trades = drift.rebalance && tradeEstimateText(drift.rebalance, "drift", t, locale);
+  // Only the ones over the threshold, when that trades fewer than a rebalance to every target.
+  const over = drift.rebalanceOver;
+  const threshold = bandPoints(drift.threshold, locale);
+  const names = (tickers: string[]) => tickers.map((ticker) => instrumentLabel(ticker, book).name).join(locale === "zh-CN" ? "、" : ", ");
+  const overTrades = over && [
+    tradeEstimateText(over.totals, "over", t, locale, { points: threshold, list: names(over.tickers) }),
+    over.cashTo?.length ? fill(t("driftOverCash"), { points: threshold, list: names(over.cashTo) }) : "",
+  ].filter(Boolean).join(locale === "zh-CN" ? "" : " ");
+  const rebalanceOver = over && (over.totals.bought > 0 || over.totals.sold > 0) && onRebalance ? () => onRebalance(drift.threshold) : undefined;
   return (
     <section className="dataPanel">
       <div className="panelHeading">
@@ -110,7 +121,10 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
           <div className="panelActions">
             {onEdit && <button type="button" className="secondaryButton compactButton" autoFocus={focusEdit} disabled={busy} onClick={onEdit}>{t("targetsEdit")}</button>}
             {investCash && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={investCash}>{t("investCashByTargets")}</button>}
-            {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={onRebalance}>{t("rebalanceToTargets")}</button>}
+            {rebalanceOver && (
+              <button type="button" className="secondaryButton compactButton" disabled={busy} title={fill(t("rebalanceOverTargetsHint"), { count: String(over!.tickers.length), points: threshold })} onClick={rebalanceOver}>{t("rebalanceOverTargets")}</button>
+            )}
+            {onRebalance && <button type="button" className="secondaryButton compactButton" disabled={busy} onClick={() => onRebalance()}>{t("rebalanceToTargets")}</button>}
           </div>
         )}
       </div>
@@ -123,17 +137,18 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
         </p>
       )}
       {trades && <p className="panelNote driftTrades">{trades}</p>}
+      {overTrades && <p className="panelNote driftTrades driftOverTrades">{overTrades}</p>}
       <ul className="driftList" aria-label={t("driftTitle")}>
         {rows.map((row) => {
-          const over = Math.abs(row.drift) > drift.threshold + 1e-9;
+          const past = Math.abs(row.drift) > drift.threshold + 1e-9;
           return (
-            <li key={row.key} className={over ? "over" : undefined}>
+            <li key={row.key} className={past ? "over" : undefined}>
               <div className="driftHead">
                 <span className="barLabel" title={row.title}>
                   <strong>{row.label}</strong>
                   {"sublabel" in row && row.sublabel && <small>{row.sublabel}</small>}
                 </span>
-                <span className={`driftValue ${over ? "over" : ""}`} aria-label={`${t("driftPointsHeader")} ${points.format(row.drift * 100)}`}>{points.format(row.drift * 100)}</span>
+                <span className={`driftValue ${past ? "over" : ""}`} aria-label={`${t("driftPointsHeader")} ${points.format(row.drift * 100)}`}>{points.format(row.drift * 100)}</span>
               </div>
               <div className="driftTrack" aria-hidden="true">
                 <span className="driftFill" style={{ width: share(row.current) }} />
@@ -155,7 +170,7 @@ function DriftPanel({ drift, spareCash, book, locale, t, onRebalance, onInvestCa
 }
 
 export function AllocationView({ data, book, locale, t, onRebalance, onInvestCash, onPlanEqualRisk, onSaveTargets, onClearTargets, onReadCovariance, onSearch, busy }: {
-  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: () => void; onInvestCash?: () => void;
+  data: AllocationAnalysis; book?: InstrumentBook; locale: SupportedLocale; t: Translator; onRebalance?: (band?: number) => void; onInvestCash?: () => void;
   /** Drafts the rebalance to the equal-risk weights as a basket to review; only with order tools. */
   onPlanEqualRisk?: (plan: EqualRiskPlan) => void;
   /** Save or remove the target weights; each resolves true once done. Targets never trade. */

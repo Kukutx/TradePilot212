@@ -397,8 +397,21 @@ export function rebalanceNoteText(note: RebalanceNote, t: Translator, locale: Su
       return fill(t("rebalanceNoteCapped"), { available: amount(Number(value("available")), currency, locale), amount: amount(Number(value("amount")), currency, locale) });
     }
     case "no_cash": return t("rebalanceNoteNoCash");
-    case "nothing_possible": return t("rebalanceNoteNothing");
+    case "nothing_possible": return t(value("band") === undefined ? "rebalanceNoteNothing" : "rebalanceNoteNothingBand");
     case "within_threshold": return t("rebalanceNoteWithin");
+    case "within_band": {
+      const count = Number(value("count"));
+      const total = Number(value("total"));
+      const points = bandPoints(Number(value("band")), locale);
+      if (count >= total) return fill(t("rebalanceNoteBandAll"), { points });
+      return value("inside") === 1
+        ? plural(count, locale, t("rebalanceNoteBandInsideOne"), t("rebalanceNoteBandInside"), { points, total: num(total, locale, 0) })
+        : plural(count, locale, t("rebalanceNoteBandOne"), t("rebalanceNoteBand"), { points, total: num(total, locale, 0) });
+    }
+    case "band_cash": {
+      const currency = String(value("currency") ?? "") || undefined;
+      return fill(t("rebalanceNoteBandCash"), { points: bandPoints(Number(value("band")), locale), amount: amount(Number(value("amount")), currency, locale) });
+    }
     case "price_source": return t("rebalanceNotePrices");
     case "fx_fee": {
       const currency = String(value("currency") ?? "") || undefined;
@@ -413,8 +426,14 @@ export function feeRateText(rate: number, locale: SupportedLocale): string {
   return new Intl.NumberFormat(localeTag(locale), { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(rate);
 }
 
+/** A band or threshold in weight points, to one decimal as the drift panel gives it: 0.05 is "5.0". */
+export function bandPoints(band: number, locale: SupportedLocale): string {
+  return new Intl.NumberFormat(localeTag(locale), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(band * 100);
+}
+
 const TRADE_KEYS = {
   drift: { both: "driftTrades", buy: "driftTradesBuy", sell: "driftTradesSell", none: undefined, noCash: "driftTradesNoCash" },
+  over: { both: "driftOverTrades", buy: "driftOverTradesBuy", sell: "driftOverTradesSell", none: undefined, noCash: "driftOverTradesNoCash" },
   targets: { both: "targetsTrades", buy: "targetsTradesBuy", sell: "targetsTradesSell", none: "targetsTradesNone", noCash: "targetsTradesNoCash" },
 } as const;
 
@@ -424,11 +443,11 @@ const TRADE_KEYS = {
  * weights typed). Nothing to trade says so in the form and nothing in the panel; buys with no cash to pay for them say
  * so in both.
  */
-export function tradeEstimateText(totals: TradeTotals, lead: keyof typeof TRADE_KEYS, t: Translator, locale: SupportedLocale): string | undefined {
+export function tradeEstimateText(totals: TradeTotals, lead: keyof typeof TRADE_KEYS, t: Translator, locale: SupportedLocale, vars: Record<string, string> = {}): string | undefined {
   const currency = totals.currency || undefined;
   const keys = TRADE_KEYS[lead];
-  if (!(totals.bought > 0) && !(totals.sold > 0)) return totals.buysScaled !== undefined ? t(keys.noCash) : keys.none && t(keys.none);
-  const parts = [fill(t(totals.bought > 0 && totals.sold > 0 ? keys.both : totals.bought > 0 ? keys.buy : keys.sell), { bought: amount(totals.bought, currency, locale), sold: amount(totals.sold, currency, locale) })];
+  if (!(totals.bought > 0) && !(totals.sold > 0)) return totals.buysScaled !== undefined ? fill(t(keys.noCash), vars) : keys.none && t(keys.none);
+  const parts = [fill(t(totals.bought > 0 && totals.sold > 0 ? keys.both : totals.bought > 0 ? keys.buy : keys.sell), { ...vars, bought: amount(totals.bought, currency, locale), sold: amount(totals.sold, currency, locale) })];
   if (totals.buysScaled !== undefined) parts.push(totals.bought > 0 ? fill(t("tradesScaled"), { percent: pct(Math.floor(totals.buysScaled * 100) / 100, locale, 0) }) : t("tradesNoBuys"));
   if (totals.converted > 0 && totals.fxFeeRate > 0) parts.push(fill(t("tradesFxFee"), { converted: amount(totals.converted, currency, locale), fee: amount(totals.fxFee, currency, locale), rate: feeRateText(totals.fxFeeRate, locale) }));
   return parts.join(locale === "zh-CN" ? "" : " ");
@@ -463,6 +482,7 @@ export function basketTitle(basket: BasketShape, t: Translator, book?: Instrumen
   const title = basket.title.trim();
   if (basket.purpose === "rebalance" && (title === "Rebalance" || !title)) return t("basketTitleRebalance");
   if (basket.purpose === "rebalance" && title === "Invest cash by targets") return t("basketTitleInvestCash");
+  if (basket.purpose === "rebalance" && title === "Rebalance what drifted") return t("basketTitleRebalanceOver");
   if (basket.purpose === "protective" && title === STOPS_BASKET_TITLE) return t("basketTitleStops");
   if (basket.purpose === "protective" && (title.startsWith("Protect ") || !title)) {
     const leg = basket.legs[0];
