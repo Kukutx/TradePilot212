@@ -103,6 +103,12 @@ async function scenarios(): Promise<Scenario[]> {
       args: { instrument: (second ?? top).instrument.ticker, side: "buy", type: "limit", limitPrice: round((second ?? top).currentPrice! * 0.98), sizing: { mode: "notional", amount: 200 } },
       prompt: { en: `Buy about 200 of ${(second ?? top).instrument.name ?? "it"} with a limit 2% below the price.`, zh: `用限价单买入约 200 的 ${(second ?? top).instrument.name ?? "这只股票"}，价格比现价低 2%。` },
     });
+    const risky = second ?? top;
+    list.push({
+      id: "risk", group: "orders", tool: "review_trading212_order_intent",
+      args: { instrument: risky.instrument.ticker, side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: round(risky.currentPrice! * 0.92) } },
+      prompt: { en: `Buy ${risky.instrument.name ?? "it"}, risking 1% of my account with a stop 8% below.`, zh: `买入 ${risky.instrument.name ?? "这只股票"}，止损设在现价下 8%，最多亏账户的 1%。` },
+    });
     list.push({
       id: "protective", group: "orders", tool: "review_protective_orders",
       args: { instrument: top.instrument.ticker, stopLossPrice: round(price * 0.9), takeProfitPrice: round(price * 1.15) },

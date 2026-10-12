@@ -1,4 +1,4 @@
-import type { PendingOrder, Position } from "../../shared/contracts";
+import type { OrderDraft, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import type { StopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { amount, money, pct, qty } from "./format";
@@ -69,4 +69,28 @@ export function stopCoverageText(guard: StopProtection, position: Position, loca
   const values = { covered: qty(guard.covered, locale), quantity: qty(position.quantity, locale) };
   if (guard.unsized) return guard.covered > 0 ? fill(t("stopCoversAtLeast"), values) : t("stopCoversUnknown");
   return fill(t("stopCovers"), values);
+}
+
+export interface RiskAtStop {
+  /** What the draft would lose at the stop, in the account currency; absent when the stop is not below the entry. */
+  loss?: number;
+  budget: number;
+  over: boolean;
+  cashCapped: boolean;
+}
+
+/**
+ * For a risk-sized buy, what the draft as edited would lose at the stop: the quantity and the entry (limit,
+ * stop or reference price) can change after sizing, so this follows them at the rate the sizing used.
+ */
+export function riskAtStop(draft: OrderDraft, resolution: OrderResolution | undefined): RiskAtStop | undefined {
+  const risk = resolution?.risk;
+  if (!risk || resolution.sizing.mode !== "risk") return undefined;
+  const stop = resolution.sizing.stopLossPrice;
+  const entry = (draft.type === "limit" || draft.type === "stop_limit" ? draft.limitPrice : draft.type === "stop" ? draft.stopPrice : draft.referencePrice) ?? risk.entryPrice;
+  const base = { budget: risk.budget, cashCapped: !!risk.cashCapped };
+  if (!(entry > stop) || !(risk.entryPrice > stop)) return { ...base, over: false };
+  const loss = draft.quantity * (entry - stop) * (risk.perShare / (risk.entryPrice - stop));
+  // A cent of rounding is not over the budget.
+  return { ...base, loss, over: loss > risk.budget + 0.005 };
 }

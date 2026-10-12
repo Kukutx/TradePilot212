@@ -15,6 +15,7 @@ import type {
   PendingOrder,
   Position,
   ResolvedOrderIntent,
+  RiskSizing,
   TradeCandidate,
   TradePlanPayload,
   TradingEnvironment,
@@ -568,12 +569,13 @@ export class TradingService {
     let requestedNotional: number | undefined;
     let requestedNotionalCurrency: string | undefined;
     let estimatedQuoteNotional: number | undefined;
+    let risk: RiskSizing | undefined;
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : undefined;
     // Amount-based sizing of an instrument you do not hold falls back to the external quote provider.
-    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === undefined
+    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === undefined
       && !position?.currentPrice && intent.type === "market";
     if (needsPrice) {
       const quote = await this.externalQuote(instrument);
@@ -639,6 +641,56 @@ export class TradingService {
       if (referencePrice === undefined && position?.currentPrice !== undefined) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
+    } else if (sizing.mode === "risk") {
+      if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
+      positiveNumber("stopLossPrice", sizing.stopLossPrice);
+      if ((sizing.amount === undefined) === (sizing.percent === undefined)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
+      const entry = referencePrice
+        ?? (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : undefined)
+        ?? (intent.type === "stop" ? intent.stopPrice : undefined)
+        ?? position?.currentPrice;
+      positiveNumber("referencePrice", entry);
+      if (referencePrice === undefined && position?.currentPrice === entry) referencePriceAt = fetchedAt;
+      referencePrice ??= entry;
+      if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
+      const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
+      const instrumentCurrency = instrument.currencyCode.toUpperCase();
+      let budget: number;
+      let budgetText: string;
+      if (sizing.percent !== undefined) {
+        positiveNumber("percent", sizing.percent);
+        if (sizing.percent > 100) throw new Error("percent cannot exceed 100");
+        const total = account.totalValue;
+        if (!(typeof total === "number" && total > 0)) throw new Error("The account value is unknown, so risk a fixed amount instead of a percentage");
+        budget = total * sizing.percent / 100;
+        budgetText = `${sizing.percent}% of the account value (${budget.toFixed(2)} ${accountCurrency})`;
+      } else {
+        positiveNumber("amount", sizing.amount);
+        budget = sizing.amount!;
+        budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
+      }
+      let rate = 1;
+      let converted = "";
+      if (accountCurrency !== instrumentCurrency) {
+        const conversion = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        rate = conversion.rate;
+        converted = `, converted at ${round(rate, 6)} ${instrumentCurrency}/${accountCurrency}${conversion.source}`;
+      }
+      const perShareQuote = entry - sizing.stopLossPrice;
+      quantity = floorQuantity(budget * rate / perShareQuote);
+      // Never more than the cash can buy: the budget is what the stop may lose, not what the buy may cost.
+      const cash = account.cash?.availableToTrade;
+      const affordable = typeof cash === "number" ? floorQuantity(Math.max(0, cash) * rate / entry) : Infinity;
+      const cashCapped = quantity > affordable;
+      if (cashCapped) quantity = affordable;
+      if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
+      estimatedQuoteNotional = entry * quantity;
+      // The budget is a loss, not an amount to spend, so it travels as risk.budget rather than requestedNotional.
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...(cashCapped ? { cashCapped } : {}) };
+      const loss = quantity * perShareQuote / rate;
+      note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round(estimatedQuoteNotional, 2)} ${instrumentCurrency}.`
+        + (cashCapped ? ` That is all the available cash (${(cash as number).toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "")
+        + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");
       const available = position?.quantityAvailableForTrading ?? 0;
@@ -705,6 +757,7 @@ export class TradingService {
       ...(requestedNotional === undefined ? {} : { requestedNotional }),
       ...(requestedNotionalCurrency === undefined ? {} : { requestedNotionalCurrency }),
       ...(estimatedQuoteNotional === undefined ? {} : { estimatedQuoteNotional }),
+      ...(risk ? { risk } : {}),
       note,
     };
   }

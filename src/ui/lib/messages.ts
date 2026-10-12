@@ -213,11 +213,16 @@ export function sizingText(
   instrument: Instrument | undefined,
   locale: SupportedLocale,
   t: Translator,
+  accountCurrency?: string,
 ): string {
   if (sizing.mode === "quantity") return `${t("exactQuantity")} · ${qty(sizing.quantity, locale)}`;
   if (sizing.mode === "notional") return `${t("targetAmount")} · ${amount(sizing.amount, sizing.currency ?? instrument?.currencyCode, locale)}${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "cash_percent") return `${t("cashPercentage")} · ${num(sizing.percent, locale)}%${sizing.fxRateToInstrumentCurrency ? ` · ${t("fxRate")} ${num(sizing.fxRateToInstrumentCurrency, locale, 6)}` : ""}`;
   if (sizing.mode === "position_percent") return `${t("positionPercentage")} · ${num(sizing.percent, locale)}%`;
+  if (sizing.mode === "risk") {
+    const budget = sizing.percent !== undefined ? fill(t("riskOfAccount"), { percent: num(sizing.percent, locale, 2) }) : amount(sizing.amount, accountCurrency, locale);
+    return `${t("riskSizing")} · ${budget} · ${fill(t("riskStopAt"), { price: amount(sizing.stopLossPrice, instrument?.currencyCode, locale) })}`;
+  }
   return t("allAvailableShares");
 }
 

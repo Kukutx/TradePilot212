@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { PendingOrder, Position } from "../../shared/contracts";
+import type { OrderDraft, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { createTranslator } from "../i18n";
-import { stopCoverageText, summarizeOrder } from "./orders";
+import { riskAtStop, stopCoverageText, summarizeOrder } from "./orders";
 
 const apple = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", type: "STOCK" };
 const positions = [{ instrument: apple, quantity: 10, averagePricePaid: 150, currentPrice: 200 }] as unknown as Position[];
@@ -34,5 +34,24 @@ describe("stop coverage", () => {
     expect(stopCoverageText({ ...base, covered: 4, coverage: 0.4, unsized: 1 }, position, "en", t)).toBe("Covers at least 4 of 10");
     expect(stopCoverageText({ ...base, covered: 0, coverage: 0, unsized: 1 }, position, "en", t)).toBe("Placed by amount; shares not known");
     expect(stopCoverageText({ ...base, covered: 4, coverage: 0.4 }, position, "en", t)).toBe("Covers 4 of 10");
+  });
+});
+
+describe("risk at the stop", () => {
+  // Sized for 30 EUR at 216 USD with a stop at 200: 16 USD a share, 14.81 EUR at 1.08.
+  const resolution: OrderResolution = { sizing: { mode: "risk", percent: 1, stopLossPrice: 200 }, resolvedQuantity: 2.025, accountCurrency: "EUR", risk: { budget: 30, entryPrice: 216, perShare: 16 / 1.08 } };
+  const draft: OrderDraft = { environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 2.025, referencePrice: 216 };
+
+  it("follows the quantity and entry price as they are edited", () => {
+    expect(riskAtStop(draft, resolution)).toEqual({ loss: expect.closeTo(30, 8), budget: 30, over: false, cashCapped: false });
+    expect(riskAtStop({ ...draft, quantity: 4 }, resolution)).toMatchObject({ loss: expect.closeTo(59.26, 2), over: true });
+    // A limit at 208 halves the fall to the stop.
+    expect(riskAtStop({ ...draft, type: "limit", limitPrice: 208 }, resolution)?.loss).toBeCloseTo(15, 8);
+    expect(riskAtStop({ ...draft, type: "limit", limitPrice: 195 }, resolution)).toEqual({ budget: 30, over: false, cashCapped: false });
+  });
+
+  it("is only for risk-sized drafts", () => {
+    expect(riskAtStop(draft, undefined)).toBeUndefined();
+    expect(riskAtStop(draft, { sizing: { mode: "quantity", quantity: 2 }, resolvedQuantity: 2 })).toBeUndefined();
   });
 });

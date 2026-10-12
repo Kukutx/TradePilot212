@@ -102,6 +102,13 @@ const orderSizingSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("cash_percent"), percent: z.number().positive().max(100), fxRateToInstrumentCurrency: z.number().positive().optional() }),
   z.object({ mode: z.literal("position_percent"), percent: z.number().positive().max(100) }),
   z.object({ mode: z.literal("all_available") }),
+  z.object({
+    mode: z.literal("risk"),
+    stopLossPrice: z.number().positive().describe("Where you would sell if the trade goes wrong, in the instrument's currency"),
+    amount: z.number().positive().optional().describe("Most to lose at the stop, in the account currency"),
+    percent: z.number().positive().max(100).optional().describe("Most to lose at the stop, as a percentage of the account value"),
+    fxRateToInstrumentCurrency: z.number().positive().optional(),
+  }),
 ]);
 
 const dateOrDateTime = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)) && /T/.test(value), "Use YYYY-MM-DD or an ISO date-time");
@@ -504,7 +511,7 @@ export function createMcpServer(
       {
         title: "Review Flexible Trading 212 Order",
         description:
-          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
+          "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Risk sizing buys as many shares as would lose a given amount, or percent of the account value, if the price fell to a stop-loss; it is capped at the available cash, and the stop itself is a separate order (review_protective_orders once the buy fills). Examples: 'buy about €100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available; 'buy Apple risking 1% of my account with a stop at 200' => risk percent 1, stopLossPrice 200.",
         inputSchema: z.object({
           environment: environmentWithDefault,
           instrument: z.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -540,6 +547,7 @@ export function createMcpServer(
                 ...(resolved.requestedNotional === undefined ? {} : { requestedNotional: resolved.requestedNotional }),
                 ...(resolved.requestedNotionalCurrency ? { requestedNotionalCurrency: resolved.requestedNotionalCurrency } : {}),
                 ...(resolved.estimatedQuoteNotional === undefined ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional }),
+                ...(resolved.risk ? { risk: resolved.risk } : {}),
               },
               note: resolved.note,
               credentials: credentialStatus(config),

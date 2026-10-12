@@ -251,7 +251,12 @@ export type OrderSizing =
   | { mode: "notional"; amount: number; currency?: string; fxRateToInstrumentCurrency?: number }
   | { mode: "cash_percent"; percent: number; fxRateToInstrumentCurrency?: number }
   | { mode: "position_percent"; percent: number }
-  | { mode: "all_available" };
+  | { mode: "all_available" }
+  /**
+   * Buy as many shares as would lose `amount` (in the account currency), or `percent` of the account value,
+   * if the price fell from the entry to `stopLossPrice`. Give one of amount and percent.
+   */
+  | { mode: "risk"; stopLossPrice: number; amount?: number; percent?: number; fxRateToInstrumentCurrency?: number };
 
 export interface OrderIntent {
   environment: TradingEnvironment;
@@ -280,7 +285,20 @@ export interface ResolvedOrderIntent {
   requestedNotional?: number;
   requestedNotionalCurrency?: string;
   estimatedQuoteNotional?: number;
+  risk?: RiskSizing;
   note: string;
+}
+
+/** How a risk-sized buy came out, so the editor can show the loss at the stop as the quantity changes. */
+export interface RiskSizing {
+  /** The most the buy should lose at the stop, in the account currency. */
+  budget: number;
+  /** The price the quantity was sized at: the limit, stop or last price. */
+  entryPrice: number;
+  /** Account-currency loss per share from entryPrice down to the stop. */
+  perShare: number;
+  /** The available cash, not the budget, set the quantity. */
+  cashCapped?: boolean;
 }
 
 export interface OrderResolution {
@@ -292,6 +310,7 @@ export interface OrderResolution {
   requestedNotional?: number;
   requestedNotionalCurrency?: string;
   estimatedQuoteNotional?: number;
+  risk?: RiskSizing;
 }
 
 export interface OrderDraftPayload {

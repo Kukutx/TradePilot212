@@ -26,6 +26,7 @@ import {
   rebalanceNoteText,
   rebalanceSkipText,
   validityLabel,
+  sizingText,
 } from "./messages";
 
 describe("policy messages", () => {
@@ -197,5 +198,13 @@ describe("server-written basket text", () => {
       notices: [],
     } as unknown as PieChangePreview;
     expect(pieNoticeText("Removing AAPL_US_EQ takes it out of the pie.", preview, zh, "zh-CN", { AAPL_US_EQ: { name: "Apple" } })).toContain("移除 Apple");
+  });
+});
+
+describe("risk sizing", () => {
+  it("names the budget and the stop", () => {
+    const apple = { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD" };
+    expect(sizingText({ mode: "risk", percent: 1, stopLossPrice: 200 }, apple, "en", createTranslator("en"), "EUR")).toBe("Risk at the stop · 1% of account value · stop $200.00");
+    expect(sizingText({ mode: "risk", amount: 30, stopLossPrice: 200 }, apple, "zh-CN", createTranslator("zh-CN"), "EUR")).toBe("止损风险 · €30.00 · 止损 US$200.00");
   });
 });

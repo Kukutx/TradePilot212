@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.27.0
+
+- Size a buy by risk. The `risk` sizing mode of `review_trading212_order_intent` buys as many shares as would lose a set amount, or a percentage of the account value, if the price fell to a stop-loss: "buy Apple risking 1% of my account with a stop at 200". The entry is the limit, stop or last price, the loss is converted to the account currency like other amounts, and the quantity never goes beyond what the available cash buys. The stop-loss itself is still a separate order, set once the buy fills.
+- The order editor shows the loss at the stop for a risk-sized buy, "At the stop: -€30.00 of the €30.00 budget". It follows the quantity and the limit price as you edit them and turns amber when it goes over the budget.
+- The dashboard's coverage line adds what the stops in place would cost if they all triggered, such as "If every stop triggers: -€49.45 (0.4% of holdings)", and the text summary has the same total. It is left out when a stopped holding has no valuation or its stop is already above the price.
+- The preview has a **Size by risk** view, and its menu now names the holding and portfolio-stops views instead of showing their ids.
+
 ## 2.26.0
 
 - Stop-losses for the whole portfolio in one step. `review_portfolio_stops` drafts one Good-Till-Cancel sell stop for every holding with shares that are free to sell and that no pending stop covers. They open as one basket that you review and confirm once:

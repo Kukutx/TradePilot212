@@ -157,6 +157,13 @@ export interface PortfolioProtection {
   protectable: number;
   /** Holdings with a stop placed by amount, whose coverage is unknown; not in covered or partial. */
   unknown?: number;
+  /**
+   * What the holdings would lose from the last prices if every pending stop triggered at its price, in the
+   * account currency, and that as a share of all holdings. Absent with no stop, or when a stopped holding
+   * has no outcome (no valuation, or a stop the price is already under).
+   */
+  atStops?: number;
+  atStopsShare?: number;
 }
 
 /** Stop-loss coverage across the portfolio, for one line above the holdings. */
@@ -169,11 +176,18 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
   let total = 0;
   let valued = true;
   let unknown = 0;
+  let atStops: number | undefined = 0;
+  let stopped = 0;
   for (const position of held) {
     const guard = stopProtection(position, orders);
     if (guard?.coverage === 1) covered += 1;
     else if (guard?.unsized) unknown += 1;
     else if (guard) partial += 1;
+    if (guard) {
+      stopped += 1;
+      const outcome = stopOutcome(position, guard);
+      atStops = outcome && atStops !== undefined ? atStops + outcome.drop : undefined;
+    }
     if (suggestedStop(position, guard)) protectable += 1;
     const value = (position.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
     if (typeof value !== "number" || !Number.isFinite(value)) valued = false;
@@ -190,5 +204,6 @@ export function portfolioProtection(positions: Position[], orders: PendingOrder[
     // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
     ...(valued && !unknown && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {}),
     ...(unknown ? { unknown } : {}),
+    ...(stopped && atStops !== undefined ? { atStops, ...(valued && total > 0 ? { atStopsShare: atStops / total } : {}) } : {}),
   };
 }

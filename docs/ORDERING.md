@@ -46,6 +46,20 @@ If the requested share count is larger than the currently tradable quantity, Tra
 
 `all_available` is the explicit sell mode for the entire quantity Trading 212 currently reports as tradable.
 
+### Risk at the stop-loss
+
+For buys, `risk` sizes the order by what it would lose if the price fell to a stop-loss. Give `stopLossPrice` (in the instrument's currency) and either `amount` (in the account currency) or `percent` of the account value:
+
+```json
+{ "mode": "risk", "percent": 1, "stopLossPrice": 200 }
+```
+
+The entry is the limit price for a Limit or Stop-Limit, the stop price for a Stop, and otherwise the reference price or the holding's last price (or the quote source for an instrument you do not hold). The quantity is the budget divided by the fall from the entry to the stop, converted to the account currency the same way as amounts. It is rounded down and never more than the available cash buys; when the cash sets it, the note says so and gives the smaller loss.
+
+The stop-loss is not part of the order. Set it once the buy fills, for example with `review_protective_orders` or **Set stop-loss** on the holding's page. A gap can fill a stop below its price, so the loss can be larger than the budget.
+
+The order editor shows the loss at the stop as the quantity or price is edited, and marks it when it goes over the budget.
+
 ## Review flow
 
 ```text

@@ -330,6 +330,35 @@ describe("currencies, uncertain results and Live confirmations", () => {
     expect(validateOrderAgainstSnapshot(order(40), msft, undefined, account, { maxOrderNotional: 0, maxOrderQuantity: 0 }).accountNotional).toBeUndefined();
   });
 
+  it("sizes a buy by what it would lose at the stop-loss, in the account currency", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    // 1% of the 3000 EUR account is 30 EUR, or 32.40 USD at the 1.08 the AAPL holding implies; 216 down to 200 is 16 USD a share.
+    const apple = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", percent: 1, stopLossPrice: 200 } });
+    expect(apple.draft).toMatchObject({ quantity: 2.025, referencePrice: 216 });
+    expect(apple.risk).toEqual({ budget: 30, entryPrice: 216, perShare: expect.closeTo(16 / 1.08, 8) });
+    expect(apple.note).toMatch(/^Risk 1% of the account value \(30\.00 EUR\) with a stop-loss at 200 USD: 16 USD a share from 216 down to the stop, converted at 1\.08 USD\/EUR/);
+    expect(apple.note).toMatch(/set it once the buy fills/);
+    // A limit order is sized from its limit; pence work like any other currency (84.75 GBX per EUR).
+    const vusa = await service.resolveOrderIntent({ environment: "demo", instrument: "VUSAl_EQ", side: "buy", type: "limit", limitPrice: 8400, sizing: { mode: "risk", amount: 40, stopLossPrice: 8000 } });
+    expect(vusa.draft.quantity).toBe(8.475);
+    expect(vusa.risk?.entryPrice).toBe(8400);
+    // 300 EUR at 6 USD a share would be 54 shares, but 1000 EUR of cash buys 5.
+    const capped = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", sizing: { mode: "risk", amount: 300, stopLossPrice: 210 } });
+    expect(capped.draft.quantity).toBe(5);
+    expect(capped.risk?.cashCapped).toBe(true);
+    expect(capped.note).toMatch(/all the available cash \(1000\.00 EUR\) buys, so at the stop it would lose about 27\.78 EUR/);
+  });
+
+  it("refuses risk sizing that cannot work", async () => {
+    const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
+    const intent = (sizing: Record<string, unknown>, side: "buy" | "sell" = "buy") =>
+      service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side, type: "market", sizing: { mode: "risk", stopLossPrice: 200, ...sizing } as never });
+    await expect(intent({ percent: 1 }, "sell")).rejects.toThrow(/only valid for buy orders/);
+    await expect(intent({ percent: 1, amount: 30 })).rejects.toThrow(/either amount .* or percent/);
+    await expect(intent({})).rejects.toThrow(/either amount .* or percent/);
+    await expect(intent({ percent: 1, stopLossPrice: 220 })).rejects.toThrow(/must be below the entry price \(216 USD\)/);
+  });
+
   it("carries a rate given for the account currency on the draft", async () => {
     const service = new TradingService({ config: config(), store: new MemoryStateStore(), fetcher: fxFetch() });
     const resolved = await service.resolveOrderIntent({ environment: "demo", instrument: "AAPL", side: "buy", type: "market", referencePrice: 216, sizing: { mode: "notional", amount: 108, currency: "EUR", fxRateToInstrumentCurrency: 1.1 } });

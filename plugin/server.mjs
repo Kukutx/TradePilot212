@@ -35008,6 +35008,46 @@ function suggestedStop(position, guard, drop = SUGGESTED_STOP_DROP) {
   const stopPrice = guard && guard.stopPrice < position.currentPrice ? guard.stopPrice : roundPrice(position.currentPrice * (1 - drop));
   return { quantity, stopPrice };
 }
+function portfolioProtection(positions, orders) {
+  const held = positions.filter((position) => position.quantity > 0);
+  let covered = 0;
+  let partial2 = 0;
+  let protectable = 0;
+  let unprotected = 0;
+  let total = 0;
+  let valued = true;
+  let unknown2 = 0;
+  let atStops = 0;
+  let stopped = 0;
+  for (const position of held) {
+    const guard = stopProtection(position, orders);
+    if (guard?.coverage === 1) covered += 1;
+    else if (guard?.unsized) unknown2 += 1;
+    else if (guard) partial2 += 1;
+    if (guard) {
+      stopped += 1;
+      const outcome = stopOutcome(position, guard);
+      atStops = outcome && atStops !== void 0 ? atStops + outcome.drop : void 0;
+    }
+    if (suggestedStop(position, guard)) protectable += 1;
+    const value = position.walletImpact?.currentValue;
+    if (typeof value !== "number" || !Number.isFinite(value)) valued = false;
+    else {
+      total += value;
+      unprotected += value * (1 - (guard?.coverage ?? 0));
+    }
+  }
+  return {
+    holdings: held.length,
+    covered,
+    partial: partial2,
+    protectable,
+    // A stop placed by amount covers an unknown part, so the uncovered value is not known either.
+    ...valued && !unknown2 && total > 0 ? { unprotectedValue: unprotected, unprotectedShare: unprotected / total } : {},
+    ...unknown2 ? { unknown: unknown2 } : {},
+    ...stopped && atStops !== void 0 ? { atStops, ...valued && total > 0 ? { atStopsShare: atStops / total } : {} } : {}
+  };
+}
 
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
@@ -35669,11 +35709,12 @@ var TradingService = class {
     let requestedNotional;
     let requestedNotionalCurrency;
     let estimatedQuoteNotional;
+    let risk;
     let referencePrice = intent.referencePrice;
     let referencePriceAt = intent.referencePriceAt;
     let fxRateAt = intent.fxRateAt;
     let givenRate = passedRate ? intent.fxRate : void 0;
-    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
+    const needsPrice = (sizing.mode === "notional" || sizing.mode === "cash_percent" || sizing.mode === "risk") && referencePrice === void 0 && !position?.currentPrice && intent.type === "market";
     if (needsPrice) {
       const quote = await this.externalQuote(instrument);
       if (quote) {
@@ -35735,6 +35776,49 @@ var TradingService = class {
       if (referencePrice === void 0 && position?.currentPrice !== void 0) referencePriceAt = fetchedAt;
       referencePrice ??= position?.currentPrice;
       note = `Sell ${sizing.percent}% of the total held position: ${quantity} share(s).`;
+    } else if (sizing.mode === "risk") {
+      if (intent.side !== "buy") throw new Error("risk sizing is only valid for buy orders; to protect shares you hold, use review_protective_orders");
+      positiveNumber("stopLossPrice", sizing.stopLossPrice);
+      if (sizing.amount === void 0 === (sizing.percent === void 0)) throw new Error("risk sizing needs either amount (in the account currency) or percent of the account value, not both");
+      const entry = referencePrice ?? (intent.type === "limit" || intent.type === "stop_limit" ? intent.limitPrice : void 0) ?? (intent.type === "stop" ? intent.stopPrice : void 0) ?? position?.currentPrice;
+      positiveNumber("referencePrice", entry);
+      if (referencePrice === void 0 && position?.currentPrice === entry) referencePriceAt = fetchedAt;
+      referencePrice ??= entry;
+      if (!(sizing.stopLossPrice < entry)) throw new Error(`The stop-loss (${sizing.stopLossPrice}) must be below the entry price (${entry} ${instrument.currencyCode})`);
+      const accountCurrency = (account.currency || instrument.currencyCode).toUpperCase();
+      const instrumentCurrency = instrument.currencyCode.toUpperCase();
+      let budget;
+      let budgetText;
+      if (sizing.percent !== void 0) {
+        positiveNumber("percent", sizing.percent);
+        if (sizing.percent > 100) throw new Error("percent cannot exceed 100");
+        const total = account.totalValue;
+        if (!(typeof total === "number" && total > 0)) throw new Error("The account value is unknown, so risk a fixed amount instead of a percentage");
+        budget = total * sizing.percent / 100;
+        budgetText = `${sizing.percent}% of the account value (${budget.toFixed(2)} ${accountCurrency})`;
+      } else {
+        positiveNumber("amount", sizing.amount);
+        budget = sizing.amount;
+        budgetText = `${budget.toFixed(2)} ${accountCurrency}`;
+      }
+      let rate = 1;
+      let converted = "";
+      if (accountCurrency !== instrumentCurrency) {
+        const conversion = fxRate(accountCurrency, sizing.fxRateToInstrumentCurrency);
+        rate = conversion.rate;
+        converted = `, converted at ${round3(rate, 6)} ${instrumentCurrency}/${accountCurrency}${conversion.source}`;
+      }
+      const perShareQuote = entry - sizing.stopLossPrice;
+      quantity = floorQuantity(budget * rate / perShareQuote);
+      const cash = account.cash?.availableToTrade;
+      const affordable = typeof cash === "number" ? floorQuantity(Math.max(0, cash) * rate / entry) : Infinity;
+      const cashCapped = quantity > affordable;
+      if (cashCapped) quantity = affordable;
+      if (quantity <= 0) throw new Error(cashCapped ? "There is no available cash to buy with" : "The risk budget is too small for one share's fall to the stop-loss");
+      estimatedQuoteNotional = entry * quantity;
+      risk = { budget, entryPrice: entry, perShare: perShareQuote / rate, ...cashCapped ? { cashCapped } : {} };
+      const loss = quantity * perShareQuote / rate;
+      note = `Risk ${budgetText} with a stop-loss at ${sizing.stopLossPrice} ${instrumentCurrency}: ${round3(perShareQuote, 6)} ${instrumentCurrency} a share from ${entry} down to the stop${converted}, so about ${quantity} share(s) costing ${round3(estimatedQuoteNotional, 2)} ${instrumentCurrency}.` + (cashCapped ? ` That is all the available cash (${cash.toFixed(2)} ${accountCurrency}) buys, so at the stop it would lose about ${loss.toFixed(2)} ${accountCurrency}, less than the budget.` : "") + " The stop-loss is not part of this order: set it once the buy fills, and a gap can still fill it lower.";
     } else if (sizing.mode === "all_available") {
       if (intent.side !== "sell") throw new Error("all_available sizing is only valid for sell orders");
       const available = position?.quantityAvailableForTrading ?? 0;
@@ -35793,6 +35877,7 @@ var TradingService = class {
       ...requestedNotional === void 0 ? {} : { requestedNotional },
       ...requestedNotionalCurrency === void 0 ? {} : { requestedNotionalCurrency },
       ...estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional },
+      ...risk ? { risk } : {},
       note
     };
   }
@@ -37918,7 +38003,7 @@ var PiesService = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.26.0"
+  version: "2.27.0"
 };
 
 // src/core/text-summary.ts
@@ -38014,7 +38099,10 @@ function protectionLines(positions, orders, currency) {
     return guard ? [stopText(position, guard, currency)] : [];
   });
   const bare = positions.filter((position) => !stopProtection(position, orders)).map((position) => position.instrument.ticker);
-  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
+  const { atStops, atStopsShare } = portfolioProtection(positions, orders);
+  const limits = orders.some((order) => isSellStop(order) && sellsOnFall(order) && typeof order.limitPrice === "number");
+  const total = atStops === void 0 ? "" : ` If every stop triggers${limits ? " and fills" : ""}, the holdings: ${money2(-atStops, currency)} from now${atStopsShare === void 0 ? "" : ` (${pct(atStopsShare)} of their value)`}.`;
+  return [`Stop-loss orders: ${guarded.join("; ") || "none"}.${total}${bare.length ? ` No stop on ${bare.join(", ")}.` : ""}`];
 }
 function portfolio(data) {
   const holdings = [...data.positions].sort((a, b) => {
@@ -38562,7 +38650,14 @@ var orderSizingSchema = external_exports.discriminatedUnion("mode", [
   }),
   external_exports.object({ mode: external_exports.literal("cash_percent"), percent: external_exports.number().positive().max(100), fxRateToInstrumentCurrency: external_exports.number().positive().optional() }),
   external_exports.object({ mode: external_exports.literal("position_percent"), percent: external_exports.number().positive().max(100) }),
-  external_exports.object({ mode: external_exports.literal("all_available") })
+  external_exports.object({ mode: external_exports.literal("all_available") }),
+  external_exports.object({
+    mode: external_exports.literal("risk"),
+    stopLossPrice: external_exports.number().positive().describe("Where you would sell if the trade goes wrong, in the instrument's currency"),
+    amount: external_exports.number().positive().optional().describe("Most to lose at the stop, in the account currency"),
+    percent: external_exports.number().positive().max(100).optional().describe("Most to lose at the stop, as a percentage of the account value"),
+    fxRateToInstrumentCurrency: external_exports.number().positive().optional()
+  })
 ]);
 var dateOrDateTime = external_exports.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)) && /T/.test(value), "Use YYYY-MM-DD or an ISO date-time");
 var windowSchema = {
@@ -38925,7 +39020,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
       "review_trading212_order_intent",
       {
         title: "Review Flexible Trading 212 Order",
-        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available.",
+        description: "Preferred order-entry tool for natural-language requests. Accept a stock ticker, symbol, or company name and resolve it to Trading 212. Supports exact quantity, a target monetary amount, buying with a percentage of available cash, selling a percentage of the total held position (when that quantity is tradable), or selling all currently available shares. This tool is review-only: it reads current account/position data, computes an editable standard quantity order, and opens the confirmation UI; it never submits an order. For notional sizing, provide a current referencePrice. If the requested amount currency differs from the instrument quote currency, also provide fxRateToInstrumentCurrency (instrument-currency units per 1 requested-currency unit). While MAX_ORDER_NOTIONAL is on, an instrument quoted in a currency none of the holdings use needs fxRate (or fxRateToInstrumentCurrency from the account currency) so its value can be checked against the cap. Risk sizing buys as many shares as would lose a given amount, or percent of the account value, if the price fell to a stop-loss; it is capped at the available cash, and the stop itself is a separate order (review_protective_orders once the buy fills). Examples: 'buy about \u20AC100 of NVDA' => notional sizing; 'use 20% of my available cash to buy Apple' => cash_percent 20; 'sell half my Apple' => position_percent 50 of the held position; 'sell all NVDA' => all_available; 'buy Apple risking 1% of my account with a stop at 200' => risk percent 1, stopLossPrice 200.",
         inputSchema: external_exports.object({
           environment: environmentWithDefault,
           instrument: external_exports.string().min(1).describe("Trading 212 ticker, market symbol, company name, or partial name"),
@@ -38960,7 +39055,8 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, t
                 ...resolved.availableToSell === void 0 ? {} : { availableToSell: resolved.availableToSell },
                 ...resolved.requestedNotional === void 0 ? {} : { requestedNotional: resolved.requestedNotional },
                 ...resolved.requestedNotionalCurrency ? { requestedNotionalCurrency: resolved.requestedNotionalCurrency } : {},
-                ...resolved.estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional }
+                ...resolved.estimatedQuoteNotional === void 0 ? {} : { estimatedQuoteNotional: resolved.estimatedQuoteNotional },
+                ...resolved.risk ? { risk: resolved.risk } : {}
               },
               note: resolved.note,
               credentials: credentialStatus(config3),
