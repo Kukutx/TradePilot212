@@ -16,6 +16,16 @@ interface Window {
 const windows = new Map<string, Window>();
 /** No more endpoints than this are remembered; the oldest go first. */
 const MAX_WINDOWS = 500;
+/**
+ * Trading 212's windows are a minute at most: a reset further off than this is taken as this, so a header out of
+ * range (or a clock far behind) cannot hold an endpoint back for long.
+ */
+const MAX_RESET_MS = 5 * 60_000;
+/**
+ * When a used-up window resets, one request goes first and the rest wait this long for its response to say what the
+ * new window has, rather than all going at once and most getting a 429.
+ */
+export const PROBE_MS = 2000;
 
 /**
  * The limit an endpoint is counted under: the method and path without its query and with ids as `{id}`, so the
@@ -36,7 +46,7 @@ export function recordLimit(key: string, headers: Headers, now = Date.now()): vo
   const remaining = Number(headers.get("x-ratelimit-remaining") ?? NaN);
   const resetAt = Number(headers.get("x-ratelimit-reset") ?? NaN);
   if (!Number.isFinite(remaining) || !Number.isFinite(resetAt) || remaining < 0 || resetAt <= 0) return;
-  const reset = resetAt > 1e10 ? resetAt : resetAt * 1000;
+  const reset = Math.min(resetAt > 1e10 ? resetAt : resetAt * 1000, now + MAX_RESET_MS);
   if (reset <= now) { windows.delete(key); return; }
   windows.delete(key);
   windows.set(key, { remaining: Math.floor(remaining), reset });
@@ -50,7 +60,12 @@ export function recordLimit(key: string, headers: Headers, now = Date.now()): vo
 export function waitFor(key: string, now = Date.now()): number {
   const window = windows.get(key);
   if (!window) return 0;
-  if (window.reset <= now) { windows.delete(key); return 0; }
+  if (window.reset <= now) {
+    // A window used up: this request goes first, and the others wait for what its response says.
+    if (window.remaining <= 0) windows.set(key, { remaining: 0, reset: now + PROBE_MS });
+    else windows.delete(key);
+    return 0;
+  }
   if (window.remaining > 0) { window.remaining -= 1; return 0; }
   return window.reset - now;
 }

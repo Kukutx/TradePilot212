@@ -34713,6 +34713,8 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
 // src/core/rate-limit.ts
 var windows = /* @__PURE__ */ new Map();
 var MAX_WINDOWS = 500;
+var MAX_RESET_MS = 5 * 6e4;
+var PROBE_MS = 2e3;
 function endpointOf(method, path3) {
   const bare = path3.split("?")[0].replace(/\/(\d+|[A-Za-z0-9_-]*\d[A-Za-z0-9_-]*)(?=\/|$)/g, "/{id}");
   return `${method} ${bare}`;
@@ -34724,7 +34726,7 @@ function recordLimit(key, headers, now = Date.now()) {
   const remaining = Number(headers.get("x-ratelimit-remaining") ?? NaN);
   const resetAt = Number(headers.get("x-ratelimit-reset") ?? NaN);
   if (!Number.isFinite(remaining) || !Number.isFinite(resetAt) || remaining < 0 || resetAt <= 0) return;
-  const reset = resetAt > 1e10 ? resetAt : resetAt * 1e3;
+  const reset = Math.min(resetAt > 1e10 ? resetAt : resetAt * 1e3, now + MAX_RESET_MS);
   if (reset <= now) {
     windows.delete(key);
     return;
@@ -34737,7 +34739,8 @@ function waitFor(key, now = Date.now()) {
   const window = windows.get(key);
   if (!window) return 0;
   if (window.reset <= now) {
-    windows.delete(key);
+    if (window.remaining <= 0) windows.set(key, { remaining: 0, reset: now + PROBE_MS });
+    else windows.delete(key);
     return 0;
   }
   if (window.remaining > 0) {
@@ -34834,14 +34837,13 @@ var Trading212Client = class {
    * reset is further off than a caller should wait: a write is not sent, so its status is known.
    */
   async pace(method, path3, key) {
-    const wait = waitFor(key);
-    if (!wait) return;
-    const most = method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS;
-    if (wait > most) {
-      throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path3)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+    const most = Date.now() + (method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS);
+    for (let wait = waitFor(key); wait > 0; wait = waitFor(key)) {
+      if (Date.now() + wait > most) {
+        throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path3)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+      }
+      await sleep2(wait + 100);
     }
-    await sleep2(wait + 100);
-    waitFor(key);
   }
   async request(method, path3, body) {
     const attempts = method === "GET" ? 4 : 2;

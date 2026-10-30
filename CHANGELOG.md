@@ -2,7 +2,7 @@
 
 ## 2.55.0
 
-- Requests keep to Trading 212's limits before they are sent. Every response says how many requests its endpoint has left for the account and when that resets; the widget, the model's tools, the scheduled runs and background reads now share one record of it, per account and endpoint. A request to an endpoint with nothing left waits for the reset (a read up to a minute, an order up to 15 seconds), so callers at once no longer all spend a 429 and back off together. One whose limit resets later than that is refused before it is sent, with when it resets; an order refused this way was never sent, so its status is known.
+- Requests keep to Trading 212's limits before they are sent. Every response says how many requests its endpoint has left for the account and when that resets; the widget, the model's tools, the scheduled runs and background reads now share one record of it, per account and endpoint. A request to an endpoint with nothing left waits for the reset (a read up to a minute, an order up to 15 seconds), and when it resets one request goes first while the rest wait a moment for what its response says, so callers at once no longer all spend a 429 and back off together. A reset more than five minutes off is taken as five minutes. One whose limit resets later than that is refused before it is sent, with when it resets; an order refused this way was never sent, so its status is known.
 - A history read the limit would hold longer than that comes back with the pages it read, marked truncated, instead of failing; it is not cached, so the next read gets it whole. The `maxPages` description and docs/ANALYTICS.md no longer state a fixed number of history requests a minute, and the README has a **Rate limits** section.
 
 ## 2.54.0

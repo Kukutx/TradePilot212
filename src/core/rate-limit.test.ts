@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createConfig } from "./config.js";
-import { endpointOf, limitKey, recordLimit, resetLimits, waitFor } from "./rate-limit.js";
+import { endpointOf, limitKey, PROBE_MS, recordLimit, resetLimits, waitFor } from "./rate-limit.js";
 import { Trading212ApiError, Trading212Client } from "./trading212-client.js";
 
 const headers = (remaining: number, resetMs: number) => new Headers({ "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(Math.round(resetMs / 1000)) });
@@ -25,11 +25,19 @@ describe("rate limits", () => {
     expect(waitFor(key, now)).toBe(0);
     // Two callers at once spent the last two; the third waits for the reset.
     expect(waitFor(key, now)).toBe(30_000);
+    // At the reset one goes first; the rest wait for what its response says rather than all going at once.
     expect(waitFor(key, now + 30_000)).toBe(0);
-    // A response that does not say both, or says a reset already past, leaves nothing to wait for.
-    recordLimit(key, new Headers({ "x-ratelimit-remaining": "0" }), now);
-    expect(waitFor(key, now)).toBe(0);
+    expect(waitFor(key, now + 30_000)).toBe(PROBE_MS);
+    recordLimit(key, headers(5, now + 90_000), now + 30_500);
+    expect(waitFor(key, now + 30_500)).toBe(0);
+    // A response that says a reset already past, or one too far off to be a real window, is not held for long.
     recordLimit(key, headers(0, now - 1000), now);
+    expect(waitFor(key, now)).toBe(0);
+    recordLimit(key, new Headers({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": "9000000000000000" }), now);
+    expect(waitFor(key, now)).toBe(5 * 60_000);
+    resetLimits();
+    // A response that does not say both leaves nothing to wait for.
+    recordLimit(key, new Headers({ "x-ratelimit-remaining": "0" }), now);
     expect(waitFor(key, now)).toBe(0);
     // Another account's limit is its own.
     recordLimit(limitKey("live", "GET", "/equity/history/orders"), headers(0, now + 30_000), now);

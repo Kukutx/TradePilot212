@@ -74,14 +74,14 @@ export class Trading212Client {
    * reset is further off than a caller should wait: a write is not sent, so its status is known.
    */
   private async pace(method: "GET" | "POST" | "DELETE", path: string, key: string): Promise<void> {
-    const wait = waitFor(key);
-    if (!wait) return;
-    const most = method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS;
-    if (wait > most) {
-      throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+    const most = Date.now() + (method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS);
+    // Asked again after each wait: another caller's response may have said what the new window has meanwhile.
+    for (let wait = waitFor(key); wait > 0; wait = waitFor(key)) {
+      if (Date.now() + wait > most) {
+        throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+      }
+      await sleep(wait + 100);
     }
-    await sleep(wait + 100);
-    waitFor(key);
   }
   private async request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     // A rate-limited write was refused before it was processed, so it is the one write sent again.
