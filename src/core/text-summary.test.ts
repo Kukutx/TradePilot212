@@ -25,6 +25,8 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toContain("AAPL_US_EQ Apple: 12 @ 231.55 USD (avg 168.4), value 2556.31 EUR, P/L +636.55 (exchange rate -60.62)");
     expect(text).toMatch(/P\/L \+491\.08 \(exchange rate \+134\.72\)/);
     expect(text).toContain("Of the unrealized P/L, prices made +1989.44 and exchange rates -95.73 (5 holdings in another currency).");
+    const one = describePayload({ ...dashboard, positions: dashboard.positions.slice(0, 1) });
+    expect(one).toMatch(/exchange rates [+-][\d.]+ \(1 holding in another currency\)\./);
     for (const position of dashboard.positions) {
       const wallet = position.walletImpact as { currentValue: number; totalCost: number; unrealizedProfitLoss: number; fxImpact: number };
       expect(wallet.unrealizedProfitLoss).toBeCloseTo(wallet.currentValue - wallet.totalCost, 2);

@@ -34285,10 +34285,18 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   const sellable = (holding3) => round(holding3.quantity - holding3.inPies - reservedShares(holding3.ticker), 6);
   const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
   const history = [];
+  const rateOn = (currency, at) => {
+    const now = EUR_PER_UNIT[currency] ?? 1;
+    const then = EUR_PER_UNIT_BOUGHT[currency];
+    if (then === void 0) return now;
+    return round(now + (then - now) * Math.min(1, Math.max(0, (started - Date.parse(at)) / (400 * 864e5))), 6);
+  };
   const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
+    const currency = instrumentOf(ticker)?.currencyCode ?? "EUR";
+    const rate = rateOn(currency, at);
     history.unshift({
       order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
-      fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
+      fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: rate, netValue: round(Math.abs(quantity) * price * rate), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
     });
   };
   const traded = ["AAPL_US_EQ", "MSFT_US_EQ", "NVDA_US_EQ", "KO_US_EQ", "VUSAl_EQ"].map((ticker) => instrumentOf(ticker));
@@ -37752,27 +37760,25 @@ function resultSplit(position) {
   const wallet = position.walletImpact;
   const total = wallet?.unrealizedProfitLoss;
   if (!finite(total)) return void 0;
+  const account = major(wallet?.currency);
+  const quote = major(position.instrument?.currencyCode);
   let fx = 0;
   if (finite(wallet?.fxImpact)) fx = wallet.fxImpact;
-  else {
-    const account = major(wallet?.currency);
-    if (!account || account !== major(position.instrument?.currencyCode)) return void 0;
-  }
-  return { total, price: round7(total - fx), fx };
+  else if (!account || account !== quote) return void 0;
+  return { total, price: round7(total - fx), fx, foreign: account && quote ? account !== quote : fx !== 0 };
 }
 function resultSplitOf(positions) {
-  let total = 0, fx = 0, foreign2 = 0, any2 = false;
+  let total = 0, fx = 0, foreign2 = 0;
   for (const position of positions) {
-    if (!finite(position.walletImpact?.unrealizedProfitLoss)) continue;
     const split2 = resultSplit(position);
     if (!split2) return void 0;
-    any2 = true;
     total += split2.total;
     fx += split2.fx;
-    if (split2.fx !== 0) foreign2++;
+    if (split2.foreign) foreign2++;
   }
-  return any2 ? { total: round7(total), price: round7(total - fx), fx: round7(fx), foreign: foreign2 } : void 0;
+  return positions.length ? { total: round7(total), price: round7(total - fx), fx: round7(fx), foreign: foreign2 } : void 0;
 }
+var fxShown = (fx) => fx !== void 0 && Math.abs(fx) >= 5e-3;
 
 // src/core/dividends.ts
 var DAY = 864e5;
@@ -40707,7 +40713,7 @@ function positionLine(position) {
   const name = position.instrument.name && position.instrument.name !== position.instrument.ticker ? ` ${position.instrument.name}` : "";
   const available = position.quantityAvailableForTrading !== position.quantity ? `, ${num2(position.quantityAvailableForTrading, 8)} available` : "";
   const pies3 = position.quantityInPies ? `, ${num2(position.quantityInPies, 8)} in pies` : "";
-  return `${position.instrument.ticker}${name}: ${num2(position.quantity, 8)} @ ${num2(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num2(position.averagePricePaid, 6)})${value === void 0 ? "" : `, value ${num2(value)}${walletCurrency}`}${pnl === void 0 ? "" : `, P/L ${signed(pnl)}`}${fx ? ` (exchange rate ${signed(fx)})` : ""}${available}${pies3}`;
+  return `${position.instrument.ticker}${name}: ${num2(position.quantity, 8)} @ ${num2(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num2(position.averagePricePaid, 6)})${value === void 0 ? "" : `, value ${num2(value)}${walletCurrency}`}${pnl === void 0 ? "" : `, P/L ${signed(pnl)}`}${fxShown(fx) ? ` (exchange rate ${signed(fx)})` : ""}${available}${pies3}`;
 }
 function accountLine(environment, account) {
   const currency = account.currency ?? "";
@@ -40716,7 +40722,7 @@ function accountLine(environment, account) {
 }
 function resultSplitLines(data) {
   const split2 = resultSplitOf(data.positions);
-  if (!split2?.fx) return [];
+  if (!fxShown(split2?.fx)) return [];
   const total = data.account?.investments?.unrealizedProfitLoss ?? split2.total;
   return [`Of the unrealized P/L, prices made ${signed(total - split2.fx)} and exchange rates ${signed(split2.fx)} (${split2.foreign} holding${split2.foreign === 1 ? "" : "s"} in another currency).`];
 }

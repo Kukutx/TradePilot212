@@ -608,8 +608,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .dayUnderPrice { display: block; }
   .positionsTable { min-width: 0; }
   /* Narrower gaps so the result's exchange-rate line fits beside the rest without a sideways scroll. */
-  .positionsTable th:not(:first-child), .positionsTable td:not(:first-child) { padding-left: 6px; padding-right: 6px; }
-  .positionsTable th:last-child, .positionsTable td:last-child { padding-right: 2px; }
+  .desktopTableWrap .positionsTable th:not(:first-child), .desktopTableWrap .positionsTable td:not(:first-child) { padding-left: 6px; padding-right: 6px; }
+  .desktopTableWrap .positionsTable th:last-child, .desktopTableWrap .positionsTable td:last-child { padding-right: 2px; }
   .actionText { display: none; }
   .iconAction { width: 38px; justify-content: center; padding: 0; }
   .overviewPanel { grid-template-columns: 1fr; gap: 16px; }
@@ -1603,8 +1603,9 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .heroValue.exportSpan { white-space: normal; overflow-wrap: anywhere; line-height: 1.1; }
 
 /* The unrealized result by source: price and exchange rate, each a bar from zero scaled to the larger part. */
-.resultSplit { display: grid; gap: 5px; width: min(100%, 320px); margin: 10px 0 0; }
-.resultSplitRow { display: grid; grid-template-columns: minmax(64px, auto) minmax(48px, 1fr) auto; align-items: center; gap: 10px; }
+/* One grid for both rows, so the two tracks start and end at the same place and share a scale. */
+.resultSplit { display: grid; grid-template-columns: auto minmax(48px, 1fr) auto; align-items: center; gap: 5px 10px; width: min(100%, 320px); margin: 10px 0 0; }
+.resultSplitRow { display: contents; }
 .resultSplitRow dt { color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
 .resultSplitRow dd { margin: 0; }
 .resultSplitTrack { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--tp-border) 45%, transparent); overflow: hidden; }

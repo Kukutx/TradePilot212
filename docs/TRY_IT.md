@@ -11,7 +11,7 @@ Three ways to check that TradePilot works for you, from quickest to most complet
 
 ## 1. Sample data (no account)
 
-TradePilot has a built-in sample account: EUR cash, five holdings in USD, GBX and EUR, two pies, a year of trades, dividends and deposits, one pending limit order, and two more instruments to watch (Amazon and ASML). Its instruments get simulated quotes, so the watchlist and the price charts work offline. Market orders fill at once against it; other orders stay pending until you cancel them. Live is switched off and nothing is sent to Trading 212.
+TradePilot has a built-in sample account: EUR cash, five holdings (four in USD, one in GBX, bought at other exchange rates than today's), two pies, a year of trades, dividends and deposits, a pending limit order and a stop-loss, and two more instruments to watch (Amazon and ASML). Its instruments get simulated quotes, so the watchlist and the price charts work offline. Market orders fill at once against it; other orders stay pending until you cancel them. Live is switched off and nothing is sent to Trading 212.
 
 In Claude Code:
 

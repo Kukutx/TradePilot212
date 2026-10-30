@@ -15,7 +15,7 @@ import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
-import { resultSplit, resultSplitOf } from "../shared/result-split.js";
+import { fxShown, resultSplit, resultSplitOf } from "../shared/result-split.js";
 import { WATCH_PERIODS, type WatchLevel, type WatchlistView, type WatchRow } from "../shared/watchlist.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -172,7 +172,7 @@ function positionLine(position: Position): string {
   const available = position.quantityAvailableForTrading !== position.quantity ? `, ${num(position.quantityAvailableForTrading, 8)} available` : "";
   const pies = position.quantityInPies ? `, ${num(position.quantityInPies, 8)} in pies` : "";
   return `${position.instrument.ticker}${name}: ${num(position.quantity, 8)} @ ${num(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num(position.averagePricePaid, 6)})`
-    + `${value === undefined ? "" : `, value ${num(value)}${walletCurrency}`}${pnl === undefined ? "" : `, P/L ${signed(pnl)}`}${fx ? ` (exchange rate ${signed(fx)})` : ""}${available}${pies}`;
+    + `${value === undefined ? "" : `, value ${num(value)}${walletCurrency}`}${pnl === undefined ? "" : `, P/L ${signed(pnl)}`}${fxShown(fx) ? ` (exchange rate ${signed(fx)})` : ""}${available}${pies}`;
 }
 
 function accountLine(environment: TradingEnvironment, account: AccountSummary): string {
@@ -188,7 +188,7 @@ function accountLine(environment: TradingEnvironment, account: AccountSummary): 
 /** The unrealized P/L in what the prices did and what the exchange rates did, when a rate moved one. */
 function resultSplitLines(data: PortfolioSnapshot): string[] {
   const split = resultSplitOf(data.positions);
-  if (!split?.fx) return [];
+  if (!fxShown(split?.fx)) return [];
   const total = data.account?.investments?.unrealizedProfitLoss ?? split.total;
   return [`Of the unrealized P/L, prices made ${signed(total - split.fx)} and exchange rates ${signed(split.fx)} (${split.foreign} holding${split.foreign === 1 ? "" : "s"} in another currency).`];
 }

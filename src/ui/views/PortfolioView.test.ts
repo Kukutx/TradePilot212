@@ -138,5 +138,9 @@ describe("the result by source", () => {
     expect(view(payload)).not.toContain("pnlFx");
     const flat = { ...payload, positions: [{ ...apple, walletImpact: { ...apple.walletImpact, fxImpact: 0 } }] } as DashboardPayload;
     expect(view(flat)).not.toContain("resultSplit");
+    // One holding without its rate part leaves the account unsplit; the other still gives its own.
+    const mixed = { ...payload, positions: [split.positions[0], coke] } as DashboardPayload;
+    expect(view(mixed)).not.toContain("resultSplit");
+    expect(view(mixed)).toContain('<small class="pnlFx">FX -€60.62</small>');
   });
 });

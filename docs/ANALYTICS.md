@@ -128,11 +128,11 @@ They spread the risk by how the holdings moved over the past year. They say noth
 
 ## Price and exchange rate
 
-A holding quoted in another currency than the account's gains or loses twice: on its price, and on the exchange rate since it was bought. Trading 212 gives the second as `walletImpact.fxImpact`, the part of the holding's unrealized P/L the rate made, in the account currency. Under the unrealized P/L, the overview and a holding's page split it into **Price** (the P/L less the rate's part, so the price's move at today's rate) and **Exchange rate**, each a bar from zero scaled to the larger of the two; the holdings list gives each holding's rate part under its P/L ("FX -€60.62"). The dashboard's text gives the same, and `analyze_portfolio_allocation` returns each holding's `fxImpact`.
+A holding quoted in another currency than the account's gains or loses twice: on its price, and on the exchange rate since it was bought. Trading 212 gives the second as `walletImpact.fxImpact`, the part of the holding's unrealized P/L the rate made, in the account currency. Under the unrealized P/L, the overview and a holding's page split it into **Price** (the P/L less the rate's part) and **Exchange rate**, each a bar from zero scaled to the larger of the two; the holdings list gives each holding's rate part under its P/L ("FX -€60.62"). The dashboard's text gives the same, and `analyze_portfolio_allocation` returns each holding's `fxImpact`.
 
-- An instrument in the account's currency (pence in a pound account included) has no rate part. A foreign holding without `fxImpact` is not split, and the overview is not split while any holding is missing its part, so the two always add up to the P/L shown.
+- An instrument in the account's currency (pence in a pound account included) has no rate part. A foreign holding without `fxImpact` is not split, and the overview is not split while any holding is missing its part or its P/L, so the two always add up to the P/L shown. The text counts the holdings in another currency than the account's.
 - The overview's price part is the account's unrealized P/L less the holdings' rate parts.
-- Nothing is shown while the rates moved the result by less than a cent.
+- No split or rate part is shown while the rates moved the result by less than a cent.
 
 ## Your position
 

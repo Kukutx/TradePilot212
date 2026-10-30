@@ -112,6 +112,29 @@ describe("sample data mode", () => {
     expect((await nvidia()).quantityAvailableForTrading).toBe(5);
   });
 
+  it("keeps a holding's cost, result and exchange-rate part together as it trades, a new one at today's rate", async () => {
+    const broker = createSampleBroker((async () => new Response("{}")) as typeof fetch);
+    type Wallet = { totalCost: number; currentValue: number; unrealizedProfitLoss: number; fxImpact: number };
+    const holding = async (ticker: string) => ((await (await broker(`${SAMPLE_BASE_URL}/equity/positions`)).json()) as Array<{ instrument: { ticker: string }; quantity: number; averagePricePaid: number; currentPrice: number; walletImpact: Wallet }>)
+      .find((item) => item.instrument.ticker === ticker);
+    const buy = (ticker: string, quantity: number) => broker(`${SAMPLE_BASE_URL}/equity/orders/market`, { method: "POST", body: JSON.stringify({ ticker, quantity }) });
+    // Bought at 0.95 EUR a dollar, worth 0.92 today: 12 × 168.40 × -0.03.
+    expect((await holding("AAPL_US_EQ"))!.walletImpact.fxImpact).toBe(-60.62);
+    const before = (await holding("AAPL_US_EQ"))!.walletImpact;
+    expect((await buy("AAPL_US_EQ", 2)).ok).toBe(true);
+    const after = (await holding("AAPL_US_EQ"))!;
+    // The buy at today's rate adds its cost and nothing on the rate; the price part is the price's move at today's rate.
+    expect(after.walletImpact.totalCost).toBeCloseTo(before.totalCost + 2 * 231.55 * 0.92, 1);
+    expect(after.walletImpact.fxImpact).toBeCloseTo(before.fxImpact, 1);
+    expect(after.walletImpact.unrealizedProfitLoss - after.walletImpact.fxImpact).toBeCloseTo(after.quantity * (after.currentPrice - after.averagePricePaid) * 0.92, 1);
+    expect((await buy("TSLA_US_EQ", 1)).ok).toBe(true);
+    expect((await holding("TSLA_US_EQ"))!.walletImpact).toMatchObject({ fxImpact: 0, unrealizedProfitLoss: 0 });
+    // The account's result is the holdings' results.
+    const account = await (await broker(`${SAMPLE_BASE_URL}/equity/account/summary`)).json() as { investments: { unrealizedProfitLoss: number } };
+    const positions = await (await broker(`${SAMPLE_BASE_URL}/equity/positions`)).json() as Array<{ walletImpact: Wallet }>;
+    expect(account.investments.unrealizedProfitLoss).toBeCloseTo(positions.reduce((sum, item) => sum + item.walletImpact.unrealizedProfitLoss, 0), 1);
+  });
+
   it("reports one order's state and lists dividends and cash movements", async () => {
     const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
     const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });

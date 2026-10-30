@@ -3,7 +3,7 @@
 ## 2.63.0
 
 - Price and exchange rate: a holding in another currency than the account's shows how much of its unrealized P/L came from the price and how much from the exchange rate since it was bought, from Trading 212's `fxImpact`. The overview and a holding's page split the P/L into the two as bars from zero, the holdings list gives each holding's rate part under its P/L, the dashboard's text names both, and `analyze_portfolio_allocation` returns each holding's `fxImpact`. A foreign holding without the figure is not split rather than guessed.
-- The sample account's US and UK holdings were bought at other exchange rates than today's, so it shows the split.
+- The sample account's US and UK holdings were bought at other exchange rates than today's, so it shows the split; its past fills carry the rate of their day.
 
 ## 2.62.0
 

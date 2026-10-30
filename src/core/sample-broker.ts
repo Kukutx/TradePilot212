@@ -110,10 +110,19 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   /** Cash held back for a pending buy, in EUR; released when the order is cancelled. */
   const reservation = (order: Json) => (Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0);
   const history: Json[] = [];
+  /** EUR per unit of a currency on a past day: from the rate the holdings were bought at 400 days ago to today's. */
+  const rateOn = (currency: string, at: string) => {
+    const now = EUR_PER_UNIT[currency] ?? 1;
+    const then = EUR_PER_UNIT_BOUGHT[currency];
+    if (then === undefined) return now;
+    return round(now + (then - now) * Math.min(1, Math.max(0, (started - Date.parse(at)) / (400 * 86_400_000))), 6);
+  };
   const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0, id: number = nextId++) => {
+    const currency = instrumentOf(ticker)?.currencyCode ?? "EUR";
+    const rate = rateOn(currency, at);
     history.unshift({
       order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
-      fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: EUR_PER_UNIT[instrumentOf(ticker)?.currencyCode ?? "EUR"], netValue: round(eur(ticker, Math.abs(quantity) * price)), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } },
+      fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: rate, netValue: round(Math.abs(quantity) * price * rate), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } },
     });
   };
   // A fill every 24 days over the last year, at prices that climb towards today's, as a rising market's would. Only
