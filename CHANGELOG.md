@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.71.0
+
+- A check of the widget as drawn. `pnpm audit:ui` opens every view of the preview (the sample account, 28 views) at the three host widths (375, 720 and 1040 px), in light and dark, in English and Chinese, in a headless browser. Each view is checked as it opens and again with everything folded opened: charts shown as tables, "show all" lists, collapsed sections and the date-range panel. It fails when the widget scrolls sideways, a box sticks out past the frame's edge, text is under 12px, a form control keeps the browser's own look, an image is broken or a script error is logged. With `--shots=<folder>` it also saves a picture of each, to look over by eye; `--views`, `--widths`, `--themes` and `--langs` narrow it. It needs Playwright with Chromium.
+- What it found, fixed: the search boxes (watchlist, trades) and the date boxes kept the browser's own look underneath the widget's styling, which Safari draws rounded; the order status page and charts shown as tables drew their second line at the browser's "smaller" size, 10.8–11.7px. `<small>` text is now never under 12px.
+- The order status page names a limit or stop order as the rest of the widget does, "Limit $215.00", not "Limit · Limit price $215.00".
+
 ## 2.70.0
 
 - Checked against Trading 212's API document, offline. `docs/api/trading212-public-api-v0.json` records what Trading 212's OpenAPI document lists (read 2026-10-30): its 22 operations with their query parameters and rate limits, the fields of the responses TradePilot reads (the pies' are not recorded yet) and of every request body, and the enums it relies on. A new test, also run alone as `pnpm check:api`, sends every request the client can make to the sample account, every page of the history included, and checks the pie and report bodies TradePilot builds. It fails when an operation is missing or unknown, when a query parameter or body field is not listed (an empty one included), when a page asks for more than 50 records, or when the sample account answers with a field the document does not list. All 22 operations are used and every request matches the document.

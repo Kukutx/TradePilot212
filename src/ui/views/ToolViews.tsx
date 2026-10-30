@@ -21,6 +21,15 @@ const STATE_TONES: Record<OrderStatusReport["state"], string> = {
   open: "", partly_filled: "fired", filled: "auto", cancelled: "ended", rejected: "ended", closed: "ended", not_found: "ended",
 };
 
+/** "Limit $215.00", or a Stop-Limit with both of its prices named. */
+function orderTerms(order: OrderStatusReport["order"], currency: string | undefined, t: Translator, locale: SupportedLocale): string {
+  const type = orderTypeLabel(String(order?.type ?? ""), t);
+  const price = (value: unknown) => (typeof value === "number" ? amount(value, currency, locale, { digits: 4 }) : undefined);
+  const limit = price(order?.limitPrice), stop = price(order?.stopPrice);
+  if (limit && stop) return [type, `${t("stopPrice")} ${stop}`, `${t("limitPrice")} ${limit}`].join(" · ");
+  return [type, stop ?? limit].filter(Boolean).join(" ");
+}
+
 function PageNav({ t, busy, onBack }: { t: Translator; busy: boolean; onBack?: () => void }) {
   return onBack ? <nav className="holdingNav"><button type="button" className="linkButton" disabled={busy} onClick={onBack}>‹ {t("backToHoldings")}</button></nav> : null;
 }
@@ -66,9 +75,7 @@ export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, jus
                 {onOpen ? <button type="button" className="inlineLink reviewName" disabled={busy} title={ticker} onClick={() => onOpen(ticker)}>{label.name}</button> : <strong title={ticker}>{label.name}</strong>}
                 <small>
                   <b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b>
-                  {` ${order?.strategy === "VALUE" && order.value !== undefined ? amount(Math.abs(order.value), priceCurrency, locale) : qty(ordered, locale)} · ${orderTypeLabel(String(order?.type ?? ""), t)}`}
-                  {order?.limitPrice !== undefined ? ` · ${t("limitPrice")} ${amount(order.limitPrice, priceCurrency, locale, { digits: 4 })}` : ""}
-                  {order?.stopPrice !== undefined ? ` · ${t("stopPrice")} ${amount(order.stopPrice, priceCurrency, locale, { digits: 4 })}` : ""}
+                  {` ${order?.strategy === "VALUE" && order.value !== undefined ? amount(Math.abs(order.value), priceCurrency, locale) : qty(ordered, locale)} · ${orderTerms(order, priceCurrency, t, locale)}`}
                 </small>
               </div>
             </div>

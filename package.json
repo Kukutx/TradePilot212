@@ -1,6 +1,6 @@
 {
   "name": "tradepilot212",
-  "version": "2.70.0",
+  "version": "2.71.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted Trading 212 MCP app for ChatGPT with portfolio dashboards, flexible order sizing, OAuth/PKCE, Demo/Live separation, and human-confirmed execution.",
@@ -23,6 +23,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "check:api": "vitest run src/core/api-spec.test.ts",
     "smoke": "node scripts/smoke.mjs",
+    "audit:ui": "pnpm build:widget && node scripts/ui-audit.mjs",
     "cf:types": "wrangler types",
     "build:node": "tsc -p tsconfig.node.json",
     "build:plugin": "pnpm build:prompts && pnpm build:widget && node scripts/build-plugin.mjs",
