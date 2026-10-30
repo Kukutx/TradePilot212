@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.59.0
+
+- The skills are MCP prompts. Any MCP client, not only the Claude Code plugin, can run the daily brief, portfolio review, risk check, trade journal, order follow-up, tax year and rebalance. Each prompt takes the account (`environment`) and the request in the user's words; the trade journal and order follow-up also take an `instrument`. The prompts are generated from `skills/` (`pnpm build:prompts`), and a test keeps them the same.
+- The account's saved state is available as resources: `tradepilot://<demo|live>/holdings` (account summary, holdings and open orders), `/journal`, `/targets` and `/watchlist`, as JSON, for each account with keys.
+- The prompts' arguments complete as they are typed: `environment` offers demo and live, and `instrument` the tickers the account holds, has orders on or watches.
+
 ## 2.58.0
 
 - Every tool declares what it returns. Each of the 55 tools has an `outputSchema`: an open object whose `kind` names the payload (portfolio, allocation, tax_year, order_preview, order_execution …), with its main fields typed and the shared ones (environment, truncated, token, status …) described. A host can plan with the shape and check it, and the server checks each result against it, so the schemas are kept true by a test that calls every tool on the sample account (all but `app_verify_unknown_execution`, which is checked by its schema). What the broker sends back for an order, cancel or pie change is not typed, so an unusual reply never turns an accepted change into an error.

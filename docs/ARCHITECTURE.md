@@ -143,6 +143,8 @@ The public MCP surface has two kinds of tools:
 
 Broker writes remain app-only.
 
+Beside the tools, `mcp-prompts.ts` offers each skill as an MCP prompt and the account's saved state (holdings, journal, targets, watchlist) as resources for each account with keys, with completion for the prompts' account and instrument arguments. Every tool declares its `outputSchema` (`tool-output.ts`), and the server checks each result against it.
+
 ## Execution invariants
 
 These rules are deliberate and should remain true when extending the project:
