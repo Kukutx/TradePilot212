@@ -2,12 +2,12 @@ import { useState } from "react";
 import type { TradingEnvironment } from "../../shared/contracts";
 import { EDGE_FLAT, MAX_REVIEW_QUOTES, type JournalReview, type JournalTagStats, type JournalTrade } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
-import { Metric } from "../components/common";
+import { EmptyState, Metric } from "../components/common";
 import { JournalForm, type JournalRequest } from "../components/journal";
 import { amount, dayLabel, money, pct, qty, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, plural, type Translator } from "../lib/messages";
-import { PeriodSwitch, type InsightPeriod } from "./InsightsView";
+import { allTimeAction, PeriodSwitch, type InsightPeriod } from "./InsightsView";
 
 const flat = (edge: number) => Math.abs(edge) <= EDGE_FLAT;
 
@@ -160,7 +160,9 @@ export function JournalReviewView({ data, book, locale, t, period, busy, onPerio
 
       <section className="dataPanel">
         <h2 className="panelTitle">{t("reviewTrades")}{data.tag && <span className="reviewFilterName"> · #{data.tag}</span>}</h2>
-        {trades.length === 0 ? <div className="emptyState compact">{data.tag ? t("reviewEmptyTag") : t("reviewEmpty")}</div> : (
+        {trades.length === 0 ? (data.tag
+          ? <EmptyState text={t("reviewEmptyTag")} action={onTag ? { label: t("reviewAllTrades"), onClick: () => onTag(null), disabled: busy } : undefined} />
+          : <EmptyState text={t("reviewEmpty")} action={allTimeAction(period, onPeriod, t, busy)} />) : (
           <ul className="journalList">
             {trades.map((trade) => (
               <TradeCard key={trade.entry.id} trade={trade} currency={currency} book={book} locale={locale} t={t} busy={busy}

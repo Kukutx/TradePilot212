@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 import type { CashHistory, CashHistoryItem, FillTotals, HistoryFilter, TaxYearSummary, TradeFill, TradeHistory } from "../../shared/history";
 import type { JournalEntry } from "../../shared/journal";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { AssetAvatar, Metric } from "../components/common";
+import { AssetAvatar, EmptyState, Metric, SearchField } from "../components/common";
 import { BarList } from "../components/charts";
 import { amount, dayLabel, money, qty, signedClass, time } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from "../lib/messages";
-import { chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
+import { allTimeAction, chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
 import { taxYearZone } from "../../shared/time-zone";
 import { radioKeys, radioMoveKeys, radioTab, radioTabOf } from "../lib/radio";
 
@@ -67,10 +67,10 @@ function matches(filter: string, ticker: string | undefined, name: string | unde
   return [ticker, label.name, label.detail ?? ""].some((text) => text.toLowerCase().includes(wanted));
 }
 
-function FilterBox({ value, onChange, label }: { value: string; onChange: (next: string) => void; label: string }) {
+function FilterBox({ value, onChange, label, clearLabel }: { value: string; onChange: (next: string) => void; label: string; clearLabel: string }) {
   return (
     <div className="historyFilter" role="search">
-      <input type="search" autoComplete="off" spellCheck={false} aria-label={label} placeholder={label} value={value} onChange={(event) => onChange(event.target.value)} />
+      <SearchField autoComplete="off" spellCheck={false} aria-label={label} placeholder={label} value={value} onValue={onChange} clearLabel={clearLabel} />
     </div>
   );
 }
@@ -161,8 +161,10 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
         </div>
       </section>
       <section className="dataPanel">
-        <div className="pieHeader"><h2>{t("historyFillsTitle")}</h2>{data.fills.length > 0 && <FilterBox value={filter} onChange={setFilter} label={t("historyFilterInstrument")} />}</div>
-        {fills.length === 0 ? <div className="emptyState compact">{filter ? t("historyNoMatch") : t("historyNoFills")}</div> : byDay(fills, (item) => item.filledAt).map((group) => (
+        <div className="pieHeader"><h2>{t("historyFillsTitle")}</h2>{data.fills.length > 0 && <FilterBox value={filter} onChange={setFilter} label={t("historyFilterInstrument")} clearLabel={t("historyClearFilter")} />}</div>
+        {fills.length === 0 ? (filter
+          ? <EmptyState text={t("historyNoMatch")} action={{ label: t("historyClearFilter"), onClick: () => setFilter("") }} />
+          : <EmptyState text={t("historyNoFills")} action={allTimeAction(period, onPeriod, t, busy)} />) : byDay(fills, (item) => item.filledAt).map((group) => (
           <div key={group.day} className="historyDay">
             <h3 className="historyDayTitle">{group.day ? dayLabel(group.day, locale, { weekday: true }) : "—"}</h3>
             <ul className="historyList">
@@ -300,7 +302,7 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
             ))}
           </div>
         )}
-        {items.length === 0 ? <div className="emptyState compact">{t("historyNoCash")}</div> : byDay(items, (item) => item.date).map((group) => (
+        {items.length === 0 ? <EmptyState text={t("historyNoCash")} action={allTimeAction(period, onPeriod, t, busy)} /> : byDay(items, (item) => item.date).map((group) => (
           <div key={group.day} className="historyDay">
             <h3 className="historyDayTitle">{group.day ? dayLabel(group.day, locale, { weekday: true }) : "—"}</h3>
             <ul className="historyList">

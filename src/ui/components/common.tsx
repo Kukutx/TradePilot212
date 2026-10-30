@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, type CSSProperties, type InputHTMLAttributes, type ReactNode, type Ref, type RefObject } from "react";
 import type { Position } from "../../shared/contracts";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 
@@ -93,6 +93,45 @@ export function AssetAvatar({ ticker, label }: { ticker: string; label: { name: 
 export function AssetIdentity({ position, book }: { position: Position; book?: InstrumentBook }) {
   const label = instrumentLabel(position.instrument.ticker, book, position.instrument);
   return <div className="assetIdentity" title={label.ticker}><AssetAvatar ticker={position.instrument.ticker} label={label} /><div><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div></div>;
+}
+
+/**
+ * A search box with its own clear button, and Escape to clear it, the same in every browser: Firefox draws no clear
+ * button and Chrome and Safari draw their own, which is hidden. Escape on an empty box is left to whatever it closes.
+ */
+export function SearchField({ value, onValue, clearLabel, inputRef, onKeyDown, ...input }: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
+  value: string; onValue: (next: string) => void; clearLabel: string; inputRef?: Ref<HTMLInputElement> | undefined;
+}) {
+  return (
+    <span className={`searchField${value ? " filled" : ""}`}>
+      <input {...input} ref={inputRef} type="search" value={value} onChange={(event) => onValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && value) { event.preventDefault(); event.stopPropagation(); onValue(""); return; }
+          onKeyDown?.(event);
+        }} />
+      {value && (
+        <button type="button" className="searchClear" aria-label={clearLabel} title={clearLabel}
+          onClick={(event) => { onValue(""); (event.currentTarget.previousElementSibling as HTMLInputElement | null)?.focus(); }}><Icon name="close" /></button>
+      )}
+    </span>
+  );
+}
+
+/** A next step offered where there is nothing to show. */
+export interface EmptyAction { label: string; onClick: () => void; disabled?: boolean }
+
+/**
+ * Nothing to show: what is missing, in a sentence, and the next step as a button where there is one (show a longer
+ * period, clear a filter). A panel that would have had a title keeps it, so an empty panel still says what it is.
+ */
+export function EmptyState({ text, title, action }: { text: string; title?: string; action?: EmptyAction | undefined }) {
+  const body = (
+    <div className={`emptyState compact${action ? " withAction" : ""}`}>
+      <span>{text}</span>
+      {action && <button type="button" className="linkButton" disabled={action.disabled} onClick={action.onClick}>{action.label}</button>}
+    </div>
+  );
+  return title ? <><h2 className="panelTitle">{title}</h2>{body}</> : body;
 }
 
 /** Grey blocks in the shape of the view that is loading. */

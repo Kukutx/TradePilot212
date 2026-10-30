@@ -132,7 +132,7 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
 
       <section className="dataPanel" aria-label={t("alertsTitle")}>
         <div className="pieHeader"><h2>{t("alertsTitle")}</h2></div>
-        {data.alerts.length === 0 ? <div className="emptyState compact">{t("noAlerts")}</div> : (
+        {data.alerts.length === 0 ? <div className="emptyState compact">{t("automationNoAlerts")}</div> : (
           <ul className="automationList">
             {data.alerts.map((alert) => (
               <li key={alert.id}>

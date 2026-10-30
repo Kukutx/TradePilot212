@@ -4,7 +4,7 @@ import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, HoldingCovar
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
-import { Metric, SectionHeader } from "../components/common";
+import { EmptyState, Metric, SectionHeader, type EmptyAction } from "../components/common";
 import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
 import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
@@ -66,6 +66,11 @@ export const chartLabels = (t: Translator): ChartLabels => ({ table: t("tableVie
 export function instrumentDatum(ticker: string, book: InstrumentBook | undefined, name?: string) {
   const label = instrumentLabel(ticker, book, name ? { name } : undefined);
   return { label: label.name, ...(label.detail ? { sublabel: label.detail } : {}), title: ticker };
+}
+
+/** "Show all time", offered where a shorter period has nothing to show. */
+export function allTimeAction(period: InsightPeriod | null, onPeriod: ((next: InsightPeriod) => void) | undefined, t: Translator, busy: boolean): EmptyAction | undefined {
+  return period && period !== "all" && onPeriod ? { label: t("showAllTime"), onClick: () => onPeriod("all"), disabled: busy } : undefined;
 }
 
 export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod | null; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
@@ -521,7 +526,7 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
           </div>
         </section>
         <section className="dataPanel">
-          {data.costs.byType.length === 0 ? <div className="emptyState compact">{t("noData")}</div> : (
+          {data.costs.byType.length === 0 ? <EmptyState title={t("costBreakdown")} text={t("costsNone")} /> : (
             <BarList title={t("costBreakdown")} nameHeader={t("costs")} valueHeader={t("amountColumn")} labels={chartLabels(t)}
               data={data.costs.byType.map((item) => ({ key: item.key, label: costLabel(item.key, t), value: item.amount, display: m(item.amount) }))} />
           )}
@@ -529,7 +534,7 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
       </div>
 
       <section className="dataPanel">
-        {contributors.length === 0 ? <div className="emptyState compact">{t("noData")}</div> : (
+        {contributors.length === 0 ? <EmptyState title={`${t("realizedPnL")} · ${t("topContributors")}`} text={t("contributorsNone")} action={allTimeAction(period, onPeriod, t, busy)} /> : (
           <BarList title={`${t("realizedPnL")} · ${t("topContributors")}`} nameHeader={t("symbol")} valueHeader={t("amountColumn")} labels={chartLabels(t)} tone="signed"
             data={contributors.map((item) => ({ key: item.ticker, ...instrumentDatum(item.ticker, book), value: item.realizedProfitLoss, display: signed(item.realizedProfitLoss) }))} />
         )}
@@ -570,13 +575,13 @@ export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
         </section>
       )}
       <section className="dataPanel">
-        {data.byMonth.length === 0 ? <div className="emptyState compact">{t("noData")}</div> : (
+        {data.byMonth.length === 0 ? <EmptyState title={t("incomeByMonth")} text={t("incomeNone")} action={allTimeAction(period, onPeriod, t, busy)} /> : (
           <ColumnChart title={t("incomeByMonth")} nameHeader={t("monthColumn")} valueHeader={t("amountColumn")} labels={chartLabels(t)}
             data={data.byMonth.map((item) => ({ key: item.key, label: monthLabel(item.key), value: item.amount, display: m(item.amount) }))} />
         )}
       </section>
       <section className="dataPanel">
-        {data.byTicker.length === 0 ? <div className="emptyState compact">{t("noData")}</div> : (
+        {data.byTicker.length === 0 ? <EmptyState title={t("incomeByTicker")} text={t("incomeNone")} /> : (
           <BarList title={t("incomeByTicker")} nameHeader={t("symbol")} valueHeader={t("amountColumn")} labels={chartLabels(t)}
             data={data.byTicker.slice(0, 12).map((item) => ({ key: item.key, ...instrumentDatum(item.key, book), value: item.amount, display: m(item.amount) }))} />
         )}

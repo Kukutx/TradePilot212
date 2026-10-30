@@ -1015,14 +1015,19 @@ h2[tabindex="-1"]:focus { outline: none; }
 
 /* ---- Loading, error and setup states ---- */
 .icon.spinning { animation: spin .9s linear infinite; }
-.skeleton { display: block; border-radius: 6px; background: var(--tp-border); animation: skeletonPulse 1.4s ease-in-out infinite; }
+.skeleton { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--tp-border) 30%, var(--tp-bg-soft) 50%, var(--tp-border) 70%) 0 0 / 300% 100%; animation: skeletonShimmer 1.6s ease-in-out infinite; }
 .skeleton.line { width: 72%; height: 12px; margin: 5px 0; }
 .skeleton.line.short { width: 40%; }
 .skeleton.hero { width: 62%; height: 34px; margin: 10px 0; }
 .skeleton.bar { width: 100%; height: 8px; }
 .skeletonView .metric .skeleton.line { margin: 4px 0; }
 .skeletonRow { display: grid; grid-template-columns: minmax(80px, 30%) minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 0; }
-@keyframes skeletonPulse { 50% { opacity: .45; } }
+@keyframes skeletonShimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.loadingBar { position: fixed; inset: 0 0 auto; z-index: 60; height: 2px; overflow: hidden; pointer-events: none; }
+.loadingBar::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 2px; background: var(--tp-chart); animation: loadingSweep 1.1s cubic-bezier(.4, 0, .2, 1) infinite; }
+@keyframes loadingSweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .loadingBar::before { width: 100%; opacity: .55; animation: none; } }
+@media (forced-colors: active) { .loadingBar::before { background: Highlight; forced-color-adjust: none; } .skeleton { background: GrayText; } }
 
 .stateCard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 12px; padding: 16px 18px; border: 1px solid var(--tp-border); border-radius: var(--tp-radius); background: var(--tp-bg); }
 .stateCard > .icon { width: 22px; height: 22px; align-self: start; color: var(--tp-muted); }
@@ -1586,6 +1591,13 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .historyFilter { flex: 0 1 240px; min-width: 0; }
 .historyFilter input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
 .historyFilter input:hover { border-color: var(--tp-border-strong); }
+/* A search box's clear button, drawn by the project in every browser; the browser's own is hidden. */
+.searchField { position: relative; display: block; min-width: 0; }
+.searchField input::-webkit-search-cancel-button { display: none; }
+.searchField.filled input { padding-right: 36px; }
+.searchClear { position: absolute; top: 50%; right: 4px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--tp-muted); transform: translateY(-50%); }
+.searchClear:hover { background: var(--tp-bg-soft); color: var(--tp-text); }
+.searchClear .icon { width: 14px; height: 14px; }
 .filterChips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .filterChips button { min-height: 32px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 999px; background: transparent; color: var(--tp-muted); font-size: 13px; font-weight: 680; transition: background .16s ease, color .16s ease, border-color .16s ease; }
 .filterChips button:hover { border-color: var(--tp-border-strong); color: var(--tp-text); }

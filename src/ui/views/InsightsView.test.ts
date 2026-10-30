@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseWindow } from "../../core/insights-service";
 import type { AllocationAnalysis, AllocationDrift, PerformanceSummary } from "../../shared/history";
 import { createTranslator } from "../i18n";
-import { AllocationView, DrawdownChart, DrawdownNote, PerformanceView, PeriodSwitch, periodOf } from "./InsightsView";
+import { AllocationView, allTimeAction, DrawdownChart, DrawdownNote, PerformanceView, PeriodSwitch, periodOf } from "./InsightsView";
 
 describe("the period of a performance window", () => {
   const of = (period: "1m" | "3m" | "ytd" | "1y" | "all", now: string) => {
@@ -158,5 +158,19 @@ describe("the period switch", () => {
   it("keeps a Tab stop on the first period when none is chosen", () => {
     expect(render(false, null)).toMatch(/^<div[^>]*><button[^>]*tabindex="0"/);
     expect(render(false)).not.toContain("aria-disabled");
+  });
+});
+
+describe("all time, offered where a period is empty", () => {
+  const t = createTranslator("en");
+  it("is offered for a preset shorter than all time, with the switch's own busy state", () => {
+    let chosen = "";
+    const action = allTimeAction("1m", (next) => { chosen = next; }, t, true);
+    expect(action).toMatchObject({ label: "Show all time", disabled: true });
+    action?.onClick();
+    expect(chosen).toBe("all");
+    expect(allTimeAction("all", () => {}, t, false)).toBeUndefined();
+    expect(allTimeAction(null, () => {}, t, false)).toBeUndefined();
+    expect(allTimeAction("1m", undefined, t, false)).toBeUndefined();
   });
 });

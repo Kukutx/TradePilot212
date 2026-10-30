@@ -79,6 +79,10 @@ describe("native controls", () => {
     expect(css).toMatch(/input\[type="checkbox"\]\s*\{[^}]*appearance: none/s);
     expect(css).toMatch(/input\[type="number"\]\s*\{[^}]*appearance: textfield/);
     expect(css).toContain("::-webkit-search-cancel-button");
+    // A search box draws its own clear button (Firefox has none), so the browser's is hidden there.
+    expect(css).toContain(".searchField input::-webkit-search-cancel-button { display: none; }");
+    // The loading sweep and the skeletons hold still for reduced motion.
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{ \.loadingBar::before \{[^}]*animation: none/);
     expect(css).toContain("summary::-webkit-details-marker { display: none; }");
     // Native popups (a select's list) follow the theme.
     expect(css).toContain(':root[data-theme="dark"] :is(select, input, textarea) { color-scheme: dark; }');

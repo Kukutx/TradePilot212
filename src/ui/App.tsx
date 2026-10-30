@@ -1133,6 +1133,8 @@ export default function App() {
 
   return (
     <div className={`appShell mode-${displayMode}`}>
+      {/* A thin sweep along the top while anything loads, so a refresh of a view already shown is seen, not only the spinning icon. */}
+      {loading && <span className="loadingBar" aria-hidden="true" />}
       <header className="appHeader">
         <div className="brandBlock">
           <div className="brandMark" aria-hidden="true">TP</div>
