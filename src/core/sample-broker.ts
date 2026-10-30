@@ -100,9 +100,9 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   ].map((holding) => ({ ...holding, rate: EUR_PER_UNIT_BOUGHT[instrumentOf(holding.ticker)?.currencyCode ?? "EUR"] }));
   let nextId = 90_000;
   const pending: Json[] = [
-    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
     // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
-    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
+    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
   ];
   /** Shares held back by pending sells, as Trading 212 does; released when the order is cancelled. */
   const reservedShares = (ticker: string) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
@@ -145,7 +145,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     { reference: "sample-deposit-1", type: "DEPOSIT", amount: 10_000, currency: "EUR", dateTime: daysAgo(420) },
     { reference: "sample-deposit-2", type: "DEPOSIT", amount: 4_000, currency: "EUR", dateTime: daysAgo(200) },
     { reference: "sample-withdraw-1", type: "WITHDRAW", amount: -500, currency: "EUR", dateTime: daysAgo(90) },
-    { reference: "sample-interest-1", type: "INTEREST", amount: 6.4, currency: "EUR", dateTime: daysAgo(31) },
+    { reference: "sample-interest-1", type: "INTEREST_ON_FREE_CASH", amount: 6.4, currency: "EUR", dateTime: daysAgo(31) },
   ];
   let nextPieId = 4103;
   const pies = new Map<number, { name: string; icon: string; goal?: number; dividendCashAction: string; shares: Record<string, number>; cash: number; createdAt: string }>([
@@ -162,14 +162,14 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     const totalCost = round(holding.quantity * holding.average * rate);
     // Trading 212's exchange-rate part: what the cost is worth at today's rate less what it cost.
     const fxImpact = round(holding.quantity * holding.average * (now - rate));
-    const { price, ...meta } = instrument;
     return {
-      instrument: meta,
+      // Trading 212 names the instrument of a position with these four only; the rest is in the instrument list.
+      instrument: { ticker: instrument.ticker, name: instrument.name, isin: instrument.isin, currency: instrument.currencyCode },
       quantity: holding.quantity,
       quantityAvailableForTrading: sellable(holding),
       quantityInPies: holding.inPies,
       averagePricePaid: holding.average,
-      currentPrice: price,
+      currentPrice: instrument.price,
       createdAt: holding.createdAt,
       walletImpact: { currency: "EUR", totalCost, currentValue, unrealizedProfitLoss: round(currentValue - totalCost), fxImpact },
     };
@@ -268,7 +268,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const quantity = Number(body.quantity);
       if (!instrumentOf(ticker)) return json({ code: "InstrumentNotFound" }, 404);
       if (!Number.isFinite(quantity) || quantity === 0) return json({ code: "InvalidQuantity" }, 400);
-      const order: Json = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: new Date().toISOString(), ...(body.limitPrice ? { limitPrice: body.limitPrice } : {}), ...(body.stopPrice ? { stopPrice: body.stopPrice } : {}), ...(body.timeValidity ? { timeValidity: body.timeValidity } : {}) };
+      const order: Json = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: new Date().toISOString(), ...(body.limitPrice ? { limitPrice: body.limitPrice } : {}), ...(body.stopPrice ? { stopPrice: body.stopPrice } : {}), ...(body.timeValidity ? { timeInForce: body.timeValidity } : {}) };
       if (type === "MARKET") {
         const result = fill(ticker, quantity, Number(order.id));
         if (result.error) return result.error as Response;
@@ -335,7 +335,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", round(gross * 0.15), item.tickerCurrency, "", ""].join(",")]);
     }
     for (const item of transactions) {
-      const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST" ? "Interest on cash" : String(item.type);
+      const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST_ON_FREE_CASH" ? "Interest on cash" : String(item.type);
       rows.push([String(item.dateTime), [action, time(String(item.dateTime)), "", "", "", String(item.reference), "", "", "", "", "", "", item.amount, "EUR", "", "", "", ""].join(",")]);
     }
     const inside = rows.filter(([at]) => at >= from && at <= to).sort(([a], [b]) => a.localeCompare(b));

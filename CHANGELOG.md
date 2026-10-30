@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.70.0
+
+- Checked against Trading 212's API document, offline. `docs/api/trading212-public-api-v0.json` records what Trading 212's OpenAPI document lists (read 2026-10-30): its 22 operations with their query parameters and rate limits, the fields of the responses TradePilot reads and of every request body, and the enums it relies on. A new test, also run alone as `pnpm check:api`, sends every request the client can make to the sample account and fails when an operation is missing or unknown, when a query parameter or body field is not listed, or when the sample account answers with a field the document does not list. All 22 operations are used and every request matches the document.
+- The sample account now answers as Trading 212 does. Open orders say how long they stay open as `timeInForce`, not as the request's `timeValidity`. A position names its instrument with the four fields Trading 212 gives (ticker, name, ISIN, currency); the rest comes from the instrument list, as for a real account. Interest on cash is `INTEREST_ON_FREE_CASH`.
+- Open orders show how long they stay open ("Good till cancelled") on the Holdings tab and in the cancel review.
+- The rate limiter's notes give the documented 20 history reads a minute, not six.
+
 ## 2.69.0
 
 - Dividend yield. The Income tab shows the holdings' dividends as a yield on cost (over Trading 212's total cost of the holdings) and on value now, from each holding's last 12 months of dividends per share at the quantity held now, so a holding sold down or bought up over the year is not over- or understated; and the next 12 months' expected dividends on cost. Per holding, each that paid or is expected to pay, highest yield on cost first, with its symbol, what it actually paid and what it is expected to pay. Dividends of instruments sold since are left out; a holding without a total cost, or without Trading 212's value, leaves that yield of the account out rather than guessing it, and a holding that cost nothing is counted at 0.

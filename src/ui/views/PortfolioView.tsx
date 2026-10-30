@@ -255,7 +255,7 @@ export function PendingOrderList({ orders, positions, book, locale, t, writeEnab
       {orders.map((order, index) => {
         const id = String(order.id ?? "");
         const row = summarizeOrder(order, t, locale, positions, book);
-        const detail = [row.type, ...row.prices, row.detail, row.status].filter(Boolean).join(" · ");
+        const detail = [row.type, ...row.prices, row.validity, row.detail, row.status].filter(Boolean).join(" · ");
         return (
           <div className="orderRow" key={id || index}>
             <div className="orderIdentity" title={row.ticker}>

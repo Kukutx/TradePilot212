@@ -199,7 +199,7 @@ export function cancelDescription(preview: Pick<CancelPreview, "orderId" | "orde
   if (!order?.ticker) return `${t("order")} ${preview.orderId}`;
   const summary = summarizeOrder(order, t, locale, positions, book);
   const name = summary.detail ? `${summary.name} (${summary.detail})` : summary.name;
-  return [`${summary.side === "sell" ? t("sell") : t("buy")} ${qty(summary.quantity ?? 0, locale)} ${name}`, summary.type, ...summary.prices, `${t("order")} ${preview.orderId}`]
+  return [`${summary.side === "sell" ? t("sell") : t("buy")} ${qty(summary.quantity ?? 0, locale)} ${name}`, summary.type, ...summary.prices, summary.validity, `${t("order")} ${preview.orderId}`]
     .filter(Boolean).join(" · ");
 }
 

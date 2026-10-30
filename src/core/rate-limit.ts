@@ -1,4 +1,4 @@
-// Trading 212's limits are per account and per endpoint (six history reads a minute, one account summary in five
+// Trading 212's limits are per account and per endpoint (20 history reads a minute, one account summary in five
 // seconds, …), and every response says where its endpoint stands: `x-ratelimit-remaining` requests left until
 // `x-ratelimit-reset` (Unix seconds). One account's requests come from the widget, the model's tools, the
 // scheduled runs and background reads at once, each through its own client, so what the responses say is kept here,

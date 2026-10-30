@@ -1,0 +1,459 @@
+{
+  "_comment": "Trading 212 Public API v0 as its OpenAPI document described it, read for an offline check (src/core/api-spec.test.ts): operations with their query parameters and documented limits, the fields of the main responses and of every request body, and the enums TradePilot reads. Field lists name what the document lists; they are not the document itself. Update it from the document when Trading 212 changes the API, then run pnpm check:api.",
+  "source": "https://docs.trading212.com/_bundle/api.json",
+  "readOn": "2026-10-30",
+  "apiVersion": "v0",
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/account/summary",
+      "operationId": "getAccountSummary",
+      "query": [],
+      "rateLimit": "1 req / 5s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/history/dividends",
+      "operationId": "dividends",
+      "query": [
+        "cursor",
+        "ticker",
+        "limit"
+      ],
+      "rateLimit": "20 req / 1m0s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/history/exports",
+      "operationId": "getReports",
+      "query": [],
+      "rateLimit": "1 req / 1m0s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/history/exports",
+      "operationId": "requestReport",
+      "query": [],
+      "rateLimit": "1 req / 30s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/history/orders",
+      "operationId": "orders_1",
+      "query": [
+        "cursor",
+        "ticker",
+        "limit"
+      ],
+      "rateLimit": "20 req / 1m0s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/history/transactions",
+      "operationId": "transactions",
+      "query": [
+        "cursor",
+        "time",
+        "limit"
+      ],
+      "rateLimit": "20 req / 1m0s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/metadata/exchanges",
+      "operationId": "exchanges",
+      "query": [],
+      "rateLimit": "1 req / 30s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/metadata/instruments",
+      "operationId": "instruments",
+      "query": [],
+      "rateLimit": "1 req / 50s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/orders",
+      "operationId": "orders",
+      "query": [],
+      "rateLimit": "1 req / 5s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/orders/limit",
+      "operationId": "placeLimitOrder",
+      "query": [],
+      "rateLimit": "1 req / 2s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/orders/market",
+      "operationId": "placeMarketOrder",
+      "query": [],
+      "rateLimit": "50 req / 1m0s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/orders/stop",
+      "operationId": "placeStopOrder_1",
+      "query": [],
+      "rateLimit": "1 req / 2s"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/orders/stop_limit",
+      "operationId": "placeStopOrder",
+      "query": [],
+      "rateLimit": "1 req / 2s"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v0/equity/orders/{id}",
+      "operationId": "cancelOrder",
+      "query": [],
+      "rateLimit": "50 req / 1m0s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/orders/{id}",
+      "operationId": "orderById",
+      "query": [],
+      "rateLimit": "1 req / 1s"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/pies",
+      "operationId": "getAll",
+      "query": [],
+      "rateLimit": "1 req / 30s",
+      "deprecated": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/pies",
+      "operationId": "create",
+      "query": [],
+      "rateLimit": "1 req / 5s",
+      "deprecated": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v0/equity/pies/{id}",
+      "operationId": "delete",
+      "query": [],
+      "rateLimit": "1 req / 5s",
+      "deprecated": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/pies/{id}",
+      "operationId": "getDetailed",
+      "query": [],
+      "rateLimit": "1 req / 5s",
+      "deprecated": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/pies/{id}",
+      "operationId": "update",
+      "query": [],
+      "rateLimit": "1 req / 5s",
+      "deprecated": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v0/equity/pies/{id}/duplicate",
+      "operationId": "duplicatePie",
+      "query": [],
+      "rateLimit": "1 req / 5s",
+      "deprecated": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v0/equity/positions",
+      "operationId": "getPositions",
+      "query": [
+        "ticker"
+      ],
+      "rateLimit": "1 req / 1s"
+    }
+  ],
+  "responses": {
+    "GET /api/v0/equity/account/summary": [
+      "cash.availableToTrade",
+      "cash.inPies",
+      "cash.reservedForOrders",
+      "currency",
+      "id",
+      "investments.currentValue",
+      "investments.realizedProfitLoss",
+      "investments.totalCost",
+      "investments.unrealizedProfitLoss",
+      "totalValue"
+    ],
+    "GET /api/v0/equity/positions": [
+      "[].averagePricePaid",
+      "[].createdAt",
+      "[].currentPrice",
+      "[].instrument.currency",
+      "[].instrument.isin",
+      "[].instrument.name",
+      "[].instrument.ticker",
+      "[].quantity",
+      "[].quantityAvailableForTrading",
+      "[].quantityInPies",
+      "[].walletImpact.currency",
+      "[].walletImpact.currentValue",
+      "[].walletImpact.fxImpact",
+      "[].walletImpact.totalCost",
+      "[].walletImpact.unrealizedProfitLoss"
+    ],
+    "GET /api/v0/equity/orders": [
+      "[].createdAt",
+      "[].currency",
+      "[].extendedHours",
+      "[].filledQuantity",
+      "[].filledValue",
+      "[].id",
+      "[].initiatedFrom",
+      "[].instrument.currency",
+      "[].instrument.isin",
+      "[].instrument.name",
+      "[].instrument.ticker",
+      "[].limitPrice",
+      "[].quantity",
+      "[].side",
+      "[].status",
+      "[].stopPrice",
+      "[].strategy",
+      "[].ticker",
+      "[].timeInForce",
+      "[].type",
+      "[].value"
+    ],
+    "GET /api/v0/equity/history/orders": [
+      "items[].fill.filledAt",
+      "items[].fill.id",
+      "items[].fill.price",
+      "items[].fill.quantity",
+      "items[].fill.tradingMethod",
+      "items[].fill.type",
+      "items[].fill.walletImpact.currency",
+      "items[].fill.walletImpact.fxRate",
+      "items[].fill.walletImpact.netValue",
+      "items[].fill.walletImpact.realisedProfitLoss",
+      "items[].fill.walletImpact.taxes[].chargedAt",
+      "items[].fill.walletImpact.taxes[].currency",
+      "items[].fill.walletImpact.taxes[].name",
+      "items[].fill.walletImpact.taxes[].quantity",
+      "items[].order.createdAt",
+      "items[].order.currency",
+      "items[].order.extendedHours",
+      "items[].order.filledQuantity",
+      "items[].order.filledValue",
+      "items[].order.id",
+      "items[].order.initiatedFrom",
+      "items[].order.instrument.currency",
+      "items[].order.instrument.isin",
+      "items[].order.instrument.name",
+      "items[].order.instrument.ticker",
+      "items[].order.limitPrice",
+      "items[].order.quantity",
+      "items[].order.side",
+      "items[].order.status",
+      "items[].order.stopPrice",
+      "items[].order.strategy",
+      "items[].order.ticker",
+      "items[].order.timeInForce",
+      "items[].order.type",
+      "items[].order.value",
+      "nextPagePath"
+    ],
+    "GET /api/v0/equity/history/dividends": [
+      "items[].amount",
+      "items[].amountInEuro",
+      "items[].currency",
+      "items[].grossAmountPerShare",
+      "items[].instrument.currency",
+      "items[].instrument.isin",
+      "items[].instrument.name",
+      "items[].instrument.ticker",
+      "items[].paidOn",
+      "items[].quantity",
+      "items[].reference",
+      "items[].ticker",
+      "items[].tickerCurrency",
+      "items[].type",
+      "nextPagePath"
+    ],
+    "GET /api/v0/equity/history/transactions": [
+      "items[].amount",
+      "items[].currency",
+      "items[].dateTime",
+      "items[].reference",
+      "items[].type",
+      "nextPagePath"
+    ],
+    "GET /api/v0/equity/metadata/instruments": [
+      "[].addedOn",
+      "[].currencyCode",
+      "[].extendedHours",
+      "[].isin",
+      "[].maxOpenQuantity",
+      "[].name",
+      "[].shortName",
+      "[].ticker",
+      "[].type",
+      "[].workingScheduleId"
+    ],
+    "GET /api/v0/equity/metadata/exchanges": [
+      "[].id",
+      "[].name",
+      "[].workingSchedules[].id",
+      "[].workingSchedules[].timeEvents[].date",
+      "[].workingSchedules[].timeEvents[].type"
+    ],
+    "GET /api/v0/equity/history/exports": [
+      "[].dataIncluded.includeDividends",
+      "[].dataIncluded.includeInterest",
+      "[].dataIncluded.includeOrders",
+      "[].dataIncluded.includeTransactions",
+      "[].downloadLink",
+      "[].reportId",
+      "[].status",
+      "[].timeFrom",
+      "[].timeTo"
+    ]
+  },
+  "requests": {
+    "POST /api/v0/equity/orders/market": [
+      "extendedHours",
+      "quantity",
+      "ticker"
+    ],
+    "POST /api/v0/equity/orders/limit": [
+      "limitPrice",
+      "quantity",
+      "ticker",
+      "timeValidity"
+    ],
+    "POST /api/v0/equity/orders/stop": [
+      "quantity",
+      "stopPrice",
+      "ticker",
+      "timeValidity"
+    ],
+    "POST /api/v0/equity/orders/stop_limit": [
+      "limitPrice",
+      "quantity",
+      "stopPrice",
+      "ticker",
+      "timeValidity"
+    ],
+    "POST /api/v0/equity/history/exports": [
+      "dataIncluded.includeDividends",
+      "dataIncluded.includeInterest",
+      "dataIncluded.includeOrders",
+      "dataIncluded.includeTransactions",
+      "timeFrom",
+      "timeTo"
+    ],
+    "POST /api/v0/equity/pies": [
+      "dividendCashAction",
+      "endDate",
+      "goal",
+      "icon",
+      "instrumentShares",
+      "name"
+    ],
+    "POST /api/v0/equity/pies/{id}": [
+      "dividendCashAction",
+      "endDate",
+      "goal",
+      "icon",
+      "instrumentShares",
+      "name"
+    ],
+    "POST /api/v0/equity/pies/{id}/duplicate": [
+      "icon",
+      "name"
+    ]
+  },
+  "enums": {
+    "timeValidity": [
+      "DAY",
+      "GOOD_TILL_CANCEL"
+    ],
+    "Order.status": [
+      "LOCAL",
+      "UNCONFIRMED",
+      "CONFIRMED",
+      "NEW",
+      "CANCELLING",
+      "CANCELLED",
+      "PARTIALLY_FILLED",
+      "FILLED",
+      "REJECTED",
+      "REPLACING",
+      "REPLACED"
+    ],
+    "Order.type": [
+      "LIMIT",
+      "STOP",
+      "MARKET",
+      "STOP_LIMIT"
+    ],
+    "Order.side": [
+      "BUY",
+      "SELL"
+    ],
+    "Order.strategy": [
+      "QUANTITY",
+      "VALUE"
+    ],
+    "Order.initiatedFrom": [
+      "API",
+      "IOS",
+      "ANDROID",
+      "WEB",
+      "SYSTEM",
+      "AUTOINVEST",
+      "INSTRUMENT_AUTOINVEST"
+    ],
+    "Fill.type": [
+      "TRADE",
+      "STOCK_SPLIT",
+      "STOCK_DISTRIBUTION",
+      "FOP",
+      "FOP_CORRECTION",
+      "CUSTOM_STOCK_DISTRIBUTION",
+      "EQUITY_RIGHTS",
+      "SCRIP_STOCK_DIVIDENDS",
+      "STOCK_DIVIDENDS",
+      "STOCK_ACQUISITION",
+      "CASH_AND_STOCK_ACQUISITION",
+      "SPIN_OFF"
+    ],
+    "Transaction.type": [
+      "WITHDRAW",
+      "DEPOSIT",
+      "FEE",
+      "TRANSFER",
+      "INTEREST_ON_FREE_CASH",
+      "LENDING_INTEREST"
+    ],
+    "PieRequest.dividendCashAction": [
+      "REINVEST",
+      "TO_ACCOUNT_CASH"
+    ],
+    "Report.status": [
+      "Queued",
+      "Processing",
+      "Running",
+      "Canceled",
+      "Failed",
+      "Finished"
+    ]
+  }
+}
