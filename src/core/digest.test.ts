@@ -120,6 +120,11 @@ describe("daily digest", () => {
     expect(expectedOn("2026-10-07")).toEqual(["MSFT 2026-10-08", "KO 2026-10-01 due"]);
     expect(expectedOn("2026-10-15")).toEqual(["MSFT 2026-10-08 due", "AAPL 2026-10-14 due"]);
     expect(expectedOn("2026-10-16")).toEqual(["AAPL 2026-10-14 due"]);
+    // The digest's day is its own zone's: at 22:00 UTC on the 8th it is already the 9th in Tokyo, so MSFT is due.
+    const late8th = new Date("2026-10-08T22:00:00Z");
+    const msft = (zone?: string) => digestDividends(history.filter((item) => Date.parse(item.paidOn) <= late8th.getTime()), positions, { since: late8th.getTime() }, late8th, zone).expected.find((payment) => payment.name === "MSFT");
+    expect(msft()).toMatchObject({ on: "2026-10-08", due: false });
+    expect(msft("Asia/Tokyo")).toMatchObject({ on: "2026-10-08", due: true });
     // A payment due late last month stays due into the next, for a week.
     const dueOn = (late: typeof history, day: string) => digestDividends(late, positions, { since: Date.parse(`${day}T07:00:00Z`) }, new Date(`${day}T07:00:00Z`)).expected.map((payment) => `${payment.on}${payment.due ? " due" : ""}`);
     const late = quarterly("KO_US_EQ", 9.7, 20, ["2026-01-29", "2026-04-29", "2026-07-29"]);

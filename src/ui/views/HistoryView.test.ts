@@ -131,6 +131,10 @@ describe("the tax year page", () => {
     expect(taxRuleOf("04-06")).toBe("uk");
     expect(taxRuleOf("01-01")).toBe("calendar");
     expect(taxRuleOf("07-01")).toBeUndefined();
+    // A year from 6 April counted in another zone than London's is not the UK's, so the UK rule can still be picked.
+    expect(taxRuleOf("04-06", "Europe/London")).toBe("uk");
+    expect(taxRuleOf("04-06", "UTC")).toBeUndefined();
+    expect(taxRuleOf("01-01", "Europe/Berlin")).toBe("calendar");
     const fiscal = renderToStaticMarkup(createElement(TaxYearView, {
       data: { ...year, year: 2026, yearStart: "07-01", firstDay: "2026-07-01", lastDay: "2027-06-30", ended: false }, locale: "en", t: createTranslator("en"), busy: false, onKind: noop, onYear: noop, onRule: noop,
     }));

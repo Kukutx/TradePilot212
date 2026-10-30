@@ -105,6 +105,16 @@ describe("the server's settings in tool results", () => {
     expect(tax).toMatchObject({ yearStart: "04-06", timeZone: "Europe/London" });
     const dashboard = (await client.callTool({ name: "get_portfolio_dashboard", arguments: {} })).structuredContent as { preferences: unknown };
     expect(dashboard.preferences).toEqual({ timeZone: "Europe/London", taxYearStart: "04-06" });
+    expect((await client.callTool({ name: "get_tax_year_summary", arguments: {} })).structuredContent).toMatchObject({ preferences: { timeZone: "Europe/London", taxYearStart: "04-06" } });
+    // Without TIMEZONE, a year from 6 April is counted in London and any other in UTC.
+    const plain = createConfig({ TRADEPILOT_SAMPLE_DATA: "true", TAX_YEAR_START: "04-06" } as RuntimeEnv);
+    const other = createMcpServer(createServices({ config: plain, store: new MemoryStateStore() }), plain, async () => "<html></html>");
+    const [otherServer, otherClient] = InMemoryTransport.createLinkedPair();
+    await other.connect(otherServer);
+    const second = new Client({ name: "test", version: "0" });
+    await second.connect(otherClient);
+    expect((await second.callTool({ name: "get_tax_year_summary", arguments: {} })).structuredContent).toMatchObject({ yearStart: "04-06", timeZone: "Europe/London" });
+    expect((await second.callTool({ name: "get_tax_year_summary", arguments: { yearStart: "01-01" } })).structuredContent).toMatchObject({ yearStart: "01-01", timeZone: "UTC" });
     // A year asked for another way still counts that way.
     expect((await client.callTool({ name: "get_tax_year_summary", arguments: { yearStart: "01-01", timeZone: "UTC" } })).structuredContent).toMatchObject({ yearStart: "01-01", timeZone: "UTC" });
   }, 30_000);

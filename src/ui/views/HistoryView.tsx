@@ -8,6 +8,7 @@ import { amount, dayLabel, money, qty, signedClass, time } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from "../lib/messages";
 import { chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
+import { taxYearZone } from "../../shared/time-zone";
 
 /** The three pages of the History tab, read by their own tools. */
 export type HistoryKind = "trade_history" | "cash_history" | "tax_year";
@@ -17,10 +18,15 @@ export const HISTORY_KINDS: readonly HistoryKind[] = ["trade_history", "cash_his
 export type TaxRule = "calendar" | "uk";
 export const TAX_RULES: Record<TaxRule, { yearStart: string; timeZone?: string }> = {
   calendar: { yearStart: "01-01" },
-  uk: { yearStart: "04-06", timeZone: "Europe/London" },
+  uk: { yearStart: "04-06", timeZone: taxYearZone("04-06")! },
 };
-/** The rule a year start is counted by; none for another start (a fiscal year from 1 July, say), which is kept as it is. */
-export const taxRuleOf = (yearStart: string): TaxRule | undefined => (Object.keys(TAX_RULES) as TaxRule[]).find((rule) => TAX_RULES[rule].yearStart === yearStart);
+/**
+ * The rule a year is counted by: its start, and for the UK London's days too (a UK year counted in another zone is
+ * not the UK's, so the UK rule can still be picked). None for another start (a fiscal year from 1 July, say), which is
+ * kept as it is.
+ */
+export const taxRuleOf = (yearStart: string, timeZone?: string): TaxRule | undefined => (Object.keys(TAX_RULES) as TaxRule[])
+  .find((rule) => TAX_RULES[rule].yearStart === yearStart && (!TAX_RULES[rule].timeZone || !timeZone || TAX_RULES[rule].timeZone === timeZone));
 /** A year that starts on 1 January is named by its number; any other by the two years it spans, as 2025/26. */
 export const taxYearLabel = (year: number, yearStart: string) => (yearStart === TAX_RULES.calendar.yearStart ? String(year) : `${year}/${String((year + 1) % 100).padStart(2, "0")}`);
 
@@ -335,7 +341,7 @@ export function TaxYearView({ data, book, locale, t, busy, onKind, onYear, onRul
 }) {
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined, signed = false) => money(value, currency, locale, { signed });
-  const rule = taxRuleOf(data.yearStart);
+  const rule = taxRuleOf(data.yearStart, data.timeZone);
   const yearLabel = taxYearLabel(data.year, data.yearStart);
   const rules: Array<[TaxRule, MessageKey]> = [["calendar", "taxRuleCalendar"], ["uk", "taxRuleUk"]];
   return (

@@ -105,7 +105,7 @@ export function dividendMark(dividends: HistoryDividendItem[], now: Date): Divid
  * Expected: the payments the holdings are expected to make in the coming seven days, soonest first, then any due in the
  * last seven days and not paid yet; none when the history read stopped short of the year they are read from.
  */
-export function digestDividends(dividends: HistoryDividendItem[], positions: Position[], window: { since: number; seen?: string[]; truncated?: boolean }, now: Date): DigestDividends {
+export function digestDividends(dividends: HistoryDividendItem[], positions: Position[], window: { since: number; seen?: string[]; truncated?: boolean }, now: Date, timeZone = "UTC"): DigestDividends {
   const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
   const seen = new Set(window.seen ?? []);
   const received = new Map<string, number>();
@@ -115,12 +115,13 @@ export function digestDividends(dividends: HistoryDividendItem[], positions: Pos
     if (!ticker || !item.amount || !(at > window.since && at <= now.getTime()) || seen.has(dividendKey(item))) continue;
     received.set(ticker, (received.get(ticker) ?? 0) + item.amount);
   }
-  // Whole UTC days: the seven before today, today, and the six after it. Stepped from the first of this month when that
-  // is earlier, the year's amount is shared over the same payments as on the Income tab's calendar.
-  const today = Math.floor(now.getTime() / DAY_MS) * DAY_MS;
+  // Whole days, today being the digest's own (in its time zone): the seven before it, it, and the six after it. Stepped
+  // from the first of this month when that is earlier, the year's amount is shared over the same payments as on the
+  // Income tab's calendar.
+  const today = Date.parse(`${localDay(now.getTime(), timeZone)}T00:00:00Z`);
   const day = new Date(today).toISOString().slice(0, 10);
   const weekAgo = new Date(today - WEEK_MS).toISOString().slice(0, 10);
-  const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(now.getTime()), today - WEEK_MS), today + WEEK_MS, now);
+  const upcoming = window.truncated ? [] : expectedDividends(dividends, positions, Math.min(monthStart(today), today - WEEK_MS), today + WEEK_MS, now);
   const expected = upcoming.filter((payment) => payment.on >= weekAgo)
     .map((payment) => ({ name: names.get(payment.ticker) ?? payment.ticker, on: payment.on, amount: payment.amount, due: payment.on < day }));
   return {
@@ -238,7 +239,7 @@ export class DailyDigest {
         // Paid since then, and expected from the same read: the schedules from the first day of last week's month a year ago.
         const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime() - WEEK_MS))), now).catch(() => undefined);
         const dividends = history
-          ? digestDividends(history.items, dashboard.positions, { since, ...(Array.isArray(mark?.seen) ? { seen: mark.seen } : {}), truncated: history.truncated }, now)
+          ? digestDividends(history.items, dashboard.positions, { since, ...(Array.isArray(mark?.seen) ? { seen: mark.seen } : {}), truncated: history.truncated }, now, digest.timeZone)
           : undefined;
         const text = digestText({
           environment,

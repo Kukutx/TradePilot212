@@ -94,12 +94,18 @@ export class Trading212Client {
         response = await this.fetcher(`${this.target.baseUrl}${path}`, { method, headers: {
           Authorization: `Basic ${basic(`${this.target.apiKey}:${this.target.apiSecret}`)}`, Accept: "application/json",
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-        }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) });
+        // Never followed: a redirect would carry the keys elsewhere, and turns a write into a GET without its body.
+        }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: "manual", signal: AbortSignal.timeout(20_000) });
       } catch (error) {
         if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error);
         if (attempt === attempts) throw error; await sleep(Math.min(300 * 2 ** (attempt - 1), 5000)); continue;
       }
       recordLimit(key, response.headers);
+      // A redirect (an opaque one where the runtime hides it) is not Trading 212's answer: a write's outcome is unknown.
+      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+        if (method !== "GET") throw new ExecutionStatusUnknownError(`Trading 212's address answered a write with a redirect (${response.status}), which is not followed. The order/cancel status is unknown; verify the order list, and check T212_${this.environment.toUpperCase()}_BASE_URL.`, null);
+        throw new Trading212ApiError(`Trading 212 ${method} ${path} was redirected (${response.status}), which is not followed; check the API address (T212_${this.environment.toUpperCase()}_BASE_URL).`, response.status, null);
+      }
       let parsed: unknown;
       try {
         parsed = await readBody(response);

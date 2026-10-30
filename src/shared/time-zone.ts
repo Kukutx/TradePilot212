@@ -37,10 +37,22 @@ export function localMidnight(year: number, month: number, day: number, timeZone
   const guess = Date.UTC(year, month - 1, day);
   const first = guess - zoneOffset(guess, timeZone);
   // A second pass settles days where the offset changes between the guess and local midnight.
-  return guess - zoneOffset(first, timeZone);
+  const midnight = guess - zoneOffset(first, timeZone);
+  // Where clocks jump forward at midnight (Santiago, Havana) there is no 00:00: that lands on the previous day's last
+  // hour, and the day starts when the clocks jump, the jump later.
+  const target = new Date(guess).toISOString().slice(0, 10);
+  if (localDay(midnight, timeZone) >= target) return midnight;
+  return midnight + zoneOffset(midnight + 6 * 3_600_000, timeZone) - zoneOffset(midnight, timeZone);
 }
 
 /** The local hour (0 to 23) of an instant in `timeZone`. */
 export function localHour(instant: number, timeZone: string): number {
   return new Date(instant + zoneOffset(instant, timeZone)).getUTCHours();
+}
+
+/** The zone a tax year from a known first day is counted in, where there is one: the UK's, from 6 April, in London. */
+const TAX_YEAR_ZONES: Record<string, string> = { "04-06": "Europe/London" };
+
+export function taxYearZone(yearStart: string | undefined): string | undefined {
+  return yearStart ? TAX_YEAR_ZONES[yearStart] : undefined;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument, Position } from "../shared/contracts.js";
 import type { Exchange, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, ValuePoint } from "../shared/history.js";
-import { analyzeAllocation, currentTaxYear, forwardDividends, marketStatus, moneyWeightedReturn, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear, timeWeightedReturn } from "./analytics.js";
+import { analyzeAllocation, currentTaxYear, taxYearWindow, forwardDividends, marketStatus, moneyWeightedReturn, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear, timeWeightedReturn } from "./analytics.js";
 
 const instrument = (ticker: string, currencyCode = "USD", type = "STOCK"): Instrument => ({ ticker, name: ticker, shortName: ticker, currencyCode, type });
 const position = (ticker: string, value: number, currencyCode = "USD"): Position => ({
@@ -285,6 +285,9 @@ describe("tax year summary", () => {
     expect(parseYearStart("02-30").text).toBe("01-01");
     expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-05T12:00:00Z"))).toBe(2025);
     expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-06T00:00:00Z"))).toBe(2026);
+    // Where clocks jump forward at midnight there is no 00:00: the day starts when they jump (01:00 in Santiago).
+    expect(taxYearWindow(2026, { month: 9, day: 6 }, "America/Santiago").from.toISOString()).toBe("2026-09-06T04:00:00.000Z");
+    expect(taxYearWindow(2026, { month: 4, day: 6 }, "Europe/London").from.toISOString()).toBe("2026-04-05T23:00:00.000Z");
     expect(currentTaxYear({ month: 4, day: 6 }, new Date("2026-04-05T23:30:00Z"), "Europe/London")).toBe(2026);
     expect(currentTaxYear({ month: 1, day: 1 }, new Date("2026-12-31T23:30:00Z"), "Europe/Berlin")).toBe(2027);
   });

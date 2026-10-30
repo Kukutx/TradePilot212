@@ -27,6 +27,7 @@ import { journalReview } from "./journal-review.js";
 import { watchlistView } from "./watchlist.js";
 import { readAttribution, type AttributionDeps } from "./attribution.js";
 import { readHoldingRisk } from "./holding-risk.js";
+import { taxYearZone } from "../shared/time-zone.js";
 import { withTargetVolatility } from "../shared/holding-risk.js";
 import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
@@ -403,12 +404,12 @@ export function createMcpServer(
     {
       title: "Tax Year Summary",
       description:
-        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else UTC). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else Europe/London for a year from 04-06 and UTC for any other). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         year: z.number().int().min(2000).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
         yearStart: z.string().regex(/^\d{2}-\d{2}$/).default(config.taxYearStart).describe(`First day of the tax year as MM-DD, such as 04-06 for the UK. Default: ${config.taxYearStart} (TAX_YEAR_START)`),
-        timeZone: z.string().min(1).max(64).default(config.timeZone ?? "UTC").describe(`IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin. Default: ${config.timeZone ?? "UTC"}${config.timeZone ? " (TIMEZONE)" : ""}`),
+        timeZone: z.string().min(1).max(64).optional().describe(`IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin. Default: ${config.timeZone ? `${config.timeZone} (TIMEZONE)` : "Europe/London for a year from 04-06, else UTC"}`),
         maxPages: windowSchema.maxPages,
       }),
       annotations: readOnly,
@@ -416,7 +417,8 @@ export function createMcpServer(
     },
     async ({ environment, year, yearStart, timeZone, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone, maxPages }) };
+        const zone = timeZone ?? config.timeZone ?? taxYearZone(yearStart) ?? "UTC";
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, preferences, ...await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone: zone, maxPages }) };
         return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);

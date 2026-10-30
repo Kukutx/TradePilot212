@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createConfig } from "./config.js";
 import { endpointOf, limitKey, PROBE_MS, recordLimit, resetLimits, waitFor } from "./rate-limit.js";
-import { Trading212ApiError, Trading212Client } from "./trading212-client.js";
+import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 
 const headers = (remaining: number, resetMs: number) => new Headers({ "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(Math.round(resetMs / 1000)) });
 
@@ -81,5 +81,25 @@ describe("rate limits", () => {
     expect(refused).toBeInstanceOf(Trading212ApiError);
     expect((refused as Trading212ApiError).status).toBe(429);
     expect(posts).toHaveLength(1);
+  });
+});
+
+describe("redirects", () => {
+  it("are never followed: a read fails, and a write's outcome is unknown", async () => {
+    const config = createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", T212_DEMO_BASE_URL: "https://proxy.example/api/v0" });
+    const asked: RequestInit[] = [];
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      asked.push(init!);
+      return new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } });
+    }) as typeof fetch;
+    const client = new Trading212Client("demo", config, fetcher);
+    const read = await client.getAccountSummary().catch((error: unknown) => error);
+    expect(read).toBeInstanceOf(Trading212ApiError);
+    expect((read as Error).message).toMatch(/redirected \(302\).*T212_DEMO_BASE_URL/);
+    const write = await client.placeOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1 }).catch((error: unknown) => error);
+    expect(write).toBeInstanceOf(ExecutionStatusUnknownError);
+    expect(asked.every((init) => init.redirect === "manual")).toBe(true);
+    // Sent once each: a redirect is not retried.
+    expect(asked).toHaveLength(2);
   });
 });

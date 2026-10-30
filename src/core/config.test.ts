@@ -47,6 +47,9 @@ describe("runtime config", () => {
     expect(() => createConfig({ T212_LIVE_BASE_URL: "http://proxy.example/api/v0" })).toThrow(/HTTPS/);
     expect(() => createConfig({ T212_DEMO_BASE_URL: "https://user:pass@proxy.example/api" })).toThrow(/plain URL/);
     expect(() => createConfig({ T212_DEMO_BASE_URL: "not a url" })).toThrow(/must be a URL/);
+    // An empty query or fragment is not kept: the paths requested go after the path.
+    expect(createConfig({ T212_LIVE_BASE_URL: "https://proxy.example/api/v0?" }).trading212.live.baseUrl).toBe("https://proxy.example/api/v0");
+    expect(createConfig({ T212_LIVE_BASE_URL: "https://proxy.example/api/v0/#" }).trading212.live.baseUrl).toBe("https://proxy.example/api/v0");
     expect(createConfig({ TRADEPILOT_SAMPLE_DATA: "true", T212_DEMO_BASE_URL: "https://proxy.example/api" }).trading212.demo.baseUrl).not.toContain("proxy.example");
   });
 });

@@ -128,7 +128,7 @@ T212_LIVE_API_KEY=
 T212_LIVE_API_SECRET=
 ```
 
-Demo 和 Live 使用不同凭据，可以只配置其中一个，也可以同时配置。
+Demo 和 Live 使用不同凭据，可以只配置其中一个，也可以同时配置。要通过你自己的代理访问 Trading 212，设 `T212_DEMO_BASE_URL` 或 `T212_LIVE_BASE_URL`（只允许 HTTPS，API 密钥会发给它；重定向一律不跟随）。
 
 Trading 212 官方 API 文档：
 
@@ -286,8 +286,17 @@ POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
 NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
 NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
-DIGEST_HOUR_UTC=7             # 可选，每天 UTC 7 点推送账户摘要
+DIGEST_HOUR=7                 # 可选，每天按 TIMEZONE 的 7 点推送账户摘要（或 DIGEST_HOUR_UTC=7）
 ```
+
+日期默认按 UTC 计算，税年默认从 1 月 1 日开始；可以设成你自己的：
+
+```env
+TIMEZONE=Europe/London        # 每日下单限额在当地午夜重置，摘要时间和税年也按它计算
+TAX_YEAR_START=04-06          # 英国税年；记录页和 get_tax_year_summary 默认用它
+```
+
+从 UTC 改成别的时区（或升级到 2.62 后第一次设置）的那一天，限额和摘要会按新日期衔接一次：时区在 UTC 之后时，当天已用的额度可能多算几个小时；时区在 UTC 之前时，摘要可能提前再发一次。
 
 收益页默认拿时间加权收益和标普 500（SPY）对比；`BENCHMARK=VWRLl_EQ` 换成别的基金（非美国上市的要在 `QUOTE_SYMBOLS` 里映射），`BENCHMARK=none` 关闭对比。
 

@@ -205,7 +205,8 @@ function tradingBaseUrl(env: RuntimeEnv, name: "T212_DEMO_BASE_URL" | "T212_LIVE
   }
   if (url.protocol !== "https:" && !(isLoopbackHost(url.hostname) && url.protocol === "http:")) throw new Error(`${name} must use HTTPS`);
   if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must be a plain URL, without credentials, a query or a fragment`);
-  return url.toString().replace(/\/+$/, "");
+  // The origin and path alone: an empty "?" or "#" left on would carry the paths requested after it.
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 function quoteProvider(env: RuntimeEnv): QuoteProviderName {
