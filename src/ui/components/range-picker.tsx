@@ -1,5 +1,6 @@
 // A window of the reader's own days beside the period switch: two date boxes drawn in the widget's style, checked
-// before they are read. Days run midnight to midnight UTC, as the server reads a date and as the periods do.
+// before they are read. Days run midnight to midnight UTC, as the server reads a date and as the periods do; "today"
+// is the reader's own date, which may be a UTC day ahead or behind.
 
 import { createContext, useContext, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { MessageKey, SupportedLocale } from "../i18n";
@@ -7,8 +8,11 @@ import { dayLabel } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 import { Field, Icon } from "./common";
 
-/** First and last day, as YYYY-MM-DD. */
-export interface DateRange { from: string; to: string }
+/**
+ * First and last day, as YYYY-MM-DD. A window the host read keeps its own bounds in `exact`, so reading it again
+ * reads the same; days the reader chooses are whole days.
+ */
+export interface DateRange { from: string; to: string; exact?: { from: string; to: string } }
 
 /** The range the views read, and how to change it; given around the views whose period switch can take one. */
 export const RangeContext = createContext<{ range: DateRange | null; onRange: (next: DateRange) => void; onClear: () => void; locale: SupportedLocale } | null>(null);
@@ -16,10 +20,11 @@ export const RangeContext = createContext<{ range: DateRange | null; onRange: (n
 /** The earliest day the boxes take: Trading 212's history starts well after it. */
 export const FIRST_DAY = "2000-01-01";
 
-export const todayUtc = (now = new Date()) => now.toISOString().slice(0, 10);
+/** The reader's own date, as YYYY-MM-DD. */
+export const todayLocal = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
 /** Why a range cannot be read, or nothing when it can. */
-export function rangeProblem(range: { from: string; to: string }, today = todayUtc()): MessageKey | undefined {
+export function rangeProblem(range: { from: string; to: string }, today = todayLocal()): MessageKey | undefined {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to)) return "rangeMissing";
   if (range.from > range.to) return "rangeOrder";
   if (range.to > today) return "rangeFuture";
@@ -34,7 +39,7 @@ export function rangeLabel(range: DateRange, locale: SupportedLocale): string {
 }
 
 /** The last 30 days, to start from when no range was chosen yet. */
-function lastMonth(today: string): DateRange {
+function lastMonth(today: string): { from: string; to: string } {
   return { from: new Date(Date.parse(today) - 29 * 86_400_000).toISOString().slice(0, 10), to: today };
 }
 
@@ -43,39 +48,44 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLInputElement>(null);
+  const last = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<DateRange>({ from: "", to: "" });
+  const [draft, setDraft] = useState<{ from: string; to: string }>({ from: "", to: "" });
   const [tried, setTried] = useState(false);
   useEffect(() => { if (open) first.current?.focus(); }, [open]);
   if (!context) return null;
   const { range, onRange, onClear, locale } = context;
-  const today = todayUtc();
+  const today = todayLocal();
   const problem = rangeProblem(draft, today);
+  // The box a problem is about: the first day's when it is missing or too early, else the last day's.
+  const onFirst = problem === "rangeEarly" || (problem === "rangeMissing" && !/^\d{4}-\d{2}-\d{2}$/.test(draft.from));
   const close = () => { setOpen(false); setTried(false); button.current?.focus(); };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setTried(true);
-    if (problem || disabled) return;
+    // The box that is wrong takes the focus, so its message is read out with it.
+    if (problem) { (onFirst ? first : last).current?.focus(); return; }
+    if (disabled) return;
     close();
-    if (range?.from !== draft.from || range?.to !== draft.to) onRange(draft);
+    if (range?.from !== draft.from || range?.to !== draft.to) onRange({ from: draft.from, to: draft.to });
   };
   const label = range ? rangeLabel(range, locale) : undefined;
   return (
-    <>
-      <button ref={button} type="button" className={`rangeButton${range ? " active" : ""}`} aria-expanded={open} aria-controls={id}
+    // Escape closes the panel from the button too, not only from inside it.
+    <div className="rangePicker" onKeyDown={(event) => { if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
+      <button ref={button} type="button" className={`rangeButton${range ? " active" : ""}`} aria-expanded={open} {...(open ? { "aria-controls": id } : {})}
         aria-label={label ? fill(t("rangeActive"), { range: label }) : t("rangeCustom")} title={label ? fill(t("rangeActive"), { range: label }) : t("rangeCustom")}
-        onClick={() => { if (open) { close(); return; } setDraft(range ?? lastMonth(today)); setOpen(true); }}>
+        onClick={() => { if (open) { close(); return; } setDraft(range ? { from: range.from, to: range.to } : lastMonth(today)); setOpen(true); }}>
         <Icon name="calendar" />{label && <span>{label}</span>}
       </button>
       {open && (
-        <form id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}
-          onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } }}>
+        <form id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}>
           <div className="rangeFields">
-            <Field label={t("rangeFrom")}>
+            <Field label={t("rangeFrom")} {...(tried && problem && onFirst ? { error: t(problem) } : {})}>
               {(props) => <input {...props} ref={first} type="date" value={draft.from} min={FIRST_DAY} max={draft.to && draft.to <= today ? draft.to : today} onChange={(event) => setDraft({ ...draft, from: event.target.value })} />}
             </Field>
-            <Field label={t("rangeTo")} {...(tried && problem ? { error: t(problem) } : {})}>
-              {(props) => <input {...props} type="date" value={draft.to} min={draft.from || FIRST_DAY} max={today} onChange={(event) => setDraft({ ...draft, to: event.target.value })} />}
+            <Field label={t("rangeTo")} {...(tried && problem && !onFirst ? { error: t(problem) } : {})}>
+              {(props) => <input {...props} ref={last} type="date" value={draft.to} min={draft.from || FIRST_DAY} max={today} onChange={(event) => setDraft({ ...draft, to: event.target.value })} />}
             </Field>
           </div>
           <p className="rangeNote">{t("rangeNote")}</p>
@@ -86,6 +96,6 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
           </div>
         </form>
       )}
-    </>
+    </div>
   );
 }

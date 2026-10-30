@@ -720,6 +720,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .segmented button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
 /* A custom range beside the periods: a calendar button that names the range once chosen, and a panel of two date
    boxes under the switch. The widget draws the boxes' calendar icon; the browser's own picker still opens from it. */
+.rangePicker { display: contents; }
 .periodControls { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
 .rangeButton { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; min-width: 42px; justify-content: center; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .rangeButton:hover { color: var(--tp-text); border-color: var(--tp-border-strong); }
@@ -1651,11 +1652,12 @@ strong.historyAmount { flex: none; font-size: 13px; }
   .filterChips button.active { border-color: Highlight; background: Highlight; color: HighlightText; }
   .cashMark { border: 1px solid CanvasText; }
 }
-.reviewToolbar > .segmented, .taxControls > * { flex: none; max-width: 100%; }
+.reviewToolbar > .segmented, .reviewToolbar > .periodControls, .taxControls > * { flex: none; max-width: 100%; }
 @container (max-width: 420px) {
   /* On a phone each switch takes the row, its choices sharing it evenly. */
-  .reviewToolbar > .segmented, .taxControls, .taxControls > .segmented { display: flex; width: 100%; }
-  .reviewToolbar > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
+  .reviewToolbar > .segmented, .reviewToolbar > .periodControls, .taxControls, .taxControls > .segmented { display: flex; width: 100%; }
+  .reviewToolbar > .segmented button, .reviewToolbar > .periodControls > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
+  .reviewToolbar > .periodControls > .segmented { flex: 1 1 auto; }
   .taxControls > .yearStepper { margin-inline: auto; }
 }
 
