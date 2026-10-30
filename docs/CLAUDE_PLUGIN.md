@@ -48,6 +48,21 @@ The plugin ignores `.env` files in the folder you open Claude Code in, so anothe
 
 Claude also picks these skills up automatically when your request matches.
 
+### Prompts and resources for any MCP client
+
+The server offers the same skills as MCP prompts, so a client without plugin skills (Claude Desktop, Claude.ai through the Worker, or another MCP host) can still run them. Each prompt (`daily-brief`, `portfolio-review`, `risk-check`, `trade-journal`, `order-followup`, `tax-year`, `rebalance`) takes `environment` (`demo` or `live`, completed as you type), an optional `request` in the user's words, and, for `trade-journal` and `order-followup`, an `instrument` that completes from the tickers the account holds, has orders on, or watches.
+
+It also offers four JSON resources per account with keys, for a host to attach to a conversation:
+
+| Resource | What it holds |
+|---|---|
+| `tradepilot://{environment}/holdings` | The account summary, holdings and open orders as Trading 212 gives them, read at most a minute ago |
+| `tradepilot://{environment}/journal` | Every trade journal note |
+| `tradepilot://{environment}/targets` | The saved target allocation, or `null` |
+| `tradepilot://{environment}/watchlist` | The watched instruments with their notes |
+
+The prompts are generated from `skills/*/SKILL.md` into `src/core/skill-prompts.ts`, since the Worker and the bundled plugin cannot read `skills/` at run time. After changing a skill, run `pnpm build:prompts` (`pnpm build:plugin` runs it too); a test fails while the two differ.
+
 ### Why order tools are off by default
 
 In ChatGPT and other MCP Apps hosts, TradePilot's execution tools are app-only: the model cannot see them, and only a click in the TradePilot UI can call them.

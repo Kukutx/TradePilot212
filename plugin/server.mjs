@@ -25656,6 +25656,208 @@ function validateAndWarnToolName(name) {
   issueToolNameWarning(name, result2.warnings);
   return result2.isValid;
 }
+var MAX_TEMPLATE_LENGTH = 1e6;
+var MAX_VARIABLE_LENGTH = 1e6;
+var MAX_TEMPLATE_EXPRESSIONS = 1e4;
+var MAX_REGEX_LENGTH = 1e6;
+var UriTemplate = class UriTemplate2 {
+  /**
+  * Returns true if the given string contains any URI template expressions.
+  * A template expression is a sequence of characters enclosed in curly braces,
+  * like `{foo}` or `{?bar}`.
+  */
+  static isTemplate(str) {
+    return /\{[^}\s]+\}/.test(str);
+  }
+  static validateLength(str, max, context) {
+    if (str.length > max) throw new Error(`${context} exceeds maximum length of ${max} characters (got ${str.length})`);
+  }
+  template;
+  parts;
+  get variableNames() {
+    return this.parts.flatMap((part) => typeof part === "string" ? [] : part.names);
+  }
+  constructor(template) {
+    UriTemplate2.validateLength(template, MAX_TEMPLATE_LENGTH, "Template");
+    this.template = template;
+    this.parts = this.parse(template);
+  }
+  toString() {
+    return this.template;
+  }
+  parse(template) {
+    const parts = [];
+    let currentText = "";
+    let i = 0;
+    let expressionCount = 0;
+    while (i < template.length) if (template[i] === "{") {
+      if (currentText) {
+        parts.push(currentText);
+        currentText = "";
+      }
+      const end = template.indexOf("}", i);
+      if (end === -1) throw new Error("Unclosed template expression");
+      expressionCount++;
+      if (expressionCount > MAX_TEMPLATE_EXPRESSIONS) throw new Error(`Template contains too many expressions (max ${MAX_TEMPLATE_EXPRESSIONS})`);
+      const expr = template.slice(i + 1, end);
+      const operator = this.getOperator(expr);
+      const exploded = expr.includes("*");
+      const names = this.getNames(expr);
+      const name = names[0];
+      for (const name$1 of names) UriTemplate2.validateLength(name$1, MAX_VARIABLE_LENGTH, "Variable name");
+      parts.push({
+        name,
+        operator,
+        names,
+        exploded
+      });
+      i = end + 1;
+    } else {
+      currentText += template[i];
+      i++;
+    }
+    if (currentText) parts.push(currentText);
+    return parts;
+  }
+  getOperator(expr) {
+    return [
+      "+",
+      "#",
+      ".",
+      "/",
+      "?",
+      "&"
+    ].find((op) => expr.startsWith(op)) || "";
+  }
+  getNames(expr) {
+    const operator = this.getOperator(expr);
+    return expr.slice(operator.length).split(",").map((name) => name.replace("*", "").trim()).filter((name) => name.length > 0);
+  }
+  encodeValue(value, operator) {
+    UriTemplate2.validateLength(value, MAX_VARIABLE_LENGTH, "Variable value");
+    if (operator === "+" || operator === "#") return encodeURI(value);
+    return encodeURIComponent(value);
+  }
+  expandPart(part, variables) {
+    if (part.operator === "?" || part.operator === "&") {
+      const pairs = part.names.map((name) => {
+        const value$1 = variables[name];
+        if (value$1 === void 0) return "";
+        return `${name}=${Array.isArray(value$1) ? value$1.map((v) => this.encodeValue(v, part.operator)).join(",") : this.encodeValue(value$1.toString(), part.operator)}`;
+      }).filter((pair) => pair.length > 0);
+      if (pairs.length === 0) return "";
+      return (part.operator === "?" ? "?" : "&") + pairs.join("&");
+    }
+    if (part.names.length > 1) {
+      const values = part.names.map((name) => variables[name]).filter((v) => v !== void 0);
+      if (values.length === 0) return "";
+      return values.map((v) => Array.isArray(v) ? v[0] : v).join(",");
+    }
+    const value = variables[part.name];
+    if (value === void 0) return "";
+    const encoded = (Array.isArray(value) ? value : [value]).map((v) => this.encodeValue(v, part.operator));
+    switch (part.operator) {
+      case "":
+        return encoded.join(",");
+      case "+":
+        return encoded.join(",");
+      case "#":
+        return "#" + encoded.join(",");
+      case ".":
+        return "." + encoded.join(".");
+      case "/":
+        return "/" + encoded.join("/");
+      default:
+        return encoded.join(",");
+    }
+  }
+  expand(variables) {
+    let result2 = "";
+    let hasQueryParam = false;
+    for (const part of this.parts) {
+      if (typeof part === "string") {
+        result2 += part;
+        continue;
+      }
+      const expanded = this.expandPart(part, variables);
+      if (!expanded) continue;
+      result2 += (part.operator === "?" || part.operator === "&") && hasQueryParam ? expanded.replace("?", "&") : expanded;
+      if (part.operator === "?" || part.operator === "&") hasQueryParam = true;
+    }
+    return result2;
+  }
+  escapeRegExp(str) {
+    return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  }
+  partToRegExp(part) {
+    const patterns = [];
+    for (const name$1 of part.names) UriTemplate2.validateLength(name$1, MAX_VARIABLE_LENGTH, "Variable name");
+    if (part.operator === "?" || part.operator === "&") {
+      for (let i = 0; i < part.names.length; i++) {
+        const name$1 = part.names[i];
+        const prefix = i === 0 ? "\\" + part.operator : "&";
+        patterns.push({
+          pattern: prefix + this.escapeRegExp(name$1) + "=([^&]+)",
+          name: name$1
+        });
+      }
+      return patterns;
+    }
+    let pattern;
+    const name = part.name;
+    switch (part.operator) {
+      case "":
+        pattern = part.exploded ? "([^/,]+(?:,[^/,]+)*)" : "([^/,]+)";
+        break;
+      case "+":
+      case "#":
+        pattern = "(.+)";
+        break;
+      case ".":
+        pattern = String.raw`\.([^/,]+)`;
+        break;
+      case "/":
+        pattern = "/" + (part.exploded ? "([^/,]+(?:,[^/,]+)*)" : "([^/,]+)");
+        break;
+      default:
+        pattern = "([^/]+)";
+    }
+    patterns.push({
+      pattern,
+      name
+    });
+    return patterns;
+  }
+  match(uri) {
+    UriTemplate2.validateLength(uri, MAX_TEMPLATE_LENGTH, "URI");
+    let pattern = "^";
+    const names = [];
+    for (const part of this.parts) if (typeof part === "string") pattern += this.escapeRegExp(part);
+    else {
+      const patterns = this.partToRegExp(part);
+      for (const { pattern: partPattern2, name } of patterns) {
+        pattern += partPattern2;
+        names.push({
+          name,
+          exploded: part.exploded
+        });
+      }
+    }
+    pattern += "$";
+    UriTemplate2.validateLength(pattern, MAX_REGEX_LENGTH, "Generated regex pattern");
+    const regex = new RegExp(pattern);
+    const match = uri.match(regex);
+    if (!match) return null;
+    const result2 = {};
+    for (const [i, name_] of names.entries()) {
+      const { name, exploded } = name_;
+      const value = match[i + 1];
+      const cleanName = name.replace("*", "");
+      result2[cleanName] = exploded && value.includes(",") ? value.split(",") : value;
+    }
+    return result2;
+  }
+};
 function isZodV4Schema(v) {
   return typeof v === "object" && v !== null && "_zod" in v;
 }
@@ -32692,6 +32894,15 @@ import process2 from "node:process";
 
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/mcp-DIH4cS6P.mjs
 var COMPLETABLE_SYMBOL = /* @__PURE__ */ Symbol.for("mcp.completable");
+function completable(schema, complete) {
+  Object.defineProperty(schema, COMPLETABLE_SYMBOL, {
+    value: { complete },
+    enumerable: false,
+    writable: false,
+    configurable: false
+  });
+  return schema;
+}
 function isCompletable(schema) {
   return !!schema && typeof schema === "object" && COMPLETABLE_SYMBOL in schema;
 }
@@ -34032,6 +34243,31 @@ var McpServer = class {
   */
   sendPromptListChanged() {
     if (this.isConnected()) this.server.sendPromptListChanged();
+  }
+};
+var ResourceTemplate = class {
+  _uriTemplate;
+  constructor(uriTemplate, _callbacks) {
+    this._callbacks = _callbacks;
+    this._uriTemplate = typeof uriTemplate === "string" ? new UriTemplate(uriTemplate) : uriTemplate;
+  }
+  /**
+  * Gets the URI template pattern.
+  */
+  get uriTemplate() {
+    return this._uriTemplate;
+  }
+  /**
+  * Gets the list callback, if one was provided.
+  */
+  get listCallback() {
+    return this._callbacks.list;
+  }
+  /**
+  * Gets the callback for completing a specific URI template variable, if one was provided.
+  */
+  completeCallback(variable) {
+    return this._callbacks.complete?.[variable];
   }
 };
 function createToolExecutor(inputSchema, handler) {
@@ -35376,6 +35612,127 @@ var TOOL_OUTPUT = {
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
   show_daily_trade_plan: payload("trade_plan", plan)
 };
+
+// src/core/skill-prompts.ts
+var SKILL_PROMPTS = [
+  {
+    "name": "daily-brief",
+    "description": "Pre-market Trading 212 decision brief that reads the live portfolio, checks market hours, researches fresh news, and renders short/medium/long ideas in the TradePilot trade-plan UI without placing orders. Use for a morning brief, daily check-in, or scheduled analysis.",
+    "body": "# Daily brief\n\nThis brief is read-only. Never prepare, confirm or submit an order from it. Scheduled runs must stay read-only.\n\n## Steps\n\n1. Call `get_portfolio_today` to load positions, pending orders and cash with each holding's move since its previous close. Lead the brief with the day's total and the two or three biggest movers, naming the day it covers: before the open it is the last session's move. Say which holdings have no move and why, in a few words. Its text says how far each stop or limit on a holding is from the last price; flag a stop-loss within about 3% of it. When it returns `valueTrend`, give the change in account value since the first recorded day, and say it includes deposits and withdrawals.\n2. Call `get_market_hours` for one representative holding per exchange, so the brief says whether markets are open, in pre-market, or closed, and when they next open.\n3. Call `analyze_portfolio_allocation` and carry its flags into the brief. Call `list_investment_plans` and mention any plan that is due, so the user can confirm it later. Call `list_price_alerts` and mention price and account alerts that triggered since the last brief. If the user holds pies, call `list_pies` and flag a pie whose drift is above 5%. Call `get_watchlist` and mention watched instruments within about 3% of an order or alert on them, or that moved more than 5% since the last close, with the user's note on why they watch it.\n4. Research current, sourced news for the largest holdings, any pending-order tickers and the watched instruments flagged above: earnings dates, guidance, material events. Note each source's date. If you have no web access, say so and skip this step rather than relying on memory.\n5. Build candidates for `show_daily_trade_plan`:\n   - short (\u22641 week), medium (\u22641 month) and long (\u22651 year) horizons;\n   - each with buy, sell or watch, a 0\u2013100 score, a risk level, the rationale, thesis, catalysts, risks, a counter-case, sources, and `analysisAsOf`;\n   - for actionable Market-order ideas, a `referencePrice` and `referencePriceAt` from a dated source.\n\n   Recommending no trade is valid.\n6. Render with `show_daily_trade_plan`. Keep the chat text to a few lines and put the detail in the cards.\n\n## Rules\n\n- Use the broker ticker returned by TradePilot. Resolve ambiguous names with `search_trading212_instruments`.\n- Never present a guess as a current price. Trading 212's API has no quote endpoint, so a price comes from a held position, from `get_quote` (TradePilot's quote source, with the time of the price), or from a dated source.\n- Reply in the user's language."
+  },
+  {
+    "name": "order-followup",
+    "description": 'Follow up Trading 212 orders with TradePilot - whether an order filled, what is still pending, and cancelling a pending order after the user confirms it. Use for "did my order go through", "what orders are open", "cancel my Apple limit order".',
+    "body": "# Order follow-up\n\n1. Call `get_portfolio_dashboard` for the environment to list pending orders, with their ids, types, prices and how much has filled. For instruments the user holds, each order's text also says how far its stop or limit is from the last price. For every order and the recent fills of one instrument, call `get_holding_detail` with that instrument.\n2. For one order, call `get_order_status` with its id. For an order that has ended (filled, partly filled, cancelled, rejected or closed), it lists each fill with its price. For an order that is still open, it gives only the filled quantity so far; the individual fills appear once the order ends.\n3. If the user names an instrument rather than an id, match it against the pending orders. If more than one order matches, list them with side, type, price and id, and ask which one they mean before going on. For an order that is no longer pending, call `get_trade_history` for that instrument with `includeUnfilled`.\n4. To cancel, call `review_order_cancel` with the order id. If the order is a stop-loss, say that cancelling it leaves the position unprotected.\n   - Where the TradePilot widget is shown, the user confirms the cancellation there, with a second confirmation on Live.\n   - In a text-only host (a terminal), no widget appears. Show the order from the tool's text. If the user wants it cancelled, call `app_prepare_cancel` (this sends nothing) and show its summary. Call `app_execute_cancel` with that token only after the user explicitly confirms in the conversation. On Live, pass `liveAcknowledged` only after they confirm they understand it is their real account.\n\n## Rules\n\n- Never say an order was cancelled or filled unless a tool result says so. After a cancellation, check it with `get_order_status`.\n- A partly filled order keeps its filled shares when the rest is cancelled.\n- If `review_order_cancel` is not available, order tools are switched off on this instance. Tell the user they can cancel the order in the dashboard or the Trading 212 app.\n- Reply in the user's language."
+  },
+  {
+    "name": "portfolio-review",
+    "description": 'Periodic Trading 212 portfolio review with exact performance, income, costs and allocation figures from TradePilot tools. Use when the user asks how their portfolio is doing, for a monthly or yearly review, or "how much have I made".',
+    "body": "# Portfolio review\n\nProduce a factual review of the user's Trading 212 account. Every number must come from a TradePilot tool result; never estimate weights, returns or totals yourself.\n\n## Steps\n\n1. Pick the window from the request (`1m`, `3m`, `ytd`, `1y`, `all`). Default to `ytd`. Use the environment the user names, otherwise the instance default.\n2. Call `get_portfolio_performance` for the window. If `coverage.truncated` is true, say the figures cover only the most recent history and offer to rerun with a larger `maxPages`.\n3. Call `get_income_summary` for the same window.\n4. Call `analyze_portfolio_allocation`.\n5. Optionally call `get_portfolio_dashboard` to show the interactive view. When the user asks about one holding, call `get_holding_detail` for it. It returns the position, the holding's share of the account against any target, its open orders and alerts, the last 12 months of fills and dividends, and how the price moved over the closes it has and over each of 1, 3 and 6 months they cover, with the high and low. Quote those figures rather than working out a price history from memory.\n6. If the user asks what made up a total, list the items for the same window:\n   - dividends, interest, deposits and withdrawals: `get_cash_history`, filtered by `types` or `ticker`;\n   - trading costs (FX conversion fees, commissions, stamp duty): `get_trade_history`, whose fills carry their `costItems`, plus any account-level fees from `get_cash_history` with type `FEE`.\n7. For gains, losses and income per tax year, use `get_tax_year_summary` (see the tax-year skill).\n\n## Report shape\n\nLead with three numbers: realized P/L, unrealized P/L, and income for the period, in the account currency. Then cover, briefly:\n\n- **Contributions:** deposits, withdrawals, and net. Report `simpleReturn` only when the tool returned it (all-time, untruncated), and call it a simple return on net contributions. Report `annualizedReturn` only when the tool returned it, as the money-weighted yearly return since `annualizedSince`; it counts when each deposit was made, so it differs from the simple return.\n- **Against the market:** when the tool returned `timeWeighted` and `benchmark`, give both returns over the same days and the gap in percentage points. Name the fund, say when it is priced in another currency than the account (part of the gap is then the exchange rate), and that a distributing fund's price leaves out its dividends. When `benchmarkProblem` is set instead, say in a few words why there is no comparison. Compare with another fund only when the user names one, by calling the tool again with `benchmark`.\n- **Costs:** total and the two largest cost types. FX conversion fees are often the biggest; point that out when true.\n- **Winners and losers:** the top contributors from `byTicker`.\n- **Allocation:** cash share, largest holding, top-5 share, effective number of holdings, currency exposure, and every flag the tool raised.\n- **Next steps:** at most three concrete observations, such as concentration or cash drag. This is information, not personalised financial advice. Do not place or prepare orders unless the user asks.\n\nReply in the user's language."
+  },
+  {
+    "name": "rebalance",
+    "description": "Rebalance a Trading 212 portfolio toward target weights with TradePilot, as one basket the user reviews and confirms. Use when the user asks to rebalance, reach a target allocation, trim an overweight holding, or deploy cash across holdings.",
+    "body": "# Rebalance\n\n1. Call `analyze_portfolio_allocation` to show the current weights and cash share. If it returns `drift`, targets are already saved: show each target's drift and ask whether to rebalance to them or change them.\n2. Agree on the targets with the user. If they want each holding to carry the same share of the risk, `analyze_portfolio_allocation` gives the equal-risk weights (`risk.rows[].parity`) and its text the exact `plan_portfolio_rebalance` targets and `cashWeight` that move to them; use those rather than computing your own. Once targets are saved, `drift.volatility` (from `manage_target_allocation` or `analyze_portfolio_allocation`) gives the volatility a year they would give beside today's (targets not held count too, from their own closes, unless named in `leftOut`); tell the user what the change does to risk, as past volatility, not a forecast. Targets are shares of **total account value**, so they plus any cash reserve add up to at most 100%. If the user gives only some holdings, ask whether to leave the others as they are (the default) or sell them (`sellUntargeted`).\n3. Call `get_trading_policy` for the environment. Point out anything that would block the plan, for example a target above `maxPositionWeight` or a closed market while Market orders are blocked.\n4. Call `plan_portfolio_rebalance` with the targets and any `cashWeight`, `minTradeValue` or `wholeSharesOnly` the user wants.\n   - An instrument the user does not hold is priced from TradePilot's quote source when it can be (`get_quote` shows the price and its time). Otherwise pass a current `referencePrice` with `referencePriceAt` from a dated source.\n   - An instrument quoted in another currency is converted at the rate implied by a holding in that currency, else at the quote source's rate (the plan notes which). Pass `fxRates` (instrument-currency units per 1 account-currency unit) only when the plan lists it as skipped for want of a rate.\n   - To rebalance to the saved targets, call it without `targets`; it uses them and their cash weight.\n   - When the user wants fewer trades, or only to fix what drifted, pass `band` (for example the saved `drift.threshold`): only the targets more than that far off their weight trade. `drift.rebalanceOver` says beforehand what that trades beside a full rebalance; offer it when it trades less.\n   - When the user wants to invest cash (a deposit, dividends) without selling anything, pass `buyOnly: true`, or `investAmount` to invest a set amount. Only cash above the reserve is used, most in the targets furthest below.\n5. Explain the result from the tool output: each trade, current \u2192 resulting weight, cash before and after, what the buys and sells come to (`totals`), and every skipped item with its reason. When trades are in another currency than the account's, give the conversion fee from `totals.fxFee`: Trading 212 charges it on the conversion (0.15% by default), none on a trade paid from or into a balance in that currency, so it is at most that. Do not recompute quantities or fees yourself. Before a plan, `drift.rebalance` gives the same totals for a rebalance to the saved targets, its buys fitted to the cash (`buysScaled` when the cash falls short).\n\n6. If the user wants to keep these targets, save them with `manage_target_allocation` (`set`, with `cashWeight` and optionally `driftThreshold`). TradePilot then shows the drift in the Allocation tab and notifies when it grows past the threshold (default 5 points).\n7. To move toward the targets with new money instead of selling, offer a standing plan with `manage_investment_plans` and `targetAmount`: each run puts that amount into the targets furthest below their weight.\n\nThe plan opens as a basket in the TradePilot widget. Nothing is sent until the user reviews it there and confirms. Never claim an order was placed unless the widget reports it. Reply in the user's language."
+  },
+  {
+    "name": "risk-check",
+    "description": `Check a Trading 212 portfolio for concentration, currency exposure, cash levels, and risky pending orders using TradePilot's deterministic tools. Use when the user asks about risk, diversification, exposure, or "am I too concentrated".`,
+    "body": "# Risk check\n\n1. Call `analyze_portfolio_allocation`. If the user states their own limits, such as \"no position above 10%\", pass them as `maxSingleWeight` and the other limits.\n2. Call `get_portfolio_dashboard` to see pending orders. Its \"Stop-loss orders\" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. Where the broker values the holding, it also says what reaching the stop would cost from now and the P/L left then, in the account currency (a gap can fill a stop lower). It also names the holdings without one.\n3. For each pending order, call `get_market_hours` when its market is closed or in an extended session. A Market order placed while the market is closed is queued and fills at the next open, possibly at a gap price.\n\nReport:\n- every flag the tool raised, in plain language;\n- the largest holding, the top-5 share and the effective number of holdings;\n- the currency split, noting that FX moves affect returns in the account currency;\n- where its `risk` is: the holdings' volatility together, the diversification ratio, and any holding whose share of the risk is well above its share of the value (it swings more, or moves more with the rest); the most alike pairs from its correlations; from `risk.mix`, what a bad week (one in 20) has cost today's mix, in percent and in the account currency, and its deepest fall over the year, said as history, not a forecast; where rows carry `parity`, the equal-risk weights beside today's and `risk.parityVolatility` beside the volatility now, as one way to spread the risk, not advice. Name the holdings in `riskMissing` or `short` as not measured;\n- the cash share;\n- pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.\n\nIf a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop. When several holdings lack one, `review_portfolio_stops` drafts a stop for each of them in one basket that the user confirms once.\n\nIf the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.\n\nDo not compute weights yourself; quote the tool output. Do not prepare orders unless the user asks. Reply in the user's language."
+  },
+  {
+    "name": "tax-year",
+    "description": 'Gather a Trading 212 tax year with TradePilot - sales with realised gains and losses, dividends, interest and costs - to prepare or check a tax return. Use for "what were my capital gains this tax year", "how much dividend income do I declare", "UK tax year 2025/26".',
+    "body": '# Tax year\n\n1. Work out which country the user files in. Use it only when the request makes it clear (for example "UK tax year", "Steuererkl\xE4rung", "2025/26"); the account currency does not tell you where someone is taxed, so otherwise ask. Then:\n   - UK: starts 6 April, so `yearStart` is `04-06` and `timeZone` is `Europe/London`; "2025/26" is `year` 2025.\n   - Most other countries (Germany, France, Spain, Italy, Poland, the Netherlands, the US \u2026): the calendar year, `yearStart` `01-01`, with the country\'s zone as `timeZone` (for example `Europe/Berlin`).\n   With no year named, leave `year` out: the tool takes the latest tax year that has started.\n2. Call `get_tax_year_summary` with `environment`, `year`, `yearStart` and `timeZone`. If `truncated` is true, rerun with a larger `maxPages` (up to 40) before reporting.\n3. For the detail behind a figure, call `get_trade_history` with `from` and `to` set to the tool\'s `period` (each sale with its realised P/L and costs), and `get_cash_history` for each dividend and interest payment.\n4. For the charges and withholding a return may need, use `manage_history_export`: `request` one for the same period (writes enabled; one already made for it is given instead) and `read` it by its `reportId` a minute later: its withholding tax, stamp duty, French transaction tax and currency conversion fees, and its interest and dividends (net of withholding), per currency. Point the user to the annual statement in the Trading 212 app as the document a return is filed from.\n\n## Report shape\n\n- Sales: how many, total proceeds, gains and losses separately, and the net. Then the instruments with the largest results.\n- Income: dividends and interest. Dividends are after any tax withheld at source; the gross amount and the withholding are on the Trading 212 statement.\n- Costs: total, with the largest cost types.\n- Say once, plainly, that these are Trading 212\'s figures on an average-cost basis in the account currency. Tax rules can match purchases to sales differently (for example the UK\'s same-day and 30-day rules) and can need amounts converted at other rates, so the tax due can differ. This is not tax advice.\n\n## Rules\n\n- Every number comes from a tool result. Never work out tax due, allowances or rates yourself unless the user asks, and then show the rule and figures you used.\n- If the tax year is still running (`ended` is false), say the figures cover it up to now.\n- Reply in the user\'s language.'
+  },
+  {
+    "name": "trade-journal",
+    "description": 'Review recent Trading 212 trades with fills, realized P/L, fees and FX from TradePilot history, set against the reasons written in the trade journal, and save what the user learns. Use for "review my trades", "what did I trade last month", "why did I buy X", "which of my reasons work", or a post-trade journal.',
+    "body": "# Trade journal\n\n1. For \"how are my trades doing\" or \"which reasons work\", start with `get_journal_review` for the window (default `all`): each trade with a note next to how it has gone since, its `edge` (the move in the trade's favour since the fill: up for a buy, down for a sell), per-tag counts and average edge, and `due`, the trades with a reason, no look back yet and at least 30 days since the fill. Pass `tag` to review one tag's trades. Quote its figures; never work an edge out yourself, and when `unpriced` or `notQuoted` name instruments, say their trades count without an edge.\n2. Call `get_trade_history` for the requested window (default `1m`), filtered by ticker if the user names one. Set `includeUnfilled` when the user asks about orders that did not fill. Each fill carries its `orderId`, and `journal` holds the notes on those orders: the `thesis` written when the trade was made and any `review` written since.\n3. Call `get_portfolio_performance` for the same window to get totals and costs. For one order the user asks about, `get_order_status` gives its state and each fill. For one instrument, `manage_trade_journal` with `action: \"list\"` and the `instrument` also returns notes that are not tied to an order.\n4. Group the fills by ticker and present each round trip or position change with:\n   - date, side, quantity and price;\n   - net value and realized P/L from the tool;\n   - costs, with FX conversion fees called out;\n   - the reason recorded at the time, quoted as written, when a note exists.\n5. Compare each recorded reason with what happened: did the thesis play out, was the exit planned, what cost money (fees, FX, timing). An edge leaves FX and costs out and counts every trade once, so a small trade with a large move weighs as much as a large one; say so when it matters. Start with the trades `due` for a look back. For a trade with no note, ask the user why they made it, or infer it from the conversation and say it is inferred.\n6. Offer one habit to keep or change, for example from a tag whose trades keep going against the user. When the user agrees with a reflection on a trade, save it with `manage_trade_journal`: `update` with the note's `entryId` and a `review` when the trade has a note, or `add` with the `instrument`, `orderId` and `review` when it has none. Keep the user's own words; tags such as `earnings` or `breakout` help find patterns later.\n\nNever recompute P/L from prices; Trading 212's `realisedProfitLoss` already includes FX. Never rewrite a thesis after the fact: it records what the user thought then. If the history is truncated, say so. Reply in the user's language."
+  }
+];
+
+// src/core/mcp-prompts.ts
+var ENVIRONMENTS = ["demo", "live"];
+var MAX_COMPLETIONS = 20;
+var TITLES = {
+  "daily-brief": "Daily brief",
+  "order-followup": "Order follow-up",
+  "portfolio-review": "Portfolio review",
+  rebalance: "Rebalance",
+  "risk-check": "Risk check",
+  "tax-year": "Tax year",
+  "trade-journal": "Trade journal"
+};
+var ABOUT_INSTRUMENT = /* @__PURE__ */ new Set(["order-followup", "trade-journal"]);
+function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2 }, config3) {
+  const environmentOf = (value) => {
+    if (value === void 0 || value === "") return config3.defaultTradingEnvironment;
+    if (value === "demo" || value === "live") return value;
+    throw new Error(`Unknown account "${value}": use demo or live`);
+  };
+  const environments = (value) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.toLowerCase()));
+  const instruments = async (value, environment) => {
+    if (!credentialStatus(config3)[environment]) return [];
+    const [dashboard2, watched] = await Promise.all([trading.getDashboard(environment, 6e4).catch(() => void 0), watchlist2.list(environment).catch(() => [])]);
+    const tickers = [
+      ...(dashboard2?.positions ?? []).map((position) => position.instrument?.ticker),
+      ...(dashboard2?.orders ?? []).map((order) => order.ticker),
+      ...watched.map((item) => item.ticker)
+    ].filter((ticker) => typeof ticker === "string" && ticker !== "");
+    const typed = value.toLowerCase();
+    return [...new Set(tickers)].filter((ticker) => ticker.toLowerCase().startsWith(typed)).slice(0, MAX_COMPLETIONS);
+  };
+  for (const skill of SKILL_PROMPTS) {
+    const about = ABOUT_INSTRUMENT.has(skill.name);
+    const argsSchema = external_exports.object({
+      // Completable inside optional: the SDK looks for the completion under the optional.
+      environment: completable(external_exports.string().describe("demo or live; this server's default when left out."), (value) => environments(value)).optional(),
+      ...about ? { instrument: completable(external_exports.string().describe("The instrument, as a ticker or name."), (value, context) => {
+        const environment = context?.arguments?.environment;
+        return environment === void 0 || environment === "demo" || environment === "live" ? instruments(value, environmentOf(environment)) : [];
+      }).optional() } : {},
+      request: external_exports.string().optional().describe("What the user asked, in their words.")
+    });
+    server2.registerPrompt(skill.name, { title: TITLES[skill.name] ?? skill.name, description: skill.description, argsSchema }, (args) => {
+      const { environment, instrument, request } = args;
+      const lines = [
+        `Follow the TradePilot steps below on the ${environmentOf(environment).toUpperCase()} Trading 212 account.`,
+        instrument ? `The instrument: ${instrument}.` : "",
+        request ? `The user asked: ${request}` : ""
+      ].filter(Boolean);
+      return { description: skill.description, messages: [{ role: "user", content: { type: "text", text: `${lines.join("\n")}
+
+${skill.body}` } }] };
+    });
+  }
+  const perAccount = (name, title, description, read) => {
+    const template = new ResourceTemplate(`tradepilot://{environment}/${name}`, {
+      list: async () => ({
+        resources: ENVIRONMENTS.filter((environment) => credentialStatus(config3)[environment]).map((environment) => ({
+          uri: `tradepilot://${environment}/${name}`,
+          name: `${environment}-${name}`,
+          title: `${title} (${environment.toUpperCase()})`,
+          mimeType: "application/json"
+        }))
+      }),
+      complete: { environment: environments }
+    });
+    server2.registerResource(name, template, { title, description, mimeType: "application/json" }, async (uri, variables) => {
+      const value = String(variables.environment ?? "");
+      if (value !== "demo" && value !== "live") throw new Error(`Unknown account "${value}": use demo or live`);
+      const data = await read(value);
+      return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(data, null, 2) }] };
+    });
+  };
+  perAccount("holdings", "Holdings", "The account summary, holdings and open orders as Trading 212 gives them, read at most a minute ago.", async (environment) => {
+    const { kind: _kind, appName: _appName, activity: _activity, credentials: _credentials, ...snapshot } = await trading.getDashboard(environment, 6e4);
+    return snapshot;
+  });
+  perAccount("journal", "Trade journal", "Every trade journal note on the account: the reason for a trade, any look back and its tags.", async (environment) => ({ environment, entries: await journal.list(environment) }));
+  perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: await targets.get(environment) ?? null }));
+  perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist2.list(environment) }));
+}
 
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
@@ -39878,7 +40235,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.58.0"
+  version: "2.59.0"
 };
 
 // src/shared/holding-risk.ts
@@ -42564,6 +42921,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       ]
     })
   );
+  registerPromptsAndResources(server2, { trading, journal, targets: targetAllocations, watchlist: watchlist2 }, config3);
   registerAppTool(
     server2,
     "get_portfolio_dashboard",

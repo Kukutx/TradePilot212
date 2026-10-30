@@ -6,6 +6,7 @@ import {
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { TOOL_OUTPUT } from "./tool-output.js";
+import { registerPromptsAndResources } from "./mcp-prompts.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js";
 import { DEFAULT_HISTORY_PAGES, MAX_EXPORT_RECORDS, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
@@ -222,6 +223,8 @@ export function createMcpServer(
       ],
     }),
   );
+
+  registerPromptsAndResources(server, { trading, journal, targets: targetAllocations, watchlist }, config);
 
   registerAppTool(
     server,
