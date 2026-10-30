@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2.64.0
+
+- The order form's side, type and validity are rows of buttons rather than menus, so every choice is in view; buy and sell take their colours when chosen. Quantity and prices are typed as text with the decimal keypad, read with a point or a comma like the other forms, and a scroll wheel or an arrow key no longer changes them by one.
+- Every switch of a few choices (periods, table or map, chart views, history views, tax rules, cash types, the watchlist's period, the order form's choices) is one Tab stop: the arrow keys, Home and End move between its choices and choose them, as radio buttons do.
+- High-contrast mode keeps the drawn controls readable: a ticked box, an on switch and a chosen option take the system's highlight, and selects go back to the system's own arrow.
+- The activity and unfilled-order lists have a chevron that turns as they open, disclosures show the focus ring, placeholders are in the muted text colour, and anything the browser still draws takes the primary colour. Where a note cannot grow as it is typed (Firefox, older Safari) it starts taller and scrolls.
 
 - The twelve guides in docs/ are in Simplified Chinese too, in docs/zh-CN, each linked to and from its English version; the Chinese README links to them. Their headings keep the English anchors, so links into a section work in both.
 

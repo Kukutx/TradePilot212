@@ -66,7 +66,7 @@ body { background: transparent; overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .48; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
 
 .appShell {
   width: 100%;
@@ -1524,6 +1524,43 @@ summary::-webkit-details-marker { display: none; }
   transform: translateY(-2px) rotate(45deg); transition: transform .16s ease;
 }
 .candidateDetails[open] > summary::after, .policyPassed[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+/* The activity and order lists' disclosures: the chevron after the count, turning as they open. */
+.activityPanel details > summary::after {
+  content: ""; flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 -4px; color: var(--tp-muted);
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg); transition: transform .16s ease;
+}
+.activityPanel details[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+.activityPanel details > summary > :first-child { margin-inline-end: auto; }
+
+/* Placeholders in the muted text colour, and anything the browser still draws itself in the primary colour. */
+::placeholder { color: var(--tp-muted); opacity: .75; }
+:root { accent-color: var(--tp-primary-bg); }
+/* Without field-sizing (Firefox, older Safari) a note does not grow as it is typed: it starts taller and scrolls. */
+@supports not (field-sizing: content) {
+  .field textarea { min-height: 120px; overflow-y: auto; }
+}
+
+/* A form field's few choices as one row of buttons: the order's side and type. */
+.formChoices { display: flex; width: 100%; min-height: 44px; }
+/* A long label ("Stop Limit") breaks onto a second line in its button rather than being cut short. */
+.formChoices button { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 13px; line-height: 1.15; overflow-wrap: anywhere; }
+.formChoices .choice-buy.active { color: var(--tp-green); }
+.formChoices .choice-sell.active { color: var(--tp-red); }
+
+/* High contrast: the drawn controls take the system's colours, so a ticked box, an on switch and a chosen option
+   still differ from the rest; selects go back to the system's own arrow. */
+@media (forced-colors: active) {
+  input[type="checkbox"] { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
+  input[type="checkbox"]:checked { border-color: Highlight; background: Highlight; }
+  input[type="checkbox"]::before { background: HighlightText; }
+  .toggleTrack { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
+  .toggleTrack > span { background: CanvasText; box-shadow: none; }
+  .toggleField input:checked + .toggleTrack { border-color: Highlight; background: Highlight; }
+  .toggleField input:checked + .toggleTrack > span { background: HighlightText; }
+  select:not([multiple]) { -webkit-appearance: auto; appearance: auto; background-image: none; padding-inline-end: 12px; }
+  .segmented button.active, .filterChips button.active { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+}
 .liveAck input[type="checkbox"] { margin-top: 1px; }
 
 /* History: the records of a period, a day at a time. */

@@ -86,6 +86,18 @@ describe("native controls", () => {
     expect(css).not.toMatch(/resize: (vertical|both)/);
   });
 
+  it("keeps the drawn controls readable in high contrast, and draws every disclosure's chevron and focus ring", () => {
+    const forced = [...css.matchAll(/@media \(forced-colors: active\) \{([\s\S]*?)\n\}/g)].map((match) => match[1]).join("\n");
+    expect(forced).toMatch(/input\[type="checkbox"\]:checked \{[^}]*background: Highlight/);
+    expect(forced).toMatch(/\.toggleField input:checked \+ \.toggleTrack \{[^}]*background: Highlight/);
+    expect(forced).toMatch(/select:not\(\[multiple\]\) \{[^}]*appearance: auto/);
+    expect(forced).toMatch(/\.segmented button\.active[^{]*\{[^}]*background: Highlight/);
+    expect(css).toMatch(/summary:focus-visible \{ outline/);
+    expect(css).toMatch(/\.activityPanel details > summary::after \{/);
+    expect(css).toMatch(/::placeholder \{ color: var\(--tp-muted\)/);
+    expect(css).toContain("accent-color: var(--tp-primary-bg)");
+  });
+
   it("keeps a loading view's tabs focusable", () => {
     expect(app).toContain("aria-disabled={busy && !active ? true : undefined}");
     expect(app).not.toContain("disabled={busy && !active}");

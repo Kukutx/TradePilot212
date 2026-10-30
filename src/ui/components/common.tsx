@@ -50,7 +50,8 @@ export function Field({ label, children, hint, error, unit }: {
   const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={`field${error ? " invalid" : ""}`}>
-      <label htmlFor={id}>{label}</label>
+      {/* `${id}-label` names a control that is not a form field, such as a radio group (aria-labelledby). */}
+      <label htmlFor={id} id={`${id}-label`}>{label}</label>
       <div className={unit ? "fieldControl withUnit" : "fieldControl"}>
         {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
         {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}

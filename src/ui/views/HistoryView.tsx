@@ -9,6 +9,7 @@ import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from "../lib/messages";
 import { chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
 import { taxYearZone } from "../../shared/time-zone";
+import { radioKeys, radioTab } from "../lib/radio";
 
 /** The three pages of the History tab, read by their own tools. */
 export type HistoryKind = "trade_history" | "cash_history" | "tax_year";
@@ -33,9 +34,9 @@ export const taxYearLabel = (year: number, yearStart: string) => (yearStart === 
 export function HistorySwitch({ value, onChange, t, disabled }: { value: HistoryKind; onChange: (next: HistoryKind) => void; t: Translator; disabled: boolean }) {
   const options: Array<[HistoryKind, MessageKey]> = [["trade_history", "historyTrades"], ["cash_history", "historyCash"], ["tax_year", "historyTaxYear"]];
   return (
-    <div className="segmented" role="radiogroup" aria-label={t("historyViews")}>
+    <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("historyViews")}>
       {options.map(([key, label]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} className={value === key ? "active" : ""} disabled={disabled} onClick={() => { if (value !== key) onChange(key); }}>{t(label)}</button>
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => { if (value !== key) onChange(key); }}>{t(label)}</button>
       ))}
     </div>
   );
@@ -201,7 +202,7 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
       {unfilled.length > 0 && (
         <section className="dataPanel activityPanel">
           <details>
-            <summary>{t("historyUnfilledTitle")}<b>{unfilled.length}</b></summary>
+            <summary><span>{t("historyUnfilledTitle")}</span><b>{unfilled.length}</b></summary>
             <ul className="historyList">
               {unfilled.map((item, index) => {
                 const ticker = item.ticker ?? "";
@@ -291,9 +292,9 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
       <section className="dataPanel">
         <div className="pieHeader"><h2>{t("historyCashTitle")}</h2></div>
         {types.length > 1 && (
-          <div className="filterChips" role="radiogroup" aria-label={t("historyCashType")}>
+          <div className="filterChips" role="radiogroup" onKeyDown={radioKeys} aria-label={t("historyCashType")}>
             {[null, ...types].map((key) => (
-              <button key={key ?? "all"} type="button" role="radio" aria-checked={shown === key} className={shown === key ? "active" : ""} onClick={() => setType(key)}>
+              <button key={key ?? "all"} type="button" role="radio" aria-checked={shown === key} tabIndex={radioTab(shown === key)} className={shown === key ? "active" : ""} onClick={() => setType(key)}>
                 {key === null ? t("historyAll") : cashTypeLabel(key, t)}
               </button>
             ))}
@@ -349,8 +350,8 @@ export function TaxYearView({ data, book, locale, t, busy, onKind, onYear, onRul
       <div className="viewToolbar reviewToolbar">
         <HistorySwitch value="tax_year" onChange={onKind} t={t} disabled={busy} />
         <div className="taxControls">
-          <div className="segmented" role="radiogroup" aria-label={t("taxRule")}>
-            {rules.map(([key, label]) => <button key={key} type="button" role="radio" aria-checked={rule === key} className={rule === key ? "active" : ""} disabled={busy} onClick={() => { if (rule !== key) onRule(key); }}>{t(label)}</button>)}
+          <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("taxRule")}>
+            {rules.map(([key, label]) => <button key={key} type="button" role="radio" aria-checked={rule === key} tabIndex={radioTab(rule === key)} className={rule === key ? "active" : ""} disabled={busy} onClick={() => { if (rule !== key) onRule(key); }}>{t(label)}</button>)}
           </div>
           <div className="yearStepper" role="group" aria-label={t("taxYearLabel")}>
             <button type="button" aria-label={t("taxYearPrevious")} disabled={busy || data.year <= 2000} onClick={() => onYear(data.year - 1)}>‹</button>

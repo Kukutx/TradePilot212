@@ -19,6 +19,7 @@ import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { bandPoints, fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
+import { radioKeys, radioTab } from "../lib/radio";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
@@ -73,9 +74,9 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
     ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],
   ];
   return (
-    <div className="segmented" role="radiogroup" aria-label={t("period")}>
+    <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("period")}>
       {options.map(([key, short, full]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
       ))}
     </div>
   );
@@ -389,9 +390,9 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
   // As many decimals as the gridline step needs: "+10%" a step of 10%, "+7.5%" a step of 2.5%.
   const percentAxis = (value: number, grid: Grid) => pct(value, locale, decimalsOf(grid.step * 100), { signed: true });
   const controls = returns && (
-    <div className="segmented" role="radiogroup" aria-label={t("chartShow")}>
+    <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("chartShow")}>
       {(["return", "value", "drawdown"] as const).map((key) => (
-        <button key={key} type="button" role="radio" aria-checked={show === key} className={show === key ? "active" : ""} onClick={() => setShow(key)}>{t(key === "return" ? "chartReturn" : key === "value" ? "chartValue" : "chartDrawdown")}</button>
+        <button key={key} type="button" role="radio" aria-checked={show === key} tabIndex={radioTab(show === key)} className={show === key ? "active" : ""} onClick={() => setShow(key)}>{t(key === "return" ? "chartReturn" : key === "value" ? "chartValue" : "chartDrawdown")}</button>
       ))}
     </div>
   );

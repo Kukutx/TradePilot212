@@ -4,10 +4,11 @@ import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResoluti
 import { MAX_JOURNAL_TEXT } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
-import { amount, dateTime, money, notional, qty, time } from "../lib/format";
+import { amount, dateTime, money, notional, parseAmount, qty, time } from "../lib/format";
 import { instrumentCurrency, type InstrumentBook } from "../lib/instruments";
 import { countText, envLabel, fill, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
 import { riskAtStop, summarizeOrder } from "../lib/orders";
+import { radioKeys, radioTab } from "../lib/radio";
 
 const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
 
@@ -49,7 +50,22 @@ function useNumberText(value: number | undefined): [string, (text: string) => vo
   return [text, setText];
 }
 
-const positive = (text: string) => text.trim() !== "" && Number.isFinite(Number(text)) && Number(text) > 0;
+/** A typed amount above zero, with either a point or a comma for the decimals ("1,5" or "1.5"), as the other forms read it. */
+const positive = (text: string) => { const value = parseAmount(text); return Number.isFinite(value) && value > 0; };
+
+/**
+ * A form field's few choices as one row of buttons (a radio group named by the field's label), rather than a select
+ * that hides them: the side and the order type. `id` is the field's, so the group can take the label's name.
+ */
+function Choices<T extends string>({ id, value, options, onChange }: { id: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void }) {
+  return (
+    <div className="segmented formChoices" role="radiogroup" aria-labelledby={`${id}-label`} id={id} onKeyDown={radioKeys}>
+      {options.map(([key, label]) => (
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} className={`${value === key ? "active" : ""} choice-${key}`} onClick={() => onChange(key)}>{label}</button>
+      ))}
+    </div>
+  );
+}
 
 export function OrderEditor({
   draft,
@@ -96,11 +112,11 @@ export function OrderEditor({
 
   const priceInput = (text: string, setText: (text: string) => void, key: "limitPrice" | "stopPrice" | "referencePrice") =>
     (props: { id: string }) => (
-      <input {...props} type="number" inputMode="decimal" min="0" step="any" value={text} placeholder={key === "referencePrice" ? "—" : undefined}
+      <input {...props} inputMode="decimal" autoComplete="off" value={text} placeholder={key === "referencePrice" ? "—" : undefined}
         onChange={(event) => {
           const next = event.target.value;
           setText(next);
-          const value = positive(next) ? Number(next) : undefined;
+          const value = positive(next) ? parseAmount(next) : undefined;
           if (key === "referencePrice") onChange({ ...draft, referencePrice: value, referencePriceAt: undefined });
           else set(key, value);
         }} />
@@ -131,16 +147,16 @@ export function OrderEditor({
           </div>
         )}
         <form className="formGrid" noValidate onSubmit={(event) => { event.preventDefault(); setTouched(true); if (!invalid && !busy) onReview(); }}>
-          <Field label={t("side")}>{(props) => <select {...props} value={draft.side} onChange={(event) => set("side", event.target.value as OrderDraft["side"])}><option value="buy">{t("buy")}</option><option value="sell">{t("sell")}</option></select>}</Field>
-          <Field label={t("type")}>{(props) => <select {...props} value={draft.type} onChange={(event) => set("type", event.target.value as OrderDraft["type"])}><option value="market">{t("market")}</option><option value="limit">{t("limit")}</option><option value="stop">{t("stop")}</option><option value="stop_limit">{t("stopLimit")}</option></select>}</Field>
+          <Field label={t("side")}>{(props) => <Choices id={props.id} value={draft.side} options={[["buy", t("buy")], ["sell", t("sell")]]} onChange={(side) => set("side", side)} />}</Field>
+          <Field label={t("type")}>{(props) => <Choices id={props.id} value={draft.type} options={[["market", t("market")], ["limit", t("limit")], ["stop", t("stop")], ["stop_limit", t("stopLimit")]]} onChange={(type) => set("type", type)} />}</Field>
           <Field label={t("quantity")} error={show(quantityError, quantityText)}>
-            {(props) => <input {...props} type="number" inputMode="decimal" min="0" step="any" required value={quantityText}
-              onChange={(event) => { setQuantityText(event.target.value); if (positive(event.target.value)) set("quantity", Number(event.target.value)); }} />}
+            {(props) => <input {...props} inputMode="decimal" autoComplete="off" required value={quantityText}
+              onChange={(event) => { setQuantityText(event.target.value); if (positive(event.target.value)) set("quantity", parseAmount(event.target.value)); }} />}
           </Field>
           {needsLimit && <Field label={t("limitPrice")} unit={currency} error={show(limitError, limitText)}>{priceInput(limitText, setLimitText, "limitPrice")}</Field>}
           {needsStop && <Field label={t("stopPrice")} unit={currency} error={show(stopError, stopText)}>{priceInput(stopText, setStopText, "stopPrice")}</Field>}
           <Field label={t("referencePrice")} unit={currency} hint={t("referencePriceHint")}>{priceInput(referenceText, setReferenceText, "referencePrice")}</Field>
-          {draft.type !== "market" && <Field label={t("validity")}>{(props) => <select {...props} value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select>}</Field>}
+          {draft.type !== "market" && <Field label={t("validity")}>{(props) => <Choices id={props.id} value={draft.timeValidity ?? "DAY"} options={[["DAY", t("day")], ["GOOD_TILL_CANCEL", t("gtc")]]} onChange={(validity) => set("timeValidity", validity)} />}</Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
           <div className="wideField">
             <Field label={t("orderThesis")} hint={t("orderThesisHint")}>

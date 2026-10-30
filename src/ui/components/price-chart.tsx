@@ -8,6 +8,7 @@ import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { amount, dayLabel, num, pct, signedClass } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 import { decimalsOf, niceTicks, ViewSwitch } from "./charts";
+import { radioKeys, radioTab } from "../lib/radio";
 
 /** One fill, placed at its day and price; `text` is what the crosshair says about it. */
 export interface ChartTrade {
@@ -247,9 +248,9 @@ export function PriceChart({ prices, trades, levels, currency, locale, t }: {
         <span>{t("priceChartTitle")}</span>
         <span className="chartControls">
           {ranges.length > 1 && (
-            <span className="segmented" role="radiogroup" aria-label={t("period")}>
+            <span className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("period")}>
               {ranges.map((key) => (
-                <button key={key} type="button" role="radio" aria-checked={range === key} aria-label={label(key)} title={label(key)} className={range === key ? "active" : ""} onClick={() => choose(key)}>{shortLabel(key)}</button>
+                <button key={key} type="button" role="radio" aria-checked={range === key} tabIndex={radioTab(range === key)} aria-label={label(key)} title={label(key)} className={range === key ? "active" : ""} onClick={() => choose(key)}>{shortLabel(key)}</button>
               ))}
             </span>
           )}
