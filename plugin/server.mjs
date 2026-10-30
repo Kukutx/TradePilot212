@@ -35358,19 +35358,19 @@ var TOOL_OUTPUT = {
   get_portfolio_performance: payload("performance", "environment:s accountCurrency:s period:o coverage:o contributions:o income:o costs:o realizedProfitLoss:n unrealizedProfitLoss:n currentValue:n simpleReturn:n annualizedReturn:n timeWeighted:o benchmark:o valueHistory:a trades:o byTicker:a notes:a timestamp:s credentials:o writeEnabled:b"),
   get_portfolio_today: payload("portfolio", `${dashboard} today:o`),
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
-  get_recent_trading_activity: payload("activity", "environment:s activity:a"),
+  get_recent_trading_activity: payload("activity", "environment:s activity:a timestamp:s"),
   get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
   get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
-  get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b"),
+  get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b timestamp:s"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
-  list_investment_plans: payload("investment_plans", "plans:a demoAutomationEnabled:b"),
+  list_investment_plans: payload("investment_plans", "environment:s defaultEnvironment:s plans:a demoAutomationEnabled:b timestamp:s"),
   list_pies: payload("pies", pies),
-  list_price_alerts: payload("price_alerts", "alerts:a accountAlerts:a webhook:b"),
+  list_price_alerts: payload("price_alerts", "environment:s defaultEnvironment:s alerts:a accountAlerts:a webhook:b timestamp:s"),
   manage_account_alerts: payload("account_alert", "alert:o deleted:u"),
   manage_history_export: payload("history_export", "environment:s reports:a requested:o report:o summary:o records:a recordCount:n"),
   manage_investment_plans: payload("investment_plan", "plan:o deleted:u"),
   manage_price_alerts: payload("price_alert", "alert:o deleted:u"),
-  manage_target_allocation: payload("target_allocation", "environment:s"),
+  manage_target_allocation: payload("target_allocation", "environment:s timestamp:s"),
   manage_trade_journal: payload("trade_journal|journal_entry", "environment:s entries:a total:n entry:o deleted:u"),
   manage_watchlist: payload("watchlist_change", "environment:s action:s item:o added:b"),
   plan_portfolio_rebalance: payload("basket_draft", `${drafted} rebalance:o`),
@@ -40034,7 +40034,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.60.0"
+  version: "2.60.1"
 };
 
 // src/shared/holding-risk.ts
@@ -42974,11 +42974,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       description: "Look up one Trading 212 order by id: still open (and how much filled), or how it ended (filled, partly filled, cancelled, rejected) with its fills and prices. Reads open orders, then recent history. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, orderId: external_exports.string().min(1).max(24) }),
       annotations: readOnly,
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, orderId }) => {
       try {
-        const data = await trading.orderStatus(environment, orderId);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await trading.orderStatus(environment, orderId) };
         return result(data, `Order ${data.orderId}: ${data.state.replace("_", " ")}.`);
       } catch (error62) {
         return toolError(error62);
@@ -43037,7 +43037,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         rows: external_exports.number().int().min(0).max(MAX_EXPORT_RECORDS).default(0).describe("read: how many of the report's newest rows to return as well, newest first.")
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, action, period, from, to, reportId, rows: rows2 }) => {
       try {
@@ -43047,21 +43047,21 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           const created = await insights.requestExport(environment, window);
           if (created.reused) {
             const status = created.reused.status ?? "queued";
-            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
+            return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
           }
           const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
+          return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
         }
         if (action === "read") {
           const read = await insights.readExport(environment, reportId);
           const status = (read.report.status ?? "not ready").toLowerCase();
-          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
-          const payload2 = { kind: "history_export", environment, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.recordCount } : {} };
+          if (!read.summary) return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
+          const payload2 = { kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.recordCount } : {} };
           const period2 = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
           return result(payload2, `Read report ${read.report.reportId}${period2}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
-        return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
+        return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, reports }, `Found ${reports.length} report(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -43078,12 +43078,12 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         limit: external_exports.number().int().min(1).max(50).default(12)
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, limit }) => {
       try {
         const activity = await trading.getActivity(environment, limit);
-        return result({ kind: "activity", environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+        return result({ kind: "activity", environment, activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -43201,12 +43201,12 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
       annotations: readOnly,
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment }) => {
       try {
         const usage = await trading.usageToday(environment);
-        const data = { kind: "trading_policy", environment, policy: config3.policy[environment], maxOrderNotional: config3.maxOrderNotional, maxOrderQuantity: config3.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config3.demoAutomationEnabled };
+        const data = { kind: "trading_policy", environment, policy: config3.policy[environment], maxOrderNotional: config3.maxOrderNotional, maxOrderQuantity: config3.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config3.demoAutomationEnabled, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${environment.toUpperCase()} policy loaded; ${usage.orders} order(s) sent through TradePilot today.`);
       } catch (error62) {
         return toolError(error62);
@@ -43273,12 +43273,19 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       description: "List standing dollar-cost-averaging plans with their schedule, legs, next due time, last outcome and whether Demo plans run unattended. Read-only.",
       inputSchema: external_exports.object({ environment: environmentEnum.optional() }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment }) => {
       try {
         const plans = await automation3.listPlans(environment);
-        return result({ kind: "investment_plans", plans, demoAutomationEnabled: config3.demoAutomationEnabled }, `${plans.length} plan(s).`);
+        return result({
+          kind: "investment_plans",
+          ...environment ? { environment } : {},
+          defaultEnvironment: config3.defaultTradingEnvironment,
+          plans,
+          demoAutomationEnabled: config3.demoAutomationEnabled,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }, `${plans.length} plan(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -43392,13 +43399,13 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         sellUntargeted: external_exports.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)")
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
       try {
         if (action === "clear") {
           const existed = await targetAllocations.clear(environment);
-          return result({ kind: "target_allocation", environment, cleared: existed }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
+          return result({ kind: "target_allocation", environment, cleared: existed, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
         }
         if (action === "set") {
           if (!targets) return toolError(new Error("targets are required to save a target allocation"));
@@ -43410,7 +43417,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           });
         }
         const saved = await targetAllocations.get(environment);
-        if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
+        if (!saved) return result({ kind: "target_allocation", environment, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `No ${environment.toUpperCase()} targets are saved.`);
         const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
         const webhookHint = config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         let analysis;
@@ -43422,9 +43429,9 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error62) {
           const reason = error62 instanceof Error ? error62.message : String(error62);
-          return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
+          return result({ kind: "target_allocation", environment, targets: saved, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
         }
-        const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency };
+        const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${lead}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${webhookHint}`);
       } catch (error62) {
         return toolError(error62);
@@ -43439,14 +43446,22 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       description: "List price alerts on instruments (the condition, the last price seen, and whether and when each one triggered) and account alerts on the account's value, cash and day's move (the last value read). Read-only.",
       inputSchema: external_exports.object({ environment: environmentEnum.optional() }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment }) => {
       try {
         const list2 = await alerts.list(environment);
         const onAccount = await accountAlerts.list(environment);
         return result(
-          { kind: "price_alerts", alerts: list2, accountAlerts: onAccount, webhook: !!config3.notifyWebhookUrl },
+          {
+            kind: "price_alerts",
+            ...environment ? { environment } : {},
+            defaultEnvironment: config3.defaultTradingEnvironment,
+            alerts: list2,
+            accountAlerts: onAccount,
+            webhook: !!config3.notifyWebhookUrl,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          },
           `${list2.length} price alert(s), ${list2.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`
         );
       } catch (error62) {
@@ -45239,6 +45254,7 @@ function createServices(input2) {
         (summary) => summary ? { ...summary.currency ? { currency: summary.currency } : {}, account: { ...summary.totalValue !== void 0 ? { value: summary.totalValue } : {}, ...summary.cash?.availableToTrade !== void 0 ? { cash: summary.cash.availableToTrade } : {} } } : trading.accountCurrency(environment).then((currency) => currency ? { currency } : {}, () => ({}))
       ),
       policy: deps.config.policy[environment],
+      orderLimits: { notional: deps.config.maxOrderNotional, quantity: deps.config.maxOrderQuantity },
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,

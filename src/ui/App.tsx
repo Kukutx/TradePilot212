@@ -14,6 +14,7 @@ import type {
   OrderExecutionResult,
   OrderPreview,
   OrderResolution,
+  OrderStatusReport,
   StructuredError,
   TradeCandidate,
   TradePlanPayload,
@@ -44,6 +45,7 @@ import { AutomationView } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
 import { JournalReviewView } from "./views/JournalView";
 import { WatchlistView } from "./views/WatchlistView";
+import { ExportView, OrderStatusView, type ExportPayload } from "./views/ToolViews";
 import type { WatchlistView as WatchlistPayload } from "../shared/watchlist";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 
@@ -63,6 +65,8 @@ type BasePayload =
   | PieChangeDraftPayload
   | CancelDraftPayload
   | HoldingDetail
+  | WithAccess<OrderStatusReport>
+  | WithAccess<ExportPayload>
   | ErrorPayload;
 
 type WithAccess<T> = T & { credentials: CredentialStatus; writeEnabled?: boolean };
@@ -109,6 +113,24 @@ const TAB_KEYS: Record<PortfolioTab, MessageKey> = {
 };
 /** The tab strip, in order; "history" stands for whichever of its three pages was shown last. */
 const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "history", "journal_review", "pies", "automation"] as const;
+/**
+ * Tool results shown on a page the widget already has, read for that page: the automation page for alerts, plans and
+ * the trading rules, the allocation for targets, and the account, with its activity, for recent activity.
+ */
+const ROUTES = { price_alerts: "automation", investment_plans: "automation", trading_policy: "automation", target_allocation: "allocation", activity: "holdings" } as const;
+type RoutedPayload = {
+  kind: keyof typeof ROUTES; environment?: TradingEnvironment; defaultEnvironment?: TradingEnvironment; timestamp?: string; targets?: unknown;
+  alerts?: Array<{ environment?: TradingEnvironment }>; plans?: Array<{ environment?: TradingEnvironment }>;
+};
+const isRouted = (payload: { kind?: unknown }): payload is RoutedPayload => typeof payload.kind === "string" && Object.hasOwn(ROUTES, payload.kind);
+/** The account a routed result is about: the one it names, else (a list of both accounts) the server's default. */
+const routeEnvironment = (payload: RoutedPayload): TradingEnvironment => payload.environment ?? payload.defaultEnvironment ?? payload.alerts?.[0]?.environment ?? payload.plans?.[0]?.environment ?? "demo";
+/**
+ * A routed result read this long ago is a saved one shown again (an old chat): its page is read only when asked, so
+ * reopening a chat with many of them does not read the account for each at once.
+ */
+const ROUTE_FRESH_MS = 2 * 60_000;
+const routeFresh = (payload: RoutedPayload) => !!payload.timestamp && Date.now() - Date.parse(payload.timestamp) <= ROUTE_FRESH_MS;
 /** Tabs read for the account as it is now, with no period (the tax year has its own year). */
 const timeless = (kind: InsightKind) => kind === "allocation" || kind === "watchlist" || kind === "tax_year" || kind === "pies" || kind === "automation";
 const isHistory = (kind: PortfolioTab): kind is HistoryKind => (HISTORY_KINDS as readonly string[]).includes(kind);
@@ -292,6 +314,10 @@ function ViewTabs({ tab, history, busy, t, onSelect }: { tab: PortfolioTab; hist
 
 export default function App() {
   const [base, setBase] = useState<BasePayload | null>(null);
+  /** A result to show on another page, held until the connection can read that page. */
+  const [route, setRoute] = useState<RoutedPayload | null>(null);
+  /** A saved routed result, whose page opens when asked. */
+  const [laterRoute, setLaterRoute] = useState<RoutedPayload | null>(null);
   // The dashboard a holding was opened from, so Back returns to it without a new read.
   const [holdingFrom, setHoldingFrom] = useState<DashboardPayload | null>(null);
   // The view a holding was opened from, such as the journal, and its account, so Back returns to it.
@@ -363,8 +389,10 @@ export default function App() {
       // connection, so it is read once the app is connected (below).
       createdApp.onhostcontextchanged = syncHostContext;
       createdApp.ontoolresult = (toolResult) => {
-        const payload = toolResult.structuredContent as unknown as BasePayload;
-        if (payload) showPayload(payload);
+        const payload = toolResult.structuredContent as unknown as BasePayload | RoutedPayload | undefined;
+        if (!payload) return;
+        if (isRouted(payload)) setRoute(payload);
+        else showPayload(payload);
       };
     },
   });
@@ -437,6 +465,17 @@ export default function App() {
     callTool<PortfolioToday>("app_get_today", { environment: base.environment }).then(settle, () => settle());
     // Only a new dashboard (or the connection) starts a read; the day's state itself does not.
   }, [app, base]);
+
+  useEffect(() => {
+    if (!app || !route) return;
+    setRoute(null);
+    if (routeFresh(route)) void openRoute(route);
+    else {
+      setEnvironment(routeEnvironment(route));
+      setLaterRoute(route);
+    }
+    // Each result is opened once, when it and the connection are both there.
+  }, [app, route]);
 
   useHostStyles(app, app?.getHostContext());
   // The host's initial context (locale, display modes) is only available after connecting.
@@ -743,6 +782,45 @@ export default function App() {
     return (await callTool<{ instruments: Instrument[] }>("search_trading212_instruments", { environment: env, query, limit: 8 })).instruments ?? [];
   }
 
+  /**
+   * Open the page a routed result belongs on, for its account. An account without keys shows its setup card; any other
+   * failure leaves the problem with a retry, and saved targets whose page cannot be read still say they were saved.
+   */
+  async function openRoute(payload: RoutedPayload): Promise<void> {
+    const env = routeEnvironment(payload);
+    const target = ROUTES[payload.kind];
+    setLaterRoute(null);
+    setEnvironment(env);
+    setStatus("loading");
+    setProblem(null);
+    try {
+      showPayload(await callTool<BasePayload>(target === "holdings" ? "app_get_dashboard" : INSIGHT_TOOLS[target], { environment: env }));
+    } catch (requestError) {
+      if (requestError instanceof ToolCallError && requestError.problem.code === "CREDENTIALS_NOT_CONFIGURED") {
+        setBase({ kind: "error", message: requestError.problem.message, error: requestError.problem });
+      } else {
+        const title = payload.kind === "target_allocation" && payload.targets ? "routeTargetsSaved" : "errorTitleLoad";
+        setProblem(problemFrom(title, requestError, () => void openRoute(payload)));
+      }
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  /** Look the order up again, as the host's get_order_status did. */
+  async function checkOrder(orderId: string, env = environment): Promise<void> {
+    await run("errorTitleLoad", async () => {
+      setBase(await callTool<BasePayload>("get_order_status", { environment: env, orderId }));
+    }, () => void checkOrder(orderId, env));
+  }
+
+  /** List Trading 212's CSV reports, or read one; reading downloads it from Trading 212 and adds it up, and requests nothing. */
+  async function exportAction(input: { action: "list" } | { action: "read"; reportId: number }, env = environment): Promise<void> {
+    await run("errorTitleLoad", async () => {
+      setBase(await callTool<BasePayload>("manage_history_export", { environment: env, ...input }));
+    }, () => void exportAction(input, env));
+  }
+
   /** Open one holding's detail from the dashboard; Back shows that dashboard again. */
   async function openHolding(ticker: string): Promise<void> {
     await run("errorTitleLoad", async () => {
@@ -982,7 +1060,8 @@ export default function App() {
       setHoldingFrom(null);
       setInsights({});
     });
-    if (sent) await refresh(environment, "holdings");
+    // A cancellation opened from an order's own page shows how that order ended.
+    if (sent) await (base?.kind === "order_status" ? checkOrder(base.orderId, base.environment) : refresh(environment, "holdings"));
   }
 
   async function verifyUnknownExecution(): Promise<void> {
@@ -1240,7 +1319,18 @@ export default function App() {
             {base?.kind === "cancel_draft" && (loading
               ? <SkeletonView label={t("refreshing")} />
               : <EmptyRetry text={t("nothingLoaded")} retryLabel={t("retry")} onRetry={() => void refresh(environment, "holdings")} />)}
-            {!base && <div className="emptyState">{t("waiting")}</div>}
+            {base?.kind === "order_status" && (
+              <OrderStatusView data={base} book={book} locale={locale} t={t} busy={loading} writeEnabled={writeEnabled} justCancelled={executionKind === "cancel" && !!execution?.ok}
+                onOpen={(ticker) => void openHolding(ticker)} onCancel={(orderId) => void startCancel(orderId, base.environment)}
+                onBack={() => void refresh(base.environment, "holdings")} onRefresh={() => void checkOrder(base.orderId, base.environment)} />
+            )}
+            {base?.kind === "history_export" && (
+              <ExportView data={base} locale={locale} t={t} busy={loading} onBack={() => void refresh(base.environment, "holdings")}
+                onRead={(reportId) => void exportAction({ action: "read", reportId }, base.environment)} onList={() => void exportAction({ action: "list" }, base.environment)} />
+            )}
+            {!base && (loading ? <SkeletonView label={t("refreshing")} />
+              : laterRoute ? <EmptyRetry text={t("routeEarlier")} retryLabel={t("routeOpen")} onRetry={() => void openRoute(laterRoute)} />
+              : !problem && <div className="emptyState">{t("waiting")}</div>)}
           </>
         )
       )}

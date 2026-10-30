@@ -328,6 +328,8 @@ export interface AutomationOverview {
   /** Account currency of plan amounts and daily value, when known. */
   currency?: string;
   policy: TradingPolicy;
+  /** The most one order may be worth (account currency) and its most shares; 0 is no limit. */
+  orderLimits?: { notional: number; quantity: number };
   settings: {
     demoAutomation: boolean;
     protectiveLinking: boolean;

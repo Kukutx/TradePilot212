@@ -23,6 +23,48 @@ export function alertDayText(alert: PriceAlert, t: Translator, locale: Supported
   return alert.condition === "day_move" && alert.lastDayChange !== undefined ? ` · ${fill(t("alertDayChange"), { change: pct(alert.lastDayChange, locale, 2, { signed: true }) })}` : "";
 }
 
+/** How much of a day's budget is used, as a bar once there is a limit; 0 is no limit. */
+function UsageMeter({ label, used, limit, format, t }: { label: string; used: number; limit: number; format: (value: number) => string; t: Translator }) {
+  const share = limit > 0 ? Math.min(1, used / limit) : 0;
+  return (
+    <div className="usageMeter">
+      <div className="usageMeterHead"><span>{label}</span><strong>{format(used)}{limit > 0 ? ` / ${format(limit)}` : ` · ${t("ruleNoLimit")}`}</strong></div>
+      {limit > 0 && (
+        <div className="usageMeterTrack" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={used} aria-valuetext={`${format(used)} / ${format(limit)}`}>
+          <i className={share >= 1 ? "full" : share >= 0.8 ? "near" : undefined} style={{ width: `${share * 100}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The rules every order through TradePilot is checked against, and how much of today's budget is used. */
+export function TradingRules({ data, book, locale, t }: { data: AutomationOverview; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
+  const { policy } = data;
+  const sum = (value: number) => amount(value, data.currency, locale);
+  const names = (tickers: string[]) => tickers.map((ticker) => instrumentLabel(ticker, book).name).join(", ");
+  const limit = (value: number | undefined, format: (value: number) => string) => (value ? format(value) : t("ruleNoLimit"));
+  return (
+    <section className="dataPanel" aria-label={t("tradingRulesTitle")}>
+      <div className="pieHeader"><h2>{t("tradingRulesTitle")}</h2></div>
+      <div className="usageMeters">
+        <UsageMeter label={t("ordersToday")} used={data.usageToday.orders} limit={policy.dailyOrderLimit} format={(value) => num(value, locale, 0)} t={t} />
+        <UsageMeter label={t("valueToday")} used={data.usageToday.notional} limit={policy.dailyNotionalLimit} format={sum} t={t} />
+      </div>
+      <div className="confirmationRows">
+        <DetailRow label={t("policyRuleMaxPositionWeight")} value={policy.maxPositionWeight > 0 && policy.maxPositionWeight < 1 ? pct(policy.maxPositionWeight, locale) : t("ruleNoLimit")} />
+        <DetailRow label={t("ruleMaxOrderValue")} value={limit(data.orderLimits?.notional, sum)} />
+        <DetailRow label={t("ruleMaxOrderQuantity")} value={limit(data.orderLimits?.quantity, (value) => num(value, locale, 0))} />
+        <DetailRow label={t("policyRuleAllowedTickers")} value={policy.allowedTickers.length ? names(policy.allowedTickers) : t("ruleAny")} />
+        <DetailRow label={t("policyRuleBlockedTickers")} value={policy.blockedTickers.length ? names(policy.blockedTickers) : t("ruleNone")} />
+        <DetailRow label={t("policyRuleAllowedTypes")} value={policy.allowedTypes.length ? policy.allowedTypes.map((type) => instrumentTypeLabel(type, t)).join(", ") : t("ruleAny")} />
+        <DetailRow label={t("policyRuleMarketClosed")} value={t(policy.marketOrdersWhenClosed ? "ruleMarketAnyTime" : "ruleMarketWaits")} />
+        <DetailRow label={t("policyRuleReferenceAge")} value={policy.maxReferenceAgeSeconds > 0 ? fill(t("ruleReferenceNewer"), { seconds: String(policy.maxReferenceAgeSeconds) }) : t("policySkip")} />
+      </div>
+    </section>
+  );
+}
+
 /** Alert prices are in the instrument's currency; percent conditions stay percentages. */
 export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined, locale: SupportedLocale): string {
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
@@ -48,8 +90,6 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
       <section className="dataPanel" aria-label={t("automationTitle")}>
         <div className="pieHeader"><h2>{t("automationTitle")}</h2></div>
         <div className="confirmationRows">
-          <DetailRow label={t("ordersToday")} value={`${data.usageToday.orders}${data.policy.dailyOrderLimit ? ` / ${data.policy.dailyOrderLimit}` : ""}`} />
-          <DetailRow label={t("valueToday")} value={`${sum(data.usageToday.notional)}${data.policy.dailyNotionalLimit ? ` / ${sum(data.policy.dailyNotionalLimit)}` : ""}`} />
           <DetailRow label={t("settingDemoAutomation")} value={on(data.settings.demoAutomation)} />
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
           <DetailRow label={t("settingOrderWatch")} value={on(data.settings.orderWatch)} />
@@ -58,6 +98,7 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
           <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />
         </div>
       </section>
+      <TradingRules data={data} book={book} locale={locale} t={t} />
 
       <section className="dataPanel" aria-label={t("plansTitle")}>
         <div className="pieHeader"><h2>{t("plansTitle")}</h2></div>

@@ -65,16 +65,8 @@ export interface OrderOutcome {
   filledAt?: string;
 }
 
-export interface OrderStatusReport {
-  kind: "order_status";
-  environment: TradingEnvironment;
-  orderId: string;
-  /** "closed" is a finished order with no fill and no cancel or reject status. */
-  state: "open" | "partly_filled" | "filled" | "cancelled" | "rejected" | "closed" | "not_found";
-  order?: PendingOrder;
-  fills: Array<{ filledAt?: string; quantity?: number; price?: number; netValue?: number; currency?: string }>;
-  timestamp: string;
-}
+import type { OrderStatusReport } from "../shared/contracts.js";
+export type { OrderStatusReport };
 export interface BasketRequest {
   environment: TradingEnvironment;
   purpose: BasketPurpose;

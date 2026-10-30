@@ -123,6 +123,18 @@ export interface PendingOrder {
   [key: string]: unknown;
 }
 
+/** One order looked up by id: still open, or how it ended, with its fills. */
+export interface OrderStatusReport {
+  kind: "order_status";
+  environment: TradingEnvironment;
+  orderId: string;
+  /** "closed" is a finished order with no fill and no cancel or reject status. */
+  state: "open" | "partly_filled" | "filled" | "cancelled" | "rejected" | "closed" | "not_found";
+  order?: PendingOrder;
+  fills: Array<{ filledAt?: string; quantity?: number; price?: number; netValue?: number; currency?: string }>;
+  timestamp: string;
+}
+
 export type ActivityType =
   | "order_prepared"
   | "order_submitted"

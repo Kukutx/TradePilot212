@@ -4,6 +4,9 @@
 // a "Currency (…)" column (older files put the currency in the header, "Currency conversion fee (EUR)"), so the
 // file is read by its header.
 
+import type { ExportSummary, ExportTotals as Totals } from "../shared/history.js";
+export type { ExportSummary, Totals };
+
 /** The rows of a CSV file, as text: quoted fields, doubled quotes, CRLF and a byte-order mark are handled. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -29,27 +32,6 @@ export function parseCsv(text: string): string[][] {
   row.push(field);
   if (row.some((value) => value !== "")) rows.push(row);
   return rows;
-}
-
-/** Amounts by currency; "?" where the file does not say which. */
-export type Totals = Record<string, number>;
-
-export interface ExportSummary {
-  rows: number;
-  /** The first and last row's time, as the file gives it. */
-  first?: string;
-  last?: string;
-  /** Each action (Market buy, Dividend (Ordinary), Interest on cash, Deposit …): how many rows, and their Total. */
-  actions: Array<{ action: string; count: number; totals: Totals }>;
-  /** Each charge column (Currency conversion fee, Stamp duty reserve tax, Withholding tax …), summed, in its own currency. */
-  charges: Array<{ name: string; totals: Totals }>;
-  /** Interest paid: the Total of rows whose action names interest. */
-  interest: Totals;
-  /** Dividends paid, net of withholding: the Total of rows whose action is a dividend, in the account currency. */
-  dividends: Totals;
-  /** Realised result of sales, from the Result column. */
-  result: Totals;
-  columns: string[];
 }
 
 /** A column of money and where its currency is: its "Currency (…)" column, or a code in its header. */

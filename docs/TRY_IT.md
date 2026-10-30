@@ -75,7 +75,7 @@ The dashboard, charts, order review and confirmation screens render in hosts tha
 
 1. Follow [Setup](../README.md#setup) in the README to configure and deploy. Set `TRADEPILOT_SAMPLE_DATA=true` if you want to start without Trading 212 keys. On a Worker, sample orders can reset between requests, so use your Demo keys for anything beyond a look around.
 2. Add the Worker's `/mcp` URL as a custom connector and sign in with your `APP_LOGIN_PASSWORD`.
-3. Ask for your dashboard and try the views: the holdings, watchlist, allocation, performance, income, history (trades, cash and tax year), journal, pies and automation tabs, the order editor, and the rebalance and protective-order baskets.
+3. Ask for your dashboard and try the views: the holdings, watchlist, allocation, performance, income, history (trades, cash and tax year), journal, pies and automation tabs (with the trading rules), an order's status, the CSV reports, the order editor, and the rebalance and protective-order baskets.
 
 ## What to check
 
