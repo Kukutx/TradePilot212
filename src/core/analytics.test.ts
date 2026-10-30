@@ -332,28 +332,70 @@ describe("income summary", () => {
   });
 
   it("gives the holdings' dividends as yields on cost and on value, and the cash not invested with its interest", () => {
-    const held = (ticker: string, value: number, cost?: number): Position => ({ ...position(ticker, value), walletImpact: { currentValue: value, ...(cost === undefined ? {} : { totalCost: cost }) } });
+    const held = (ticker: string, value: number, cost?: number, quantity = 10): Position => ({ ...position(ticker, value), quantity, walletImpact: { currentValue: value, ...(cost === undefined ? {} : { totalCost: cost }) } });
     const now = new Date("2026-10-01T00:00:00Z");
     const input = {
       environment: "demo" as const, accountCurrency: "EUR", truncated: false, now,
       dividends: [
-        { ticker: "A", amount: 10, quantity: 1, paidOn: "2026-02-10T00:00:00Z" }, { ticker: "A", amount: 10, quantity: 1, paidOn: "2026-08-10T00:00:00Z" },
+        { ticker: "A", amount: 10, quantity: 10, paidOn: "2026-02-10T00:00:00Z" }, { ticker: "A", amount: 10, quantity: 10, paidOn: "2026-08-10T00:00:00Z" },
         // Sold since: not one of the holdings' yields.
         { ticker: "GONE", amount: 5, quantity: 1, paidOn: "2026-03-10T00:00:00Z" },
       ],
-      transactions: [{ type: "INTEREST_ON_FREE_CASH", amount: 6, dateTime: "2026-05-01T00:00:00Z" }],
+      transactions: [
+        { type: "INTEREST_ON_FREE_CASH", amount: 6, dateTime: "2026-05-01T00:00:00Z" },
+        // Share lending is income, not interest on cash.
+        { type: "LENDING_INTEREST", amount: 4, dateTime: "2026-05-02T00:00:00Z" },
+      ],
       positions: [held("A", 500, 400), held("B", 500, 600)],
-      account: { currency: "EUR", totalValue: 1300, cash: { availableToTrade: 300 } },
+      account: { currency: "EUR", totalValue: 1300, cash: { availableToTrade: 300, inPies: 20, reservedForOrders: 5 } },
     };
     const result = summarizeIncome({ ...input, window: { from: new Date("2026-01-01T00:00:00Z"), to: now } });
-    expect(result.yields).toMatchObject({ trailing: 20, cost: 1000, value: 1000, onCost: 0.02, onValue: 0.02 });
-    expect(result.yields?.byTicker).toEqual([expect.objectContaining({ ticker: "A", trailing: 20, cost: 400, value: 500, onCost: 0.05, onValue: 0.04 })]);
-    expect(result.cash).toEqual({ available: 300, share: 0.2308, interest12Months: 6, rateOnToday: 0.02 });
+    expect(result.yields).toMatchObject({ paid: 20, trailing: 20, cost: 1000, value: 1000, onCost: 0.02, onValue: 0.02 });
+    expect(result.yields?.byTicker).toEqual([expect.objectContaining({ ticker: "A", paid: 20, trailing: 20, cost: 400, value: 500, onCost: 0.05, onValue: 0.04 })]);
+    // No days recorded: no rate rather than one on today's balance.
+    expect(result.cash).toEqual({ total: 325, available: 300, inPies: 20, reserved: 5, share: 0.25, interest12Months: 6, lending12Months: 4, rate: null });
     // A holding without a cost leaves the account's yield on cost out; a period that ended earlier has neither.
     expect(summarizeIncome({ ...input, positions: [held("A", 500, 400), held("B", 500)], window: { to: now } }).yields).toMatchObject({ cost: null, onCost: null, onValue: 0.02 });
     const earlier = summarizeIncome({ ...input, window: { to: new Date("2026-06-30T23:59:59Z") } });
     expect(earlier.yields).toBeUndefined();
     expect(earlier.cash).toBeUndefined();
+  });
+
+  it("takes yields at the quantity held now, and only Trading 212's own value and cost", () => {
+    const now = new Date("2026-10-01T00:00:00Z");
+    const base = { environment: "demo" as const, accountCurrency: "GBP", truncated: false, now, transactions: [], window: { to: now } };
+    // Sold 90 of 100 shares: four payments of 0.5 a share make 2 a share a year, on a cost of 50 a share.
+    const sold = summarizeIncome({ ...base,
+      dividends: [1, 2, 3, 4].map((month) => ({ ticker: "KO", amount: 50, quantity: 100, paidOn: `2026-0${month + 3}-10T00:00:00Z` })),
+      positions: [{ ...position("KO", 600), quantity: 10, walletImpact: { currentValue: 600, totalCost: 500 } }],
+    });
+    expect(sold.yields?.byTicker[0]).toMatchObject({ paid: 200, trailing: 20, onCost: 0.04, onValue: 0.0333 });
+    // A free share has a cost of 0: no yield on cost for it, but the account's still adds up.
+    const free = summarizeIncome({ ...base, dividends: [{ ticker: "A", amount: 4, quantity: 4, paidOn: "2026-05-10T00:00:00Z" }],
+      positions: [{ ...position("A", 100), quantity: 4, walletImpact: { currentValue: 100, totalCost: 80 } }, { ...position("F", 20), quantity: 1, walletImpact: { currentValue: 20, totalCost: 0 } }] });
+    expect(free.yields).toMatchObject({ cost: 80, onCost: 0.05 });
+    // Without Trading 212's value the price would be in the instrument's currency (pence): no value, no yield on it.
+    const pence = summarizeIncome({ ...base, dividends: [{ ticker: "ULVR", amount: 10, quantity: 10, paidOn: "2026-05-10T00:00:00Z" }],
+      positions: [{ ...position("ULVR", 0), quantity: 10, currentPrice: 2500, walletImpact: { totalCost: 200 } }] });
+    expect(pence.yields).toMatchObject({ value: null, onValue: null, onCost: 0.05 });
+  });
+
+  it("gives the cash rate over the average free cash of the recorded days, once there is a month of them", () => {
+    const now = new Date("2026-10-01T00:00:00Z");
+    const day = (offset: number, cash: number) => {
+      const at = new Date(now.getTime() - offset * 86_400_000).toISOString();
+      return { date: at.slice(0, 10), at, totalValue: 2000, cash };
+    };
+    const base = { environment: "demo" as const, accountCurrency: "EUR", truncated: false, now, dividends: [], window: { to: now },
+      // A year's interest before the record, and 6 over the 60 recorded days.
+      transactions: [{ type: "INTEREST_ON_FREE_CASH", amount: 150, dateTime: "2026-02-01T00:00:00Z" }, { type: "INTEREST_ON_FREE_CASH", amount: 6, dateTime: "2026-09-01T00:00:00Z" }],
+      account: { currency: "EUR", totalValue: 2000, cash: { availableToTrade: 3 } } };
+    const recorded = Array.from({ length: 60 }, (_, index) => day(60 - index, 1000));
+    const cash = summarizeIncome({ ...base, cashDays: recorded }).cash!;
+    expect(cash.rate).toEqual({ yearly: 0.0365, averageCash: 1000, since: recorded[0]!.date, days: 60 });
+    // Today's 3 free would make it thousands of percent; too few days give none.
+    expect(summarizeIncome({ ...base, cashDays: recorded.slice(40) }).cash!.rate).toBeNull();
+    expect(summarizeIncome({ ...base, cashDays: recorded.filter((_, index) => index % 2 === 0) }).cash!.rate).toBeNull();
   });
 });
 

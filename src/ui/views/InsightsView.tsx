@@ -576,6 +576,7 @@ export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
       </section>
       {data.yields && (data.yields.trailing > 0 || data.yields.forward > 0) && <YieldPanel data={data.yields} currency={currency} book={book} locale={locale} t={t} />}
       {data.cash && <CashPanel data={data.cash} currency={currency} locale={locale} t={t} />}
+      {!data.yields && !data.cash && <p className="panelNote yieldPastPeriod">{t("yieldPastPeriod")}</p>}
       {data.forwardAnnual?.calendar && data.forwardAnnual.upcoming && (
         <section className="dataPanel">
           <DividendCalendar calendar={data.forwardAnnual.calendar} upcoming={data.forwardAnnual.upcoming} total={data.forwardAnnual.total} today={data.timestamp}
