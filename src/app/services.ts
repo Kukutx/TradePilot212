@@ -20,11 +20,17 @@ import { TargetAllocations } from "../core/targets.js";
 import { ValueHistory } from "../core/value-history.js";
 import { Watchlist } from "../core/watchlist.js";
 import type { StateStore } from "../core/state-store.js";
+import { HistoryLedgers } from "../core/history-ledger.js";
 import { TradingService, type InstrumentCache } from "../core/trading-service.js";
 
 export interface ServiceDependencies {
   config: RuntimeConfig;
   store: StateStore;
+  /**
+   * Where the history ledger is kept, when not in `store`: a local state file is rewritten whole on every write, so
+   * the ledger's few MB go in a file of their own rather than in every other write.
+   */
+  ledgerStore?: StateStore;
   audit?: (event: string, details: Record<string, unknown>) => Promise<void>;
   fetcher?: typeof fetch;
   instrumentCache?: InstrumentCache;
@@ -58,7 +64,9 @@ export function createServices(input: ServiceDependencies) {
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
     afterWrite: (environment) => insights.forgetHistory(environment),
   });
-  const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment) });
+  const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment),
+    // The sample account's history is drawn relative to today: kept, it would go stale.
+    ...(deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store) }) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });

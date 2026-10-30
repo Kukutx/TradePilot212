@@ -25,11 +25,14 @@ import { scheduleStart } from "./dividends.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
 import { Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
+import { accountName, ledgerPrefix, recordKey, SETTLE_MS, union, type HistoryLedgers, type LedgerPending, type LedgerSegment } from "./history-ledger.js";
 
 export interface InsightsDeps {
   config: RuntimeConfig;
   fetcher?: typeof fetch;
   instruments: (environment: TradingEnvironment) => Promise<Instrument[]>;
+  /** Where the history read is kept between reads (history-ledger.ts); without it every read starts from the newest. */
+  ledgers?: HistoryLedgers;
 }
 
 type HistoryItemOf<K extends HistoryKind> = K extends "orders" ? HistoryOrderItem : K extends "dividends" ? HistoryDividendItem : HistoryTransactionItem;
@@ -39,6 +42,52 @@ export const DEFAULT_HISTORY_PAGES = 10;
 export const MAX_HISTORY_PAGES = 40;
 const HISTORY_CACHE_MS = 60_000;
 const EXCHANGE_CACHE_MS = 10 * 60_000;
+
+/** Whether the newest run of the ledger reaches back to the window's start (or is the whole history). */
+async function covers(ledgers: HistoryLedgers, prefix: string, start: Date | undefined): Promise<boolean> {
+  const segment = (await ledgers.meta(prefix))?.segments[0];
+  return segment !== undefined && reaches(segment, start);
+}
+
+const reaches = (segment: LedgerSegment, start: Date | undefined) =>
+  segment.complete || (start !== undefined && segment.bottom !== undefined && Date.parse(segment.bottom) < start.getTime());
+
+/** History over a shorter span than this is read as it always was: a page or two, with nothing to keep. */
+const LEDGER_SPAN_MS = 60 * 86_400_000;
+/** An order no longer open that its instrument's history does not list is looked for this long, then let go. */
+const MISSING_MS = 2 * 86_400_000;
+/** Trading 212 refuses a path it no longer knows with one of these. */
+const REFUSED = new Set([400, 404, 410]);
+
+/**
+ * Where a record sits in the history, for how far down a read must go: the earlier of its order's creation and its
+ * fill, as an order is placed by one or the other.
+ */
+function positionTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem): number {
+  if (kind !== "orders") return itemTime(kind, item);
+  const { order, fill } = item as HistoryOrderItem;
+  const times = [order?.createdAt, fill?.filledAt].map((value) => (value ? Date.parse(value) : NaN)).filter(Number.isFinite);
+  return times.length ? Math.min(...times) : NaN;
+}
+
+/** An item's instrument, where it names one. */
+function itemTicker(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem): string | undefined {
+  if (kind === "orders") { const order = (item as HistoryOrderItem).order; return order?.ticker ?? order?.instrument?.ticker; }
+  if (kind === "dividends") { const dividend = item as HistoryDividendItem; return dividend.ticker ?? dividend.instrument?.ticker; }
+  return undefined;
+}
+
+/**
+ * The records from the window's start on, and one instrument's alone with `ticker` (cash movements name none, and
+ * are all kept, as Trading 212's own filter leaves them). Records without a time are kept: the caller places them.
+ */
+function inWindow<T extends HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem>(kind: HistoryKind, items: T[], start: Date | undefined, ticker?: string): T[] {
+  return items.filter((item) => {
+    const time = itemTime(kind, item);
+    if (start !== undefined && Number.isFinite(time) && time < start.getTime()) return false;
+    return !ticker || kind === "transactions" || itemTicker(kind, item) === ticker;
+  });
+}
 
 function itemTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem): number {
   const value = kind === "orders"
@@ -137,6 +186,22 @@ export class InsightsService {
 
     const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);
+    const ledgers = this.deps.ledgers;
+    const prefix = ledgers && ledgerPrefix(environment, await accountName(this.deps.config.trading212[environment].apiKey), kind);
+    // One instrument's history is read from the ledger once it reaches back to the window's start; until then Trading
+    // 212's own filter reaches further back in as many pages.
+    // Short spans (today's fills, a week) are a page or two: read as they always were, without loading the ledger.
+    const long = start === undefined || start.getTime() < Date.now() - LEDGER_SPAN_MS;
+    if (ledgers && prefix && long && (!ticker || await covers(ledgers, prefix, start).catch(() => false))) {
+      // A store that fails (full, unreachable) costs the ledger, not the read: it is read as it was before.
+      const value = await ledgers.exclusive(prefix, () => this.fromLedger(ledgers, prefix, client, kind, start, pages, ticker))
+        .catch((error: unknown) => { if (error instanceof Trading212ApiError) throw error; return undefined; });
+      if (value) {
+        // Cut short, it is not kept either: asking again goes on further back.
+        if (!value.limited && !value.collected.truncated && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value: value.collected });
+        return value.collected;
+      }
+    }
     const items: HistoryItemOf<K>[] = [];
     let next: string | undefined;
     let truncated = false;
@@ -159,6 +224,134 @@ export class InsightsService {
     // A read cut short by the limit is not kept: the next one reads it whole.
     if (!limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
     return value;
+  }
+
+  /**
+   * The history from the ledger, or nothing when it cannot be used this time (the open orders cannot be read). A new
+   * segment is begun at the newest record and read down until it joins the one below; then the orders that were
+   * open at the last read and are no longer are looked for; then the newest segment is read further back, until it
+   * reaches the window's start, the account's first record or the page budget. What is read is added to the ledger,
+   * and the records in the window are returned (one instrument's, with `ticker`).
+   */
+  private async fromLedger<K extends HistoryKind>(ledgers: HistoryLedgers, prefix: string, client: Trading212Client, kind: K, start: Date | undefined, pages: number, ticker?: string):
+    Promise<{ collected: Collected<HistoryItemOf<K>>; limited: boolean } | undefined> {
+    const times = { time: (item: HistoryItemOf<K>) => itemTime(kind, item), place: (item: HistoryItemOf<K>) => positionTime(kind, item) };
+    const readAt = new Date().toISOString();
+    // The orders open now, read before the history: one made before this read and not in what it reads is one of them.
+    const open = kind === "orders" ? await client.getOrders().catch(() => undefined) : [];
+    if (!open) return undefined;
+    const kept = await ledgers.load<HistoryItemOf<K>>(prefix, kind, times);
+    const known = new Set((kept?.items ?? []).map((item) => recordKey(kind, item)));
+    const added: HistoryItemOf<K>[] = [];
+    const keep = (items: HistoryItemOf<K>[]) => {
+      for (const item of items) { const key = recordKey(kind, item); if (!known.has(key)) { known.add(key); added.push(item); } }
+    };
+    let budget = pages;
+    let limited = false;
+    // Past the first request, a failure (the limit, a server error) stops the read, keeping what it read; a path
+    // Trading 212 no longer knows is "refused".
+    const read = async (next: string | undefined, filter?: string) => {
+      const first = budget === pages;
+      budget -= 1;
+      try {
+        return await client.getHistoryPage(kind, next, filter);
+      } catch (error) {
+        if (first) throw error;
+        if (next && error instanceof Trading212ApiError && REFUSED.has(error.status)) return "refused" as const;
+        limited = true;
+        return undefined;
+      }
+    };
+
+    // The segment this read begins, newest first, then those kept. `next` undefined: not read yet, from the newest.
+    const segments: Array<Omit<LedgerSegment, "next"> & { next: string | null | undefined }> = [{ readAt, next: undefined, complete: false }, ...(kept?.meta.segments ?? [])];
+    let begun = true;
+    /** Where the run read before its way back was refused reached: what this read returns stops there. */
+    let refusedAt: string | undefined;
+    /** Reads the next page of the newest segment, and joins it to the one below once it is past where that began. */
+    const step = async (): Promise<boolean> => {
+      const segment = segments[0]!;
+      const page = await read(segment.next ?? undefined);
+      if (page === "refused") {
+        refusedAt = segment.bottom;
+        // The way back no longer works: the segment is forgotten (its records stay), and in its place is one that
+        // reaches nothing, so the runs below are not taken as joined to the newest records; later reads read past it.
+        segments.splice(0, 1, { readAt, next: null, complete: false });
+        limited = true;
+        return false;
+      }
+      if (!page) return false;
+      const items = page.items as HistoryItemOf<K>[];
+      // The newest page empty while records are kept is not an account with no history: a failed answer. (Empty
+      // through a path further back, it is the end: Trading 212 may give a path after a full last page.)
+      if (!items.length && !page.nextPagePath && segment.next === undefined && known.size) { limited = true; return false; }
+      keep(items);
+      const lowest = Math.min(...items.map(times.place).filter(Number.isFinite));
+      if (Number.isFinite(lowest) && (segment.bottom === undefined || lowest < Date.parse(segment.bottom))) segment.bottom = new Date(lowest).toISOString();
+      segment.next = page.nextPagePath ?? null;
+      if (!segment.next) segment.complete = true;
+      while (segments[1]) {
+        const below = segments[1];
+        if (segment.complete) { segments.splice(1); break; }
+        if (segment.bottom === undefined || Date.parse(segment.bottom) >= Date.parse(below.readAt) - SETTLE_MS) break;
+        // Past where the segment below began, less the records that could have come in above it since: one run.
+        begun = false;
+        if (below.bottom !== undefined && Date.parse(below.bottom) < Date.parse(segment.bottom)) Object.assign(segment, { bottom: below.bottom, next: below.next, complete: below.complete });
+        segments.splice(1, 1);
+      }
+      return true;
+    };
+    const reached = () => reaches({ ...segments[0]!, next: segments[0]!.next ?? null }, start);
+    const more = () => budget > 0 && !limited && !segments[0]!.complete && segments[0]!.next !== null && !reached();
+
+    // The newest records, down to where the last read began.
+    while (begun && segments.length > 1 && more()) if (!await step()) break;
+    // The orders open at the last read that are no longer: each in its instrument's history, by when it was made.
+    const pending: LedgerPending[] = [];
+    let unresolved = false;
+    const openIds = new Set(open.map((order) => String(order.id)));
+    // Records of an order kept: one open may already have a fill listed, so it is found once it has more than then.
+    const recordsOf = (id: string) => { let count = 0; for (const key of known) if (key.startsWith(`o:${id}:`)) count += 1; return count; };
+    for (const order of kept?.meta.pending ?? []) {
+      const listed = (id: string) => recordsOf(id) > (order.seen ?? 0);
+      if (openIds.has(order.id) || listed(order.id)) continue;
+      let next: string | undefined;
+      let searched = false;
+      while (budget > 0 && !limited) {
+        const page = await read(next, order.ticker);
+        if (!page || page === "refused") break;
+        const items = page.items as HistoryItemOf<K>[];
+        keep(items);
+        const lowest = Math.min(...items.map(times.place).filter(Number.isFinite));
+        // On to below when it was made: an order's fills are placed together, and may run onto the next page.
+        if (!page.nextPagePath || lowest < Date.parse(order.createdAt)) { searched = true; break; }
+        next = page.nextPagePath;
+      }
+      const counts = !ticker || order.ticker === ticker;
+      if (listed(order.id)) continue;
+      if (!searched) { unresolved ||= counts; pending.push(order); continue; }
+      // Not listed yet: looked for again on later reads, for a while, and until then the history may lack its fill.
+      const since = order.missingSince ?? readAt;
+      if (Date.parse(readAt) - Date.parse(since) < MISSING_MS) { unresolved ||= counts; pending.push({ ...order, missingSince: since }); }
+    }
+    for (const order of open) {
+      if (order.id === undefined || !order.ticker || !order.createdAt || pending.some((item) => item.id === String(order.id))) continue;
+      const seen = recordsOf(String(order.id));
+      pending.push({ id: String(order.id), ticker: order.ticker, createdAt: order.createdAt, ...(seen ? { seen } : {}) });
+    }
+    // Further back, until the window's start.
+    while (more()) if (!await step()) break;
+
+    const stored = segments.map((segment) => ({ ...segment, next: segment.next ?? null }));
+    const saved = await ledgers.add(prefix, kind, kept, added, { segments: stored, pending }, times);
+    const newest = saved.meta.segments[0];
+    const whole = newest !== undefined && reaches(newest, start);
+    // Cut short of the window's start, the records below the newest run are left out, as there may be a gap above
+    // them: what is returned is the newest records without a hole, as a read straight from Trading 212 gives.
+    const bottom = newest?.bottom ?? refusedAt;
+    const floor = bottom !== undefined ? Date.parse(bottom) : undefined;
+    const items = whole || floor === undefined ? saved.items : saved.items.filter((item) => !(times.place(item) < floor) || !(times.time(item) < floor));
+    return { collected: { items: inWindow(kind, items, start, ticker), truncated: unresolved || !whole }, limited };
   }
 
   /** `onRead` is handed the positions and instruments read, for a caller that needs them too (risk by holding). */

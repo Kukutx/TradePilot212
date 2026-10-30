@@ -67,7 +67,7 @@ describe("journal review", () => {
     expect(text).toContain("FX and costs are left out");
     expect(text).toContain("All: 2 trade(s), 1/2 in your favour, average +0%, realised 12.5 EUR.");
     expect(text).toContain("#trim: 1 trade(s), 0/1 in your favour, average -10%, realised 12.5 EUR");
-    expect(text).toContain("History was cut at the page limit");
+    expect(text).toContain("History was truncated at the page limit; older fills are not counted yet.");
     expect(text).toContain('MSFT_US_EQ SELL 2 @ 50 USD, now 55 (+10%, -10% in the trade\'s favour), realised 12.5; note jrn_2, why: "Trim after the run"');
     expect(text).toContain("due for a look back");
   });
