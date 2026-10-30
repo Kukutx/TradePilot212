@@ -23,6 +23,7 @@ import { localDay, localMidnight, zoneOffset } from "../shared/time-zone.js";
 export { parseYearStart, validTimeZone } from "../shared/time-zone.js";
 import { calendarReturns } from "../shared/returns.js";
 import { riskOf } from "../shared/risk.js";
+import { resultSplit } from "../shared/result-split.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
 
 export interface AllocationLimits {
@@ -78,6 +79,7 @@ export function analyzeAllocation(
       const ticker = position.instrument?.ticker ?? "";
       const meta = byTicker.get(ticker.toUpperCase());
       const pnl = positionPnl(position);
+      const split = resultSplit(position);
       const type = meta?.type ?? position.instrument?.type;
       return {
         ticker,
@@ -87,6 +89,7 @@ export function analyzeAllocation(
         value: positionValue(position),
         weight: 0,
         ...(pnl === undefined ? {} : { unrealizedProfitLoss: pnl }),
+        ...(split ? { fxImpact: split.fx } : {}),
       };
     })
     .filter((item) => item.value > 0);

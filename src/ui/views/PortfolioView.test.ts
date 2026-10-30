@@ -113,3 +113,34 @@ describe("the dashboard's day", () => {
     }
   });
 });
+
+describe("the result by source", () => {
+  const split = { ...payload, positions: [
+    { ...apple, walletImpact: { ...apple.walletImpact, fxImpact: -60.62 } },
+    { ...coke, walletImpact: { ...coke.walletImpact, fxImpact: -48.67 } },
+  ] } as DashboardPayload;
+  const view = (data: DashboardPayload, locale: "en" | "zh-CN" = "en") => renderToStaticMarkup(createElement(PortfolioView, { payload: data, locale, t: createTranslator(locale), writeEnabled: false, onCancel: () => {} }));
+
+  it("splits the account's result into price and exchange rate, adding up to it, and gives each holding's rate part", () => {
+    const html = view(split);
+    expect(html).toContain('<dl class="resultSplit" aria-label="Unrealized P/L by source">');
+    // 612.07 in all, 109.29 of it lost to the rate: the price made 721.36.
+    expect(html).toMatch(/<dt>Price<\/dt>.*?<dd class="resultSplitValue positive">\+€721\.36<\/dd>/);
+    expect(html).toMatch(/<dt>Exchange rate<\/dt>.*?<dd class="resultSplitValue negative">-€109\.29<\/dd>/);
+    // The larger part fills its bar; the other is scaled to it.
+    expect(html).toContain('style="width:100%"');
+    expect(html).toContain('<small class="pnlFx">FX -€60.62</small>');
+    expect(view(split, "zh-CN")).toContain('<small class="pnlFx">汇率 -€48.67</small>');
+  });
+
+  it("shows no split without Trading 212's rate part, or when the rate moved nothing", () => {
+    expect(view(payload)).not.toContain("resultSplit");
+    expect(view(payload)).not.toContain("pnlFx");
+    const flat = { ...payload, positions: [{ ...apple, walletImpact: { ...apple.walletImpact, fxImpact: 0 } }] } as DashboardPayload;
+    expect(view(flat)).not.toContain("resultSplit");
+    // One holding without its rate part leaves the account unsplit; the other still gives its own.
+    const mixed = { ...payload, positions: [split.positions[0], coke] } as DashboardPayload;
+    expect(view(mixed)).not.toContain("resultSplit");
+    expect(view(mixed)).toContain('<small class="pnlFx">FX -€60.62</small>');
+  });
+});

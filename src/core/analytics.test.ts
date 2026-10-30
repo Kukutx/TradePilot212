@@ -23,6 +23,15 @@ describe("allocation analysis", () => {
     expect(result.flags.map((flag) => flag.code)).toContain("SINGLE_HOLDING_OVER_LIMIT");
   });
 
+  it("gives each holding's exchange-rate part: Trading 212's, none in the account currency, and no guess without it", () => {
+    const withRate = (base: Position, wallet: Record<string, unknown>): Position => ({ ...base, walletImpact: { ...base.walletImpact, currency: "EUR", ...wallet } });
+    const result = analyzeAllocation("demo", { currency: "EUR" }, [withRate(position("AAPL_US_EQ", 600), { fxImpact: -12.5 }), withRate(position("VUSA_EQ", 200, "EUR"), {}), withRate(position("KO_US_EQ", 100), {})]);
+    const of = (ticker: string) => result.holdings.find((item) => item.ticker === ticker);
+    expect(of("AAPL_US_EQ")).toMatchObject({ unrealizedProfitLoss: 60, fxImpact: -12.5 });
+    expect(of("VUSA_EQ")).toMatchObject({ fxImpact: 0 });
+    expect(of("KO_US_EQ")).not.toHaveProperty("fxImpact");
+  });
+
   it("keeps the cash free to trade apart from cash held for orders and in pies", () => {
     const result = analyzeAllocation("demo", { currency: "EUR", cash: { availableToTrade: 200, reservedForOrders: 50, inPies: 30 } }, [position("VUSA_EQ", 720, "EUR")]);
     expect(result.cash).toBe(280);

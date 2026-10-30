@@ -126,6 +126,14 @@ Below that, **Equal-risk weights**, and each row's `parity` in `risk.rows`, give
 
 They spread the risk by how the holdings moved over the past year. They say nothing of what the holdings will return, and a holding that was calm can stop being so.
 
+## Price and exchange rate
+
+A holding quoted in another currency than the account's gains or loses twice: on its price, and on the exchange rate since it was bought. Trading 212 gives the second as `walletImpact.fxImpact`, the part of the holding's unrealized P/L the rate made, in the account currency. Under the unrealized P/L, the overview and a holding's page split it into **Price** (the P/L less the rate's part) and **Exchange rate**, each a bar from zero scaled to the larger of the two; the holdings list gives each holding's rate part under its P/L ("FX -€60.62"). The dashboard's text gives the same, and `analyze_portfolio_allocation` returns each holding's `fxImpact`.
+
+- An instrument in the account's currency (pence in a pound account included) has no rate part. A foreign holding without `fxImpact` is not split, and the overview is not split while any holding is missing its part or its P/L, so the two always add up to the P/L shown. The text counts the holdings in another currency than the account's.
+- The overview's price part is the account's unrealized P/L less the holdings' rate parts.
+- No split or rate part is shown while the rates moved the result by less than a cent.
+
 ## Your position
 
 The holding page's **Your position** chart draws the holding's value at each of its daily closes beside a dashed line of the net put in: the shares held at the first close at that close, plus what each buy since cost, less what each sell paid, at their fill prices. The gap between the two lines is what the price did for the position, whatever was bought or sold; the text of `get_holding_detail` gives the same. Sells for more than was put in take the net put in below zero, and the scale then shows zero.

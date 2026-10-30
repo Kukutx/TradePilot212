@@ -126,6 +126,8 @@ export interface HoldingWeight {
   value: number;
   weight: number;
   unrealizedProfitLoss?: number;
+  /** The part of unrealizedProfitLoss the exchange rate made (Trading 212's fxImpact); 0 in the account's currency. */
+  fxImpact?: number;
 }
 
 export interface AllocationAnalysis {

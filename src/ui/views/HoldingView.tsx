@@ -4,6 +4,7 @@ import type { Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
 import type { JournalEntry } from "../../shared/journal";
 import { stopOutcome, stopProtection, suggestedStop } from "../../shared/protection";
+import { resultSplit } from "../../shared/result-split";
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
@@ -11,6 +12,7 @@ import { DayLine } from "../components/day";
 import { JournalForm, JournalNote, type JournalRequest } from "../components/journal";
 import { PositionChart } from "../components/position-chart";
 import { PriceChart, type ChartLevel, type ChartTrade } from "../components/price-chart";
+import { fxShown, ResultSplitBars } from "../components/result-split";
 import { holdingPositionHistory } from "../../shared/position-history";
 import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey } from "../i18n";
@@ -173,6 +175,7 @@ export function HoldingView({
   const value = position ? walletNumber(position, "currentValue") : undefined;
   const pnl = position ? walletNumber(position, "unrealizedProfitLoss") : undefined;
   const cost = value !== undefined && pnl !== undefined ? value - pnl : undefined;
+  const split = position ? resultSplit(position) : undefined;
   const levels = priceLevels(data, t, locale);
   // The price now: Trading 212's for a holding, else the quote provider's when it answered.
   const lastPrice = position?.currentPrice || data.quote?.price;
@@ -219,6 +222,7 @@ export function HoldingView({
               <div className={`pnlBadge ${signedClass(pnl)}`}>
                 {t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}{cost && pnl !== undefined ? ` (${pct(pnl / cost, locale, 1, { signed: true })})` : ""}
               </div>
+              {split && fxShown(split.fx) && <ResultSplitBars price={split.price} fx={split.fx} currency={currency} locale={locale} t={t} />}
               {data.day && <DayLine move={data.day} timestamp={data.timestamp} currency={currency} locale={locale} t={t} />}
             </>
           ) : (
