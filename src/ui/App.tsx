@@ -50,6 +50,7 @@ import { ExportView, OrderStatusView, type ExportPayload } from "./views/ToolVie
 import type { WatchlistView as WatchlistPayload } from "../shared/watchlist";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
 import { taxYearZone } from "../shared/time-zone";
+import { RangeContext, type DateRange } from "./components/range-picker";
 
 type BasePayload =
   | DashboardPayload
@@ -342,6 +343,8 @@ export default function App() {
   const [insights, setInsights] = useState<InsightCache>({});
   const [insightError, setInsightError] = useState<{ kind: InsightKind; problem: Problem } | null>(null);
   const [period, setPeriod] = useState<InsightPeriod>("ytd");
+  /** Days the reader chose instead of a period, for every view with the period switch until a period is chosen. */
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
   /** The History tab's page shown last, and the tax year it shows. */
   const [historyKind, setHistoryKind] = useState<HistoryKind>("trade_history");
   const [taxSettings, setTaxSettings] = useState<TaxSettings>({});
@@ -437,6 +440,8 @@ export default function App() {
       const range = periodOfPayload(payload);
       const preset = range && presetOf(range, payload.timestamp);
       if (preset) setPeriod(preset);
+      // Another window the host read shows as a range on the switch's button; a trade or cash page shows its own.
+      setCustomRange(range && !preset && range.from && payload.kind !== "trade_history" && payload.kind !== "cash_history" ? { from: range.from.slice(0, 10), to: range.to.slice(0, 10) } : null);
       if (payload.kind === "trade_history" || payload.kind === "cash_history") {
         setHistoryScopes({ [payload.kind]: { ...(payload.filter ? { filter: payload.filter } : {}), ...(range && !preset ? { window: range } : {}) } });
       }
@@ -618,7 +623,7 @@ export default function App() {
   }
 
   /** Read a tab. The journal keeps the tag it shows unless `tag` changes it (null shows every trade). */
-  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null, compareWith = benchmark, tax = taxSettings, scopes = historyScopes): Promise<void> {
+  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null, compareWith = benchmark, tax = taxSettings, scopes = historyScopes, custom = customRange): Promise<void> {
     setStatus("loading");
     setProblem(null);
     setInsightError(null);
@@ -630,7 +635,7 @@ export default function App() {
         : timeless(kind) ? { environment: env }
         : {
           environment: env,
-          ...(scope?.window ? { ...(scope.window.from ? { from: scope.window.from } : {}), to: scope.window.to } : { period: range }),
+          ...(scope?.window ? { ...(scope.window.from ? { from: scope.window.from } : {}), to: scope.window.to } : custom ? { from: custom.from, to: custom.to } : { period: range }),
           ...(scope?.filter?.ticker ? { ticker: scope.filter.ticker } : {}),
           ...(kind === "cash_history" && scope?.filter?.types ? { types: scope.filter.types } : {}),
           ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}),
@@ -644,14 +649,14 @@ export default function App() {
       if (payload.kind === "tax_year" && payload.preferences) {
         setPreferences(payload.preferences);
         const wanted = taxZone(payload.yearStart, payload.preferences);
-        if (!preferences && !tax.timeZone && wanted !== payload.timeZone) return await loadInsight(kind, env, range, tag, compareWith, { ...tax, timeZone: wanted }, scopes);
+        if (!preferences && !tax.timeZone && wanted !== payload.timeZone) return await loadInsight(kind, env, range, tag, compareWith, { ...tax, timeZone: wanted }, scopes, custom);
       }
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
       // A choice holds once a read made with it came back.
       if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights((current) => ({ ...current, [kind]: payload }));
     } catch (requestError) {
-      const retry = () => void loadInsight(kind, env, range, tag, compareWith, tax, scopes);
+      const retry = () => void loadInsight(kind, env, range, tag, compareWith, tax, scopes, custom);
       const failure = problemFrom("errorTitleLoad", requestError, retry);
       // With nothing to show, the error takes the view's place; otherwise the older data stays below it.
       if (insights[kind]) setProblem(failure);
@@ -688,15 +693,37 @@ export default function App() {
     // A window the host chose stays as read until a period is chosen.
     if ((loaded.kind === "trade_history" || loaded.kind === "cash_history") && historyScopes[loaded.kind]?.window) return false;
     const range = periodOfPayload(loaded);
+    // A chosen range is read for its own days.
+    if (range && customRange) return range.from?.slice(0, 10) !== customRange.from || range.to.slice(0, 10) !== customRange.to;
     return !!range && periodOf(range) !== period;
   }
 
   async function changePeriod(next: InsightPeriod): Promise<void> {
     setPeriod(next);
+    setCustomRange(null);
     // A period chosen replaces a window the host read; an instrument or types it named still hold.
-    const scopes: HistoryScopes = Object.fromEntries(Object.entries(historyScopes).map(([kind, scope]) => [kind, { ...(scope?.filter ? { filter: scope.filter } : {}) }]));
+    const scopes = withoutWindows();
     setHistoryScopes(scopes);
-    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, next, undefined, benchmark, taxSettings, scopes);
+    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, next, undefined, benchmark, taxSettings, scopes, null);
+  }
+
+  /** The scopes with the instrument or types the host named, and no window: the reader chose the days. */
+  function withoutWindows(): HistoryScopes {
+    return Object.fromEntries(Object.entries(historyScopes).map(([kind, scope]) => [kind, { ...(scope?.filter ? { filter: scope.filter } : {}) }]));
+  }
+
+  /** Read the days the reader chose, on this tab and on every other with the period switch as it is opened. */
+  async function changeRange(next: DateRange): Promise<void> {
+    setCustomRange(next);
+    const scopes = withoutWindows();
+    setHistoryScopes(scopes);
+    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, period, undefined, benchmark, taxSettings, scopes, next);
+  }
+
+  /** Back to the period the switch had before the range. */
+  async function clearRange(): Promise<void> {
+    setCustomRange(null);
+    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, period, undefined, benchmark, taxSettings, historyScopes, null);
   }
 
   /** Read a trade or cash page again for everything: in the period the switch shows, or all time after the host's own window. */
@@ -709,7 +736,7 @@ export default function App() {
   }
   const scopeOf = (kind: ScopedKind) => {
     const scope = historyScopes[kind];
-    return { period: scope?.window ? null : period, ...(scope?.filter || scope?.window ? { onClearFilter: () => void clearHistoryScope(kind) } : {}) };
+    return { period: scope?.window || customRange ? null : period, ...(scope?.filter || scope?.window ? { onClearFilter: () => void clearHistoryScope(kind) } : {}) };
   };
 
   async function refresh(env = environment, target: PortfolioTab = tab, scopes = historyScopes): Promise<void> {
@@ -1119,6 +1146,8 @@ export default function App() {
 
   const canToggleFullscreen = availableDisplayModes.includes("fullscreen") || displayMode === "fullscreen";
   const loading = status === "loading";
+  // A trade or cash page the host read for its own window shows that window, not the range.
+  const rangeContext = { range: (tab === "trade_history" || tab === "cash_history") && historyScopes[tab]?.window ? null : customRange, onRange: (next: DateRange) => void changeRange(next), onClear: () => void clearRange(), locale };
   const portfolioLike = base?.kind === "portfolio" || isInsight(base);
   // A plan from the allocation shown is for that allocation's account.
   const allocationEnvironment = insights.allocation?.environment ?? environment;
@@ -1220,7 +1249,7 @@ export default function App() {
         missingCredentials ? (
           <SetupCard environment={environment} credentials={credentials} t={t} busy={loading} onSwitch={(next) => void switchEnvironment(next)} />
         ) : (
-          <>
+          <RangeContext.Provider value={rangeContext}>
             {base?.kind === "error" && <ErrorCard title={t("errorTitleLoad")} message={formatProblem(base.error, t, locale)} retryLabel={t("retry")} busy={loading} onRetry={() => void refresh(environment, "holdings")} />}
             {portfolioLike && <ViewTabs tab={tab} history={historyKind} busy={loading} t={t} onSelect={(next) => void selectTab(next)} />}
             {base?.kind === "portfolio" && tab === "holdings" && (
@@ -1248,15 +1277,15 @@ export default function App() {
                 } : {})} />
             )}
             {portfolioLike && tab === "performance" && insights.performance && (
-              <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)}
+              <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={customRange ? null : period} busy={loading} onPeriod={(next) => void changePeriod(next)}
                 onOpen={(ticker) => void openHolding(ticker)}
                 onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)} />
             )}
             {portfolioLike && tab === "income" && insights.income && (
-              <IncomeView data={insights.income} book={book} locale={locale} t={t} period={period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
+              <IncomeView data={insights.income} book={book} locale={locale} t={t} period={customRange ? null : period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
             )}
             {portfolioLike && tab === "journal_review" && insights.journal_review && (
-              <JournalReviewView data={insights.journal_review} book={book} locale={locale} t={t} period={period} busy={loading}
+              <JournalReviewView data={insights.journal_review} book={book} locale={locale} t={t} period={customRange ? null : period} busy={loading}
                 onPeriod={(next) => void changePeriod(next)} onTag={(tag) => void loadInsight("journal_review", environment, period, tag)}
                 onOpen={(ticker) => void openHolding(ticker)} onSaveNote={changeNote} />
             )}
@@ -1359,7 +1388,7 @@ export default function App() {
             {!base && (loading ? <SkeletonView label={t("refreshing")} />
               : laterRoute ? <EmptyRetry text={t("routeEarlier")} retryLabel={t("routeOpen")} onRetry={() => void openRoute(laterRoute)} />
               : !problem && <div className="emptyState">{t("waiting")}</div>)}
-          </>
+          </RangeContext.Provider>
         )
       )}
 

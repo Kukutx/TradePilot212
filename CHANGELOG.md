@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.68.0
+
+- Your own days. Beside the period switch on the Performance, Income, Journal, Trades and Cash tabs, a calendar button opens two date boxes: choose a first and a last day and the tab reads just those days, as the tools already could with `from` and `to`. The range then holds on every tab with the switch until a period is chosen again or **Back to the period** is pressed, and the button names it ("Mar 1 – Apr 15, 2026"). The days are checked before anything is read (both given, the first not after the last, the last not after today), both are included, and they run midnight to midnight UTC as the periods do. A window the host read that is none of the periods shows on the same button.
+- The date boxes are drawn in the widget's style: its own calendar icon (the browser's picker still opens from it), the theme's colours in light and dark, and the system's colours in high contrast. Escape closes the panel and the focus returns to the button.
+- On a computer set to dark mode, a widget shown in light no longer takes the dark theme's chart blue, holdings-map and correlation shades: those follow the widget's own theme only.
+
 ## 2.67.0
 
 - UK share matching (an estimate). A UK tax year (from 6 April) now also shows its sales matched as HMRC matches them: with shares of the same instrument bought the same UK day, then in the 30 days after, then from the section 104 pool at its average cost. Gains and losses are kept apart per disposal, days and the year are UK time whatever zone the rest of the summary counts in, and one company under two tickers is one pool by its ISIN. The tax year page sets the net gain by those rules beside Trading 212's average-price figure, per instrument with how many shares each rule matched, and says why they differ; `get_tax_year_summary` returns it as `ukMatching`. A UK year reads all history once through the ledger, takes the year's sales from it, and sets each instrument's fills against the shares held now: an instrument whose fills do not add up to what is held (a transfer, a split), with fills that were not trades, or with shares it cannot match or value is marked on its row, and the result is marked incomplete and not compared with Trading 212's figure. A year whose last 30-day buys can still come in says its figures can change, and an account not in GBP is said to need converting.
