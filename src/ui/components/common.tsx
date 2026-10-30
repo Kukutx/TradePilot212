@@ -26,7 +26,7 @@ export function DetailList({ title, items }: { title: string; items: string[] })
   return <section><h3>{title}</h3><ul>{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>;
 }
 
-export function Metric({ label, value, compact = false, tone }: { label: string; value: string; compact?: boolean; tone?: string }) {
+export function Metric({ label, value, compact = false, tone }: { label: string; value: ReactNode; compact?: boolean; tone?: string }) {
   return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong className={tone}>{value}</strong></div>;
 }
 

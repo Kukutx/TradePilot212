@@ -35516,7 +35516,7 @@ var TOOL_OUTPUT = {
   get_automation_overview: payload("automation", automation),
   get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
-  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
+  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o yields:o cash:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_market_hours: payload("market_status", "environment:s ticker:s exchange:s session:s isOpen:b nextOpen:s nextClose:s checkedAt:s"),
   get_order_status: payload("order_status", "environment:s orderId:s state:s order:o fills:a timestamp:s"),
@@ -38508,16 +38508,95 @@ function forwardDividends(dividends, positions, to, now = to) {
     upcoming: upcoming.map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }))
   };
 }
+var ENDS_NOW_MS = 5 * 6e4;
+var shareOf = (part, whole) => whole && whole > 0 ? Math.round(part / whole * 1e4) / 1e4 : null;
+var finite2 = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
+function incomeYields(positions, dividends, window, forward) {
+  const paid = /* @__PURE__ */ new Map();
+  const perShare = /* @__PURE__ */ new Map();
+  for (const item of dividends) {
+    const ticker = item.ticker ?? item.instrument?.ticker ?? "";
+    if (!ticker || !item.amount || !inWindow(item.paidOn, window)) continue;
+    paid.set(ticker, (paid.get(ticker) ?? 0) + item.amount);
+    if (item.quantity && item.quantity > 0) perShare.set(ticker, (perShare.get(ticker) ?? 0) + item.amount / item.quantity);
+  }
+  const expected = new Map(forward.byTicker.map((item) => [item.key, item.amount]));
+  const rows2 = [];
+  let costs = 0, values = 0, trailing = 0, received = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    if (!ticker || !(position.quantity > 0)) continue;
+    const wallet = position.walletImpact;
+    const cost = finite2(wallet?.totalCost), value = finite2(wallet?.currentValue);
+    const row = { paid: round9(paid.get(ticker) ?? 0), trailing: round9((perShare.get(ticker) ?? 0) * position.quantity), forward: round9(expected.get(ticker) ?? 0) };
+    costs = costs === null || cost === null || cost < 0 ? null : costs + cost;
+    values = values === null || value === null ? null : values + value;
+    trailing += row.trailing;
+    received += row.paid;
+    if (row.trailing > 0 || row.forward > 0 || row.paid > 0) {
+      rows2.push({ ticker, ...row, cost: cost === null ? null : round9(cost), value: value === null ? null : round9(value), onCost: shareOf(row.trailing, cost), onValue: shareOf(row.trailing, value), forwardOnCost: shareOf(row.forward, cost) });
+    }
+  }
+  rows2.sort((a, b) => (b.onCost ?? -1) - (a.onCost ?? -1) || b.trailing - a.trailing);
+  const total = round9(trailing);
+  return {
+    paid: round9(received),
+    trailing: total,
+    forward: forward.total,
+    cost: costs === null ? null : round9(costs),
+    value: values === null ? null : round9(values),
+    onCost: shareOf(total, costs),
+    onValue: shareOf(total, values),
+    forwardOnCost: shareOf(forward.total, costs),
+    byTicker: rows2
+  };
+}
+var RATE_MIN_DAYS = 30;
+var RATE_COVERAGE = 0.8;
+function idleCash(account, interest, lending, window, days = []) {
+  const available = finite2(account.cash?.availableToTrade);
+  if (available === null) return {};
+  const inPies = finite2(account.cash?.inPies) ?? 0, reserved = finite2(account.cash?.reservedForOrders) ?? 0;
+  const total = available + inPies + reserved;
+  const recorded = days.filter((day2) => typeof day2.cash === "number" && Number.isFinite(day2.cash) && inWindow(day2.at, window));
+  const since = recorded.reduce((first, day2) => !first || day2.date < first ? day2.date : first, void 0);
+  const span = since ? (window.to.getTime() - Date.parse(`${since}T00:00:00Z`)) / 864e5 : 0;
+  let rate = null;
+  if (since && span >= RATE_MIN_DAYS && recorded.length >= span * RATE_COVERAGE) {
+    const averageCash = recorded.reduce((sum, day2) => sum + day2.cash, 0) / recorded.length;
+    const earned = interest.filter((item) => inWindow(item.at, { from: /* @__PURE__ */ new Date(`${since}T00:00:00Z`), to: window.to })).reduce((sum, item) => sum + item.amount, 0);
+    const yearly = averageCash > 0 ? Math.round(earned / averageCash / (span / 365.25) * 1e4) / 1e4 : null;
+    if (yearly !== null) rate = { yearly, averageCash: round9(averageCash), since, days: recorded.length };
+  }
+  return {
+    cash: {
+      total: round9(total),
+      available: round9(available),
+      inPies: round9(inPies),
+      reserved: round9(reserved),
+      share: shareOf(total, finite2(account.totalValue)),
+      interest12Months: round9(interest.reduce((sum, item) => sum + item.amount, 0)),
+      lending12Months: round9(lending),
+      rate
+    }
+  };
+}
 function summarizeIncome(input2) {
   const events = [
-    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
-    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false }))
+    ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true, lending: false })),
+    ...input2.transactions.filter((item) => INTEREST.has((item.type ?? "").toUpperCase())).map((item) => ({ at: item.dateTime, amount: item.amount ?? 0, ticker: "INTEREST", dividend: false, lending: (item.type ?? "").toUpperCase() === "LENDING_INTEREST" }))
   ];
   const windowed = events.filter((item) => inWindow(item.at, input2.window));
   const yearAgo = new Date(input2.window.to.getTime() - 365 * 864e5);
   const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
   const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
   const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  const now = input2.now ?? input2.window.to;
+  const forwardAnnual = input2.positions ? forwardDividends(input2.dividends, input2.positions, input2.window.to, now) : void 0;
+  const endsNow = input2.window.endsNow ?? input2.window.to.getTime() >= now.getTime() - ENDS_NOW_MS;
+  const year = { from: yearAgo, to: input2.window.to };
+  const cashInterest = trailing.filter((item) => !item.dividend && !item.lending);
+  const lending = round9(trailing.filter((item) => item.lending).reduce((sum, item) => sum + item.amount, 0));
   return {
     kind: "income",
     environment: input2.environment,
@@ -38529,7 +38608,10 @@ function summarizeIncome(input2) {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round9(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to, input2.now ?? input2.window.to) } : {},
+    ...forwardAnnual ? { forwardAnnual } : {},
+    // Today's holdings and cash only go with a year that ends now.
+    ...input2.positions && forwardAnnual && endsNow ? { yields: incomeYields(input2.positions, input2.dividends, year, forwardAnnual) } : {},
+    ...input2.account && endsNow ? idleCash(input2.account, cashInterest, lending, { from: yearAgo, to: new Date(Math.min(input2.window.to.getTime(), now.getTime())) }, input2.cashDays) : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -38935,28 +39017,31 @@ function parseDate(value, endOfDay) {
   if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== date5) return NaN;
   return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS3 - 1 : 0) : Date.parse(value);
 }
+var ENDS_NOW_MS2 = 5 * 6e4;
+var LOCAL_TODAY_MS = 12 * 36e5;
 function parseWindow(input2, now = /* @__PURE__ */ new Date()) {
   const day2 = DAY_MS3;
   const to = input2.to ? new Date(parseDate(input2.to, true)) : now;
   if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a real date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
+  const endsNow = !input2.to || to.getTime() >= now.getTime() - (DATE_ONLY.test(input2.to) ? LOCAL_TODAY_MS : ENDS_NOW_MS2);
   if (input2.from) {
     const from = new Date(parseDate(input2.from, false));
     if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a real date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
-    return { from, to };
+    return { from, to, endsNow };
   }
   switch (input2.period ?? "all") {
     case "1w":
-      return { from: new Date(to.getTime() - 7 * day2), to };
+      return { from: new Date(to.getTime() - 7 * day2), to, endsNow };
     case "1m":
-      return { from: new Date(to.getTime() - 30 * day2), to };
+      return { from: new Date(to.getTime() - 30 * day2), to, endsNow };
     case "3m":
-      return { from: new Date(to.getTime() - 91 * day2), to };
+      return { from: new Date(to.getTime() - 91 * day2), to, endsNow };
     case "1y":
-      return { from: new Date(to.getTime() - 365 * day2), to };
+      return { from: new Date(to.getTime() - 365 * day2), to, endsNow };
     case "ytd":
-      return { from: new Date(Date.UTC(to.getUTCFullYear(), 0, 1)), to };
+      return { from: new Date(Date.UTC(to.getUTCFullYear(), 0, 1)), to, endsNow };
     default:
-      return { to };
+      return { to, endsNow };
   }
 }
 var InsightsService = class {
@@ -39191,13 +39276,15 @@ var InsightsService = class {
       ...values.length ? { values } : {}
     });
   }
-  async income(environment, window, maxPages) {
+  /** `readValues` reads the days the account's value was recorded since a date (value-history.ts), for the rate its free cash earned. */
+  async income(environment, window, maxPages, readValues) {
     const client = this.client(environment);
     const [account, positions] = await Promise.all([client.getAccountSummary(), client.getPositions()]);
     const yearAgo = new Date(Math.min(window.to.getTime() - 365 * 864e5, scheduleStart(window.to.getTime())));
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
+    const cashDays = readValues && window.endsNow !== false ? await readValues(typeof account.id === "number" ? account.id : void 0, new Date(window.to.getTime() - 365 * 864e5).toISOString().slice(0, 10)).catch(() => []) : [];
     return summarizeIncome({
       environment,
       accountCurrency: account.currency ?? "",
@@ -39205,6 +39292,8 @@ var InsightsService = class {
       dividends: dividends.items,
       transactions: transactions.items,
       positions,
+      account,
+      cashDays,
       truncated: dividends.truncated || transactions.truncated,
       now: /* @__PURE__ */ new Date()
     });
@@ -40424,7 +40513,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.68.0"
+  version: "2.69.0"
 };
 
 // src/shared/holding-risk.ts
@@ -43362,15 +43451,21 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_income_summary",
     {
       title: "Dividend and Interest Income",
-      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. For a period that ends now it also gives the holdings' dividend yields (the last 12 months' dividends per share at today's quantity over Trading 212's total cost and over value now, expected over cost, per holding, beside what was actually paid) and the cash not invested (free to trade, in pies and reserved for orders, its share of the account, 12 months' interest on cash with share-lending income apart, and that interest as a yearly rate over the average free cash of the days TradePilot recorded, once it has a month of them). Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
+        const percent = (value) => value === null ? "unknown" : `${(value * 100).toFixed(2)}%`;
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(
+          environment,
+          parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }),
+          maxPages,
+          (account, since) => values.points(environment, { from: since, ...account === void 0 ? {} : { account } })
+        ) };
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}${data.yields ? ` Holdings' dividends over the last 12 months at today's quantity: ${data.yields.trailing} ${data.accountCurrency} (${percent(data.yields.onCost)} on cost, ${percent(data.yields.onValue)} on value; paid ${data.yields.paid}).` : ""}${data.cash ? ` Cash not invested ${data.cash.total} ${data.accountCurrency} (free ${data.cash.available}, in pies ${data.cash.inPies}, reserved ${data.cash.reserved}${data.cash.share === null ? "" : `; ${(data.cash.share * 100).toFixed(1)}% of the account`}), interest on cash over 12 months ${data.cash.interest12Months}${data.cash.lending12Months ? `, share lending ${data.cash.lending12Months}` : ""}${data.cash.rate ? `, about ${(data.cash.rate.yearly * 100).toFixed(2)}% a year on the average free cash since ${data.cash.rate.since}` : ""}.` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }

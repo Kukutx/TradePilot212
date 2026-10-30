@@ -85,7 +85,7 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   get_automation_overview: payload("automation", automation),
   get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
-  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
+  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o yields:o cash:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_market_hours: payload("market_status", "environment:s ticker:s exchange:s session:s isOpen:b nextOpen:s nextClose:s checkedAt:s"),
   get_order_status: payload("order_status", "environment:s orderId:s state:s order:o fills:a timestamp:s"),

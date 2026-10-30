@@ -16,6 +16,7 @@ import { HoldingRiskPanel } from "../components/holding-risk";
 import { MarketSensitivityPanel } from "../components/market-sensitivity";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RangeContext, RangePicker } from "../components/range-picker";
+import { CashPanel, YieldPanel } from "../components/yields";
 import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -573,6 +574,9 @@ export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
           <Metric label={t("interest")} value={m(data.interest)} />
         </div>
       </section>
+      {data.yields && (data.yields.trailing > 0 || data.yields.forward > 0) && <YieldPanel data={data.yields} currency={currency} book={book} locale={locale} t={t} />}
+      {data.cash && <CashPanel data={data.cash} currency={currency} locale={locale} t={t} />}
+      {!data.yields && !data.cash && <p className="panelNote yieldPastPeriod">{t("yieldPastPeriod")}</p>}
       {data.forwardAnnual?.calendar && data.forwardAnnual.upcoming && (
         <section className="dataPanel">
           <DividendCalendar calendar={data.forwardAnnual.calendar} upcoming={data.forwardAnnual.upcoming} total={data.forwardAnnual.total} today={data.timestamp}

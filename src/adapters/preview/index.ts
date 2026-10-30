@@ -281,8 +281,10 @@ async function seedValueHistory(): Promise<void> {
     // The sample account took out 500 ninety days ago, so the days before held that much more.
     const ago = days - 1 - index;
     const value = round(total * Math.exp(offset) + (ago > 90 ? 500 : 0));
+    // The free cash held, and the 500 too before it was taken out: the Income tab's cash rate is over these days.
+    const cash = typeof account.cash?.availableToTrade === "number" ? { cash: round(account.cash.availableToTrade + (ago > 90 ? 500 : 0)) } : {};
     const at = dates[index]!;
-    await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
+    await services.values.record("demo", { date: at.toISOString().slice(0, 10), totalValue: value, ...cash, at: at.toISOString(), ...(typeof account.id === "number" ? { account: account.id } : {}) });
   }
 }
 

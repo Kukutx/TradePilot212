@@ -126,23 +126,32 @@ function parseDate(value: string, endOfDay: boolean): number {
   return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS - 1 : 0) : Date.parse(value);
 }
 
+/** How far before now a period may end and still count as ending now. */
+const ENDS_NOW_MS = 5 * 60_000;
+/**
+ * A last day given as a date ends at midnight UTC; the reader's own today runs on up to 12 hours past that west of UTC,
+ * so a date-only last day counts as ending now until then.
+ */
+const LOCAL_TODAY_MS = 12 * 3_600_000;
+
 /** A date without a time is a whole UTC day: `from` starts it and `to` ends it. */
 export function parseWindow(input: { from?: string; to?: string; period?: HistoryPeriod }, now = new Date()): HistoryWindow {
   const day = DAY_MS;
   const to = input.to ? new Date(parseDate(input.to, true)) : now;
   if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a real date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
+  const endsNow = !input.to || to.getTime() >= now.getTime() - (DATE_ONLY.test(input.to) ? LOCAL_TODAY_MS : ENDS_NOW_MS);
   if (input.from) {
     const from = new Date(parseDate(input.from, false));
     if (Number.isNaN(from.getTime()) || from > to) fail("INVALID_INPUT", "from must be a real date (YYYY-MM-DD) or an ISO date-time before to", { field: "from" });
-    return { from, to };
+    return { from, to, endsNow };
   }
   switch (input.period ?? "all") {
-    case "1w": return { from: new Date(to.getTime() - 7 * day), to };
-    case "1m": return { from: new Date(to.getTime() - 30 * day), to };
-    case "3m": return { from: new Date(to.getTime() - 91 * day), to };
-    case "1y": return { from: new Date(to.getTime() - 365 * day), to };
-    case "ytd": return { from: new Date(Date.UTC(to.getUTCFullYear(), 0, 1)), to };
-    default: return { to };
+    case "1w": return { from: new Date(to.getTime() - 7 * day), to, endsNow };
+    case "1m": return { from: new Date(to.getTime() - 30 * day), to, endsNow };
+    case "3m": return { from: new Date(to.getTime() - 91 * day), to, endsNow };
+    case "1y": return { from: new Date(to.getTime() - 365 * day), to, endsNow };
+    case "ytd": return { from: new Date(Date.UTC(to.getUTCFullYear(), 0, 1)), to, endsNow };
+    default: return { to, endsNow };
   }
 }
 
@@ -378,7 +387,8 @@ export class InsightsService {
     });
   }
 
-  async income(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number): Promise<IncomeSummary> {
+  /** `readValues` reads the days the account's value was recorded since a date (value-history.ts), for the rate its free cash earned. */
+  async income(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number, readValues?: (account: number | undefined, from: string) => Promise<ValuePoint[]>): Promise<IncomeSummary> {
     const client = this.client(environment);
     const [account, positions] = await Promise.all([client.getAccountSummary(), client.getPositions()]);
     // Trailing-12-month income needs a year of history even for shorter windows, and the expected dividends their
@@ -387,9 +397,13 @@ export class InsightsService {
     const fetchWindow = { to: window.to, ...(window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {}) };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
+    // Without a record the cash has no rate; it never fails the summary.
+    const cashDays = readValues && window.endsNow !== false
+      ? await readValues(typeof account.id === "number" ? account.id : undefined, new Date(window.to.getTime() - 365 * 86_400_000).toISOString().slice(0, 10)).catch(() => [])
+      : [];
     return summarizeIncome({
       environment, accountCurrency: account.currency ?? "", window,
-      dividends: dividends.items, transactions: transactions.items, positions,
+      dividends: dividends.items, transactions: transactions.items, positions, account, cashDays,
       truncated: dividends.truncated || transactions.truncated, now: new Date(),
     });
   }

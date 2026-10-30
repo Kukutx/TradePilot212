@@ -136,6 +136,18 @@ describe("window parsing", () => {
     expect(() => parseWindow({ to: "yesterday" }, now)).toThrow(/YYYY-MM-DD/);
   });
 
+  it("says whether the period ends now, a reader's today west of UTC included", () => {
+    // 18:00 at UTC-7 is 01:00 UTC the next day; the reader's today, picked as the last day, still ends now.
+    const now = new Date("2026-10-11T01:00:00Z");
+    expect(parseWindow({ period: "1y" }, now).endsNow).toBe(true);
+    expect(parseWindow({ from: "2026-10-01", to: "2026-10-10" }, now).endsNow).toBe(true);
+    expect(parseWindow({ from: "2026-10-01", to: "2026-10-11" }, now).endsNow).toBe(true);
+    expect(parseWindow({ from: "2026-10-01", to: "2026-10-09" }, now).endsNow).toBe(false);
+    // A time is taken as given.
+    expect(parseWindow({ to: "2026-10-11T00:58:00Z" }, now).endsNow).toBe(true);
+    expect(parseWindow({ to: "2026-10-11T00:50:00Z" }, now).endsNow).toBe(false);
+  });
+
   it("rejects calendar dates that do not exist instead of rolling them into the next month", () => {
     const now = new Date("2026-10-10T12:00:00Z");
     expect(() => parseWindow({ from: "2026-02-30", to: "2026-03-05" }, now)).toThrow(/from must be a real date/);

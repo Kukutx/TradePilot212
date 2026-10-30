@@ -783,8 +783,54 @@ export interface IncomeSummary {
     /** The expected payments in the calendar, soonest first; `on` (YYYY-MM-DD) is about when, and may have passed this month. */
     upcoming?: Array<{ ticker: string; on: string; amount: number }>;
   };
+  /**
+   * The dividends of the holdings held now as a yield: the last 12 months' per share at today's quantity over what they cost and
+   * are worth, and the expected next 12 months' over their cost. Only for a period that ends now (from 2.69).
+   */
+  yields?: IncomeYields;
+  /** Cash not invested: how much, its share of the account, and the interest it earned over the last 12 months (from 2.69). */
+  cash?: IdleCash;
   truncated: boolean;
   timestamp: string;
+}
+
+export interface IncomeYield {
+  /** Dividends actually paid over the last 12 months, whatever was held at each payment. */
+  paid: number;
+  /** The last 12 months' dividends per share at the quantity held now: what the yields are of. */
+  trailing: number;
+  /** Expected over the next 12 months at today's quantity. */
+  forward: number;
+  /** What the holding cost (Trading 212's total cost) and is worth, in the account currency; null when Trading 212 gave none. */
+  cost: number | null;
+  value: number | null;
+  /** Trailing dividends over cost and over value, and expected ones over cost; null without a cost or value. */
+  onCost: number | null;
+  onValue: number | null;
+  forwardOnCost: number | null;
+}
+
+export interface IncomeYields extends IncomeYield {
+  /** Holdings that paid or are expected to pay, highest yield on cost first. */
+  byTicker: Array<IncomeYield & { ticker: string }>;
+}
+
+export interface IdleCash {
+  /** Cash not invested: free to trade, in pies and reserved for orders. */
+  total: number;
+  available: number;
+  inPies: number;
+  reserved: number;
+  /** The total's share of the account's value, or null without one. */
+  share: number | null;
+  /** Interest on cash over the last 12 months, and share-lending income apart. */
+  interest12Months: number;
+  lending12Months: number;
+  /**
+   * The interest on cash as a yearly rate over the average free cash of the days recorded since `since` (at least a
+   * month, four days in five recorded); null until there are enough.
+   */
+  rate: { yearly: number; averageCash: number; since: string; days: number } | null;
 }
 
 export interface MarketStatus {
