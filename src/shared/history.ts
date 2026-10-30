@@ -783,8 +783,43 @@ export interface IncomeSummary {
     /** The expected payments in the calendar, soonest first; `on` (YYYY-MM-DD) is about when, and may have passed this month. */
     upcoming?: Array<{ ticker: string; on: string; amount: number }>;
   };
+  /**
+   * The dividends of the holdings held now as a yield: the last 12 months' payments over what the holdings cost and
+   * are worth, and the expected next 12 months' over their cost. Only for a period that ends now (from 2.69).
+   */
+  yields?: IncomeYields;
+  /** Cash not invested: how much, its share of the account, and the interest it earned over the last 12 months (from 2.69). */
+  cash?: IdleCash;
   truncated: boolean;
   timestamp: string;
+}
+
+export interface IncomeYield {
+  /** Dividends paid over the last 12 months, and expected over the next 12 at today's quantity. */
+  trailing: number;
+  forward: number;
+  /** What the holding cost (Trading 212's total cost) and is worth, in the account currency. */
+  cost: number | null;
+  value: number;
+  /** Trailing dividends over cost and over value, and expected ones over cost; null without a cost or value. */
+  onCost: number | null;
+  onValue: number | null;
+  forwardOnCost: number | null;
+}
+
+export interface IncomeYields extends IncomeYield {
+  /** Holdings that paid or are expected to pay, highest yield on cost first. */
+  byTicker: Array<IncomeYield & { ticker: string }>;
+}
+
+export interface IdleCash {
+  /** Free to trade, not in a pie nor reserved for an order. */
+  available: number;
+  /** Its share of the account's total value, or null without one. */
+  share: number | null;
+  /** Interest paid over the last 12 months, and that as a yearly rate on today's balance (a rough rate: the balance moves). */
+  interest12Months: number;
+  rateOnToday: number | null;
 }
 
 export interface MarketStatus {

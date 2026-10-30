@@ -761,6 +761,12 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .ukTable td:first-child small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
 .ukTable td:last-child { color: var(--tp-muted); white-space: nowrap; }
 .ukTable td:first-child small.ukProblem { color: var(--tp-amber-text); }
+.yieldTable :is(td, th):not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.yieldTable td:first-child strong { display: block; font-weight: 650; }
+.yieldTable td:first-child small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
+.yieldTable td:last-child { color: var(--tp-muted); }
+:is(.yieldPanel, .cashPanel) .metricGrid { margin: 4px 0 12px; }
+@container (min-width: 520px) { .yieldPanel .metricGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .ukMatching .metricGrid { margin: 4px 0 12px; }
 
 .barList { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }

@@ -389,7 +389,7 @@ export class InsightsService {
     const transactions = await this.collect(environment, "transactions", fetchWindow, maxPages);
     return summarizeIncome({
       environment, accountCurrency: account.currency ?? "", window,
-      dividends: dividends.items, transactions: transactions.items, positions,
+      dividends: dividends.items, transactions: transactions.items, positions, account,
       truncated: dividends.truncated || transactions.truncated, now: new Date(),
     });
   }

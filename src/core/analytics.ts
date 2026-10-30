@@ -8,7 +8,9 @@ import type {
   HistoryDividendItem,
   HistoryOrderItem,
   HistoryTransactionItem,
+  IdleCash,
   IncomeSummary,
+  IncomeYields,
   MarketStatus,
   MoneyBucket,
   PerformanceSummary,
@@ -472,6 +474,50 @@ export function forwardDividends(dividends: HistoryDividendItem[], positions: Po
   };
 }
 
+/** How far before now a period may end and still count as ending now, as the gains by instrument take it. */
+const ENDS_NOW_MS = 5 * 60_000;
+const shareOf = (part: number, whole: number | null) => (whole && whole > 0 ? Math.round((part / whole) * 10_000) / 10_000 : null);
+
+/**
+ * The holdings' dividends as yields: each holding's last 12 months' payments (in `trailing`) and expected next 12
+ * months' (`forward`) over Trading 212's total cost of it and its value now. The account's yield on cost needs every
+ * holding's cost; without one it is null.
+ */
+function incomeYields(positions: Position[], trailing: Array<{ ticker: string; amount: number; dividend: boolean }>, forward: NonNullable<IncomeSummary["forwardAnnual"]>): IncomeYields {
+  const paid = new Map<string, number>();
+  for (const item of trailing) if (item.dividend) paid.set(item.ticker, (paid.get(item.ticker) ?? 0) + item.amount);
+  const expected = new Map(forward.byTicker.map((item) => [item.key, item.amount]));
+  const rows: IncomeYields["byTicker"] = [];
+  let costs: number | null = 0, value = 0, received = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    if (!ticker || !(position.quantity > 0)) continue;
+    const totalCost = (position.walletImpact as { totalCost?: unknown } | undefined)?.totalCost;
+    const cost = typeof totalCost === "number" && Number.isFinite(totalCost) && totalCost > 0 ? totalCost : null;
+    const worth = positionValue(position);
+    const row = { trailing: round(paid.get(ticker) ?? 0), forward: round(expected.get(ticker) ?? 0) };
+    costs = costs === null || cost === null ? null : costs + cost;
+    value += worth;
+    received += row.trailing;
+    if (row.trailing > 0 || row.forward > 0) {
+      rows.push({ ticker, ...row, cost: cost === null ? null : round(cost), value: round(worth), onCost: shareOf(row.trailing, cost), onValue: shareOf(row.trailing, worth), forwardOnCost: shareOf(row.forward, cost) });
+    }
+  }
+  rows.sort((a, b) => (b.onCost ?? -1) - (a.onCost ?? -1) || b.trailing - a.trailing);
+  return {
+    trailing: round(received), forward: forward.total, cost: costs === null ? null : round(costs), value: round(value),
+    onCost: shareOf(received, costs), onValue: shareOf(received, value), forwardOnCost: shareOf(forward.total, costs), byTicker: rows,
+  };
+}
+
+/** Cash free to trade, its share of the account, and the last 12 months' interest as a rate on today's balance. */
+function idleCash(account: AccountSummary, trailing: Array<{ amount: number; dividend: boolean }>): { cash?: IdleCash } {
+  const available = account.cash?.availableToTrade;
+  if (available === undefined || !Number.isFinite(available)) return {};
+  const interest = round(trailing.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0));
+  return { cash: { available: round(available), share: shareOf(available, account.totalValue ?? null), interest12Months: interest, rateOnToday: shareOf(interest, available) } };
+}
+
 export function summarizeIncome(input: {
   environment: TradingEnvironment;
   accountCurrency: string;
@@ -480,6 +526,8 @@ export function summarizeIncome(input: {
   window: HistoryWindow;
   truncated: boolean;
   positions?: Position[];
+  /** The account's summary, for the cash not invested. */
+  account?: AccountSummary;
   /** The clock, for whether the period ends this month and so has a dividend calendar. */
   now?: Date;
 }): IncomeSummary {
@@ -494,6 +542,9 @@ export function summarizeIncome(input: {
   const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input.window.to }));
   const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
   const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  const now = input.now ?? input.window.to;
+  const forwardAnnual = input.positions ? forwardDividends(input.dividends, input.positions, input.window.to, now) : undefined;
+  const endsNow = input.window.to.getTime() >= now.getTime() - ENDS_NOW_MS;
   return {
     kind: "income",
     environment: input.environment,
@@ -505,7 +556,10 @@ export function summarizeIncome(input: {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...(input.positions ? { forwardAnnual: forwardDividends(input.dividends, input.positions, input.window.to, input.now ?? input.window.to) } : {}),
+    ...(forwardAnnual ? { forwardAnnual } : {}),
+    // Today's holdings and cash only go with a year that ends now.
+    ...(input.positions && forwardAnnual && endsNow ? { yields: incomeYields(input.positions, trailing, forwardAnnual) } : {}),
+    ...(input.account && endsNow ? idleCash(input.account, trailing) : {}),
     truncated: input.truncated,
     timestamp: new Date().toISOString(),
   };

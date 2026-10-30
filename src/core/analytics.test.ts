@@ -330,6 +330,31 @@ describe("income summary", () => {
     expect(result.byMonth).toEqual([{ key: "2026-02", amount: 3 }]);
     expect(result.trailing12Months).toBe(6);
   });
+
+  it("gives the holdings' dividends as yields on cost and on value, and the cash not invested with its interest", () => {
+    const held = (ticker: string, value: number, cost?: number): Position => ({ ...position(ticker, value), walletImpact: { currentValue: value, ...(cost === undefined ? {} : { totalCost: cost }) } });
+    const now = new Date("2026-10-01T00:00:00Z");
+    const input = {
+      environment: "demo" as const, accountCurrency: "EUR", truncated: false, now,
+      dividends: [
+        { ticker: "A", amount: 10, quantity: 1, paidOn: "2026-02-10T00:00:00Z" }, { ticker: "A", amount: 10, quantity: 1, paidOn: "2026-08-10T00:00:00Z" },
+        // Sold since: not one of the holdings' yields.
+        { ticker: "GONE", amount: 5, quantity: 1, paidOn: "2026-03-10T00:00:00Z" },
+      ],
+      transactions: [{ type: "INTEREST_ON_FREE_CASH", amount: 6, dateTime: "2026-05-01T00:00:00Z" }],
+      positions: [held("A", 500, 400), held("B", 500, 600)],
+      account: { currency: "EUR", totalValue: 1300, cash: { availableToTrade: 300 } },
+    };
+    const result = summarizeIncome({ ...input, window: { from: new Date("2026-01-01T00:00:00Z"), to: now } });
+    expect(result.yields).toMatchObject({ trailing: 20, cost: 1000, value: 1000, onCost: 0.02, onValue: 0.02 });
+    expect(result.yields?.byTicker).toEqual([expect.objectContaining({ ticker: "A", trailing: 20, cost: 400, value: 500, onCost: 0.05, onValue: 0.04 })]);
+    expect(result.cash).toEqual({ available: 300, share: 0.2308, interest12Months: 6, rateOnToday: 0.02 });
+    // A holding without a cost leaves the account's yield on cost out; a period that ended earlier has neither.
+    expect(summarizeIncome({ ...input, positions: [held("A", 500, 400), held("B", 500)], window: { to: now } }).yields).toMatchObject({ cost: null, onCost: null, onValue: 0.02 });
+    const earlier = summarizeIncome({ ...input, window: { to: new Date("2026-06-30T23:59:59Z") } });
+    expect(earlier.yields).toBeUndefined();
+    expect(earlier.cash).toBeUndefined();
+  });
 });
 
 describe("market status", () => {

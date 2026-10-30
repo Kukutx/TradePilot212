@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.69.0
+
+- Dividend yield. The Income tab shows the last 12 months' dividends of what you hold now as a yield on cost (over Trading 212's total cost of the holdings) and on value now, and the next 12 months' expected dividends on cost; per holding, each that paid or is expected to pay, highest yield on cost first, with what it paid and is expected to pay. Dividends of instruments sold since are left out, and a holding without a total cost leaves the account's yield on cost out rather than guessing it.
+- Cash not invested. Beside it: the cash free to trade (not in pies nor reserved for orders), its share of the account, the last 12 months' interest, and that interest over today's balance as a rough yearly rate. `get_income_summary` returns both as `yields` and `cash`, and its text names them. Both need a period that ends now, as only today's holdings and cash are known.
+
 ## 2.68.0
 
 - Your own days. Beside the period switch on the Performance, Income, Journal, Trades and Cash tabs, a calendar button opens two date boxes: choose a first and a last day and the tab reads just those days, as the tools already could with `from` and `to`. The range then holds on every tab with the switch until a period is chosen again or **Back to the period** is pressed, and the button names it ("Mar 1 – Apr 15, 2026"). The days are checked before anything is read (both given, the first not after the last, the last not after today), both are included, and they run midnight to midnight UTC as the periods do. A window with a first day that the host read and that is none of the periods shows on the same button, and is read again with its own bounds. The last day may be the reader's own today, a day ahead of UTC or behind it.

@@ -35516,7 +35516,7 @@ var TOOL_OUTPUT = {
   get_automation_overview: payload("automation", automation),
   get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
-  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
+  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o yields:o cash:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_market_hours: payload("market_status", "environment:s ticker:s exchange:s session:s isOpen:b nextOpen:s nextClose:s checkedAt:s"),
   get_order_status: payload("order_status", "environment:s orderId:s state:s order:o fills:a timestamp:s"),
@@ -38508,6 +38508,46 @@ function forwardDividends(dividends, positions, to, now = to) {
     upcoming: upcoming.map(({ ticker, at, amount: amount2 }) => ({ ticker, on: new Date(at).toISOString().slice(0, 10), amount: amount2 }))
   };
 }
+var ENDS_NOW_MS = 5 * 6e4;
+var shareOf = (part, whole) => whole && whole > 0 ? Math.round(part / whole * 1e4) / 1e4 : null;
+function incomeYields(positions, trailing, forward) {
+  const paid = /* @__PURE__ */ new Map();
+  for (const item of trailing) if (item.dividend) paid.set(item.ticker, (paid.get(item.ticker) ?? 0) + item.amount);
+  const expected = new Map(forward.byTicker.map((item) => [item.key, item.amount]));
+  const rows2 = [];
+  let costs = 0, value = 0, received = 0;
+  for (const position of positions) {
+    const ticker = position.instrument?.ticker;
+    if (!ticker || !(position.quantity > 0)) continue;
+    const totalCost = position.walletImpact?.totalCost;
+    const cost = typeof totalCost === "number" && Number.isFinite(totalCost) && totalCost > 0 ? totalCost : null;
+    const worth = positionValue(position);
+    const row = { trailing: round9(paid.get(ticker) ?? 0), forward: round9(expected.get(ticker) ?? 0) };
+    costs = costs === null || cost === null ? null : costs + cost;
+    value += worth;
+    received += row.trailing;
+    if (row.trailing > 0 || row.forward > 0) {
+      rows2.push({ ticker, ...row, cost: cost === null ? null : round9(cost), value: round9(worth), onCost: shareOf(row.trailing, cost), onValue: shareOf(row.trailing, worth), forwardOnCost: shareOf(row.forward, cost) });
+    }
+  }
+  rows2.sort((a, b) => (b.onCost ?? -1) - (a.onCost ?? -1) || b.trailing - a.trailing);
+  return {
+    trailing: round9(received),
+    forward: forward.total,
+    cost: costs === null ? null : round9(costs),
+    value: round9(value),
+    onCost: shareOf(received, costs),
+    onValue: shareOf(received, value),
+    forwardOnCost: shareOf(forward.total, costs),
+    byTicker: rows2
+  };
+}
+function idleCash(account, trailing) {
+  const available = account.cash?.availableToTrade;
+  if (available === void 0 || !Number.isFinite(available)) return {};
+  const interest = round9(trailing.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0));
+  return { cash: { available: round9(available), share: shareOf(available, account.totalValue ?? null), interest12Months: interest, rateOnToday: shareOf(interest, available) } };
+}
 function summarizeIncome(input2) {
   const events = [
     ...input2.dividends.map((item) => ({ at: item.paidOn, amount: item.amount ?? 0, ticker: item.ticker ?? item.instrument?.ticker ?? "?", dividend: true })),
@@ -38518,6 +38558,9 @@ function summarizeIncome(input2) {
   const trailing = events.filter((item) => inWindow(item.at, { from: yearAgo, to: input2.window.to }));
   const dividends = windowed.filter((item) => item.dividend).reduce((sum, item) => sum + item.amount, 0);
   const interest = windowed.filter((item) => !item.dividend).reduce((sum, item) => sum + item.amount, 0);
+  const now = input2.now ?? input2.window.to;
+  const forwardAnnual = input2.positions ? forwardDividends(input2.dividends, input2.positions, input2.window.to, now) : void 0;
+  const endsNow = input2.window.to.getTime() >= now.getTime() - ENDS_NOW_MS;
   return {
     kind: "income",
     environment: input2.environment,
@@ -38529,7 +38572,10 @@ function summarizeIncome(input2) {
     byMonth: sumBy(windowed, (item) => (item.at ?? "").slice(0, 7), (item) => item.amount).sort((a, b) => a.key.localeCompare(b.key)),
     byTicker: sumBy(windowed.filter((item) => item.dividend), (item) => item.ticker, (item) => item.amount),
     trailing12Months: round9(trailing.reduce((sum, item) => sum + item.amount, 0)),
-    ...input2.positions ? { forwardAnnual: forwardDividends(input2.dividends, input2.positions, input2.window.to, input2.now ?? input2.window.to) } : {},
+    ...forwardAnnual ? { forwardAnnual } : {},
+    // Today's holdings and cash only go with a year that ends now.
+    ...input2.positions && forwardAnnual && endsNow ? { yields: incomeYields(input2.positions, trailing, forwardAnnual) } : {},
+    ...input2.account && endsNow ? idleCash(input2.account, trailing) : {},
     truncated: input2.truncated,
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -39205,6 +39251,7 @@ var InsightsService = class {
       dividends: dividends.items,
       transactions: transactions.items,
       positions,
+      account,
       truncated: dividends.truncated || transactions.truncated,
       now: /* @__PURE__ */ new Date()
     });
@@ -40424,7 +40471,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.68.0"
+  version: "2.69.0"
 };
 
 // src/shared/holding-risk.ts
@@ -43362,7 +43409,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_income_summary",
     {
       title: "Dividend and Interest Income",
-      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. Read-only.",
+      description: "Summarize dividend and cash-interest income by month and by ticker, plus trailing-12-month income, and the dividends expected from the current holdings: while the period ends this month, a calendar of this month and the next 11 (paid so far and expected) and each expected payment with its approximate date, from each holding's usual spacing between payments. For a period that ends now it also gives the holdings' dividend yields (the last 12 months' over Trading 212's total cost and over value now, expected over cost, per holding) and the cash not invested (free to trade, share of the account, 12 months' interest and that as a rough rate on today's balance). Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault, ...windowSchema }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -43370,7 +43417,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     async ({ environment, period, from, to, maxPages }) => {
       try {
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.income(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), maxPages) };
-        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}`);
+        return result(data, `Income ${data.total} ${data.accountCurrency} in the selected period; trailing 12 months ${data.trailing12Months}.${data.forwardAnnual ? ` Expected next 12 months from current holdings: ${data.forwardAnnual.total}${data.forwardAnnual.yieldOnValue === null ? "" : ` (${(data.forwardAnnual.yieldOnValue * 100).toFixed(2)}% of invested value)`}.${data.forwardAnnual.upcoming?.[0] ? ` Next expected payment: ${data.forwardAnnual.upcoming[0].ticker} ${data.forwardAnnual.upcoming[0].on < data.timestamp.slice(0, 10) ? `due ${data.forwardAnnual.upcoming[0].on}, not paid yet` : `about ${data.forwardAnnual.upcoming[0].on}`} (${data.forwardAnnual.upcoming[0].amount}).` : ""}` : ""}${data.yields?.onCost != null ? ` Holdings' dividends over the last 12 months: ${(data.yields.onCost * 100).toFixed(2)}% on cost, ${data.yields.onValue === null ? "-" : `${(data.yields.onValue * 100).toFixed(2)}%`} on value.` : ""}${data.cash ? ` Cash free to trade ${data.cash.available}${data.cash.share === null ? "" : ` (${(data.cash.share * 100).toFixed(1)}% of the account)`}, interest over 12 months ${data.cash.interest12Months}.` : ""}`);
       } catch (error62) {
         return toolError(error62);
       }
