@@ -172,7 +172,7 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
 
       <section className="dataPanel" aria-label={t("linksTitle")}>
         <div className="pieHeader"><h2>{t("linksTitle")}</h2></div>
-        {data.links.length === 0 ? <div className="emptyState compact">{t("noLinks")}</div> : (
+        {data.links.length === 0 ? <div className="emptyState compact">{data.settings.protectiveLinking ? t("noLinks") : t("noLinksOff")}</div> : (
           <ul className="automationList">
             {data.links.map((link) => (
               <li key={link.id}>

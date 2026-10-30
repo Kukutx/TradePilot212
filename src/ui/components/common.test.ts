@@ -8,7 +8,10 @@ const noop = () => {};
 describe("an empty panel", () => {
   it("keeps the panel's title and offers the next step as a button", () => {
     const html = renderToStaticMarkup(createElement(EmptyState, { title: "Income by month", text: "No dividends.", action: { label: "Show all time", onClick: noop } }));
-    expect(html).toBe('<h2 class="panelTitle">Income by month</h2><div class="emptyState compact withAction"><span>No dividends.</span><button type="button" class="linkButton">Show all time</button></div>');
+    expect(html).toBe('<span class="emptyPanelTitle">Income by month</span><div class="emptyState compact withAction"><span>No dividends.</span><button type="button" class="linkButton">Show all time</button></div>');
+    // While a load runs the step is marked unavailable, not disabled, so it keeps the focus.
+    const busy = renderToStaticMarkup(createElement(EmptyState, { text: "No dividends.", action: { label: "Show all time", onClick: noop, disabled: true } }));
+    expect(busy).toContain('<button type="button" class="linkButton" aria-disabled="true">');
   });
 
   it("is a sentence alone when there is no next step", () => {

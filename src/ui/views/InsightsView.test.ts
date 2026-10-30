@@ -47,6 +47,15 @@ describe("the performance view's benchmark", () => {
     expect(render({ ...base, benchmarkChoice: "VUSAl_EQ", benchmark: { ticker: "VUSAl_EQ", shortName: "VUSA", currencyCode: "EUR", source: "stooq", return: 0.3, series: [] } }, "zh-CN")).toContain("跑输 VUSA 5.6 个百分点");
   });
 
+  it("keeps an empty panel's title and says whether nothing was sold or the sales broke even", () => {
+    const html = render(base);
+    expect(html).toContain('<span class="emptyPanelTitle">Costs by type</span>');
+    expect(html).toContain("The sales in this period broke even");
+    expect(render({ ...base, trades: { ...base.trades, sells: 0 } })).toContain("Nothing was sold in this period");
+    // All time is already shown: no button to show it.
+    expect(html).not.toContain("Show all time");
+  });
+
   it("says why there are no gains by instrument", () => {
     expect(render({ ...base, attributionMissing: "period", attributionProblem: "x" })).toContain("need a period that ends now");
     expect(render({ ...base, attributionMissing: "history", attributionProblem: "x" })).toContain("only the most recent was read");
@@ -166,7 +175,7 @@ describe("all time, offered where a period is empty", () => {
   it("is offered for a preset shorter than all time, with the switch's own busy state", () => {
     let chosen = "";
     const action = allTimeAction("1m", (next) => { chosen = next; }, t, true);
-    expect(action).toMatchObject({ label: "Show all time", disabled: true });
+    expect(action).toMatchObject({ label: "Show all time", disabled: true, focus: '[role="radiogroup"][aria-label="Period"] [role="radio"]:last-child' });
     action?.onClick();
     expect(chosen).toBe("all");
     expect(allTimeAction("all", () => {}, t, false)).toBeUndefined();

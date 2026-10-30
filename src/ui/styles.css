@@ -65,7 +65,7 @@ html, body, #root { margin: 0; width: 100%; min-width: 0; }
 body { background: transparent; overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-button:disabled, .segmented button[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+button:disabled, .segmented button[aria-disabled="true"], .linkButton[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
 
 .appShell {
@@ -1589,6 +1589,7 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .cashMark.in { background: var(--tp-green-soft); color: var(--tp-green); }
 .cashMark.out { background: var(--tp-red-soft); color: var(--tp-red); }
 .historyFilter { flex: 0 1 240px; min-width: 0; }
+.emptyPanelTitle { display: block; margin-bottom: 12px; font-size: 15px; font-weight: 730; letter-spacing: -.02em; }
 .historyFilter input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
 .historyFilter input:hover { border-color: var(--tp-border-strong); }
 /* A search box's clear button, drawn by the project in every browser; the browser's own is hidden. */

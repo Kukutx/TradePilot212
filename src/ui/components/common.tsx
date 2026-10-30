@@ -106,7 +106,8 @@ export function SearchField({ value, onValue, clearLabel, inputRef, onKeyDown, .
     <span className={`searchField${value ? " filled" : ""}`}>
       <input {...input} ref={inputRef} type="search" value={value} onChange={(event) => onValue(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && value) { event.preventDefault(); event.stopPropagation(); onValue(""); return; }
+          // Escape that cancels a composition (a Chinese input method) leaves what is typed alone.
+          if (event.key === "Escape" && value && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); onValue(""); return; }
           onKeyDown?.(event);
         }} />
       {value && (
@@ -117,8 +118,21 @@ export function SearchField({ value, onValue, clearLabel, inputRef, onKeyDown, .
   );
 }
 
-/** A next step offered where there is nothing to show. */
-export interface EmptyAction { label: string; onClick: () => void; disabled?: boolean }
+/**
+ * A next step offered where there is nothing to show. It takes the empty state away, so the focus moves first to
+ * `focus` (a selector within the view: the control the step changed) or else to the panel's heading.
+ */
+export interface EmptyAction { label: string; onClick: () => void; disabled?: boolean; focus?: string }
+
+function runEmptyAction(action: EmptyAction, button: HTMLElement): void {
+  if (action.disabled) return;
+  const scope = button.closest("main") ?? document;
+  const heading = button.closest("section")?.querySelector<HTMLElement>("h2, h3");
+  const next = (action.focus ? scope.querySelector<HTMLElement>(action.focus) : null) ?? heading;
+  if (next === heading && heading && !heading.hasAttribute("tabindex")) heading.tabIndex = -1;
+  action.onClick();
+  next?.focus();
+}
 
 /**
  * Nothing to show: what is missing, in a sentence, and the next step as a button where there is one (show a longer
@@ -128,10 +142,12 @@ export function EmptyState({ text, title, action }: { text: string; title?: stri
   const body = (
     <div className={`emptyState compact${action ? " withAction" : ""}`}>
       <span>{text}</span>
-      {action && <button type="button" className="linkButton" disabled={action.disabled} onClick={action.onClick}>{action.label}</button>}
+      {/* Unavailable while a load runs, but still focusable (aria-disabled), as the period switch is. */}
+      {action && <button type="button" className="linkButton" aria-disabled={action.disabled || undefined} onClick={(event) => runEmptyAction(action, event.currentTarget)}>{action.label}</button>}
     </div>
   );
-  return title ? <><h2 className="panelTitle">{title}</h2>{body}</> : body;
+  // Titled as the chart it stands in for (a caption, not a heading), so the page's outline is the same either way.
+  return title ? <><span className="emptyPanelTitle">{title}</span>{body}</> : body;
 }
 
 /** Grey blocks in the shape of the view that is loading. */

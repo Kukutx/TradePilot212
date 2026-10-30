@@ -162,8 +162,8 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
       </section>
       <section className="dataPanel">
         <div className="pieHeader"><h2>{t("historyFillsTitle")}</h2>{data.fills.length > 0 && <FilterBox value={filter} onChange={setFilter} label={t("historyFilterInstrument")} clearLabel={t("historyClearFilter")} />}</div>
-        {fills.length === 0 ? (filter
-          ? <EmptyState text={t("historyNoMatch")} action={{ label: t("historyClearFilter"), onClick: () => setFilter("") }} />
+        {fills.length === 0 ? (filter && data.fills.length > 0
+          ? <EmptyState text={t("historyNoMatch")} action={{ label: t("historyClearFilter"), onClick: () => setFilter(""), focus: ".historyFilter input" }} />
           : <EmptyState text={t("historyNoFills")} action={allTimeAction(period, onPeriod, t, busy)} />) : byDay(fills, (item) => item.filledAt).map((group) => (
           <div key={group.day} className="historyDay">
             <h3 className="historyDayTitle">{group.day ? dayLabel(group.day, locale, { weekday: true }) : "—"}</h3>
