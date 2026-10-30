@@ -2,6 +2,7 @@
 // terminals) show the model only a tool's text, so every result carries the facts needed to answer
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
+import type { ExportSummary } from "./export-csv.js";
 import type { HoldingDetail } from "../shared/holding.js";
 import { equalRiskTargets, PARITY_MIN_VOLATILITY } from "../shared/holding-risk.js";
 import { holdingPositionHistory } from "../shared/position-history.js";
@@ -866,12 +867,32 @@ function policy(data: { environment: TradingEnvironment; policy: TradingPolicy; 
   ];
 }
 
-function exports(data: { requested?: { reportId?: number | string }; reports?: ExportReport[] }): string[] {
+function exports(data: { requested?: { reportId?: number | string }; reports?: ExportReport[]; summary?: ExportSummary; records?: Array<Record<string, string>>; recordCount?: number }): string[] {
+  if (data.summary) return [
+    ...exportSummary(data.summary),
+    ...(data.records?.length ? [`Newest ${data.records.length} of ${data.recordCount ?? data.records.length} rows:`, ...data.records.map((record) =>
+      [record.Time, record.Action, record.Ticker, record["No. of shares"], record.Total !== undefined ? `${record.Total} ${record["Currency (Total)"] ?? ""}`.trim() : undefined].filter(Boolean).join(" · "))] : []),
+  ];
   return rows(data.reports ?? [], (report) => {
     const record = report as unknown as Record<string, unknown>;
     return `#${record.reportId ?? "?"} ${record.status ?? ""} ${day(record.timeFrom as string | undefined)} to ${day(record.timeTo as string | undefined)}${record.downloadLink ? `: ${record.downloadLink}` : ""}`;
   });
 }
+
+/** What a CSV report adds up to, per currency. */
+function exportSummary(summary: ExportSummary): string[] {
+  const money = (totals: Record<string, number>) => Object.entries(totals).map(([currency, value]) => `${round2(value)} ${currency}`).join(", ");
+  const some = (totals: Record<string, number>) => Object.keys(totals).length > 0;
+  return [
+    ...summary.actions.map((action) => `${action.action}: ${action.count}${some(action.totals) ? `, total ${money(action.totals)}` : ""}`),
+    ...summary.charges.map((charge) => `${charge.name}: ${money(charge.totals)}`),
+    ...(some(summary.interest) ? [`Interest: ${money(summary.interest)}`] : []),
+    ...(some(summary.dividends) ? [`Dividends (net of withholding): ${money(summary.dividends)}`] : []),
+    ...(some(summary.result) ? [`Realised result: ${money(summary.result)}`] : []),
+  ];
+}
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** Extra lines for a tool payload, or nothing when the summary already says it all. */
 export function describePayload(data: unknown): string {

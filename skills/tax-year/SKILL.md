@@ -11,7 +11,7 @@ description: Gather a Trading 212 tax year with TradePilot - sales with realised
    With no year named, leave `year` out: the tool takes the latest tax year that has started.
 2. Call `get_tax_year_summary` with `environment`, `year`, `yearStart` and `timeZone`. If `truncated` is true, rerun with a larger `maxPages` (up to 40) before reporting.
 3. For the detail behind a figure, call `get_trade_history` with `from` and `to` set to the tool's `period` (each sale with its realised P/L and costs), and `get_cash_history` for each dividend and interest payment.
-4. For the documents a return is filed from, offer `manage_history_export` to request Trading 212's CSV for the same period, and point the user to the annual statement in the Trading 212 app.
+4. For the charges and withholding a return may need, use `manage_history_export`: `request` one for the same period (writes enabled; one already made for it is given instead) and `read` it by its `reportId` a minute later: its withholding tax, stamp duty, French transaction tax and currency conversion fees, and its interest and dividends (net of withholding), per currency. Point the user to the annual statement in the Trading 212 app as the document a return is filed from.
 
 ## Report shape
 
