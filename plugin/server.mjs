@@ -2511,12 +2511,12 @@ var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   inst._zod.def = def;
   (_a3 = inst._zod).onattach ?? (_a3.onattach = []);
 });
-var _whenHasSize = (payload) => {
-  const val = payload.value;
+var _whenHasSize = (payload2) => {
+  const val = payload2.value;
   return !nullish(val) && val.size !== void 0;
 };
-var _whenHasLength = (payload) => {
-  const val = payload.value;
+var _whenHasLength = (payload2) => {
+  const val = payload2.value;
   return !nullish(val) && val.length !== void 0;
 };
 var numericOriginMap = {
@@ -2527,15 +2527,15 @@ var numericOriginMap = {
 var $ZodCheckLessThan = /* @__PURE__ */ $constructor("$ZodCheckLessThan", (inst, def) => {
   $ZodCheck.init(inst, def);
   const origin = numericOriginMap[typeof def.value];
-  inst._zod.check = (payload) => {
-    if (def.inclusive ? payload.value <= def.value : payload.value < def.value) {
+  inst._zod.check = (payload2) => {
+    if (def.inclusive ? payload2.value <= def.value : payload2.value < def.value) {
       return;
     }
-    payload.issues.push({
-      origin: numericOriginMap[typeof payload.value] ?? origin,
+    payload2.issues.push({
+      origin: numericOriginMap[typeof payload2.value] ?? origin,
       code: "too_big",
       maximum: typeof def.value === "object" ? def.value.getTime() : def.value,
-      input: payload.value,
+      input: payload2.value,
       inclusive: def.inclusive,
       inst,
       continue: !def.abort
@@ -2545,15 +2545,15 @@ var $ZodCheckLessThan = /* @__PURE__ */ $constructor("$ZodCheckLessThan", (inst,
 var $ZodCheckGreaterThan = /* @__PURE__ */ $constructor("$ZodCheckGreaterThan", (inst, def) => {
   $ZodCheck.init(inst, def);
   const origin = numericOriginMap[typeof def.value];
-  inst._zod.check = (payload) => {
-    if (def.inclusive ? payload.value >= def.value : payload.value > def.value) {
+  inst._zod.check = (payload2) => {
+    if (def.inclusive ? payload2.value >= def.value : payload2.value > def.value) {
       return;
     }
-    payload.issues.push({
-      origin: numericOriginMap[typeof payload.value] ?? origin,
+    payload2.issues.push({
+      origin: numericOriginMap[typeof payload2.value] ?? origin,
       code: "too_small",
       minimum: typeof def.value === "object" ? def.value.getTime() : def.value,
-      input: payload.value,
+      input: payload2.value,
       inclusive: def.inclusive,
       inst,
       continue: !def.abort
@@ -2562,20 +2562,20 @@ var $ZodCheckGreaterThan = /* @__PURE__ */ $constructor("$ZodCheckGreaterThan", 
 });
 var $ZodCheckMultipleOf = /* @__PURE__ */ $constructor("$ZodCheckMultipleOf", (inst, def) => {
   $ZodCheck.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (typeof payload.value !== typeof def.value)
+  inst._zod.check = (payload2) => {
+    if (typeof payload2.value !== typeof def.value)
       throw new Error("Cannot mix number and bigint in multiple_of check.");
-    const isMultiple = typeof payload.value === "bigint" ? (
+    const isMultiple = typeof payload2.value === "bigint" ? (
       // `value % 0n` throws, and nothing is a multiple of zero — the number branch already fails this way via NaN
-      def.value !== BigInt(0) && payload.value % def.value === BigInt(0)
-    ) : floatSafeRemainder(payload.value, def.value) === 0;
+      def.value !== BigInt(0) && payload2.value % def.value === BigInt(0)
+    ) : floatSafeRemainder(payload2.value, def.value) === 0;
     if (isMultiple)
       return;
-    payload.issues.push({
-      origin: typeof payload.value,
+    payload2.issues.push({
+      origin: typeof payload2.value,
       code: "not_multiple_of",
       divisor: def.value,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -2587,11 +2587,11 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
   const isInt = def.format?.includes("int");
   const origin = isInt ? "int" : "number";
   const [minimum, maximum] = NUMBER_FORMAT_RANGES[def.format];
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     if (isInt) {
       if (!Number.isInteger(input2)) {
-        payload.issues.push({
+        payload2.issues.push({
           expected: origin,
           format: def.format,
           code: "invalid_type",
@@ -2603,7 +2603,7 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
       }
       if (!Number.isSafeInteger(input2)) {
         if (input2 > 0) {
-          payload.issues.push({
+          payload2.issues.push({
             input: input2,
             code: "too_big",
             maximum: Number.MAX_SAFE_INTEGER,
@@ -2614,7 +2614,7 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
             continue: !def.abort
           });
         } else {
-          payload.issues.push({
+          payload2.issues.push({
             input: input2,
             code: "too_small",
             minimum: Number.MIN_SAFE_INTEGER,
@@ -2629,7 +2629,7 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
       }
     }
     if (input2 < minimum) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "number",
         input: input2,
         code: "too_small",
@@ -2640,7 +2640,7 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
       });
     }
     if (input2 > maximum) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "number",
         input: input2,
         code: "too_big",
@@ -2655,10 +2655,10 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
 var $ZodCheckBigIntFormat = /* @__PURE__ */ $constructor("$ZodCheckBigIntFormat", (inst, def) => {
   $ZodCheck.init(inst, def);
   const [minimum, maximum] = BIGINT_FORMAT_RANGES[def.format];
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     if (input2 < minimum) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "bigint",
         input: input2,
         code: "too_small",
@@ -2669,7 +2669,7 @@ var $ZodCheckBigIntFormat = /* @__PURE__ */ $constructor("$ZodCheckBigIntFormat"
       });
     }
     if (input2 > maximum) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "bigint",
         input: input2,
         code: "too_big",
@@ -2685,12 +2685,12 @@ var $ZodCheckMaxSize = /* @__PURE__ */ $constructor("$ZodCheckMaxSize", (inst, d
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasSize);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const size = input2.size;
     if (size <= def.maximum)
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: getSizableOrigin(input2),
       code: "too_big",
       maximum: def.maximum,
@@ -2705,12 +2705,12 @@ var $ZodCheckMinSize = /* @__PURE__ */ $constructor("$ZodCheckMinSize", (inst, d
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasSize);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const size = input2.size;
     if (size >= def.minimum)
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: getSizableOrigin(input2),
       code: "too_small",
       minimum: def.minimum,
@@ -2725,18 +2725,18 @@ var $ZodCheckSizeEquals = /* @__PURE__ */ $constructor("$ZodCheckSizeEquals", (i
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasSize);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const size = input2.size;
     if (size === def.size)
       return;
     const tooBig = size > def.size;
-    payload.issues.push({
+    payload2.issues.push({
       origin: getSizableOrigin(input2),
       ...tooBig ? { code: "too_big", maximum: def.size } : { code: "too_small", minimum: def.size },
       inclusive: true,
       exact: true,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -2746,14 +2746,14 @@ var $ZodCheckMaxLength = /* @__PURE__ */ $constructor("$ZodCheckMaxLength", (ins
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasLength);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const units = input2.length;
     const length = typeof input2 === "string" && units > def.maximum ? codePointLength(input2) : units;
     if (length <= def.maximum)
       return;
     const origin = getLengthableOrigin(input2);
-    payload.issues.push({
+    payload2.issues.push({
       origin,
       code: "too_big",
       maximum: def.maximum,
@@ -2768,14 +2768,14 @@ var $ZodCheckMinLength = /* @__PURE__ */ $constructor("$ZodCheckMinLength", (ins
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasLength);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const units = input2.length;
     const length = typeof input2 === "string" && units >= def.minimum && units < def.minimum * 2 ? codePointLength(input2) : units;
     if (length >= def.minimum)
       return;
     const origin = getLengthableOrigin(input2);
-    payload.issues.push({
+    payload2.issues.push({
       origin,
       code: "too_small",
       minimum: def.minimum,
@@ -2790,20 +2790,20 @@ var $ZodCheckLengthEquals = /* @__PURE__ */ $constructor("$ZodCheckLengthEquals"
   var _a3;
   $ZodCheck.init(inst, def);
   (_a3 = inst._zod.def).when ?? (_a3.when = _whenHasLength);
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const units = input2.length;
     const length = typeof input2 === "string" && units >= def.length && units <= def.length * 2 ? codePointLength(input2) : units;
     if (length === def.length)
       return;
     const origin = getLengthableOrigin(input2);
     const tooBig = length > def.length;
-    payload.issues.push({
+    payload2.issues.push({
       origin,
       ...tooBig ? { code: "too_big", maximum: def.length } : { code: "too_small", minimum: def.length },
       inclusive: true,
       exact: true,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -2813,15 +2813,15 @@ var $ZodCheckStringFormat = /* @__PURE__ */ $constructor("$ZodCheckStringFormat"
   var _a3, _b;
   $ZodCheck.init(inst, def);
   if (def.pattern)
-    (_a3 = inst._zod).check ?? (_a3.check = (payload) => {
+    (_a3 = inst._zod).check ?? (_a3.check = (payload2) => {
       def.pattern.lastIndex = 0;
-      if (def.pattern.test(payload.value))
+      if (def.pattern.test(payload2.value))
         return;
-      payload.issues.push({
+      payload2.issues.push({
         origin: "string",
         code: "invalid_format",
         format: def.format,
-        input: payload.value,
+        input: payload2.value,
         ...def.pattern ? { pattern: def.pattern.toString() } : {},
         inst,
         continue: !def.abort
@@ -2833,15 +2833,15 @@ var $ZodCheckStringFormat = /* @__PURE__ */ $constructor("$ZodCheckStringFormat"
 });
 var $ZodCheckRegex = /* @__PURE__ */ $constructor("$ZodCheckRegex", (inst, def) => {
   $ZodCheckStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
+  inst._zod.check = (payload2) => {
     def.pattern.lastIndex = 0;
-    if (def.pattern.test(payload.value))
+    if (def.pattern.test(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: "string",
       code: "invalid_format",
       format: "regex",
-      input: payload.value,
+      input: payload2.value,
       pattern: def.pattern.toString(),
       inst,
       continue: !def.abort
@@ -2861,15 +2861,15 @@ var $ZodCheckIncludes = /* @__PURE__ */ $constructor("$ZodCheckIncludes", (inst,
   const escapedRegex = escapeRegex(def.includes);
   const pattern = new RegExp(typeof def.position === "number" ? `^.{${def.position},}${escapedRegex}` : escapedRegex);
   def.pattern = pattern;
-  inst._zod.check = (payload) => {
-    if (payload.value.includes(def.includes, def.position))
+  inst._zod.check = (payload2) => {
+    if (payload2.value.includes(def.includes, def.position))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: "string",
       code: "invalid_format",
       format: "includes",
       includes: def.includes,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -2879,15 +2879,15 @@ var $ZodCheckStartsWith = /* @__PURE__ */ $constructor("$ZodCheckStartsWith", (i
   $ZodCheck.init(inst, def);
   const pattern = new RegExp(`^${escapeRegex(def.prefix)}.*`);
   def.pattern ?? (def.pattern = pattern);
-  inst._zod.check = (payload) => {
-    if (payload.value.startsWith(def.prefix))
+  inst._zod.check = (payload2) => {
+    if (payload2.value.startsWith(def.prefix))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: "string",
       code: "invalid_format",
       format: "starts_with",
       prefix: def.prefix,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -2897,36 +2897,36 @@ var $ZodCheckEndsWith = /* @__PURE__ */ $constructor("$ZodCheckEndsWith", (inst,
   $ZodCheck.init(inst, def);
   const pattern = new RegExp(`.*${escapeRegex(def.suffix)}$`);
   def.pattern ?? (def.pattern = pattern);
-  inst._zod.check = (payload) => {
-    if (payload.value.endsWith(def.suffix))
+  inst._zod.check = (payload2) => {
+    if (payload2.value.endsWith(def.suffix))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       origin: "string",
       code: "invalid_format",
       format: "ends_with",
       suffix: def.suffix,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
   };
 });
-function handleCheckPropertyResult(result2, payload, property) {
+function handleCheckPropertyResult(result2, payload2, property) {
   if (result2.issues.length) {
-    payload.issues.push(...prefixIssues(property, result2.issues));
+    payload2.issues.push(...prefixIssues(property, result2.issues));
   }
 }
 var $ZodCheckProperty = /* @__PURE__ */ $constructor("$ZodCheckProperty", (inst, def) => {
   $ZodCheck.init(inst, def);
-  inst._zod.check = (payload) => {
+  inst._zod.check = (payload2) => {
     const result2 = def.schema._zod.run({
-      value: payload.value[def.property],
+      value: payload2.value[def.property],
       issues: []
     }, {});
     if (result2 instanceof Promise) {
-      return result2.then((result3) => handleCheckPropertyResult(result3, payload, def.property));
+      return result2.then((result3) => handleCheckPropertyResult(result3, payload2, def.property));
     }
-    handleCheckPropertyResult(result2, payload, def.property);
+    handleCheckPropertyResult(result2, payload2, def.property);
     return;
   };
 });
@@ -2936,21 +2936,21 @@ var $ZodCheckProperties = /* @__PURE__ */ $constructor("$ZodCheckProperties", (i
     yield inst;
   });
   let entries;
-  inst._zod.check = (payload) => {
-    if (payload.value == null) {
-      payload.issues.push({ expected: "object", code: "invalid_type", input: payload.value, inst });
+  inst._zod.check = (payload2) => {
+    if (payload2.value == null) {
+      payload2.issues.push({ expected: "object", code: "invalid_type", input: payload2.value, inst });
       return void 0;
     }
     entries ?? (entries = Reflect.ownKeys(def.shape).map((key) => [key, def.shape[key]]));
-    const input2 = payload.value;
+    const input2 = payload2.value;
     let proms;
     for (const [key, schema] of entries) {
       const result2 = schema._zod.run({ value: input2[key], issues: [] }, {});
       if (result2 instanceof Promise) {
         proms ?? (proms = []);
-        proms.push(result2.then((result3) => handleCheckPropertyResult(result3, payload, key)));
+        proms.push(result2.then((result3) => handleCheckPropertyResult(result3, payload2, key)));
       } else {
-        handleCheckPropertyResult(result2, payload, key);
+        handleCheckPropertyResult(result2, payload2, key);
       }
     }
     if (proms)
@@ -2961,13 +2961,13 @@ var $ZodCheckProperties = /* @__PURE__ */ $constructor("$ZodCheckProperties", (i
 var $ZodCheckMimeType = /* @__PURE__ */ $constructor("$ZodCheckMimeType", (inst, def) => {
   $ZodCheck.init(inst, def);
   const mimeSet = new Set(def.mime);
-  inst._zod.check = (payload) => {
-    if (mimeSet.has(payload.value.type))
+  inst._zod.check = (payload2) => {
+    if (mimeSet.has(payload2.value.type))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_value",
       values: def.mime,
-      input: payload.value.type,
+      input: payload2.value.type,
       inst,
       continue: !def.abort
     });
@@ -2975,8 +2975,8 @@ var $ZodCheckMimeType = /* @__PURE__ */ $constructor("$ZodCheckMimeType", (inst,
 });
 var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (inst, def) => {
   $ZodCheck.init(inst, def);
-  inst._zod.check = (payload) => {
-    payload.value = def.tx(payload.value);
+  inst._zod.check = (payload2) => {
+    payload2.value = def.tx(payload2.value);
   };
 });
 
@@ -3048,58 +3048,58 @@ var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
       inst._zod.run = inst._zod.parse;
     });
   } else {
-    const runChecks = (payload, checks2, ctx) => {
-      if (payload.memo)
-        return payload;
-      let isAborted = aborted(payload);
+    const runChecks = (payload2, checks2, ctx) => {
+      if (payload2.memo)
+        return payload2;
+      let isAborted = aborted(payload2);
       let asyncResult;
       for (const ch of checks2) {
         if (ch._zod.def.when) {
-          if (explicitlyAborted(payload))
+          if (explicitlyAborted(payload2))
             continue;
-          const shouldRun = ch._zod.def.when(payload);
+          const shouldRun = ch._zod.def.when(payload2);
           if (!shouldRun)
             continue;
         } else if (isAborted) {
           continue;
         }
-        const currLen = payload.issues.length;
-        const _ = ch._zod.check(payload);
+        const currLen = payload2.issues.length;
+        const _ = ch._zod.check(payload2);
         if (_ instanceof Promise && ctx?.async === false) {
           throw new $ZodAsyncError();
         }
         if (asyncResult || _ instanceof Promise) {
           asyncResult = (asyncResult ?? Promise.resolve()).then(async () => {
             await _;
-            const nextLen = payload.issues.length;
+            const nextLen = payload2.issues.length;
             if (nextLen === currLen)
               return;
-            attachSchema(payload.issues, currLen, inst);
+            attachSchema(payload2.issues, currLen, inst);
             if (!isAborted)
-              isAborted = aborted(payload, currLen);
+              isAborted = aborted(payload2, currLen);
           });
         } else {
-          const nextLen = payload.issues.length;
+          const nextLen = payload2.issues.length;
           if (nextLen === currLen)
             continue;
-          attachSchema(payload.issues, currLen, inst);
+          attachSchema(payload2.issues, currLen, inst);
           if (!isAborted)
-            isAborted = aborted(payload, currLen);
+            isAborted = aborted(payload2, currLen);
         }
       }
       if (asyncResult) {
         return asyncResult.then(() => {
-          return payload;
+          return payload2;
         });
       }
-      return payload;
+      return payload2;
     };
-    const handleCanaryResult = (canary, payload, ctx) => {
+    const handleCanaryResult = (canary, payload2, ctx) => {
       if (aborted(canary)) {
         canary.aborted = true;
         return canary;
       }
-      const checkResult = runChecks(payload, checks, ctx);
+      const checkResult = runChecks(payload2, checks, ctx);
       if (checkResult instanceof Promise) {
         if (ctx.async === false)
           throw new $ZodAsyncError();
@@ -3107,20 +3107,20 @@ var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
       }
       return inst._zod.parse(checkResult, ctx);
     };
-    inst._zod.run = (payload, ctx) => {
+    inst._zod.run = (payload2, ctx) => {
       if (ctx.skipChecks) {
-        return inst._zod.parse(payload, ctx);
+        return inst._zod.parse(payload2, ctx);
       }
       if (ctx.direction === "backward") {
-        const canary = inst._zod.parse({ value: payload.value, issues: [] }, { ...ctx, skipChecks: true });
+        const canary = inst._zod.parse({ value: payload2.value, issues: [] }, { ...ctx, skipChecks: true });
         if (canary instanceof Promise) {
           return canary.then((canary2) => {
-            return handleCanaryResult(canary2, payload, ctx);
+            return handleCanaryResult(canary2, payload2, ctx);
           });
         }
-        return handleCanaryResult(canary, payload, ctx);
+        return handleCanaryResult(canary, payload2, ctx);
       }
-      const result2 = inst._zod.parse(payload, ctx);
+      const result2 = inst._zod.parse(payload2, ctx);
       if (result2 instanceof Promise) {
         if (ctx.async === false)
           throw new $ZodAsyncError();
@@ -3162,21 +3162,21 @@ function standardProps(inst) {
 var $ZodString = /* @__PURE__ */ $constructor("$ZodString", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = def.pattern ?? anyString;
-  inst._zod.parse = (payload, _) => {
+  inst._zod.parse = (payload2, _) => {
     if (def.coerce)
       try {
-        payload.value = String(payload.value);
+        payload2.value = String(payload2.value);
       } catch (_2) {
       }
-    if (typeof payload.value === "string")
-      return payload;
-    payload.issues.push({
+    if (typeof payload2.value === "string")
+      return payload2;
+    payload2.issues.push({
       expected: "string",
       code: "invalid_type",
-      input: payload.value,
+      input: payload2.value,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodStringFormat = /* @__PURE__ */ $constructor("$ZodStringFormat", (inst, def) => {
@@ -3258,64 +3258,64 @@ function urlProtocolOk(url2, protocol) {
 }
 var $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
+  inst._zod.check = (payload2) => {
     try {
-      const trimmed = payload.value.trim();
+      const trimmed = payload2.value.trim();
       const url2 = validateURL(trimmed, def);
       if (url2 === URL_BAD_FORMAT) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_format",
           format: "url",
           note: "Invalid URL format",
-          input: payload.value,
+          input: payload2.value,
           inst,
           continue: !def.abort
         });
         return;
       }
       if (url2 === URL_UNPARSEABLE) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_format",
           format: "url",
-          input: payload.value,
+          input: payload2.value,
           inst,
           continue: !def.abort
         });
         return;
       }
       if (url2 === true) {
-        payload.value = stripTabAndNewline(trimmed);
+        payload2.value = stripTabAndNewline(trimmed);
         return;
       }
       if (def.hostname && !urlHostnameOk(url2, def.hostname)) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_format",
           format: "url",
           note: "Invalid hostname",
           pattern: def.hostname.source,
-          input: payload.value,
+          input: payload2.value,
           inst,
           continue: !def.abort
         });
       }
       if (def.protocol && !urlProtocolOk(url2, def.protocol)) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_format",
           format: "url",
           note: "Invalid protocol",
           pattern: def.protocol.source,
-          input: payload.value,
+          input: payload2.value,
           inst,
           continue: !def.abort
         });
       }
-      payload.value = def.normalize ? url2.href : stripTabAndNewline(trimmed);
+      payload2.value = def.normalize ? url2.href : stripTabAndNewline(trimmed);
       return;
     } catch (_) {
-      payload.issues.push({
+      payload2.issues.push({
         code: "invalid_format",
         format: "url",
-        input: payload.value,
+        input: payload2.value,
         inst,
         continue: !def.abort
       });
@@ -3381,12 +3381,12 @@ function isValidIPv6(value) {
 var $ZodIPv6 = /* @__PURE__ */ $constructor("$ZodIPv6", (inst, def) => {
   def.pattern ?? (def.pattern = ipv6);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (!isValidIPv6(payload.value)) {
-      payload.issues.push({
+  inst._zod.check = (payload2) => {
+    if (!isValidIPv6(payload2.value)) {
+      payload2.issues.push({
         code: "invalid_format",
         format: "ipv6",
-        input: payload.value,
+        input: payload2.value,
         inst,
         continue: !def.abort
       });
@@ -3418,12 +3418,12 @@ function isValidCIDRv6(value) {
 var $ZodCIDRv6 = /* @__PURE__ */ $constructor("$ZodCIDRv6", (inst, def) => {
   def.pattern ?? (def.pattern = cidrv6);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (!isValidCIDRv6(payload.value)) {
-      payload.issues.push({
+  inst._zod.check = (payload2) => {
+    if (!isValidCIDRv6(payload2.value)) {
+      payload2.issues.push({
         code: "invalid_format",
         format: "cidrv6",
-        input: payload.value,
+        input: payload2.value,
         inst,
         continue: !def.abort
       });
@@ -3448,13 +3448,13 @@ var base64Charset = /^[0-9a-zA-Z+/]*={0,2}$/;
 var $ZodBase64 = /* @__PURE__ */ $constructor("$ZodBase64", (inst, def) => {
   def.pattern ?? (def.pattern = base64Charset);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (isValidBase64(payload.value))
+  inst._zod.check = (payload2) => {
+    if (isValidBase64(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: "base64",
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3471,13 +3471,13 @@ function isValidBase64URL(data) {
 var $ZodBase64URL = /* @__PURE__ */ $constructor("$ZodBase64URL", (inst, def) => {
   def.pattern ?? (def.pattern = base64urlCharset);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (isValidBase64URL(payload.value))
+  inst._zod.check = (payload2) => {
+    if (isValidBase64URL(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: "base64url",
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3507,13 +3507,13 @@ function isValidCreditCard(input2) {
 var $ZodCreditCard = /* @__PURE__ */ $constructor("$ZodCreditCard", (inst, def) => {
   def.pattern ?? (def.pattern = creditCard);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (isValidCreditCard(payload.value))
+  inst._zod.check = (payload2) => {
+    if (isValidCreditCard(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: "credit_card",
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3540,13 +3540,13 @@ function isValidIBAN(input2) {
 var $ZodIBAN = /* @__PURE__ */ $constructor("$ZodIBAN", (inst, def) => {
   def.pattern ?? (def.pattern = iban);
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (isValidIBAN(payload.value))
+  inst._zod.check = (payload2) => {
+    if (isValidIBAN(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: "iban",
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3574,13 +3574,13 @@ function isValidJWT(token, algorithm = null) {
 }
 var $ZodJWT = /* @__PURE__ */ $constructor("$ZodJWT", (inst, def) => {
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (isValidJWT(payload.value, def.alg))
+  inst._zod.check = (payload2) => {
+    if (isValidJWT(payload2.value, def.alg))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: "jwt",
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3588,13 +3588,13 @@ var $ZodJWT = /* @__PURE__ */ $constructor("$ZodJWT", (inst, def) => {
 });
 var $ZodCustomStringFormat = /* @__PURE__ */ $constructor("$ZodCustomStringFormat", (inst, def) => {
   $ZodStringFormat.init(inst, def);
-  inst._zod.check = (payload) => {
-    if (def.fn(payload.value))
+  inst._zod.check = (payload2) => {
+    if (def.fn(payload2.value))
       return;
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_format",
       format: def.format,
-      input: payload.value,
+      input: payload2.value,
       inst,
       continue: !def.abort
     });
@@ -3603,25 +3603,25 @@ var $ZodCustomStringFormat = /* @__PURE__ */ $constructor("$ZodCustomStringForma
 var $ZodNumber = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = number;
-  inst._zod.parse = (payload, _ctx) => {
+  inst._zod.parse = (payload2, _ctx) => {
     if (def.coerce)
       try {
-        payload.value = Number(payload.value);
+        payload2.value = Number(payload2.value);
       } catch (_) {
       }
-    const input2 = payload.value;
+    const input2 = payload2.value;
     if (typeof input2 === "number" && !Number.isNaN(input2) && Number.isFinite(input2)) {
-      return payload;
+      return payload2;
     }
     const received = typeof input2 === "number" ? Number.isNaN(input2) ? "NaN" : !Number.isFinite(input2) ? String(input2) : void 0 : void 0;
-    payload.issues.push({
+    payload2.issues.push({
       expected: "number",
       code: "invalid_type",
       input: input2,
       inst,
       ...received ? { received } : {}
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodNumberFormat = /* @__PURE__ */ $constructor("$ZodNumberFormat", (inst, def) => {
@@ -3631,42 +3631,42 @@ var $ZodNumberFormat = /* @__PURE__ */ $constructor("$ZodNumberFormat", (inst, d
 var $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = boolean;
-  inst._zod.parse = (payload, _ctx) => {
+  inst._zod.parse = (payload2, _ctx) => {
     if (def.coerce)
       try {
-        payload.value = Boolean(payload.value);
+        payload2.value = Boolean(payload2.value);
       } catch (_) {
       }
-    const input2 = payload.value;
+    const input2 = payload2.value;
     if (typeof input2 === "boolean")
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "boolean",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodBigInt = /* @__PURE__ */ $constructor("$ZodBigInt", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = bigint;
-  inst._zod.parse = (payload, _ctx) => {
+  inst._zod.parse = (payload2, _ctx) => {
     if (def.coerce)
       try {
-        payload.value = BigInt(payload.value);
+        payload2.value = BigInt(payload2.value);
       } catch (_) {
       }
-    if (typeof payload.value === "bigint")
-      return payload;
-    payload.issues.push({
+    if (typeof payload2.value === "bigint")
+      return payload2;
+    payload2.issues.push({
       expected: "bigint",
       code: "invalid_type",
-      input: payload.value,
+      input: payload2.value,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodBigIntFormat = /* @__PURE__ */ $constructor("$ZodBigIntFormat", (inst, def) => {
@@ -3675,110 +3675,110 @@ var $ZodBigIntFormat = /* @__PURE__ */ $constructor("$ZodBigIntFormat", (inst, d
 });
 var $ZodSymbol = /* @__PURE__ */ $constructor("$ZodSymbol", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (typeof input2 === "symbol")
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "symbol",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodUndefined = /* @__PURE__ */ $constructor("$ZodUndefined", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = _undefined;
   inst._zod.values = /* @__PURE__ */ new Set([void 0]);
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (typeof input2 === "undefined")
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "undefined",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodNull = /* @__PURE__ */ $constructor("$ZodNull", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.pattern = _null;
   inst._zod.values = /* @__PURE__ */ new Set([null]);
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (input2 === null)
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "null",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodAny = /* @__PURE__ */ $constructor("$ZodAny", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload) => payload;
+  inst._zod.parse = (payload2) => payload2;
 });
 var $ZodUnknown = /* @__PURE__ */ $constructor("$ZodUnknown", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload) => payload;
+  inst._zod.parse = (payload2) => payload2;
 });
 var $ZodNever = /* @__PURE__ */ $constructor("$ZodNever", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
-    payload.issues.push({
+  inst._zod.parse = (payload2, _ctx) => {
+    payload2.issues.push({
       expected: "never",
       code: "invalid_type",
-      input: payload.value,
+      input: payload2.value,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodVoid = /* @__PURE__ */ $constructor("$ZodVoid", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (typeof input2 === "undefined")
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "void",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
+  inst._zod.parse = (payload2, _ctx) => {
     if (def.coerce) {
       try {
-        payload.value = new Date(payload.value);
+        payload2.value = new Date(payload2.value);
       } catch (_err) {
       }
     }
-    const input2 = payload.value;
+    const input2 = payload2.value;
     const isDate = input2 instanceof Date;
     const isValidDate = isDate && !Number.isNaN(input2.getTime());
     if (isValidDate)
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "date",
       code: "invalid_type",
       input: input2,
       ...isDate ? { received: "Invalid Date" } : {},
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 function capSize(inst, size) {
@@ -3787,20 +3787,20 @@ function capSize(inst, size) {
     return;
   const cap = Math.min(...caps.map((c) => c[0]));
   const parse3 = inst._zod.parse;
-  inst._zod.parse = (payload, ctx) => {
-    const n = size(payload.value);
+  inst._zod.parse = (payload2, ctx) => {
+    const n = size(payload2.value);
     if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
       for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
-        if (n > max && ch._zod.def.when(payload)) {
-          const start = payload.issues.length;
-          ch._zod.check(payload);
-          payload.issues[start].continue = false;
-          attachSchema(payload.issues, start, inst);
-          return payload;
+        if (n > max && ch._zod.def.when(payload2)) {
+          const start = payload2.issues.length;
+          ch._zod.check(payload2);
+          payload2.issues[start].continue = false;
+          attachSchema(payload2.issues, start, inst);
+          return payload2;
         }
       }
     }
-    return parse3(payload, ctx);
+    return parse3(payload2, ctx);
   };
 }
 var arraySize = (input2) => Array.isArray(input2) ? input2.length : -1;
@@ -3816,18 +3816,18 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
   $ZodType.init(inst, def);
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!Array.isArray(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         expected: "array",
         code: "invalid_type",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
-    payload.value = memo3 ? memo3.alloc(inst, payload, Array(input2.length), ctx) : Array(input2.length);
+    payload2.value = memo3 ? memo3.alloc(inst, payload2, Array(input2.length), ctx) : Array(input2.length);
     const proms = [];
     const abortEarly = ctx?.abortEarly;
     for (let i = 0; i < input2.length; i++) {
@@ -3837,17 +3837,17 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
         issues: []
       }, ctx);
       if (result2 instanceof Promise) {
-        proms.push(result2.then((result3) => handleArrayResult(result3, payload, i)));
+        proms.push(result2.then((result3) => handleArrayResult(result3, payload2, i)));
       } else {
-        handleArrayResult(result2, payload, i);
+        handleArrayResult(result2, payload2, i);
         if (abortEarly && result2.issues.length !== 0 && aborted(result2))
           break;
       }
     }
     if (proms.length) {
-      return Promise.all(proms).then(() => payload);
+      return Promise.all(proms).then(() => payload2);
     }
-    return payload;
+    return payload2;
   };
   capSize(inst, arraySize);
 });
@@ -3904,7 +3904,7 @@ function normalizeDef(def) {
     optionalKeys: new Set(okeys)
   };
 }
-function handleCatchall(proms, input2, payload, ctx, def, inst, abortEarly) {
+function handleCatchall(proms, input2, payload2, ctx, def, inst, abortEarly) {
   const unrecognized = [];
   const keySet = def.keySet;
   const _catchall = def.catchall._zod;
@@ -3913,10 +3913,10 @@ function handleCatchall(proms, input2, payload, ctx, def, inst, abortEarly) {
   const optout = _catchall.optout;
   let seen = 0;
   for (const key in input2) {
-    if (abortEarly && payload.issues.length !== seen) {
-      if (aborted(payload, seen))
+    if (abortEarly && payload2.issues.length !== seen) {
+      if (aborted(payload2, seen))
         break;
-      seen = payload.issues.length;
+      seen = payload2.issues.length;
     }
     if (keySet.has(key))
       continue;
@@ -3931,13 +3931,13 @@ function handleCatchall(proms, input2, payload, ctx, def, inst, abortEarly) {
     }
     const r = _catchall.run({ value: input2[key], issues: [] }, ctx);
     if (r instanceof Promise) {
-      proms.push(r.then((r2) => handlePropertyResult(r2, payload, key, input2, optin, optout)));
+      proms.push(r.then((r2) => handlePropertyResult(r2, payload2, key, input2, optin, optout)));
     } else {
-      handlePropertyResult(r, payload, key, input2, optin, optout);
+      handlePropertyResult(r, payload2, key, input2, optin, optout);
     }
   }
   if (unrecognized.length) {
-    payload.issues.push({
+    payload2.issues.push({
       code: "unrecognized_keys",
       keys: unrecognized,
       input: input2,
@@ -3947,9 +3947,9 @@ function handleCatchall(proms, input2, payload, ctx, def, inst, abortEarly) {
     });
   }
   if (!proms.length)
-    return payload;
+    return payload2;
   return Promise.all(proms).then(() => {
-    return payload;
+    return payload2;
   });
 }
 var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
@@ -3989,28 +3989,28 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
   let value;
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     value ?? (value = _normalized.value);
-    const input2 = payload.value;
+    const input2 = payload2.value;
     if (!isObject2(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         expected: "object",
         code: "invalid_type",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
-    payload.value = memo3 ? memo3.alloc(inst, payload, {}, ctx) : {};
+    payload2.value = memo3 ? memo3.alloc(inst, payload2, {}, ctx) : {};
     const proms = [];
     const shape = value.shape;
     const abortEarly = ctx?.abortEarly;
-    let seen = payload.issues.length;
+    let seen = payload2.issues.length;
     for (const key of value.allKeys) {
-      if (abortEarly && payload.issues.length !== seen) {
-        if (aborted(payload, seen))
+      if (abortEarly && payload2.issues.length !== seen) {
+        if (aborted(payload2, seen))
           break;
-        seen = payload.issues.length;
+        seen = payload2.issues.length;
       }
       if (key === "__proto__")
         continue;
@@ -4019,15 +4019,15 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
       const optout = el._zod.optout;
       const r = el._zod.run({ value: input2[key], issues: [] }, ctx);
       if (r instanceof Promise) {
-        proms.push(r.then((r2) => handlePropertyResult(r2, payload, key, input2, optin, optout)));
+        proms.push(r.then((r2) => handlePropertyResult(r2, payload2, key, input2, optin, optout)));
       } else {
-        handlePropertyResult(r, payload, key, input2, optin, optout);
+        handlePropertyResult(r, payload2, key, input2, optin, optout);
       }
     }
     if (!catchall) {
-      return proms.length ? Promise.all(proms).then(() => payload) : payload;
+      return proms.length ? Promise.all(proms).then(() => payload2) : payload2;
     }
-    return handleCatchall(proms, input2, payload, ctx, _normalized.value, inst, abortEarly === true);
+    return handleCatchall(proms, input2, payload2, ctx, _normalized.value, inst, abortEarly === true);
   };
 });
 var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) => {
@@ -4134,27 +4134,27 @@ var $ZodObjectJIT = /* @__PURE__ */ $constructor("$ZodObjectJIT", (inst, def) =>
   const fastEnabled = jit && allowsEval2.value;
   const catchall = def.catchall;
   let value;
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     value ?? (value = _normalized.value);
-    const input2 = payload.value;
+    const input2 = payload2.value;
     if (!isObject2(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         expected: "object",
         code: "invalid_type",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
     if (jit && fastEnabled && ctx?.async === false && ctx.jitless !== true) {
       if (!fastpass)
         fastpass = generateFastpass(def.shape);
-      payload = fastpass(payload, ctx);
+      payload2 = fastpass(payload2, ctx);
       if (!catchall)
-        return payload;
-      return handleCatchall([], input2, payload, ctx, value, inst, ctx?.abortEarly === true);
+        return payload2;
+      return handleCatchall([], input2, payload2, ctx, value, inst, ctx?.abortEarly === true);
     }
-    return superParse(payload, ctx);
+    return superParse(payload2, ctx);
   };
 });
 function handleUnionResults(results, final, inst, ctx) {
@@ -4195,15 +4195,15 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
     return void 0;
   });
   const first = def.options.length === 1 ? def.options[0]._zod.run : null;
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (first) {
-      return first(payload, ctx);
+      return first(payload2, ctx);
     }
     let async = false;
     const results = [];
     for (const option2 of def.options) {
       const result2 = option2._zod.run({
-        value: payload.value,
+        value: payload2.value,
         issues: []
       }, ctx);
       if (result2 instanceof Promise) {
@@ -4216,9 +4216,9 @@ var $ZodUnion = /* @__PURE__ */ $constructor("$ZodUnion", (inst, def) => {
       }
     }
     if (!async)
-      return handleUnionResults(results, payload, inst, ctx);
+      return handleUnionResults(results, payload2, inst, ctx);
     return Promise.all(results).then((results2) => {
-      return handleUnionResults(results2, payload, inst, ctx);
+      return handleUnionResults(results2, payload2, inst, ctx);
     });
   };
 });
@@ -4255,15 +4255,15 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
   $ZodUnion.init(inst, def);
   def.inclusive = false;
   const first = def.options.length === 1 ? def.options[0]._zod.run : null;
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (first) {
-      return first(payload, ctx);
+      return first(payload2, ctx);
     }
     let async = false;
     const results = [];
     for (const option2 of def.options) {
       const result2 = option2._zod.run({
-        value: payload.value,
+        value: payload2.value,
         issues: []
       }, ctx);
       if (result2 instanceof Promise) {
@@ -4274,9 +4274,9 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
       }
     }
     if (!async)
-      return handleExclusiveUnionResults(results, payload, inst, ctx);
+      return handleExclusiveUnionResults(results, payload2, inst, ctx);
     return Promise.all(results).then((results2) => {
-      return handleExclusiveUnionResults(results2, payload, inst, ctx);
+      return handleExclusiveUnionResults(results2, payload2, inst, ctx);
     });
   };
 });
@@ -4343,26 +4343,26 @@ var $ZodDiscriminatedUnion = /* @__PURE__ */ $constructor("$ZodDiscriminatedUnio
     }
   });
   const disc = cached(() => discriminatorMap(def));
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!isObject(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         code: "invalid_type",
         expected: "object",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
     const value = input2?.[def.discriminator];
     const opt = disc.value.get(value);
     if (opt && (value !== void 0 || ctx.direction !== "backward")) {
-      return opt._zod.run(payload, ctx);
+      return opt._zod.run(payload2, ctx);
     }
     if (def.unionFallback || ctx.direction === "backward") {
-      return _super(payload, ctx);
+      return _super(payload2, ctx);
     }
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_union",
       errors: [],
       note: "No matching discriminator",
@@ -4372,22 +4372,22 @@ var $ZodDiscriminatedUnion = /* @__PURE__ */ $constructor("$ZodDiscriminatedUnio
       path: [def.discriminator],
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodIntersection = /* @__PURE__ */ $constructor("$ZodIntersection", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     const left = def.left._zod.run({ value: input2, issues: [] }, ctx);
     const right = def.right._zod.run({ value: input2, issues: [] }, ctx);
     const async = left instanceof Promise || right instanceof Promise;
     if (async) {
       return Promise.all([left, right]).then(([left2, right2]) => {
-        return handleIntersectionResults(payload, left2, right2);
+        return handleIntersectionResults(payload2, left2, right2);
       });
     }
-    return handleIntersectionResults(payload, left, right);
+    return handleIntersectionResults(payload2, left, right);
   };
 });
 function mergeValues(a, b) {
@@ -4494,24 +4494,24 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
   const items = def.items;
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!Array.isArray(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         input: input2,
         inst,
         expected: "tuple",
         code: "invalid_type"
       });
-      return payload;
+      return payload2;
     }
-    payload.value = memo3 ? memo3.alloc(inst, payload, [], ctx) : [];
+    payload2.value = memo3 ? memo3.alloc(inst, payload2, [], ctx) : [];
     const proms = [];
     const optinStart = getTupleOptStart(items, "optin");
     const optoutStart = getTupleOptStart(items, "optout");
     if (!def.rest) {
       if (input2.length < optinStart) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "too_small",
           minimum: optinStart,
           inclusive: true,
@@ -4519,10 +4519,10 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
           inst,
           origin: "array"
         });
-        return payload;
+        return payload2;
       }
       if (input2.length > items.length) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "too_big",
           maximum: items.length,
           inclusive: true,
@@ -4550,26 +4550,26 @@ var $ZodTuple = /* @__PURE__ */ $constructor("$ZodTuple", (inst, def) => {
     if (def.rest && !itemAborted) {
       let i = items.length - 1;
       const rest = input2.slice(items.length);
-      let seen = payload.issues.length;
+      let seen = payload2.issues.length;
       for (const el of rest) {
-        if (abortEarly && payload.issues.length !== seen) {
-          if (aborted(payload, seen))
+        if (abortEarly && payload2.issues.length !== seen) {
+          if (aborted(payload2, seen))
             break;
-          seen = payload.issues.length;
+          seen = payload2.issues.length;
         }
         i++;
         const result2 = def.rest._zod.run({ value: el, issues: [] }, ctx);
         if (result2 instanceof Promise) {
-          proms.push(result2.then((r) => handleTupleResult(r, payload, i)));
+          proms.push(result2.then((r) => handleTupleResult(r, payload2, i)));
         } else {
-          handleTupleResult(result2, payload, i);
+          handleTupleResult(result2, payload2, i);
         }
       }
     }
     if (proms.length) {
-      return Promise.all(proms).then(() => handleTupleResults(itemResults, payload, items, input2, optoutStart));
+      return Promise.all(proms).then(() => handleTupleResults(itemResults, payload2, items, input2, optoutStart));
     }
-    return handleTupleResults(itemResults, payload, items, input2, optoutStart);
+    return handleTupleResults(itemResults, payload2, items, input2, optoutStart);
   };
 });
 function getTupleOptStart(items, key) {
@@ -4616,21 +4616,21 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
   $ZodType.init(inst, def);
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!isPlainObject(input2)) {
-      payload.issues.push({
+      payload2.issues.push({
         expected: "record",
         code: "invalid_type",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
     const proms = [];
     const values = def.keyType._zod.values;
     if (values && !def.partial) {
-      payload.value = memo3 ? memo3.alloc(inst, payload, {}, ctx) : {};
+      payload2.value = memo3 ? memo3.alloc(inst, payload2, {}, ctx) : {};
       const recordKeys = /* @__PURE__ */ new Set();
       for (const key of values) {
         if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
@@ -4642,7 +4642,7 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
             throw new Error("Async schemas not supported in object keys currently");
           }
           if (keyResult.issues.length) {
-            payload.issues.push({
+            payload2.issues.push({
               code: "invalid_key",
               origin: "record",
               issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
@@ -4659,15 +4659,15 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
           if (result2 instanceof Promise) {
             proms.push(result2.then((result3) => {
               if (result3.issues.length) {
-                payload.issues.push(...prefixIssues(key, result3.issues));
+                payload2.issues.push(...prefixIssues(key, result3.issues));
               }
-              payload.value[outKey] = result3.value;
+              payload2.value[outKey] = result3.value;
             }));
           } else {
             if (result2.issues.length) {
-              payload.issues.push(...prefixIssues(key, result2.issues));
+              payload2.issues.push(...prefixIssues(key, result2.issues));
             }
-            payload.value[outKey] = result2.value;
+            payload2.value[outKey] = result2.value;
           }
         }
       }
@@ -4677,7 +4677,7 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
           if (def.mode === "loose") {
             if (key === "__proto__")
               continue;
-            payload.value[key] = input2[key];
+            payload2.value[key] = input2[key];
           } else {
             unrecognized = unrecognized ?? [];
             unrecognized.push(key);
@@ -4685,7 +4685,7 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
         }
       }
       if (unrecognized && unrecognized.length > 0) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "unrecognized_keys",
           input: input2,
           inst,
@@ -4694,7 +4694,7 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
         });
       }
     } else {
-      payload.value = memo3 ? memo3.alloc(inst, payload, {}, ctx) : {};
+      payload2.value = memo3 ? memo3.alloc(inst, payload2, {}, ctx) : {};
       let unrecognized;
       for (const key of Reflect.ownKeys(input2)) {
         if (key === "__proto__")
@@ -4717,12 +4717,12 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
         }
         if (keyResult.issues.length) {
           if (def.mode === "loose") {
-            payload.value[key] = input2[key];
+            payload2.value[key] = input2[key];
           } else if (values) {
             unrecognized = unrecognized ?? [];
             unrecognized.push(key);
           } else {
-            payload.issues.push({
+            payload2.issues.push({
               code: "invalid_key",
               origin: "record",
               issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
@@ -4740,19 +4740,19 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
         if (result2 instanceof Promise) {
           proms.push(result2.then((result3) => {
             if (result3.issues.length) {
-              payload.issues.push(...prefixIssues(key, result3.issues));
+              payload2.issues.push(...prefixIssues(key, result3.issues));
             }
-            payload.value[outKey] = result3.value;
+            payload2.value[outKey] = result3.value;
           }));
         } else {
           if (result2.issues.length) {
-            payload.issues.push(...prefixIssues(key, result2.issues));
+            payload2.issues.push(...prefixIssues(key, result2.issues));
           }
-          payload.value[outKey] = result2.value;
+          payload2.value[outKey] = result2.value;
         }
       }
       if (unrecognized && unrecognized.length > 0) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "unrecognized_keys",
           input: input2,
           inst,
@@ -4762,49 +4762,49 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
       }
     }
     if (proms.length) {
-      return Promise.all(proms).then(() => payload);
+      return Promise.all(proms).then(() => payload2);
     }
-    return payload;
+    return payload2;
   };
 });
 var $ZodMap = /* @__PURE__ */ $constructor("$ZodMap", (inst, def) => {
   $ZodType.init(inst, def);
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!(input2 instanceof Map)) {
-      payload.issues.push({
+      payload2.issues.push({
         expected: "map",
         code: "invalid_type",
         input: input2,
         inst
       });
-      return payload;
+      return payload2;
     }
     const proms = [];
-    payload.value = memo3 ? memo3.alloc(inst, payload, /* @__PURE__ */ new Map(), ctx) : /* @__PURE__ */ new Map();
+    payload2.value = memo3 ? memo3.alloc(inst, payload2, /* @__PURE__ */ new Map(), ctx) : /* @__PURE__ */ new Map();
     const abortEarly = ctx?.abortEarly;
-    let seen = payload.issues.length;
+    let seen = payload2.issues.length;
     for (const [key, value] of input2) {
-      if (abortEarly && payload.issues.length !== seen) {
-        if (aborted(payload, seen))
+      if (abortEarly && payload2.issues.length !== seen) {
+        if (aborted(payload2, seen))
           break;
-        seen = payload.issues.length;
+        seen = payload2.issues.length;
       }
       const keyResult = def.keyType._zod.run({ value: key, issues: [] }, ctx);
       const valueResult = def.valueType._zod.run({ value, issues: [] }, ctx);
       if (keyResult instanceof Promise || valueResult instanceof Promise) {
         proms.push(Promise.all([keyResult, valueResult]).then(([keyResult2, valueResult2]) => {
-          handleMapResult(keyResult2, valueResult2, payload, key, input2, inst, ctx);
+          handleMapResult(keyResult2, valueResult2, payload2, key, input2, inst, ctx);
         }));
       } else {
-        handleMapResult(keyResult, valueResult, payload, key, input2, inst, ctx);
+        handleMapResult(keyResult, valueResult, payload2, key, input2, inst, ctx);
       }
     }
     if (proms.length)
-      return Promise.all(proms).then(() => payload);
-    return payload;
+      return Promise.all(proms).then(() => payload2);
+    return payload2;
   };
   capSize(inst, mapSize);
 });
@@ -4842,36 +4842,36 @@ var $ZodSet = /* @__PURE__ */ $constructor("$ZodSet", (inst, def) => {
   $ZodType.init(inst, def);
   const memo3 = globalConfig.memoizer;
   memo3?.attach(inst);
-  inst._zod.parse = (payload, ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, ctx) => {
+    const input2 = payload2.value;
     if (!(input2 instanceof Set)) {
-      payload.issues.push({
+      payload2.issues.push({
         input: input2,
         inst,
         expected: "set",
         code: "invalid_type"
       });
-      return payload;
+      return payload2;
     }
     const proms = [];
-    payload.value = memo3 ? memo3.alloc(inst, payload, /* @__PURE__ */ new Set(), ctx) : /* @__PURE__ */ new Set();
+    payload2.value = memo3 ? memo3.alloc(inst, payload2, /* @__PURE__ */ new Set(), ctx) : /* @__PURE__ */ new Set();
     const abortEarly = ctx?.abortEarly;
-    let seen = payload.issues.length;
+    let seen = payload2.issues.length;
     for (const item of input2) {
-      if (abortEarly && payload.issues.length !== seen) {
-        if (aborted(payload, seen))
+      if (abortEarly && payload2.issues.length !== seen) {
+        if (aborted(payload2, seen))
           break;
-        seen = payload.issues.length;
+        seen = payload2.issues.length;
       }
       const result2 = def.valueType._zod.run({ value: item, issues: [] }, ctx);
       if (result2 instanceof Promise) {
-        proms.push(result2.then((result3) => handleSetResult(result3, payload)));
+        proms.push(result2.then((result3) => handleSetResult(result3, payload2)));
       } else
-        handleSetResult(result2, payload);
+        handleSetResult(result2, payload2);
     }
     if (proms.length)
-      return Promise.all(proms).then(() => payload);
-    return payload;
+      return Promise.all(proms).then(() => payload2);
+    return payload2;
   };
   capSize(inst, setSize);
 });
@@ -4890,18 +4890,18 @@ var $ZodEnum = /* @__PURE__ */ $constructor("$ZodEnum", (inst, def) => {
     const patternValues = getEnumValues(zod.def.entries).filter((k) => propertyKeyTypes.has(typeof k));
     return new RegExp(patternValues.length ? `^(${patternValues.map((o) => escapeRegex(o.toString())).join("|")})$` : "^[^\\s\\S]$");
   });
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (valuesSet.has(input2)) {
-      return payload;
+      return payload2;
     }
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_value",
       values,
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodLiteral = /* @__PURE__ */ $constructor("$ZodLiteral", (inst, def) => {
@@ -4912,61 +4912,61 @@ var $ZodLiteral = /* @__PURE__ */ $constructor("$ZodLiteral", (inst, def) => {
     const vals = zod.def.values;
     return new RegExp(vals.length ? `^(${vals.map((o) => typeof o === "string" ? escapeRegex(o) : o ? escapeRegex(o.toString()) : String(o)).join("|")})$` : "^[^\\s\\S]$");
   });
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (values.has(input2)) {
-      return payload;
+      return payload2;
     }
-    payload.issues.push({
+    payload2.issues.push({
       code: "invalid_value",
       values: def.values,
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodFile = /* @__PURE__ */ $constructor("$ZodFile", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
-    const input2 = payload.value;
+  inst._zod.parse = (payload2, _ctx) => {
+    const input2 = payload2.value;
     if (input2 instanceof File)
-      return payload;
-    payload.issues.push({
+      return payload2;
+    payload2.issues.push({
       expected: "file",
       code: "invalid_type",
       input: input2,
       inst
     });
-    return payload;
+    return payload2;
   };
 });
 var $ZodTransform = /* @__PURE__ */ $constructor("$ZodTransform", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.optin = "optional";
   globalConfig.memoizer?.guard(inst);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
       throw new $ZodEncodeError(inst.constructor.name);
     }
-    const _out = def.transform(payload.value, payload);
+    const _out = def.transform(payload2.value, payload2);
     if (ctx.async) {
       const output2 = _out instanceof Promise ? _out : Promise.resolve(_out);
       return output2.then((output3) => {
-        payload.value = output3;
-        return payload;
+        payload2.value = output3;
+        return payload2;
       });
     }
     if (_out instanceof Promise) {
       throw new $ZodAsyncError();
     }
-    payload.value = _out;
-    return payload;
+    payload2.value = _out;
+    return payload2;
   };
 });
-function handleOptionalResult(payload, result2) {
-  payload.value = result2.issues.length ? void 0 : result2.value;
-  return payload;
+function handleOptionalResult(payload2, result2) {
+  payload2.value = result2.issues.length ? void 0 : result2.value;
+  return payload2;
 }
 var $ZodOptional = /* @__PURE__ */ $constructor("$ZodOptional", (inst, def) => {
   $ZodType.init(inst, def);
@@ -4980,24 +4980,24 @@ var $ZodOptional = /* @__PURE__ */ $constructor("$ZodOptional", (inst, def) => {
     const pattern = zod.def.innerType._zod.pattern;
     return pattern ? new RegExp(`^(${cleanRegex(pattern.source)})?$`) : void 0;
   });
-  inst._zod.parse = (payload, ctx) => {
-    if (payload.value === void 0) {
+  inst._zod.parse = (payload2, ctx) => {
+    if (payload2.value === void 0) {
       if (def.innerType._zod.optin !== "defaulted")
-        return payload;
-      const result2 = def.innerType._zod.run({ value: payload.value, issues: [] }, ctx);
+        return payload2;
+      const result2 = def.innerType._zod.run({ value: payload2.value, issues: [] }, ctx);
       if (result2 instanceof Promise)
-        return result2.then((result3) => handleOptionalResult(payload, result3));
-      return handleOptionalResult(payload, result2);
+        return result2.then((result3) => handleOptionalResult(payload2, result3));
+      return handleOptionalResult(payload2, result2);
     }
-    return def.innerType._zod.run(payload, ctx);
+    return def.innerType._zod.run(payload2, ctx);
   };
 });
 var $ZodExactOptional = /* @__PURE__ */ $constructor("$ZodExactOptional", (inst, def) => {
   $ZodOptional.init(inst, def);
   defineLazyInternal(inst, "values", (zod) => zod.def.innerType._zod.values);
   defineLazyInternal(inst, "pattern", (zod) => zod.def.innerType._zod.pattern);
-  inst._zod.parse = (payload, ctx) => {
-    return def.innerType._zod.run(payload, ctx);
+  inst._zod.parse = (payload2, ctx) => {
+    return def.innerType._zod.run(payload2, ctx);
   };
 });
 var $ZodNullable = /* @__PURE__ */ $constructor("$ZodNullable", (inst, def) => {
@@ -5011,49 +5011,49 @@ var $ZodNullable = /* @__PURE__ */ $constructor("$ZodNullable", (inst, def) => {
   defineLazyInternal(inst, "values", (zod) => {
     return zod.def.innerType._zod.values ? /* @__PURE__ */ new Set([...zod.def.innerType._zod.values, null]) : void 0;
   });
-  inst._zod.parse = (payload, ctx) => {
-    if (payload.value === null)
-      return payload;
-    return def.innerType._zod.run(payload, ctx);
+  inst._zod.parse = (payload2, ctx) => {
+    if (payload2.value === null)
+      return payload2;
+    return def.innerType._zod.run(payload2, ctx);
   };
 });
 var $ZodDefault = /* @__PURE__ */ $constructor("$ZodDefault", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.optin = "defaulted";
   defineLazyInternal(inst, "values", (zod) => zod.def.innerType._zod.values);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
-      return def.innerType._zod.run(payload, ctx);
+      return def.innerType._zod.run(payload2, ctx);
     }
-    if (payload.value === void 0) {
-      payload.value = def.defaultValue;
-      return payload;
+    if (payload2.value === void 0) {
+      payload2.value = def.defaultValue;
+      return payload2;
     }
-    const result2 = def.innerType._zod.run(payload, ctx);
+    const result2 = def.innerType._zod.run(payload2, ctx);
     if (result2 instanceof Promise) {
       return result2.then((result3) => handleDefaultResult(result3, def));
     }
     return handleDefaultResult(result2, def);
   };
 });
-function handleDefaultResult(payload, def) {
-  if (payload.value === void 0) {
-    payload.value = def.defaultValue;
+function handleDefaultResult(payload2, def) {
+  if (payload2.value === void 0) {
+    payload2.value = def.defaultValue;
   }
-  return payload;
+  return payload2;
 }
 var $ZodPrefault = /* @__PURE__ */ $constructor("$ZodPrefault", (inst, def) => {
   $ZodType.init(inst, def);
   inst._zod.optin = "defaulted";
   defineLazyInternal(inst, "values", (zod) => zod.def.innerType._zod.values);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
-      return def.innerType._zod.run(payload, ctx);
+      return def.innerType._zod.run(payload2, ctx);
     }
-    if (payload.value === void 0) {
-      payload.value = def.defaultValue;
+    if (payload2.value === void 0) {
+      payload2.value = def.defaultValue;
     }
-    return def.innerType._zod.run(payload, ctx);
+    return def.innerType._zod.run(payload2, ctx);
   };
 });
 var $ZodNonOptional = /* @__PURE__ */ $constructor("$ZodNonOptional", (inst, def) => {
@@ -5062,88 +5062,88 @@ var $ZodNonOptional = /* @__PURE__ */ $constructor("$ZodNonOptional", (inst, def
     const v = zod.def.innerType._zod.values;
     return v ? new Set([...v].filter((x) => x !== void 0)) : void 0;
   });
-  inst._zod.parse = (payload, ctx) => {
-    const result2 = def.innerType._zod.run(payload, ctx);
+  inst._zod.parse = (payload2, ctx) => {
+    const result2 = def.innerType._zod.run(payload2, ctx);
     if (result2 instanceof Promise) {
       return result2.then((result3) => handleNonOptionalResult(result3, inst));
     }
     return handleNonOptionalResult(result2, inst);
   };
 });
-function handleNonOptionalResult(payload, inst) {
-  if (!payload.issues.length && payload.value === void 0) {
-    payload.issues.push({
+function handleNonOptionalResult(payload2, inst) {
+  if (!payload2.issues.length && payload2.value === void 0) {
+    payload2.issues.push({
       code: "invalid_type",
       expected: "nonoptional",
-      input: payload.value,
+      input: payload2.value,
       inst
     });
   }
-  return payload;
+  return payload2;
 }
 var $ZodSuccess = /* @__PURE__ */ $constructor("$ZodSuccess", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
       throw new $ZodEncodeError("ZodSuccess");
     }
-    const result2 = def.innerType._zod.run(payload, ctx);
+    const result2 = def.innerType._zod.run(payload2, ctx);
     if (result2 instanceof Promise) {
       return result2.then((result3) => {
-        payload.value = result3.issues.length === 0;
-        return payload;
+        payload2.value = result3.issues.length === 0;
+        return payload2;
       });
     }
-    payload.value = result2.issues.length === 0;
-    return payload;
+    payload2.value = result2.issues.length === 0;
+    return payload2;
   };
 });
-function handleCatchResult(payload, result2, def, ctx) {
+function handleCatchResult(payload2, result2, def, ctx) {
   if (!result2.issues.length) {
-    payload.value = result2.value;
+    payload2.value = result2.value;
     if (result2.memo)
-      payload.memo = true;
-    return payload;
+      payload2.memo = true;
+    return payload2;
   }
-  payload.value = def.catchValue({
+  payload2.value = def.catchValue({
     ...result2,
-    value: payload.value,
+    value: payload2.value,
     error: {
       issues: result2.issues.map((iss) => finalizeIssue(iss, ctx, config()))
     },
-    input: payload.value
+    input: payload2.value
   });
-  return payload;
+  return payload2;
 }
 var $ZodCatch = /* @__PURE__ */ $constructor("$ZodCatch", (inst, def) => {
   $ZodType.init(inst, def);
   defineLazyInternal(inst, "optin", (zod) => zod.def.innerType._zod.optin === "defaulted" ? "defaulted" : "optional");
   defineLazyInternal(inst, "optout", (zod) => zod.def.innerType._zod.optout);
   defineLazyInternal(inst, "values", (zod) => zod.def.innerType._zod.values);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
-      return def.innerType._zod.run(payload, ctx);
+      return def.innerType._zod.run(payload2, ctx);
     }
-    const result2 = def.innerType._zod.run({ value: payload.value, issues: [] }, ctx);
+    const result2 = def.innerType._zod.run({ value: payload2.value, issues: [] }, ctx);
     if (result2 instanceof Promise) {
-      return result2.then((result3) => handleCatchResult(payload, result3, def, ctx));
+      return result2.then((result3) => handleCatchResult(payload2, result3, def, ctx));
     }
-    return handleCatchResult(payload, result2, def, ctx);
+    return handleCatchResult(payload2, result2, def, ctx);
   };
 });
 var $ZodNaN = /* @__PURE__ */ $constructor("$ZodNaN", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _ctx) => {
-    if (typeof payload.value !== "number" || !Number.isNaN(payload.value)) {
-      payload.issues.push({
-        input: payload.value,
+  inst._zod.parse = (payload2, _ctx) => {
+    if (typeof payload2.value !== "number" || !Number.isNaN(payload2.value)) {
+      payload2.issues.push({
+        input: payload2.value,
         inst,
         expected: "nan",
         code: "invalid_type"
       });
-      return payload;
+      return payload2;
     }
-    return payload;
+    return payload2;
   };
 });
 var $ZodPipe = /* @__PURE__ */ $constructor("$ZodPipe", (inst, def) => {
@@ -5152,15 +5152,15 @@ var $ZodPipe = /* @__PURE__ */ $constructor("$ZodPipe", (inst, def) => {
   defineLazyInternal(inst, "optin", (zod) => zod.def.in._zod.optin);
   defineLazyInternal(inst, "optout", (zod) => zod.def.out._zod.optout);
   defineLazyInternal(inst, "propValues", (zod) => zod.def.in._zod.propValues);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
-      const right = def.out._zod.run(payload, ctx);
+      const right = def.out._zod.run(payload2, ctx);
       if (right instanceof Promise) {
         return right.then((right2) => handlePipeResult(right2, def.in, ctx));
       }
       return handlePipeResult(right, def.in, ctx);
     }
-    const left = def.in._zod.run(payload, ctx);
+    const left = def.in._zod.run(payload2, ctx);
     if (left instanceof Promise) {
       return left.then((left2) => handlePipeResult(left2, def.out, ctx));
     }
@@ -5180,16 +5180,16 @@ var $ZodCodec = /* @__PURE__ */ $constructor("$ZodCodec", (inst, def) => {
   defineLazyInternal(inst, "optin", (zod) => zod.def.in._zod.optin);
   defineLazyInternal(inst, "optout", (zod) => zod.def.out._zod.optout);
   defineLazyInternal(inst, "propValues", (zod) => zod.def.in._zod.propValues);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     const direction = ctx.direction || "forward";
     if (direction === "forward") {
-      const left = def.in._zod.run(payload, ctx);
+      const left = def.in._zod.run(payload2, ctx);
       if (left instanceof Promise) {
         return left.then((left2) => handleCodecAResult(left2, def, ctx));
       }
       return handleCodecAResult(left, def, ctx);
     } else {
-      const right = def.out._zod.run(payload, ctx);
+      const right = def.out._zod.run(payload2, ctx);
       if (right instanceof Promise) {
         return right.then((right2) => handleCodecAResult(right2, def, ctx));
       }
@@ -5233,21 +5233,21 @@ var $ZodReadonly = /* @__PURE__ */ $constructor("$ZodReadonly", (inst, def) => {
   defineLazyInternal(inst, "values", (zod) => zod.def.innerType._zod.values);
   defineLazyInternal(inst, "optin", (zod) => zod.def.innerType?._zod?.optin);
   defineLazyInternal(inst, "optout", (zod) => zod.def.innerType?._zod?.optout);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     if (ctx.direction === "backward") {
-      return def.innerType._zod.run(payload, ctx);
+      return def.innerType._zod.run(payload2, ctx);
     }
-    const result2 = def.innerType._zod.run(payload, ctx);
+    const result2 = def.innerType._zod.run(payload2, ctx);
     if (result2 instanceof Promise) {
       return result2.then(handleReadonlyResult);
     }
     return handleReadonlyResult(result2);
   };
 });
-function handleReadonlyResult(payload) {
-  if (!payload.memo)
-    payload.value = Object.freeze(payload.value);
-  return payload;
+function handleReadonlyResult(payload2) {
+  if (!payload2.memo)
+    payload2.value = Object.freeze(payload2.value);
+  return payload2;
 }
 function leafPattern(schema) {
   const def = schema._zod.def;
@@ -5312,28 +5312,28 @@ var $ZodTemplateLiteral = /* @__PURE__ */ $constructor("$ZodTemplateLiteral", (i
     }
   }
   inst._zod.pattern = new RegExp(`^${regexParts.join("")}$`);
-  inst._zod.parse = (payload, _ctx) => {
-    if (typeof payload.value !== "string") {
-      payload.issues.push({
-        input: payload.value,
+  inst._zod.parse = (payload2, _ctx) => {
+    if (typeof payload2.value !== "string") {
+      payload2.issues.push({
+        input: payload2.value,
         inst,
         expected: "string",
         code: "invalid_type"
       });
-      return payload;
+      return payload2;
     }
     inst._zod.pattern.lastIndex = 0;
-    if (!inst._zod.pattern.test(payload.value)) {
-      payload.issues.push({
-        input: payload.value,
+    if (!inst._zod.pattern.test(payload2.value)) {
+      payload2.issues.push({
+        input: payload2.value,
         inst,
         code: "invalid_format",
         format: def.format ?? "template_literal",
         pattern: inst._zod.pattern.source
       });
-      return payload;
+      return payload2;
     }
-    return payload;
+    return payload2;
   };
 });
 var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
@@ -5366,23 +5366,23 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
       return result2;
     }, "_zod", { value: inst._zod, enumerable: false });
   };
-  inst._zod.parse = (payload, _ctx) => {
-    if (typeof payload.value !== "function") {
-      payload.issues.push({
+  inst._zod.parse = (payload2, _ctx) => {
+    if (typeof payload2.value !== "function") {
+      payload2.issues.push({
         code: "invalid_type",
         expected: "function",
-        input: payload.value,
+        input: payload2.value,
         inst
       });
-      return payload;
+      return payload2;
     }
     const hasPromiseOutput = inst._def.output && inst._def.output._zod.def.type === "promise";
     if (hasPromiseOutput) {
-      payload.value = inst.implementAsync(payload.value);
+      payload2.value = inst.implementAsync(payload2.value);
     } else {
-      payload.value = inst.implement(payload.value);
+      payload2.value = inst.implement(payload2.value);
     }
-    return payload;
+    return payload2;
   };
   inst.input = (...args) => {
     const F = inst.constructor;
@@ -5415,8 +5415,8 @@ var $ZodFunction = /* @__PURE__ */ $constructor("$ZodFunction", (inst, def) => {
 });
 var $ZodPromise = /* @__PURE__ */ $constructor("$ZodPromise", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, ctx) => {
-    return Promise.resolve(payload.value).then((inner) => def.innerType._zod.run({ value: inner, issues: [] }, ctx));
+  inst._zod.parse = (payload2, ctx) => {
+    return Promise.resolve(payload2.value).then((inner) => def.innerType._zod.run({ value: inner, issues: [] }, ctx));
   };
 });
 var $ZodLazy = /* @__PURE__ */ $constructor("$ZodLazy", (inst, def) => {
@@ -5431,28 +5431,28 @@ var $ZodLazy = /* @__PURE__ */ $constructor("$ZodLazy", (inst, def) => {
   defineLazyInternal(inst, "propValues", (zod) => zod.innerType?._zod?.propValues);
   defineLazyInternal(inst, "optin", (zod) => zod.innerType?._zod?.optin ?? void 0);
   defineLazyInternal(inst, "optout", (zod) => zod.innerType?._zod?.optout ?? void 0);
-  inst._zod.parse = (payload, ctx) => {
+  inst._zod.parse = (payload2, ctx) => {
     const inner = inst._zod.innerType;
-    return inner._zod.run(payload, ctx);
+    return inner._zod.run(payload2, ctx);
   };
 });
 var $ZodCustom = /* @__PURE__ */ $constructor("$ZodCustom", (inst, def) => {
   $ZodCheck.init(inst, def);
   $ZodType.init(inst, def);
-  inst._zod.parse = (payload, _) => {
-    return payload;
+  inst._zod.parse = (payload2, _) => {
+    return payload2;
   };
-  inst._zod.check = (payload) => {
-    const input2 = payload.value;
+  inst._zod.check = (payload2) => {
+    const input2 = payload2.value;
     const r = def.fn(input2);
     if (r instanceof Promise) {
-      return r.then((r2) => handleRefineResult(r2, payload, input2, inst));
+      return r.then((r2) => handleRefineResult(r2, payload2, input2, inst));
     }
-    handleRefineResult(r, payload, input2, inst);
+    handleRefineResult(r, payload2, input2, inst);
     return;
   };
 });
-function handleRefineResult(result2, payload, input2, inst) {
+function handleRefineResult(result2, payload2, input2, inst) {
   if (!result2) {
     const _iss = {
       code: "custom",
@@ -5466,7 +5466,7 @@ function handleRefineResult(result2, payload, input2, inst) {
     };
     if (inst._zod.def.params)
       _iss.params = inst._zod.def.params;
-    payload.issues.push(issue(_iss));
+    payload2.issues.push(issue(_iss));
   }
 }
 
@@ -5640,13 +5640,13 @@ function bucketFor(state, inst) {
 var handoff;
 var open = [];
 var memo = {
-  alloc(_inst, payload, empty) {
+  alloc(_inst, payload2, empty) {
     const bucket = handoff;
     if (!bucket)
       return empty;
     handoff = void 0;
     const entry = { value: empty, issues: null };
-    bucket.set(payload.value, entry);
+    bucket.set(payload2.value, entry);
     open.push(entry);
     return empty;
   },
@@ -5655,10 +5655,10 @@ var memo = {
     (_a3 = inst._zod).deferred ?? (_a3.deferred = []);
     inst._zod.deferred.push(() => {
       const base = inst._zod.parse;
-      const wrapped = (payload, ctx) => {
-        if (ctx.direction !== "backward" && isBackEdge(ctx, payload.value))
+      const wrapped = (payload2, ctx) => {
+        if (ctx.direction !== "backward" && isBackEdge(ctx, payload2.value))
           throw new $ZodCyclicError();
-        return base(payload, ctx);
+        return base(payload2, ctx);
       };
       inst._zod.parse = wrapped;
       if (inst._zod.run === base)
@@ -5674,23 +5674,23 @@ var memo = {
     (_a3 = inst._zod).deferred ?? (_a3.deferred = []);
     inst._zod.deferred.push(() => {
       const base = inst._zod.parse;
-      const wrapped = (payload, ctx) => {
+      const wrapped = (payload2, ctx) => {
         if (isRecursiveInst === void 0) {
           const walked = isRecursive(inst, /* @__PURE__ */ new Set(), false);
           if (walked === NONE) {
             inst._zod.parse = base;
             if (inst._zod.run === wrapped)
               inst._zod.run = base;
-            return base(payload, ctx);
+            return base(payload2, ctx);
           }
           if (walked === PROVEN || rechecked)
             isRecursiveInst = true;
           else
             rechecked = true;
         }
-        const input2 = payload.value;
+        const input2 = payload2.value;
         if (!isRef(input2))
-          return base(payload, ctx);
+          return base(payload2, ctx);
         let state = ctx[STATE];
         if (!state) {
           state = { buckets: /* @__PURE__ */ new WeakMap(), backEdges: void 0 };
@@ -5706,20 +5706,20 @@ var memo = {
         }
         const hit = bucket.get(input2);
         if (hit) {
-          payload.value = hit.value;
+          payload2.value = hit.value;
           if (hit.issues) {
             if (hit.issues.length)
-              payload.issues.push(...cloneIssues(hit.issues));
+              payload2.issues.push(...cloneIssues(hit.issues));
           } else {
-            payload.memo = true;
+            payload2.memo = true;
             state.backEdges ?? (state.backEdges = /* @__PURE__ */ new WeakSet());
             state.backEdges.add(hit.value);
           }
-          return payload;
+          return payload2;
         }
         handoff = bucket;
         const depth = open.length;
-        const result2 = base(payload, ctx);
+        const result2 = base(payload2, ctx);
         handoff = void 0;
         const entry = open.length > depth ? open.pop() : void 0;
         if (result2 instanceof Promise) {
@@ -13406,21 +13406,21 @@ function withParser(schema, parser) {
   const clone2 = clone(schema);
   const liveRun = schema._zod.run;
   const originalRun = liveRun.__originalRun ?? liveRun;
-  const wrapped = (payload, ctx) => {
+  const wrapped = (payload2, ctx) => {
     if (ctx?.async || ctx?.direction === "backward" || ctx?.skipChecks || ctx?.[FALLBACK_FLAG]) {
-      return originalRun(payload, ctx);
+      return originalRun(payload2, ctx);
     }
-    if (ctx && isBackEdge(ctx, payload.value)) {
-      return originalRun(payload, ctx);
+    if (ctx && isBackEdge(ctx, payload2.value)) {
+      return originalRun(payload2, ctx);
     }
-    const out = parser(payload.value);
+    const out = parser(payload2.value);
     if (out !== INVALID) {
-      payload.value = out;
-      return payload;
+      payload2.value = out;
+      return payload2;
     }
     if (ctx)
       ctx[FALLBACK_FLAG] = true;
-    return originalRun(payload, ctx);
+    return originalRun(payload2, ctx);
   };
   wrapped.__originalRun = originalRun;
   clone2._zod.bag.fallbackRun = originalRun;
@@ -15907,23 +15907,23 @@ function _refine(Class2, fn, _params) {
 }
 // @__NO_SIDE_EFFECTS__
 function _superRefine(fn, params) {
-  const ch = /* @__PURE__ */ _check((payload) => {
-    payload.addIssue = (issue2) => {
+  const ch = /* @__PURE__ */ _check((payload2) => {
+    payload2.addIssue = (issue2) => {
       if (typeof issue2 === "string") {
-        payload.issues.push(issue(issue2, payload.value, ch._zod.def));
+        payload2.issues.push(issue(issue2, payload2.value, ch._zod.def));
       } else {
         const _issue = issue2;
         if (_issue.fatal)
           _issue.continue = false;
         _issue.code ?? (_issue.code = "custom");
         if (!("input" in _issue))
-          _issue.input = payload.value;
+          _issue.input = payload2.value;
         _issue.inst ?? (_issue.inst = ch);
         _issue.continue ?? (_issue.continue = !ch._zod.def.abort);
-        payload.issues.push(issue(_issue));
+        payload2.issues.push(issue(_issue));
       }
     };
-    return fn(payload.value, payload);
+    return fn(payload2.value, payload2);
   }, params);
   return ch;
 }
@@ -15982,7 +15982,7 @@ function _stringbool(Classes, _params) {
     type: "pipe",
     in: stringSchema,
     out: booleanSchema,
-    transform: ((input2, payload) => {
+    transform: ((input2, payload2) => {
       let data = input2;
       if (params.case !== "sensitive")
         data = data.toLowerCase();
@@ -15991,11 +15991,11 @@ function _stringbool(Classes, _params) {
       } else if (falsySet.has(data)) {
         return false;
       } else {
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_value",
           expected: "stringbool",
           values: [...truthySet, ...falsySet],
-          input: payload.value,
+          input: payload2.value,
           inst: codec2,
           continue: false
         });
@@ -18807,33 +18807,33 @@ var ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
   $ZodTransform.init(inst, def);
   ZodType.init(inst, def);
   inst._zod.processJSONSchema = (ctx, json3, params) => transformProcessor(inst, ctx, json3, params);
-  inst._zod.parse = (payload, _ctx) => {
+  inst._zod.parse = (payload2, _ctx) => {
     if (_ctx.direction === "backward") {
       throw new $ZodEncodeError(inst.constructor.name);
     }
-    payload.addIssue = (issue2) => {
+    payload2.addIssue = (issue2) => {
       if (typeof issue2 === "string") {
-        payload.issues.push(util_exports.issue(issue2, payload.value, def));
+        payload2.issues.push(util_exports.issue(issue2, payload2.value, def));
       } else {
         const _issue = issue2;
         if (_issue.fatal)
           _issue.continue = false;
         _issue.code ?? (_issue.code = "custom");
         if (!("input" in _issue))
-          _issue.input = payload.value;
+          _issue.input = payload2.value;
         _issue.inst ?? (_issue.inst = inst);
-        payload.issues.push(util_exports.issue(_issue));
+        payload2.issues.push(util_exports.issue(_issue));
       }
     };
-    const output2 = def.transform(payload.value, payload);
+    const output2 = def.transform(payload2.value, payload2);
     if (output2 instanceof Promise) {
       return output2.then((output3) => {
-        payload.value = output3;
-        return payload;
+        payload2.value = output3;
+        return payload2;
       });
     }
-    payload.value = output2;
-    return payload;
+    payload2.value = output2;
+    return payload2;
   };
 });
 function transform(fn) {
@@ -19101,12 +19101,12 @@ function _instanceof(cls, params = {}) {
     ...util_exports.normalizeParams(params)
   });
   inst._zod.bag.Class = cls;
-  inst._zod.check = (payload) => {
-    if (!(payload.value instanceof cls)) {
-      payload.issues.push({
+  inst._zod.check = (payload2) => {
+    if (!(payload2.value instanceof cls)) {
+      payload2.issues.push({
         code: "invalid_type",
         expected: cls.name,
-        input: payload.value,
+        input: payload2.value,
         inst,
         path: [...inst._zod.def.path ?? []]
       });
@@ -19299,13 +19299,13 @@ function resolveRef(ref, ctx) {
   throw new Error(`Reference not found: ${ref}`);
 }
 function checkObjectGuards(objectSchema, guards) {
-  const guard = z.transform((value) => value).check((payload) => {
-    const value = payload.value;
+  const guard = z.transform((value) => value).check((payload2) => {
+    const value = payload2.value;
     if (typeof value !== "object" || value === null || Array.isArray(value))
       return;
     const keys = Object.getOwnPropertyNames(value);
     if (guards.minProperties !== void 0 && keys.length < guards.minProperties) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "object",
         code: "too_small",
         minimum: guards.minProperties,
@@ -19317,7 +19317,7 @@ function checkObjectGuards(objectSchema, guards) {
       });
     }
     if (guards.maxProperties !== void 0 && keys.length > guards.maxProperties) {
-      payload.issues.push({
+      payload2.issues.push({
         origin: "object",
         code: "too_big",
         maximum: guards.maxProperties,
@@ -19333,7 +19333,7 @@ function checkObjectGuards(objectSchema, guards) {
         const result2 = guards.keySchema.safeParse(key);
         if (result2.success)
           continue;
-        payload.issues.push({
+        payload2.issues.push({
           code: "invalid_key",
           origin: "record",
           issues: result2.error.issues,
@@ -19428,8 +19428,8 @@ function plural(n) {
   return n === 1 ? "element" : "elements";
 }
 function checkArrayGuards(arraySchema, guards) {
-  const guard = z.transform((value) => value).check((payload) => {
-    const items = payload.value;
+  const guard = z.transform((value) => value).check((payload2) => {
+    const items = payload2.value;
     if (!Array.isArray(items))
       return;
     if (guards.uniqueItems === true) {
@@ -19443,7 +19443,7 @@ function checkArrayGuards(arraySchema, guards) {
           firstSeen.set(key, i);
           continue;
         }
-        payload.issues.push({
+        payload2.issues.push({
           code: "custom",
           message: `Array items must be unique: element at index ${i} duplicates the one at index ${first}`,
           input: items,
@@ -19461,7 +19461,7 @@ function checkArrayGuards(arraySchema, guards) {
           break;
       }
       if (matches < minContains) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "custom",
           message: `Array must contain at least ${minContains} matching ${plural(minContains)}; found ${matches}`,
           input: items,
@@ -19469,7 +19469,7 @@ function checkArrayGuards(arraySchema, guards) {
         });
       }
       if (guards.maxContains !== void 0 && matches > guards.maxContains) {
-        payload.issues.push({
+        payload2.issues.push({
           code: "custom",
           message: `Array must contain at most ${guards.maxContains} matching ${plural(guards.maxContains)}`,
           input: items,
@@ -19712,11 +19712,11 @@ function convertBaseSchema(schema, ctx) {
           const propertyKeys = Object.keys(shape);
           const patterns = patternKeys.map((p) => new RegExp(p));
           const basePatternSchema = zodSchema;
-          zodSchema = zodSchema.check((payload) => {
-            if (!isPlainObject(payload.value))
+          zodSchema = zodSchema.check((payload2) => {
+            if (!isPlainObject(payload2.value))
               return;
             const unrecognized = [];
-            for (const key of Object.keys(payload.value)) {
+            for (const key of Object.keys(payload2.value)) {
               if (propertyKeys.includes(key))
                 continue;
               if (patterns.some((regex) => regex.test(key)))
@@ -19724,10 +19724,10 @@ function convertBaseSchema(schema, ctx) {
               unrecognized.push(key);
             }
             if (unrecognized.length) {
-              payload.issues.push({
+              payload2.issues.push({
                 code: "unrecognized_keys",
                 keys: unrecognized,
-                input: payload.value,
+                input: payload2.value,
                 inst: basePatternSchema
               });
             }
@@ -33905,7 +33905,7 @@ var McpServer = class {
     }
     return registeredPrompt;
   }
-  _createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations, icons, execution, scopeChallenge, _meta, handler) {
+  _createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations, icons, execution2, scopeChallenge, _meta, handler) {
     validateAndWarnToolName(name);
     let currentHandler = handler;
     let outputSchemaJson;
@@ -33922,7 +33922,7 @@ var McpServer = class {
       },
       annotations,
       icons,
-      execution,
+      execution: execution2,
       scopeChallenge,
       _meta,
       handler,
@@ -34272,7 +34272,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) }
   ];
   const reservedShares = (ticker) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
-  const sellable = (holding2) => round(holding2.quantity - holding2.inPies - reservedShares(holding2.ticker), 6);
+  const sellable = (holding3) => round(holding3.quantity - holding3.inPies - reservedShares(holding3.ticker), 6);
   const reservation = (order) => Number(order.quantity) > 0 ? eur(String(order.ticker), Number(order.quantity) * Number(order.limitPrice ?? order.stopPrice ?? instrumentOf(String(order.ticker))?.price ?? 0)) : 0;
   const history = [];
   const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
@@ -34302,29 +34302,29 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     { reference: "sample-interest-1", type: "INTEREST", amount: 6.4, currency: "EUR", dateTime: daysAgo(31) }
   ];
   let nextPieId = 4103;
-  const pies2 = /* @__PURE__ */ new Map([
+  const pies3 = /* @__PURE__ */ new Map([
     [4101, { name: "Core tech", icon: "Rocket", goal: 5e3, dividendCashAction: "REINVEST", shares: { NVDA_US_EQ: 0.5, MSFT_US_EQ: 0.3, AAPL_US_EQ: 0.2 }, cash: 23.3, createdAt: daysAgo(300) }],
     [4102, { name: "Dividend income", icon: "Coins", dividendCashAction: "TO_ACCOUNT_CASH", shares: { KO_US_EQ: 0.6, VUSAl_EQ: 0.4 }, cash: 100, createdAt: daysAgo(120) }]
   ]);
   const exports2 = [{ reportId: 11, status: "Finished", downloadLink: "https://sample.tradepilot.invalid/report-11.csv", timeFrom: daysAgo(365), timeTo: daysAgo(0), dataIncluded: { includeOrders: true, includeDividends: true, includeTransactions: true, includeInterest: true } }];
-  const position = (holding2) => {
-    const instrument = instrumentOf(holding2.ticker);
-    const currentValue = round(eur(holding2.ticker, holding2.quantity * instrument.price));
-    const totalCost = round(eur(holding2.ticker, holding2.quantity * holding2.average));
+  const position = (holding3) => {
+    const instrument = instrumentOf(holding3.ticker);
+    const currentValue = round(eur(holding3.ticker, holding3.quantity * instrument.price));
+    const totalCost = round(eur(holding3.ticker, holding3.quantity * holding3.average));
     const { price, ...meta3 } = instrument;
     return {
       instrument: meta3,
-      quantity: holding2.quantity,
-      quantityAvailableForTrading: sellable(holding2),
-      quantityInPies: holding2.inPies,
-      averagePricePaid: holding2.average,
+      quantity: holding3.quantity,
+      quantityAvailableForTrading: sellable(holding3),
+      quantityInPies: holding3.inPies,
+      averagePricePaid: holding3.average,
       currentPrice: price,
-      createdAt: holding2.createdAt,
+      createdAt: holding3.createdAt,
       walletImpact: { currency: "EUR", totalCost, currentValue, unrealizedProfitLoss: round(currentValue - totalCost), fxImpact: 0 }
     };
   };
   const pieSummary = (id) => {
-    const pie = pies2.get(id);
+    const pie = pies3.get(id);
     const invested = id === 4101 ? 1950 : id === 4102 ? 800 : 0;
     const value = id === 4101 ? 2210.4 : id === 4102 ? 764.2 : 0;
     return {
@@ -34338,7 +34338,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   };
   const drift = (id, ticker, target) => (id === 4101 ? { NVDA_US_EQ: 0.08, MSFT_US_EQ: -0.04, AAPL_US_EQ: -0.04 }[ticker] ?? 0 : id === 4102 ? { KO_US_EQ: -0.05, VUSAl_EQ: 0.05 }[ticker] ?? 0 : 0) + target;
   const pieDetail = (id) => {
-    const pie = pies2.get(id);
+    const pie = pies3.get(id);
     return {
       settings: { id, name: pie.name, icon: pie.icon, ...pie.goal ? { goal: pie.goal } : {}, instrumentShares: pie.shares, dividendCashAction: pie.dividendCashAction, creationDate: pie.createdAt, publicUrl: null },
       instruments: Object.entries(pie.shares).map(([ticker, share3]) => ({
@@ -34353,18 +34353,18 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   const fill = (ticker, quantity, orderId) => {
     const instrument = instrumentOf(ticker);
     const value = eur(ticker, Math.abs(quantity) * instrument.price);
-    let holding2 = holdings.find((item) => item.ticker === ticker);
+    let holding3 = holdings.find((item) => item.ticker === ticker);
     if (quantity > 0) {
       if (value > cash) return { error: json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400) };
       cash -= value;
-      if (!holding2) holdings.push(holding2 = { ticker, quantity: 0, average: instrument.price, inPies: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
-      holding2.average = (holding2.average * holding2.quantity + instrument.price * quantity) / (holding2.quantity + quantity);
-      holding2.quantity = round(holding2.quantity + quantity, 6);
+      if (!holding3) holdings.push(holding3 = { ticker, quantity: 0, average: instrument.price, inPies: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      holding3.average = (holding3.average * holding3.quantity + instrument.price * quantity) / (holding3.quantity + quantity);
+      holding3.quantity = round(holding3.quantity + quantity, 6);
     } else {
-      if (!holding2 || sellable(holding2) < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
+      if (!holding3 || sellable(holding3) < -quantity - 1e-9) return { error: json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400) };
       cash += value;
-      holding2.quantity = round(holding2.quantity + quantity, 6);
-      if (holding2.quantity <= 0) holdings.splice(holdings.indexOf(holding2), 1);
+      holding3.quantity = round(holding3.quantity + quantity, 6);
+      if (holding3.quantity <= 0) holdings.splice(holdings.indexOf(holding3), 1);
     }
     addHistory(ticker, quantity, instrument.price, (/* @__PURE__ */ new Date()).toISOString(), 0, orderId);
     return {};
@@ -34373,7 +34373,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     if (method === "GET" && path3 === "/equity/account/summary") {
       const invested = holdings.reduce((sum, item) => sum + position(item).walletImpact.currentValue, 0);
       const cost = holdings.reduce((sum, item) => sum + position(item).walletImpact.totalCost, 0);
-      const pieCash = [...pies2.values()].reduce((sum, pie) => sum + pie.cash, 0);
+      const pieCash = [...pies3.values()].reduce((sum, pie) => sum + pie.cash, 0);
       const reserved = pending.reduce((sum, order) => sum + reservation(order), 0);
       return json2({ id: 212e5, currency: "EUR", totalValue: round(invested + cash + pieCash + reserved), cash: { availableToTrade: round(cash), inPies: round(pieCash), reservedForOrders: round(reserved) }, investments: { currentValue: round(invested), totalCost: round(cost), unrealizedProfitLoss: round(invested - cost), realizedProfitLoss: realized } });
     }
@@ -34417,8 +34417,8 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
         if (result2.error) return result2.error;
         return json2({ ...order, status: "FILLED", filledQuantity: quantity, filledValue: round(quantity * instrumentOf(ticker).price) });
       }
-      const holding2 = holdings.find((item) => item.ticker === ticker);
-      if (quantity < 0 && (!holding2 || sellable(holding2) < -quantity - 1e-9)) return json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400);
+      const holding3 = holdings.find((item) => item.ticker === ticker);
+      if (quantity < 0 && (!holding3 || sellable(holding3) < -quantity - 1e-9)) return json2({ code: "SellingEquityNotOwned", clarification: "Not enough shares to sell" }, 400);
       const held = reservation(order);
       if (held > cash) return json2({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400);
       cash -= held;
@@ -34434,29 +34434,29 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       history.unshift({ order: { ...order, side: Number(order.quantity) < 0 ? "SELL" : "BUY", status: "CANCELLED", currency: instrumentOf(String(order.ticker))?.currencyCode, instrument: { ticker: order.ticker, name: instrumentOf(String(order.ticker))?.name } } });
       return new Response(null, { status: 200 });
     }
-    if (method === "GET" && path3 === "/equity/pies") return json2([...pies2.keys()].map(pieSummary));
+    if (method === "GET" && path3 === "/equity/pies") return json2([...pies3.keys()].map(pieSummary));
     const pieMatch = /^\/equity\/pies\/(\d+)(\/duplicate)?$/.exec(path3);
     if (method === "POST" && path3 === "/equity/pies") {
       const id = nextPieId++;
-      pies2.set(id, { name: String(body.name ?? "New pie"), icon: String(body.icon ?? "Home"), ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? "REINVEST"), shares: body.instrumentShares ?? {}, cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      pies3.set(id, { name: String(body.name ?? "New pie"), icon: String(body.icon ?? "Home"), ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? "REINVEST"), shares: body.instrumentShares ?? {}, cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
       return json2(pieDetail(id));
     }
     if (pieMatch) {
       const id = Number(pieMatch[1]);
-      const pie = pies2.get(id);
+      const pie = pies3.get(id);
       if (!pie) return json2({ code: "PieNotFound" }, 404);
       if (method === "GET" && !pieMatch[2]) return json2(pieDetail(id));
       if (method === "DELETE" && !pieMatch[2]) {
-        pies2.delete(id);
+        pies3.delete(id);
         return new Response(null, { status: 200 });
       }
       if (method === "POST" && pieMatch[2]) {
         const copy = nextPieId++;
-        pies2.set(copy, { ...pie, shares: { ...pie.shares }, name: String(body.name ?? `${pie.name} copy`), cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+        pies3.set(copy, { ...pie, shares: { ...pie.shares }, name: String(body.name ?? `${pie.name} copy`), cash: 0, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
         return json2(pieDetail(copy));
       }
       if (method === "POST") {
-        pies2.set(id, { ...pie, name: String(body.name ?? pie.name), ...body.icon ? { icon: String(body.icon) } : {}, ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? pie.dividendCashAction), shares: body.instrumentShares ?? pie.shares });
+        pies3.set(id, { ...pie, name: String(body.name ?? pie.name), ...body.icon ? { icon: String(body.icon) } : {}, ...typeof body.goal === "number" ? { goal: body.goal } : {}, dividendCashAction: String(body.dividendCashAction ?? pie.dividendCashAction), shares: body.instrumentShares ?? pie.shares });
         return json2(pieDetail(id));
       }
     }
@@ -35269,6 +35269,114 @@ function G(B, Q, F, V, q) {
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
 var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 
+// src/core/tool-output.ts
+var TYPES = {
+  s: () => external_exports.string(),
+  // Any number: a figure that cannot be computed is NaN, which is still a result (JSON carries it as null).
+  n: () => external_exports.unknown().refine((value) => typeof value === "number", "Expected a number").meta({ type: "number" }),
+  b: () => external_exports.boolean(),
+  o: () => external_exports.looseObject({}),
+  a: () => external_exports.array(external_exports.unknown()),
+  u: () => external_exports.unknown()
+};
+var FIELDS = {
+  environment: "demo or live: the Trading 212 account read.",
+  credentials: "Which accounts have API keys set.",
+  writeEnabled: "Whether order tools are enabled on this server.",
+  timestamp: "When the figures were read.",
+  accountCurrency: "The account's currency; amounts are in it unless a field says otherwise.",
+  currency: "The account's currency.",
+  truncated: "History was cut short at the page limit, so older records are not counted.",
+  period: "The window the figures cover.",
+  token: "One-time confirmation token for the matching app_execute_* tool.",
+  expiresAt: "When the token expires.",
+  ok: "Whether Trading 212 accepted it.",
+  status: "What became of it; when unknown, never send it again before checking.",
+  message: "What happened, in words.",
+  legs: "The orders, each with its draft and checks.",
+  notes: "Notes on what the figures leave out or assume.",
+  policy: "The order policy and its checks.",
+  account: "The account summary: value, cash and investments.",
+  positions: "The holdings.",
+  orders: "Open orders.",
+  draft: "The order or change as drafted, for the user to review."
+};
+function payload(kinds, fields) {
+  const kind = kinds.split("|");
+  return external_exports.looseObject({
+    kind: external_exports.string().describe(`The payload: ${kind.join(" or ")}.`),
+    ...Object.fromEntries(fields.split(" ").filter(Boolean).map((field) => {
+      const [name, type] = field.split(":");
+      const schema = TYPES[type]().nullish();
+      return [name, FIELDS[name] ? schema.describe(FIELDS[name]) : schema];
+    }))
+  });
+}
+var drafted = "environment:s purpose:s title:s legs:a notes:a credentials:o writeEnabled:b";
+var dashboard = "appName:s environment:s credentials:o account:o positions:a orders:a activity:a timestamp:s writeEnabled:b";
+var holding = "environment:s credentials:o ticker:s instrument:o accountCurrency:s accountRate:n position:o watching:o weight:n orders:a alerts:a journal:a market:o history:o prices:o day:o timestamp:s writeEnabled:b";
+var pies = "environment:s credentials:o timestamp:s pies:a totals:o currency:s notes:a writeEnabled:b";
+var plan = "environment:s credentials:o candidates:a account:o timestamp:s writeEnabled:b";
+var automation = "environment:s credentials:o plans:a alerts:a accountAlerts:a links:a instruments:a usageToday:o currency:s account:o policy:o settings:o timestamp:s writeEnabled:b";
+var execution = "environment:s ok:b status:s order:u message:s";
+var TOOL_OUTPUT = {
+  analyze_portfolio_allocation: payload("allocation", "environment:s accountCurrency:s totalValue:n investedValue:n cash:n availableCash:n cashWeight:n holdings:a byCurrency:a byType:a concentration:o flags:a drift:o risk:o fxFeeRate:n timestamp:s credentials:o writeEnabled:b"),
+  app_execute_basket: payload("basket_execution", "environment:s purpose:s ok:b status:s legs:a message:s"),
+  app_execute_cancel: payload("order_execution", execution),
+  app_execute_order: payload("order_execution", `${execution} verificationId:s`),
+  app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:u message:s"),
+  app_get_automation: payload("automation", automation),
+  app_get_dashboard: payload("portfolio", dashboard),
+  app_get_holding: payload("holding", holding),
+  app_get_holding_covariance: payload("holding_covariance", "environment:s covariance:o weeks:n to:s"),
+  app_get_today: payload("portfolio_today", "environment:s accountCurrency:s moves:a total:o invested:n timestamp:s"),
+  app_get_trade_plan: payload("trade_plan", plan),
+  app_list_pies: payload("pies", pies),
+  app_prepare_basket: payload("basket_preview", "token:s expiresAt:s snapshotAt:s environment:s purpose:s title:s accountCurrency:s legs:a notes:a"),
+  app_prepare_cancel: payload("cancel_preview", "token:s expiresAt:s environment:s orderId:s order:o"),
+  app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a warnings:a"),
+  app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
+  app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
+  get_automation_overview: payload("automation", automation),
+  get_cash_history: payload("cash_history", "environment:s items:a count:n totals:o currency:s truncated:b timestamp:s"),
+  get_holding_detail: payload("holding", holding),
+  get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
+  get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
+  get_market_hours: payload("market_status", "environment:s ticker:s exchange:s session:s isOpen:b nextOpen:s nextClose:s checkedAt:s"),
+  get_order_status: payload("order_status", "environment:s orderId:s state:s order:o fills:a timestamp:s"),
+  get_pie: payload("pies", pies),
+  get_portfolio_dashboard: payload("portfolio", dashboard),
+  get_portfolio_performance: payload("performance", "environment:s accountCurrency:s period:o coverage:o contributions:o income:o costs:o realizedProfitLoss:n unrealizedProfitLoss:n currentValue:n simpleReturn:n annualizedReturn:n timeWeighted:o benchmark:o valueHistory:a trades:o byTicker:a notes:a timestamp:s credentials:o writeEnabled:b"),
+  get_portfolio_today: payload("portfolio", `${dashboard} today:o`),
+  get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
+  get_recent_trading_activity: payload("activity", "environment:s activity:a"),
+  get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
+  get_trade_history: payload("trade_history", "environment:s fills:a unfilled:a journal:a truncated:b timestamp:s"),
+  get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b"),
+  get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
+  list_investment_plans: payload("investment_plans", "plans:a demoAutomationEnabled:b"),
+  list_pies: payload("pies", pies),
+  list_price_alerts: payload("price_alerts", "alerts:a accountAlerts:a webhook:b"),
+  manage_account_alerts: payload("account_alert", "alert:o deleted:u"),
+  manage_history_export: payload("history_export", "environment:s reports:a requested:o report:o summary:o records:a recordCount:n"),
+  manage_investment_plans: payload("investment_plan", "plan:o deleted:u"),
+  manage_price_alerts: payload("price_alert", "alert:o deleted:u"),
+  manage_target_allocation: payload("target_allocation", "environment:s"),
+  manage_trade_journal: payload("trade_journal|journal_entry", "environment:s entries:a total:n entry:o deleted:u"),
+  manage_watchlist: payload("watchlist_change", "environment:s action:s item:o added:b"),
+  plan_portfolio_rebalance: payload("basket_draft", `${drafted} rebalance:o`),
+  review_investment_plan: payload("basket_draft", drafted),
+  review_order_basket: payload("basket_draft", drafted),
+  review_order_cancel: payload("cancel_draft", "environment:s orderId:s order:o credentials:o writeEnabled:b"),
+  review_pie_change: payload("pie_change_draft", "draft:o current:o credentials:o writeEnabled:b"),
+  review_portfolio_stops: payload("basket_draft", drafted),
+  review_protective_orders: payload("basket_draft", drafted),
+  review_trading212_order: payload("order_draft", "draft:o resolvedInstrument:o credentials:o writeEnabled:b"),
+  review_trading212_order_intent: payload("order_draft", "draft:o resolvedInstrument:o resolution:o note:s credentials:o writeEnabled:b"),
+  search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
+  show_daily_trade_plan: payload("trade_plan", plan)
+};
+
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
@@ -35773,11 +35881,11 @@ function closeQuantity(a, b) {
 function orderQuantity(order) {
   return typeof order.quantity === "number" && Number.isFinite(order.quantity) ? Math.abs(order.quantity) : void 0;
 }
-function basketNotes(plan) {
+function basketNotes(plan2) {
   const clip = (note) => note.length > 500 ? `${note.slice(0, 497)}...` : note;
-  const skipped = plan.skipped.map((item) => `${item.ticker}: ${item.reason}`);
-  if (plan.notes.length + skipped.length <= 20) return [...plan.notes, ...skipped].map(clip);
-  return [...plan.notes.slice(0, 18), `Skipped ${plan.skipped.length} instrument(s) with no usable price or FX rate: ${plan.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
+  const skipped = plan2.skipped.map((item) => `${item.ticker}: ${item.reason}`);
+  if (plan2.notes.length + skipped.length <= 20) return [...plan2.notes, ...skipped].map(clip);
+  return [...plan2.notes.slice(0, 18), `Skipped ${plan2.skipped.length} instrument(s) with no usable price or FX rate: ${plan2.skipped.map((item) => item.ticker).join(", ")}.`].map(clip);
 }
 function searchRank(item, q) {
   const ticker = item.ticker.toUpperCase();
@@ -36146,10 +36254,10 @@ var TradingService = class {
     const read = this.readDashboard(environment);
     this.reading.set(environment, read);
     try {
-      const payload = await read;
-      if (this.writes === generation) this.dashboards.set(environment, { at: Date.now(), payload });
-      if (payload.account?.currency) this.currencies.set(environment, payload.account.currency);
-      return payload;
+      const payload2 = await read;
+      if (this.writes === generation) this.dashboards.set(environment, { at: Date.now(), payload: payload2 });
+      if (payload2.account?.currency) this.currencies.set(environment, payload2.account.currency);
+      return payload2;
     } finally {
       if (this.reading.get(environment) === read) this.reading.delete(environment);
     }
@@ -36687,18 +36795,18 @@ var TradingService = class {
       })
     };
   }
-  rebalanceBasket(plan) {
+  rebalanceBasket(plan2) {
     return {
       kind: "basket_draft",
-      environment: plan.environment,
+      environment: plan2.environment,
       purpose: "rebalance",
-      title: plan.buyOnly ? "Invest cash by targets" : plan.band !== void 0 ? "Rebalance what drifted" : "Rebalance",
-      legs: plan.trades.map((trade) => ({
+      title: plan2.buyOnly ? "Invest cash by targets" : plan2.band !== void 0 ? "Rebalance what drifted" : "Rebalance",
+      legs: plan2.trades.map((trade) => ({
         // An undated caller price stays undated, so the review flags it and the reference-age rule applies.
-        draft: { environment: plan.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...trade.priceAt ? { referencePriceAt: trade.priceAt } : {} },
+        draft: { environment: plan2.environment, ticker: trade.ticker, side: trade.side, type: "market", quantity: trade.quantity, referencePrice: trade.price, ...trade.priceAt ? { referencePriceAt: trade.priceAt } : {} },
         reason: `${(trade.currentWeight * 100).toFixed(1)}% \u2192 ${(trade.resultingWeight * 100).toFixed(1)}% (target ${(trade.targetWeight * 100).toFixed(1)}%)`
       })),
-      notes: basketNotes(plan)
+      notes: basketNotes(plan2)
     };
   }
   /**
@@ -38883,8 +38991,8 @@ var targetKey = (environment) => `targets:${environment}`;
 var share2 = (value) => Math.round(value * 1e4) / 1e4;
 var exact = (value) => Math.round(value * 1e6) / 1e6;
 function allocationDrift(saved, analysis, options = {}) {
-  const current = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.weight]));
-  const currencies = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.currency]));
+  const current = new Map(analysis.holdings.map((holding3) => [holding3.ticker, holding3.weight]));
+  const currencies = new Map(analysis.holdings.map((holding3) => [holding3.ticker, holding3.currency]));
   const currencyOf = (ticker) => knownCurrency(currencies.get(ticker)) ?? knownCurrency(options.currencyOf?.(ticker));
   const rows2 = saved.targets.map((target) => {
     const weight2 = current.get(target.ticker) ?? 0;
@@ -38893,7 +39001,7 @@ function allocationDrift(saved, analysis, options = {}) {
   }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   const targeted = new Set(saved.targets.map((target) => target.ticker));
   const cash = { target: saved.cashWeight, current: exact(analysis.cashWeight), drift: exact(analysis.cashWeight - saved.cashWeight) };
-  const untargeted = analysis.holdings.filter((holding2) => !targeted.has(holding2.ticker)).map((holding2) => ({ ticker: holding2.ticker, current: exact(holding2.weight) }));
+  const untargeted = analysis.holdings.filter((holding3) => !targeted.has(holding3.ticker)).map((holding3) => ({ ticker: holding3.ticker, current: exact(holding3.weight) }));
   const maxDrift = Math.max(Math.abs(cash.drift), ...rows2.map((row) => Math.abs(row.drift)), ...saved.sellUntargeted ? untargeted.map((item) => item.current) : []);
   const { totalValue, accountCurrency } = analysis;
   const freeCash = analysis.availableCash ?? analysis.cash;
@@ -38963,7 +39071,9 @@ var TargetAllocations = class {
     if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString() };
+    const before = await this.get(environment);
+    const same = before && before.cashWeight === cashWeight && before.driftThreshold === driftThreshold && !!before.sellUntargeted === !!input2.sellUntargeted && before.targets.length === targets.length && before.targets.every((target, index) => target.ticker === targets[index].ticker && target.weight === targets[index].weight);
+    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString(), ...same && before.lastNotifiedAt ? { lastNotifiedAt: before.lastNotifiedAt } : {} };
     await this.deps.store.put(targetKey(environment), saved);
     return saved;
   }
@@ -38976,7 +39086,7 @@ var TargetAllocations = class {
   async withDrift(analysis) {
     const saved = await this.get(analysis.environment);
     if (!saved) return analysis;
-    const held = new Set(analysis.holdings.map((holding2) => holding2.ticker));
+    const held = new Set(analysis.holdings.map((holding3) => holding3.ticker));
     const instruments = saved.targets.some((target) => !held.has(target.ticker)) ? await this.deps.trading.instruments(analysis.environment).catch(() => void 0) : void 0;
     const currencies = new Map((instruments ?? []).map((item) => [item.ticker, item.currencyCode]));
     const drift = allocationDrift(saved, analysis, { currencyOf: (ticker) => currencies.get(ticker), fxFeeRate: this.deps.config.fxFeeRate });
@@ -39031,28 +39141,28 @@ function planLimitPrice(price, offsetPercent) {
   const digits = price >= 1 ? 2 : 4;
   return Math.round(price * (1 + offsetPercent / 100) * 10 ** digits) / 10 ** digits;
 }
-function nextRunAt(plan, after) {
-  if (plan.frequency === "monthly") {
-    const day2 = plan.dayOfMonth ?? 1;
-    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day2, plan.hourUtc));
-    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day2, plan.hourUtc));
+function nextRunAt(plan2, after) {
+  if (plan2.frequency === "monthly") {
+    const day2 = plan2.dayOfMonth ?? 1;
+    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day2, plan2.hourUtc));
+    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day2, plan2.hourUtc));
     return candidate2;
   }
-  const weekday2 = plan.weekday ?? 1;
-  const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan.hourUtc));
+  const weekday2 = plan2.weekday ?? 1;
+  const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan2.hourUtc));
   const isoToday = today.getUTCDay() || 7;
   let candidate = new Date(today.getTime() + (weekday2 - isoToday + 7) % 7 * DAY_MS4);
   if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS4);
   return candidate;
 }
-function previousRunAt(plan, next) {
-  if (plan.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan.dayOfMonth ?? 1, plan.hourUtc));
+function previousRunAt(plan2, next) {
+  if (plan2.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan2.dayOfMonth ?? 1, plan2.hourUtc));
   return new Date(next.getTime() - 7 * DAY_MS4);
 }
-function scheduleFrom(plan, now) {
-  const next = nextRunAt(plan, now);
-  const lastRun = plan.lastRunAt ? Date.parse(plan.lastRunAt) : NaN;
-  return Number.isFinite(lastRun) && lastRun > previousRunAt(plan, next).getTime() ? nextRunAt(plan, next) : next;
+function scheduleFrom(plan2, now) {
+  const next = nextRunAt(plan2, now);
+  const lastRun = plan2.lastRunAt ? Date.parse(plan2.lastRunAt) : NaN;
+  return Number.isFinite(lastRun) && lastRun > previousRunAt(plan2, next).getTime() ? nextRunAt(plan2, next) : next;
 }
 function validateSchedule(input2) {
   if (input2.frequency === "monthly" && (input2.dayOfMonth === void 0 || !Number.isInteger(input2.dayOfMonth) || input2.dayOfMonth < 1 || input2.dayOfMonth > 28))
@@ -39072,12 +39182,12 @@ var AutomationService = class {
   deps;
   async listPlans(environment) {
     const entries = await this.deps.store.list("plan:");
-    return entries.map((entry) => entry.value).filter((plan) => !environment || plan.environment === environment).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
+    return entries.map((entry) => entry.value).filter((plan2) => !environment || plan2.environment === environment).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
   }
   async getPlan(id) {
-    const plan = await this.deps.store.get(planKey(id));
-    if (!plan) fail("PLAN_NOT_FOUND", "Plan not found", { planId: id });
-    return plan;
+    const plan2 = await this.deps.store.get(planKey(id));
+    if (!plan2) fail("PLAN_NOT_FOUND", "Plan not found", { planId: id });
+    return plan2;
   }
   async resolveLegs(environment, legs) {
     if (!legs.length || legs.length > MAX_PLAN_LEGS) fail("INVALID_INPUT", `A plan needs 1 to ${MAX_PLAN_LEGS} legs`);
@@ -39105,7 +39215,7 @@ var AutomationService = class {
       ...input2.frequency === "monthly" ? { dayOfMonth: input2.dayOfMonth } : { weekday: input2.weekday },
       hourUtc: input2.hourUtc ?? DEFAULT_HOUR_UTC
     };
-    const plan = {
+    const plan2 = {
       id: `dca_${randomToken(12)}`,
       environment: input2.environment,
       label: input2.label.trim().slice(0, 80) || "DCA plan",
@@ -39117,35 +39227,35 @@ var AutomationService = class {
       nextRunAt: nextRunAt(schedule, now).toISOString(),
       createdAt: now.toISOString()
     };
-    await this.deps.store.put(planKey(plan.id), plan);
-    return plan;
+    await this.deps.store.put(planKey(plan2.id), plan2);
+    return plan2;
   }
   async updatePlan(id, patch, now = /* @__PURE__ */ new Date()) {
-    const plan = await this.getPlan(id);
-    assertAutoExecuteAllowed(plan.environment, patch.autoExecute);
-    let base = plan;
+    const plan2 = await this.getPlan(id);
+    assertAutoExecuteAllowed(plan2.environment, patch.autoExecute);
+    let base = plan2;
     if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hourUtc].some((value) => value !== void 0)) {
-      const frequency = patch.frequency ?? plan.frequency;
+      const frequency = patch.frequency ?? plan2.frequency;
       const schedule = {
         frequency,
-        ...frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan.dayOfMonth } : { weekday: patch.weekday ?? plan.weekday },
-        hourUtc: patch.hourUtc ?? plan.hourUtc
+        ...frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan2.dayOfMonth } : { weekday: patch.weekday ?? plan2.weekday },
+        hourUtc: patch.hourUtc ?? plan2.hourUtc
       };
       validateSchedule(schedule);
-      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan;
-      base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {} }, now).toISOString() };
+      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan2;
+      base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...plan2.lastRunAt ? { lastRunAt: plan2.lastRunAt } : {} }, now).toISOString() };
     }
     if (patch.legs !== void 0 && patch.targetAmount !== void 0) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
     if (patch.targetAmount !== void 0) validateTargetAmount(patch.targetAmount);
-    const legs = patch.legs === void 0 ? void 0 : await this.resolveLegs(plan.environment, patch.legs);
-    const resumed = patch.paused === false && plan.paused && Date.parse(base.nextRunAt) <= now.getTime();
-    const latest = await this.deps.store.get(planKey(id)) ?? plan;
-    const changed = base !== plan;
+    const legs = patch.legs === void 0 ? void 0 : await this.resolveLegs(plan2.environment, patch.legs);
+    const resumed = patch.paused === false && plan2.paused && Date.parse(base.nextRunAt) <= now.getTime();
+    const latest = await this.deps.store.get(planKey(id)) ?? plan2;
+    const changed = base !== plan2;
     const updated = {
       ...latest,
       ...changed ? { frequency: base.frequency, hourUtc: base.hourUtc, nextRunAt: base.nextRunAt } : {},
       ...changed ? base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth } : { weekday: base.weekday } : {},
-      ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan.label },
+      ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan2.label },
       ...legs === void 0 ? {} : { legs },
       ...patch.targetAmount === void 0 ? {} : { legs: [], targetAmount: patch.targetAmount },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
@@ -39169,29 +39279,29 @@ var AutomationService = class {
    * Limit orders capped at the last price plus an offset so a gap cannot fill them higher.
    * Trading 212 has no quote endpoint, so a leg you do not hold yet needs a manual first buy.
    */
-  async buildBasket(plan, now = /* @__PURE__ */ new Date()) {
-    const dashboard = await this.deps.trading.getDashboard(plan.environment);
-    const accountCurrency = (dashboard.account?.currency ?? "").toUpperCase();
+  async buildBasket(plan2, now = /* @__PURE__ */ new Date()) {
+    const dashboard2 = await this.deps.trading.getDashboard(plan2.environment);
+    const accountCurrency = (dashboard2.account?.currency ?? "").toUpperCase();
     const converted = /* @__PURE__ */ new Set();
     const drafts = [];
     const skipped = [];
-    const instruments = await this.deps.trading.instruments(plan.environment);
+    const instruments = await this.deps.trading.instruments(plan2.environment);
     const find = (ticker) => {
-      const position = dashboard.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
+      const position = dashboard2.positions.find((item) => item.instrument.ticker.toUpperCase() === ticker.toUpperCase());
       return { position, instrument: position?.instrument ?? instruments.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase()) };
     };
-    let legs = plan.legs;
+    let legs = plan2.legs;
     let targetsSavedAt;
-    if (plan.targetAmount !== void 0) {
-      const saved = await this.deps.targets?.(plan.environment);
+    if (plan2.targetAmount !== void 0) {
+      const saved = await this.deps.targets?.(plan2.environment);
       targetsSavedAt = saved?.updatedAt;
-      if (!saved) skipped.push(`No target weights are saved for ${plan.environment.toUpperCase()}; save them with manage_target_allocation.`);
-      const values = new Map(dashboard.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
-      const split2 = saved ? contributionSplit(saved.targets, values, plan.targetAmount) : [];
+      if (!saved) skipped.push(`No target weights are saved for ${plan2.environment.toUpperCase()}; save them with manage_target_allocation.`);
+      const values = new Map(dashboard2.positions.map((position) => [position.instrument.ticker, positionValue(position)]));
+      const split2 = saved ? contributionSplit(saved.targets, values, plan2.targetAmount) : [];
       for (const item of split2.filter((leg) => leg.amount < MIN_TARGET_LEG)) skipped.push(`${item.ticker}: ${item.amount} ${accountCurrency} is too small to send; it stays in cash.`);
       legs = split2.filter((leg) => leg.amount >= MIN_TARGET_LEG);
     }
-    const { rates, quoted: quoted2 } = await this.deps.trading.ratesFor(dashboard.positions, accountCurrency, legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
+    const { rates, quoted: quoted2 } = await this.deps.trading.ratesFor(dashboard2.positions, accountCurrency, legs.flatMap((leg) => find(leg.ticker).instrument?.currencyCode ?? []));
     for (const leg of legs) {
       const { position, instrument } = find(leg.ticker);
       if (!instrument) {
@@ -39219,7 +39329,7 @@ var AutomationService = class {
         continue;
       }
       const base = {
-        environment: plan.environment,
+        environment: plan2.environment,
         ticker: instrument.ticker,
         side: "buy",
         quantity,
@@ -39230,13 +39340,13 @@ var AutomationService = class {
       drafts.push(limitPrice === void 0 ? { ...base, type: "market" } : { ...base, type: "limit", limitPrice, timeValidity: "DAY" });
     }
     return {
-      environment: plan.environment,
+      environment: plan2.environment,
       purpose: "dca",
-      title: plan.label,
+      title: plan2.label,
       drafts,
-      planId: plan.id,
+      planId: plan2.id,
       notes: [
-        ...plan.targetAmount === void 0 ? [] : [`${plan.targetAmount} ${accountCurrency} split across the saved targets, most to the ones furthest below their weight; nothing is sold.`],
+        ...plan2.targetAmount === void 0 ? [] : [`${plan2.targetAmount} ${accountCurrency} split across the saved targets, most to the ones furthest below their weight; nothing is sold.`],
         `Sized from each holding's last broker price, or an external quote for legs not held yet; ${legs.map((leg) => `${leg.amount} ${accountCurrency} ${leg.ticker}`).join(", ")}.`,
         ...converted.size ? [`Amounts in ${[...converted].join(", ")} use ${quoted2.size ? `the exchange rate your holdings imply or, where none does, ${[...quoted2.values()][0].source}'s` : "the exchange rate the broker's valuation of your holdings implies"}; Trading 212 converts at its own rate and fee.`] : [],
         ...skipped
@@ -39246,30 +39356,30 @@ var AutomationService = class {
     };
   }
   async reviewPlan(id) {
-    const plan = await this.getPlan(id);
-    const basket = await this.buildBasket(plan);
+    const plan2 = await this.getPlan(id);
+    const basket = await this.buildBasket(plan2);
     return {
       kind: "basket_draft",
-      environment: plan.environment,
+      environment: plan2.environment,
       purpose: "dca",
-      title: plan.label,
-      legs: basket.drafts.map((draft) => ({ draft, reason: draft.type === "limit" ? `Plan "${plan.label}", limit ${draft.limitPrice}` : `Plan "${plan.label}"` })),
+      title: plan2.label,
+      legs: basket.drafts.map((draft) => ({ draft, reason: draft.type === "limit" ? `Plan "${plan2.label}", limit ${draft.limitPrice}` : `Plan "${plan2.label}"` })),
       notes: basket.notes ?? [],
-      planId: plan.id
+      planId: plan2.id
     };
   }
   /** Called after a plan's basket was executed, whether by the user or by the scheduler. */
   async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
-    const plan = await this.deps.store.get(planKey(planId));
-    if (!plan) return;
+    const plan2 = await this.deps.store.get(planKey(planId));
+    if (!plan2) return;
     const attempted = result2.legs.some((leg) => leg.result);
-    const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
-    const { inFlightDueAt: _inFlight, ...rest } = plan;
+    const from = new Date(Math.max(now.getTime(), Date.parse(plan2.nextRunAt) || 0));
+    const { inFlightDueAt: _inFlight, ...rest } = plan2;
     await this.deps.store.put(planKey(planId), {
       ...rest,
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
-      ...attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}
+      ...attempted ? { nextRunAt: nextRunAt(plan2, from).toISOString() } : {}
     });
   }
   /**
@@ -39280,71 +39390,71 @@ var AutomationService = class {
    */
   async runDuePlans(now = /* @__PURE__ */ new Date()) {
     const reports = [];
-    for (const plan of await this.listPlans()) {
-      if (plan.paused || Date.parse(plan.nextRunAt) > now.getTime()) continue;
-      const unattended = plan.autoExecute && plan.environment === "demo" && this.deps.config.demoAutomationEnabled;
+    for (const plan2 of await this.listPlans()) {
+      if (plan2.paused || Date.parse(plan2.nextRunAt) > now.getTime()) continue;
+      const unattended = plan2.autoExecute && plan2.environment === "demo" && this.deps.config.demoAutomationEnabled;
       if (!unattended) {
-        const notice = await this.deps.store.increment(`plan-due:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS4, now.getTime());
-        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id });
-        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message: `"${plan.label}" is due and waits for your confirmation.` });
+        const notice = await this.deps.store.increment(`plan-due:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS4, now.getTime());
+        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id });
+        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message: `"${plan2.label}" is due and waits for your confirmation.` });
         continue;
       }
-      const lock = await this.deps.store.increment(`plan-lock:${plan.id}:${plan.nextRunAt}`, RUN_LOCK_MS, now.getTime());
+      const lock = await this.deps.store.increment(`plan-lock:${plan2.id}:${plan2.nextRunAt}`, RUN_LOCK_MS, now.getTime());
       if (lock.count > 1) continue;
-      const latest = await this.deps.store.get(planKey(plan.id));
-      if (!latest || latest.paused || latest.nextRunAt !== plan.nextRunAt) continue;
+      const latest = await this.deps.store.get(planKey(plan2.id));
+      if (!latest || latest.paused || latest.nextRunAt !== plan2.nextRunAt) continue;
       if (latest.inFlightDueAt === latest.nextRunAt) {
-        const notice = await this.deps.store.increment(`plan-unclear:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS4, now.getTime());
-        const message = `"${plan.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
-        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
-        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "awaiting_confirmation", message });
+        const notice = await this.deps.store.increment(`plan-unclear:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS4, now.getTime());
+        const message = `"${plan2.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
+        if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id, outcome: message.slice(0, 200) });
+        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message });
         continue;
       }
       let marked = false;
       try {
         const basket = await this.buildBasket(latest, now);
         if (!basket.drafts.length) {
-          await this.skip(plan, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
-          reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
+          await this.skip(plan2, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
+          reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
           continue;
         }
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
         const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED" || notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable"));
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
-        const current = await this.deps.store.get(planKey(plan.id));
-        if (!current || current.paused || current.nextRunAt !== plan.nextRunAt) continue;
+        const current = await this.deps.store.get(planKey(plan2.id));
+        if (!current || current.paused || current.nextRunAt !== plan2.nextRunAt) continue;
         if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
-        if (current.targetAmount !== void 0 && (await this.deps.targets?.(plan.environment))?.updatedAt !== basket.targetsSavedAt) continue;
-        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
+        if (current.targetAmount !== void 0 && (await this.deps.targets?.(plan2.environment))?.updatedAt !== basket.targetsSavedAt) continue;
+        await this.deps.store.put(planKey(plan2.id), { ...current, inFlightDueAt: current.nextRunAt });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
-        await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result2.legs.length, outcome: result2.status });
-        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "auto", message: result2.message, result: result2 });
+        await this.deps.trading.recordActivity("plan_auto_executed", plan2.environment, { planId: plan2.id, legs: result2.legs.length, outcome: result2.status });
+        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "auto", message: result2.message, result: result2 });
       } catch (error62) {
         const { code, message } = asStructuredError(error62);
         if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
-          const current = await this.deps.store.get(planKey(plan.id));
+          const current = await this.deps.store.get(planKey(plan2.id));
           if (current?.inFlightDueAt) {
             const { inFlightDueAt: _f, ...rest } = current;
-            await this.deps.store.put(planKey(plan.id), rest);
+            await this.deps.store.put(planKey(plan2.id), rest);
           }
         }
-        await this.skip(plan, now, message, false);
-        reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message });
+        await this.skip(plan2, now, message, false);
+        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message });
       }
     }
     return reports;
   }
-  async skip(plan, now, message, advance) {
-    const current = await this.deps.store.get(planKey(plan.id));
+  async skip(plan2, now, message, advance) {
+    const current = await this.deps.store.get(planKey(plan2.id));
     if (!current) return;
-    await this.deps.store.put(planKey(plan.id), {
+    await this.deps.store.put(planKey(plan2.id), {
       ...current,
       lastOutcome: message,
       ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
-    const logged = await this.deps.store.increment(`plan-skip:${plan.id}:${plan.nextRunAt}`, 40 * DAY_MS4, now.getTime());
-    if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: plan.id, outcome: message.slice(0, 200) });
+    const logged = await this.deps.store.increment(`plan-skip:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS4, now.getTime());
+    if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan2.environment, { planId: plan2.id, outcome: message.slice(0, 200) });
   }
 };
 
@@ -39423,9 +39533,9 @@ var PiesService = class {
       const cached2 = await this.deps.store.get(key);
       if (cached2) return cached2;
     }
-    const pies2 = await this.client(environment).getPies();
-    await this.deps.store.put(key, pies2, Date.now() + LIST_CACHE_MS);
-    return pies2;
+    const pies3 = await this.client(environment).getPies();
+    await this.deps.store.put(key, pies3, Date.now() + LIST_CACHE_MS);
+    return pies3;
   }
   async detail(environment, id, fresh = false) {
     const key = `pie-cache:${environment}:${id}`;
@@ -39454,7 +39564,7 @@ var PiesService = class {
     const summaries = await this.summaries(environment, options.fresh);
     const limit = Math.max(0, Math.min(options.details ?? DEFAULT_PIE_DETAILS, summaries.length));
     const ordered = [...summaries].sort((a, b) => b.id - a.id);
-    const pies2 = [];
+    const pies3 = [];
     const notes = [];
     for (const [index, summary] of ordered.entries()) {
       let detail;
@@ -39465,14 +39575,14 @@ var PiesService = class {
           notes.push(`Pie ${summary.id}: details unavailable (${asStructuredError(error62).message}).`);
         }
       }
-      pies2.push(pieOverview(summary, detail, summary.id));
+      pies3.push(pieOverview(summary, detail, summary.id));
     }
     if (limit < summaries.length) notes.push(`Slices were read for ${limit} of ${summaries.length} pies; Trading 212 allows one pie detail read every 5 seconds.`);
-    const totals = pies2.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
+    const totals = pies3.reduce((sum, pie) => ({ value: sum.value + pie.value, invested: sum.invested + pie.invested, result: sum.result + pie.result, cash: sum.cash + pie.cash }), { value: 0, invested: 0, result: 0, cash: 0 });
     const currency = await this.deps.trading.accountCurrency(environment);
     return {
       ...base,
-      pies: currency ? pies2.map((pie) => ({ ...pie, currency })) : pies2,
+      pies: currency ? pies3.map((pie) => ({ ...pie, currency })) : pies3,
       totals: { value: round9(totals.value), invested: round9(totals.invested), result: round9(totals.result), cash: round9(totals.cash) },
       ...currency ? { currency } : {},
       notes
@@ -39768,7 +39878,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.57.0"
+  version: "2.58.0"
 };
 
 // src/shared/holding-risk.ts
@@ -39978,7 +40088,7 @@ function riskAtWeights(covariance, weights) {
   };
 }
 function targetRiskOf(covariance, holdings, targets, sellUntargeted, cashWeight = 0) {
-  const today = new Map(holdings.filter((holding2) => holding2.weight > 0).map((holding2) => [holding2.ticker, holding2.weight]));
+  const today = new Map(holdings.filter((holding3) => holding3.weight > 0).map((holding3) => [holding3.ticker, holding3.weight]));
   const after = /* @__PURE__ */ new Map();
   for (const [ticker, weight2] of today) after.set(ticker, targets.get(ticker) ?? (sellUntargeted ? 0 : weight2));
   for (const [ticker, weight2] of targets) if (!after.has(ticker)) after.set(ticker, weight2);
@@ -40007,7 +40117,7 @@ function withTargetVolatility(analysis, covariance) {
 function equalRiskTargets(analysis) {
   const rows2 = analysis.risk?.rows ?? [];
   if (rows2.length < 2 || !rows2.every((row) => row.parity !== void 0) || !(analysis.totalValue > 0)) return void 0;
-  const values = new Map(analysis.holdings.map((holding2) => [holding2.ticker, holding2.value]));
+  const values = new Map(analysis.holdings.map((holding3) => [holding3.ticker, holding3.value]));
   const value = (row) => values.get(row.ticker) ?? 0;
   if (!rows2.every((row) => value(row) > 0)) return void 0;
   const measured = rows2.reduce((sum, row) => sum + value(row), 0);
@@ -40016,7 +40126,7 @@ function equalRiskTargets(analysis) {
   const then = moved.reduce((sum, row) => sum + row.parity, 0);
   if (!(then > 0)) return void 0;
   const after = (row) => row.parity / then * now;
-  const whole = Math.max(analysis.totalValue, analysis.holdings.reduce((sum, holding2) => sum + Math.max(0, holding2.value), 0) + Math.max(0, analysis.cash));
+  const whole = Math.max(analysis.totalValue, analysis.holdings.reduce((sum, holding3) => sum + Math.max(0, holding3.value), 0) + Math.max(0, analysis.cash));
   const floor = (share3) => Math.floor(share3 * 1e6) / 1e6;
   const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(after(row) / whole) }));
   const taken = targets.reduce((sum, target) => sum + target.weight, 0);
@@ -40292,8 +40402,8 @@ function positionLine(position) {
   const walletCurrency = typeof wallet?.currency === "string" ? ` ${wallet.currency}` : "";
   const name = position.instrument.name && position.instrument.name !== position.instrument.ticker ? ` ${position.instrument.name}` : "";
   const available = position.quantityAvailableForTrading !== position.quantity ? `, ${num2(position.quantityAvailableForTrading, 8)} available` : "";
-  const pies2 = position.quantityInPies ? `, ${num2(position.quantityInPies, 8)} in pies` : "";
-  return `${position.instrument.ticker}${name}: ${num2(position.quantity, 8)} @ ${num2(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num2(position.averagePricePaid, 6)})${value === void 0 ? "" : `, value ${num2(value)}${walletCurrency}`}${pnl === void 0 ? "" : `, P/L ${signed(pnl)}`}${available}${pies2}`;
+  const pies3 = position.quantityInPies ? `, ${num2(position.quantityInPies, 8)} in pies` : "";
+  return `${position.instrument.ticker}${name}: ${num2(position.quantity, 8)} @ ${num2(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num2(position.averagePricePaid, 6)})${value === void 0 ? "" : `, value ${num2(value)}${walletCurrency}`}${pnl === void 0 ? "" : `, P/L ${signed(pnl)}`}${available}${pies3}`;
 }
 function accountLine(environment, account) {
   const currency = account.currency ?? "";
@@ -40431,10 +40541,10 @@ function parityLines(data) {
   const { risk } = data;
   if (!risk || risk.parityVolatility === void 0 || !risk.rows.every((row) => row.parity !== void 0)) return [];
   const moves = [...risk.rows].sort((a, b) => Math.abs(b.parity - b.weight) - Math.abs(a.parity - a.weight) || b.weight - a.weight);
-  const plan = equalRiskTargets(data);
+  const plan2 = equalRiskTargets(data);
   return [
     `Equal-risk weights, at which each holding measured brings the same share of their risk (from the same weeks, the correlations pulled toward their average as far as the weeks leave them in doubt; a holding that moved less than ${pct(PARITY_MIN_VOLATILITY, 0)} a year keeps its weight): together ${pct(risk.parityVolatility)} a year against ${pct(risk.volatility)} at today's weights. Furthest from it first: ${moves.slice(0, MAX_PARITY_NAMED).map((row) => `${row.ticker} ${pct(row.parity, 1)} (now ${pct(row.weight, 1)})`).join(", ")}${moves.length > MAX_PARITY_NAMED ? `, and ${moves.length - MAX_PARITY_NAMED} more` : ""}. They spread the risk by the past year; they are not a forecast.`,
-    ...plan ? [`To plan the move, call plan_portfolio_rebalance with targets ${plan.targets.map((target) => `${target.ticker} ${target.weight}`).join(", ")} and cashWeight ${plan.cashWeight}: shares of the account, so the holdings measured keep their value together and the holdings not measured and the cash free to trade stay as they are, at the values read now${plan.partial ? `; only the ${plan.targets.length} furthest from their equal-risk weight move, as a basket takes ${plan.targets.length} orders at most` : ""}.`] : []
+    ...plan2 ? [`To plan the move, call plan_portfolio_rebalance with targets ${plan2.targets.map((target) => `${target.ticker} ${target.weight}`).join(", ")} and cashWeight ${plan2.cashWeight}: shares of the account, so the holdings measured keep their value together and the holdings not measured and the cash free to trade stay as they are, at the values read now${plan2.partial ? `; only the ${plan2.targets.length} furthest from their equal-risk weight move, as a basket takes ${plan2.targets.length} orders at most` : ""}.`] : []
   ];
 }
 function mixLine(mix, currency) {
@@ -40506,7 +40616,7 @@ function attributionLines(data) {
   return [
     ...section(
       `Gain by instrument ${since}: ${signed(attribution.total)} in all (${attribution.basis === "start" ? "value now less value at the start, less buys, plus sells and dividends; the start at today's exchange rate" : "Trading 212's realised P/L on sales and unrealised P/L on what is held, plus dividends"})`,
-      rows(attribution.holdings, (holding2) => `${holding2.ticker}: ${signed(holding2.gain)}${holding2.return === void 0 ? "" : ` (${signed(holding2.return * 100, 1)}%)`}, start ${num2(holding2.startValue)}${holding2.startClose ? ` (${num2(holding2.startQuantity, 8)} at ${num2(holding2.startClose.price, 6)} on ${holding2.startClose.date})` : ""}, now ${num2(holding2.value)}${holding2.bought ? `, bought ${num2(holding2.bought)}` : ""}${holding2.sold ? `, sold ${num2(holding2.sold)}` : ""}${holding2.dividends ? `, dividends ${num2(holding2.dividends)}` : ""}`)
+      rows(attribution.holdings, (holding3) => `${holding3.ticker}: ${signed(holding3.gain)}${holding3.return === void 0 ? "" : ` (${signed(holding3.return * 100, 1)}%)`}, start ${num2(holding3.startValue)}${holding3.startClose ? ` (${num2(holding3.startQuantity, 8)} at ${num2(holding3.startClose.price, 6)} on ${holding3.startClose.date})` : ""}, now ${num2(holding3.value)}${holding3.bought ? `, bought ${num2(holding3.bought)}` : ""}${holding3.sold ? `, sold ${num2(holding3.sold)}` : ""}${holding3.dividends ? `, dividends ${num2(holding3.dividends)}` : ""}`)
     ),
     ...attribution.missing.length ? [`Not valued: ${attribution.missing.map((item) => `${item.ticker} (${item.problem})`).join("; ")}`] : []
   ];
@@ -40598,7 +40708,7 @@ function foreign(data) {
   const major = (currency) => currency?.toUpperCase() === "GBX" ? "GBP" : currency?.toUpperCase();
   return !!data.instrument.currencyCode && !!data.accountCurrency && major(data.instrument.currencyCode) !== major(data.accountCurrency);
 }
-function holding(data) {
+function holding2(data) {
   const c = data.accountCurrency;
   const name = data.instrument.name && data.instrument.name !== data.ticker ? ` (${data.instrument.name})` : "";
   const market = data.market ? `; market ${data.market.session.replaceAll("_", " ")}${data.market.isOpen && data.market.nextClose ? `, closes ${minute(data.market.nextClose)}` : !data.market.isOpen && data.market.nextOpen ? `, opens ${minute(data.market.nextOpen)}` : ""}` : "";
@@ -40693,15 +40803,15 @@ function basketTotalsLine(totals) {
   return totals.bought > 0 && totals.sold > 0 ? `Buys ${bought}, sells ${sold}.` : totals.bought > 0 ? `Buys ${bought}.` : `Sells ${sold}.`;
 }
 function basketDraft(data) {
-  const plan = data.rebalance;
-  const skipped = plan?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
+  const plan2 = data.rebalance;
+  const skipped = plan2?.skipped.map((item) => `${item.ticker}: ${item.reason}`) ?? [];
   const notes = data.notes.filter((note) => !skipped.some((line) => note.includes(line)));
   return [
     ...credentialsLine(data.environment, data.credentials),
     `${data.title} (${data.purpose}, ${env(data.environment)}):`,
     ...rows(data.legs, (leg) => `${draftLine(leg.draft, leg.instrument)}${leg.draft.referencePrice ? `, price ~${num2(leg.draft.referencePrice, 6)}` : ""}${leg.estimatedNotional === void 0 ? "" : ` \u2248 ${money3(leg.estimatedNotional, leg.estimatedNotionalCurrency)}`}${leg.reason ? ` (${leg.reason})` : ""}`),
-    ...plan ? [`Total value ${money3(plan.totalValue, plan.accountCurrency)}; cash ${num2(plan.cashBefore)} before, ${num2(plan.cashAfter)} after.`] : [],
-    ...plan?.totals && (plan.totals.bought > 0 || plan.totals.sold > 0) ? [basketTotalsLine(plan.totals)] : [],
+    ...plan2 ? [`Total value ${money3(plan2.totalValue, plan2.accountCurrency)}; cash ${num2(plan2.cashBefore)} before, ${num2(plan2.cashAfter)} after.`] : [],
+    ...plan2?.totals && (plan2.totals.bought > 0 || plan2.totals.sold > 0) ? [basketTotalsLine(plan2.totals)] : [],
     ...section("Skipped", rows(skipped, (line) => line)),
     ...section("Notes", rows(notes, (line) => line))
   ];
@@ -40756,10 +40866,10 @@ function candidates(data) {
   ];
 }
 var WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-function planLine(plan) {
-  const schedule = plan.frequency === "monthly" ? `monthly on day ${plan.dayOfMonth}` : `weekly on ${WEEKDAYS[plan.weekday ?? 1]}`;
-  const legs = plan.targetAmount !== void 0 ? `${num2(plan.targetAmount)} across the saved targets, most to the furthest below` : plan.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
-  return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
+function planLine(plan2) {
+  const schedule = plan2.frequency === "monthly" ? `monthly on day ${plan2.dayOfMonth}` : `weekly on ${WEEKDAYS[plan2.weekday ?? 1]}`;
+  const legs = plan2.targetAmount !== void 0 ? `${num2(plan2.targetAmount)} across the saved targets, most to the furthest below` : plan2.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
+  return `"${plan2.label}" (${plan2.id}, ${env(plan2.environment)}): ${legs}; ${schedule} at ${plan2.hourUtc}:00 UTC; next ${minute(plan2.nextRunAt)}${plan2.paused ? "; paused" : ""}${plan2.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan2.lastOutcome ? `; last: ${plan2.lastOutcome}` : ""}`;
 }
 function alertLine(alert, instrument) {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
@@ -40778,7 +40888,7 @@ function accountAlertLine(alert) {
 function linkLine(link) {
   return `${link.ticker}: ${link.orders.map((order) => `${order.role.replace("_", "-")} ${order.orderId}`).join(" + ")}`;
 }
-function automation(data) {
+function automation2(data) {
   const instruments = new Map((data.instruments ?? []).map((instrument) => [instrument.ticker, instrument]));
   return [
     ...credentialsLine(data.environment, data.credentials),
@@ -40797,7 +40907,7 @@ function pieLine(pie, currency) {
 function sliceLines(pie) {
   return rows(pie.instruments ?? [], (slice) => `${slice.ticker}: target ${pct(slice.targetShare)}, current ${pct(slice.currentShare)} (${signed(slice.driftShare * 100, 1)} pts), ${num2(slice.ownedQuantity, 8)} shares${slice.value === void 0 ? "" : `, value ${num2(slice.value)}`}${slice.issues.length ? `, issues: ${slice.issues.map((issue2) => issue2.name).join(", ")}` : ""}`);
 }
-function pies(data) {
+function pies2(data) {
   return [
     ...credentialsLine(data.environment, data.credentials),
     `Totals: value ${money3(data.totals.value, data.currency)}, invested ${num2(data.totals.invested)}, return ${signed(data.totals.result)}, cash ${num2(data.totals.cash)}.`,
@@ -40859,47 +40969,47 @@ function exportSummary(summary) {
 var round22 = (value) => Math.round(value * 100) / 100;
 function describePayload(data) {
   if (!data || typeof data !== "object") return "";
-  const payload = data;
+  const payload2 = data;
   let lines = [];
-  switch (payload.kind) {
+  switch (payload2.kind) {
     case "portfolio":
-      lines = portfolio(payload);
+      lines = portfolio(payload2);
       break;
     case "portfolio_today":
-      lines = todayLines(payload);
+      lines = todayLines(payload2);
       break;
     case "allocation":
-      lines = allocation(payload);
+      lines = allocation(payload2);
       break;
     case "performance":
-      lines = performance(payload);
+      lines = performance(payload2);
       break;
     case "income":
-      lines = income(payload);
+      lines = income(payload2);
       break;
     case "tax_year":
-      lines = taxYear(payload);
+      lines = taxYear(payload2);
       break;
     case "holding":
-      lines = holding(payload);
+      lines = holding2(payload2);
       break;
     case "target_allocation":
-      lines = targetAllocation(payload);
+      lines = targetAllocation(payload2);
       break;
     case "trade_history":
-      lines = tradeHistory(payload);
+      lines = tradeHistory(payload2);
       break;
     case "basket_draft":
-      lines = basketDraft(payload);
+      lines = basketDraft(payload2);
       break;
     case "basket_preview":
-      lines = basketPreview(payload);
+      lines = basketPreview(payload2);
       break;
     case "basket_execution":
-      lines = basketExecution(payload);
+      lines = basketExecution(payload2);
       break;
     case "order_draft": {
-      const draft = payload;
+      const draft = payload2;
       lines = [
         ...credentialsLine(draft.draft.environment, draft.credentials),
         `Draft: ${draftLine(draft.draft, draft.resolvedInstrument)}${draft.draft.referencePrice ? `, reference price ${num2(draft.draft.referencePrice, 6)} ${draft.resolvedInstrument?.currencyCode ?? ""}`.trimEnd() : ""}.`,
@@ -40908,53 +41018,53 @@ function describePayload(data) {
       break;
     }
     case "order_preview":
-      lines = orderPreview(payload);
+      lines = orderPreview(payload2);
       break;
     case "order_execution":
-      lines = orderExecution(payload);
+      lines = orderExecution(payload2);
       break;
     case "cancel_draft": {
-      const draft = payload;
+      const draft = payload2;
       lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Cancel on ${env(draft.environment)}: ${orderLine(draft.order)}. The user confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
       break;
     }
     case "cancel_preview":
-      lines = cancelPreview(payload);
+      lines = cancelPreview(payload2);
       break;
     case "order_status":
-      lines = orderStatus(payload);
+      lines = orderStatus(payload2);
       break;
     case "cash_history":
-      lines = cashHistory(payload);
+      lines = cashHistory(payload2);
       break;
     case "execution_verification": {
-      const verification = payload;
+      const verification = payload2;
       lines = [`Status: ${verification.status.replaceAll("_", " ")}${verification.positionDelta === void 0 ? "" : `; position changed by ${num2(verification.positionDelta, 8)}`}.`];
       break;
     }
     case "trade_plan":
-      lines = candidates(payload);
+      lines = candidates(payload2);
       break;
     case "investment_plans":
-      lines = rows(payload.plans ?? [], planLine);
+      lines = rows(payload2.plans ?? [], planLine);
       break;
     case "investment_plan":
-      lines = payload.plan ? [planLine(payload.plan)] : [];
+      lines = payload2.plan ? [planLine(payload2.plan)] : [];
       break;
     case "automation":
-      lines = automation(payload);
+      lines = automation2(payload2);
       break;
     case "pies":
-      lines = pies(payload);
+      lines = pies2(payload2);
       break;
     case "pie_change_draft":
     case "pie_change_preview":
     case "pie_change_result":
-      lines = pieChange(payload);
+      lines = pieChange(payload2);
       break;
     case "price_alerts": {
-      const onPrice = payload.alerts ?? [];
-      const onAccount = payload.accountAlerts ?? [];
+      const onPrice = payload2.alerts ?? [];
+      const onAccount = payload2.accountAlerts ?? [];
       lines = [
         ...section(`Price alerts (${onPrice.length})`, rows(onPrice, (alert) => alertLine(alert))),
         ...section(`Account alerts (${onAccount.length})`, rows(onAccount, accountAlertLine)),
@@ -40963,34 +41073,34 @@ function describePayload(data) {
       break;
     }
     case "price_alert":
-      lines = payload.alert ? [alertLine(payload.alert)] : [];
+      lines = payload2.alert ? [alertLine(payload2.alert)] : [];
       break;
     case "account_alert":
-      lines = payload.alert ? [accountAlertLine(payload.alert)] : [];
+      lines = payload2.alert ? [accountAlertLine(payload2.alert)] : [];
       break;
     case "trade_journal":
-      lines = rows(payload.entries, (entry) => journalLine(entry));
+      lines = rows(payload2.entries, (entry) => journalLine(entry));
       break;
     case "journal_review":
-      lines = journalReview(payload);
+      lines = journalReview(payload2);
       break;
     case "watchlist":
-      lines = watchlist(payload);
+      lines = watchlist(payload2);
       break;
     case "journal_entry":
-      lines = payload.entry ? [journalLine(payload.entry)] : [];
+      lines = payload2.entry ? [journalLine(payload2.entry)] : [];
       break;
     case "trading_policy":
-      lines = policy(payload);
+      lines = policy(payload2);
       break;
     case "history_export":
-      lines = exports(payload);
+      lines = exports(payload2);
       break;
     case "activity":
-      lines = rows(payload.activity ?? [], activityLine);
+      lines = rows(payload2.activity ?? [], activityLine);
       break;
     case "instrument_search":
-      lines = rows(payload.instruments ?? [], (item) => `${item.ticker}: ${item.name} (${item.shortName}, ${item.currencyCode}${item.type ? `, ${item.type}` : ""}${item.isin ? `, ${item.isin}` : ""})`);
+      lines = rows(payload2.instruments ?? [], (item) => `${item.ticker}: ${item.name} (${item.shortName}, ${item.currencyCode}${item.type ? `, ${item.type}` : ""}${item.isin ? `, ${item.isin}` : ""})`);
       break;
     default:
       lines = [];
@@ -41310,9 +41420,9 @@ function fillsOfDay(items, ticker, session) {
 }
 var dayFillsOf = (items) => items.flatMap((item) => item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }] : []);
 async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date()) {
-  const dashboard = await deps.trading.getDashboard(environment, DASHBOARD_REUSE_MS);
-  if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
-  const accountCurrency = dashboard.account?.currency;
+  const dashboard2 = await deps.trading.getDashboard(environment, DASHBOARD_REUSE_MS);
+  if (!dashboard2.credentials[environment]) throw new Error(dashboard2.warning ?? `${environment.toUpperCase()} credentials are not configured`);
+  const accountCurrency = dashboard2.account?.currency;
   const [instruments, exchanges] = await Promise.all([
     settleWithin(deps.trading.instruments(environment).catch(() => []), LIST_WAIT_MS),
     deps.schedules ? settleWithin(deps.schedules(environment).catch(() => []), LIST_WAIT_MS) : void 0
@@ -41320,7 +41430,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
   const listed = new Map((instruments ?? []).map((instrument) => [instrument.ticker, instrument]));
   const finder = sessionFinder(exchanges ?? [], now);
   const session = (ticker) => finder(listed.get(ticker));
-  const positions = dashboard.positions.filter((position) => position.instrument?.ticker);
+  const positions = dashboard2.positions.filter((position) => position.instrument?.ticker);
   const earliest = positions.reduce((first, position) => Math.min(first, fillsFrom(session(position.instrument.ticker))), fillsFrom({ day: fallbackDay(now) }));
   let fillsProblem;
   let fills = [];
@@ -41365,7 +41475,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     closings.set(day2, before === null || ended2 === void 0 ? null : Math.max(before ?? 0, ended2));
   }
   const ended = Object.fromEntries([...closings].filter((entry) => entry[1] !== null));
-  const invested = dashboard.account?.investments?.currentValue;
+  const invested = dashboard2.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
     environment,
@@ -41395,13 +41505,13 @@ function marketStatusOf(instrument, exchanges, now) {
   }
 }
 async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new Date()) {
-  const dashboard = await deps.trading.getDashboard(environment);
-  if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
+  const dashboard2 = await deps.trading.getDashboard(environment);
+  if (!dashboard2.credentials[environment]) throw new Error(dashboard2.warning ?? `${environment.toUpperCase()} credentials are not configured`);
   const wanted = query.trim().toUpperCase();
-  const held = dashboard.positions.find((position2) => position2.instrument.ticker.toUpperCase() === wanted);
+  const held = dashboard2.positions.find((position2) => position2.instrument.ticker.toUpperCase() === wanted);
   const listed = held ? void 0 : resolveInstrumentFromList(await deps.trading.instruments(environment), query);
   const ticker = held?.instrument.ticker ?? listed.ticker;
-  const position = held ?? dashboard.positions.find((item) => item.instrument.ticker === ticker);
+  const position = held ?? dashboard2.positions.find((item) => item.instrument.ticker === ticker);
   const source = { ...position?.instrument ?? {}, ...listed ?? {} };
   const instrument = {
     ticker,
@@ -41411,7 +41521,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     ...source.type ? { type: source.type } : {},
     ...source.isin ? { isin: source.isin } : {}
   };
-  const total = dashboard.account?.totalValue;
+  const total = dashboard2.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS9) * DAY_MS9 - 365 * DAY_MS9), to: now };
   const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
@@ -41425,7 +41535,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const quoteRead = position?.currentPrice ? Promise.resolve(void 0) : settleWithin(deps.trading.externalQuote(subject).catch(() => void 0), QUOTE_WAIT_MS);
   const alertsRead = deps.alerts.list(environment);
   const levels = alertsRead.catch(() => []).then((list2) => [
-    ...dashboard.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
+    ...dashboard2.orders.filter((order) => order.ticker === ticker).flatMap((order) => [order.stopPrice, order.limitPrice]),
     ...list2.filter((alert) => alert.ticker === ticker && !alert.triggeredAt && (alert.condition === "above" || alert.condition === "below")).map((alert) => alert.price)
   ].filter((price) => typeof price === "number" && price > 0));
   const [targets, alerts, notes, history, read, quoted2, watched, full, exchanges] = await Promise.all([
@@ -41453,8 +41563,8 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
   const journal = relevant.filter((note, index) => index < MAX_NOTES || onFill(note));
   const session = sessionFinder(exchanges ?? [], now)(position ? full : { ...full, extendedHours: false });
-  const accountCurrency = dashboard.account?.currency;
-  const rates = accountCurrency ? knownFxRates(dashboard.positions, accountCurrency) : {};
+  const accountCurrency = dashboard2.account?.currency;
+  const rates = accountCurrency ? knownFxRates(dashboard2.positions, accountCurrency) : {};
   const accountRate = full.currencyCode ? rates[full.currencyCode.toUpperCase()] : void 0;
   const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }] : [])) : void 0;
   const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS9) : [];
@@ -41477,17 +41587,17 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   return {
     kind: "holding",
     environment,
-    credentials: dashboard.credentials,
+    credentials: dashboard2.credentials,
     ticker,
     instrument,
-    ...dashboard.account?.currency ? { accountCurrency: dashboard.account.currency } : {},
+    ...dashboard2.account?.currency ? { accountCurrency: dashboard2.account.currency } : {},
     ...accountRate ? { accountRate } : {},
     ...position ? { position } : {},
     ...quote ? { quote: { price: quote.price, asOf: quote.asOf, source: quote.source, symbol: quote.symbol } } : {},
     ...watched ? { watching: { addedAt: watched.addedAt, ...watched.note ? { note: watched.note } : {} } } : {},
     ...typeof value === "number" && typeof total === "number" && total > 0 ? { weight: value / total } : {},
     ...target === void 0 ? {} : { targetWeight: target },
-    orders: dashboard.orders.filter((order) => order.ticker === ticker),
+    orders: dashboard2.orders.filter((order) => order.ticker === ticker),
     alerts: alerts.filter((alert) => alert.ticker === ticker),
     journal,
     ...relevant.length > journal.length ? { journalTotal: relevant.length } : {},
@@ -41823,8 +41933,8 @@ function watchFigures({ price, day: day2, points: points3 }) {
   };
 }
 async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()) {
-  const dashboard = await deps.trading.getDashboard(environment);
-  if (!dashboard.credentials[environment]) throw new Error(dashboard.warning ?? `${environment.toUpperCase()} credentials are not configured`);
+  const dashboard2 = await deps.trading.getDashboard(environment);
+  if (!dashboard2.credentials[environment]) throw new Error(dashboard2.warning ?? `${environment.toUpperCase()} credentials are not configured`);
   const [items, instruments, alerts, exchanges] = await Promise.all([
     deps.watchlist.list(environment),
     deps.trading.instruments(environment).catch(() => []),
@@ -41836,12 +41946,12 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
   const from = new Date(Math.floor(now.getTime() / DAY_MS11) * DAY_MS11 - 365 * DAY_MS11);
   const row = async (item, ask) => {
     const instrument = listed.get(item.ticker);
-    const position = dashboard.positions.find((entry) => entry.instrument?.ticker === item.ticker);
+    const position = dashboard2.positions.find((entry) => entry.instrument?.ticker === item.ticker);
     const brokerPrice = position?.currentPrice && position.currentPrice > 0 ? position.currentPrice : void 0;
-    const levels = watchLevels(item.ticker, dashboard.orders, alerts);
+    const levels = watchLevels(item.ticker, dashboard2.orders, alerts);
     let price = brokerPrice;
     let priceSource = brokerPrice ? "broker" : void 0;
-    let priceAt = brokerPrice ? dashboard.timestamp : void 0;
+    let priceAt = brokerPrice ? dashboard2.timestamp : void 0;
     let points3;
     let missing;
     let problem;
@@ -41907,8 +42017,8 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
   return {
     kind: "watchlist",
     environment,
-    credentials: dashboard.credentials,
-    ...dashboard.account?.currency ? { accountCurrency: dashboard.account.currency } : {},
+    credentials: dashboard2.credentials,
+    ...dashboard2.account?.currency ? { accountCurrency: dashboard2.account.currency } : {},
     items: rows2,
     timestamp: now.toISOString()
   };
@@ -42001,7 +42111,7 @@ function allTimeGains(input2) {
     });
   }
   holdings.sort((a, b) => b.gain - a.gain);
-  return { basis: "cost", to: new Date(input2.to).toISOString(), holdings, total: round16(holdings.reduce((sum, holding2) => sum + holding2.gain, 0)), missing };
+  return { basis: "cost", to: new Date(input2.to).toISOString(), holdings, total: round16(holdings.reduce((sum, holding3) => sum + holding3.gain, 0)), missing };
 }
 function attributeGains(input2) {
   const held = new Map(input2.positions.filter((position) => position.instrument?.ticker && position.quantity > 0).map((position) => [position.instrument.ticker, position]));
@@ -42062,7 +42172,7 @@ function attributeGains(input2) {
     basis: "start",
     to: new Date(input2.to).toISOString(),
     holdings,
-    total: round16(holdings.reduce((sum, holding2) => sum + holding2.gain, 0)),
+    total: round16(holdings.reduce((sum, holding3) => sum + holding3.gain, 0)),
     missing
   };
 }
@@ -42072,7 +42182,7 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
   if (window.to.getTime() < now.getTime() - 5 * 6e4) {
     return { attributionMissing: "period", attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
   }
-  const [dashboard, orders, dividends] = await Promise.all([
+  const [dashboard2, orders, dividends] = await Promise.all([
     deps.trading.getDashboard(environment, 15e3),
     deps.history?.orders ?? deps.insights.collect(environment, "orders", window, maxPages),
     deps.history?.dividends ?? deps.insights.collect(environment, "dividends", window, maxPages)
@@ -42083,9 +42193,9 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
       attributionProblem: `The ${orders.truncated ? "order" : "dividend"} history stops at the page limit before the start, so ${orders.truncated ? "the shares held then are not known" : "some dividends would be left out"}; raise maxPages.`
     };
   }
-  const accountCurrency = dashboard.account?.currency ?? "";
+  const accountCurrency = dashboard2.account?.currency ?? "";
   if (!accountCurrency) return { attributionMissing: "data", attributionProblem: "Trading 212 did not give the account currency." };
-  const positions = dashboard.positions;
+  const positions = dashboard2.positions;
   const flows = holdingFlows(orders.items, dividends.items, from, to);
   if (from === void 0) return { attribution: allTimeGains({ to, positions, flows }) };
   const held = new Map(positions.flatMap((position) => position.instrument?.ticker && position.quantity > 0 ? [[position.instrument.ticker, position]] : []));
@@ -42142,7 +42252,7 @@ var READ_BUDGET_MS4 = 5e3;
 var MIN_DAYS = (MIN_WEEKS + 2) * 7;
 var PROVIDER_MISSES = /* @__PURE__ */ new Set(["provider", "plan"]);
 async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__PURE__ */ new Date()) {
-  const valued = holdings.filter((holding2) => holding2.value > 0).sort((a, b) => b.value - a.value);
+  const valued = holdings.filter((holding3) => holding3.value > 0).sort((a, b) => b.value - a.value);
   if (valued.length < 2) return { riskProblem: "Risk by holding needs two holdings or more." };
   const priceHistory = deps.priceHistory;
   if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
@@ -42167,18 +42277,18 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
     if (!result2 || "late" in result2 && result2.late) return later(ticker);
     return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
   };
-  const held = /* @__PURE__ */ new Set([...holdings.map((holding2) => holding2.ticker), ...positions.keys()]);
+  const held = /* @__PURE__ */ new Set([...holdings.map((holding3) => holding3.ticker), ...positions.keys()]);
   const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
-  const tickers = [...valued.map((holding2) => holding2.ticker), ...besides];
+  const tickers = [...valued.map((holding3) => holding3.ticker), ...besides];
   const results = await eachLimited(tickers, CONCURRENCY4, deadline, readOne, later);
   const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
   if (unread.length) void eachLimited(unread, CONCURRENCY4, Infinity, ask, ask);
   const inputs = [];
   const missing = [];
-  valued.forEach((holding2, index) => {
+  valued.forEach((holding3, index) => {
     const result2 = results[index];
-    if ("points" in result2) inputs.push({ ticker: holding2.ticker, value: holding2.value, points: result2.points });
-    else missing.push({ ticker: holding2.ticker, reason: result2.reason, problem: result2.problem });
+    if ("points" in result2) inputs.push({ ticker: holding3.ticker, value: holding3.value, points: result2.points });
+    else missing.push({ ticker: holding3.ticker, reason: result2.reason, problem: result2.problem });
   });
   const alongside = [];
   const unmeasured = [];
@@ -42194,7 +42304,7 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
     return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0].problem}` };
   }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding2) => sum + holding2.value, 0), onCovariance, alongside);
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding3) => sum + holding3.value, 0), onCovariance, alongside);
   return {
     ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} weekly returns are needed), their closes jump as across a change of unit, or they did not move.` },
     ...missing.length ? { riskMissing: missing } : {}
@@ -42407,7 +42517,11 @@ var windowSchema = {
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 limits history reads per minute; TradePilot paces them to the limit it reports, and a read cut short by it comes back truncated.")
 };
-function createMcpServer({ trading, insights, automation: automation2, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies2, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+var registerAppTool = ((server2, name, config3, handler) => {
+  const outputSchema = TOOL_OUTPUT[name];
+  return j(server2, name, outputSchema ? { ...config3, outputSchema } : config3, handler);
+});
+function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -42416,7 +42530,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
   ].filter(Boolean).join("\n\n");
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist: watchlist2, closes: closes2 };
-  const dashboard = async (environment) => {
+  const dashboard2 = async (environment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
     const account = data.account?.id;
@@ -42428,7 +42542,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     const analysis = await insights.allocation(environment, limits, (positions) => {
       read = positions;
     });
-    const holdings = only ? analysis.holdings.filter((holding2) => only.has(holding2.ticker)) : analysis.holdings;
+    const holdings = only ? analysis.holdings.filter((holding3) => only.has(holding3.ticker)) : analysis.holdings;
     const quoteOf = config3.sampleData ? (instrument) => trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) : void 0;
     const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {} };
     const risk = read ? await readHoldingRisk(deps, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
@@ -42450,7 +42564,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       ]
     })
   );
-  j(
+  registerAppTool(
     server2,
     "get_portfolio_dashboard",
     {
@@ -42462,14 +42576,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment }) => {
       try {
-        const data = await dashboard(environment);
+        const data = await dashboard2(environment);
         return result(data, `Rendered ${environment.toUpperCase()} Trading 212 portfolio dashboard.`);
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_portfolio_today",
     {
@@ -42481,7 +42595,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment }) => {
       try {
-        const data = await dashboard(environment);
+        const data = await dashboard2(environment);
         const day2 = data.credentials[environment] ? await today(environment) : void 0;
         const total = day2?.total;
         const currency = day2?.accountCurrency ? ` ${day2.accountCurrency}` : "";
@@ -42492,7 +42606,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "search_trading212_instruments",
     {
@@ -42520,7 +42634,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     }
   );
   const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
-  j(
+  registerAppTool(
     server2,
     "analyze_portfolio_allocation",
     {
@@ -42549,7 +42663,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_portfolio_performance",
     {
@@ -42582,13 +42696,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           readAttribution({ config: config3, trading, insights, priceHistory, ...history ? { history } : {} }, environment, window, maxPages).catch((error62) => ({ attributionMissing: "data", attributionProblem: asStructuredError(error62).message }))
         ]);
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared, ...attributed };
-        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding2) => `${holding2.ticker} ${holding2.gain >= 0 ? "+" : ""}${num2(holding2.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding3) => `${holding3.ticker} ${holding3.gain >= 0 ? "+" : ""}${num2(holding3.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_income_summary",
     {
@@ -42607,7 +42721,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_tax_year_summary",
     {
@@ -42632,7 +42746,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_trade_history",
     {
@@ -42660,7 +42774,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_cash_history",
     {
@@ -42685,7 +42799,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_order_status",
     {
@@ -42704,7 +42818,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_market_hours",
     {
@@ -42723,7 +42837,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_holding_detail",
     {
@@ -42742,7 +42856,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "manage_history_export",
     {
@@ -42775,9 +42889,9 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           const read = await insights.readExport(environment, reportId);
           const status = (read.report.status ?? "not ready").toLowerCase();
           if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
-          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.recordCount } : {} };
+          const payload2 = { kind: "history_export", environment, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.recordCount } : {} };
           const period2 = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
-          return result(payload, `Read report ${read.report.reportId}${period2}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
+          return result(payload2, `Read report ${read.report.reportId}${period2}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
@@ -42786,7 +42900,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_recent_trading_activity",
     {
@@ -42808,7 +42922,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "show_daily_trade_plan",
     {
@@ -42834,7 +42948,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     }
   );
   if (canWrite) {
-    j(
+    registerAppTool(
       server2,
       "review_trading212_order_intent",
       {
@@ -42889,7 +43003,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_trading212_order",
       {
@@ -42912,7 +43026,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     );
   }
-  j(
+  registerAppTool(
     server2,
     "get_trading_policy",
     {
@@ -42932,7 +43046,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "plan_portfolio_rebalance",
     {
@@ -42962,7 +43076,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       try {
         const saved = targets ? void 0 : await targetAllocations.get(environment);
         if (!targets && !saved) return toolError(new Error(`No targets were given and none are saved for ${environment.toUpperCase()}. Pass targets, or save them with manage_target_allocation.`));
-        const plan = await trading.planRebalance(environment, targets ?? saved.targets, {
+        const plan2 = await trading.planRebalance(environment, targets ?? saved.targets, {
           cashWeight: cashWeight ?? saved?.cashWeight ?? 0,
           minTradeValue,
           sellUntargeted: sellUntargeted ?? saved?.sellUntargeted ?? false,
@@ -42972,19 +43086,19 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           ...investAmount === void 0 ? {} : { investAmount },
           ...band === void 0 ? {} : { band }
         });
-        const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan)), rebalance: plan, credentials: credentialStatus(config3), writeEnabled: canWrite };
-        const totals = plan.totals;
-        const traded = totals && plan.trades.length ? ` (${[totals.bought > 0 ? `buys ${totals.bought} ${totals.currency}` : "", totals.sold > 0 ? `sells ${totals.sold} ${totals.currency}` : "", totals.fxFee > 0 ? `at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""].filter(Boolean).join(", ")})` : "";
-        const held = plan.noteDetails?.find((item) => item.code === "within_band");
+        const data = { ...await trading.withInstruments(trading.rebalanceBasket(plan2)), rebalance: plan2, credentials: credentialStatus(config3), writeEnabled: canWrite };
+        const totals = plan2.totals;
+        const traded = totals && plan2.trades.length ? ` (${[totals.bought > 0 ? `buys ${totals.bought} ${totals.currency}` : "", totals.sold > 0 ? `sells ${totals.sold} ${totals.currency}` : "", totals.fxFee > 0 ? `at most ${totals.fxFee} ${totals.currency} in conversion fees` : ""].filter(Boolean).join(", ")})` : "";
+        const held = plan2.noteDetails?.find((item) => item.code === "within_band");
         const kept = Number(held?.details?.count ?? 0);
-        const banded = plan.band === void 0 ? "" : ` of the targets more than ${Number((plan.band * 100).toFixed(2))} points off${kept ? `, ${kept} ${kept === 1 ? "target left as it is" : "targets left as they are"}` : ""}`;
-        return result(data, `${plan.buyOnly ? "Invest cash by targets" : "Rebalance plan"}${banded}: ${plan.trades.length} trade(s)${traded}${plan.skipped.length ? `, ${plan.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
+        const banded = plan2.band === void 0 ? "" : ` of the targets more than ${Number((plan2.band * 100).toFixed(2))} points off${kept ? `, ${kept} ${kept === 1 ? "target left as it is" : "targets left as they are"}` : ""}`;
+        return result(data, `${plan2.buyOnly ? "Invest cash by targets" : "Rebalance plan"}${banded}: ${plan2.trades.length} trade(s)${traded}${plan2.skipped.length ? `, ${plan2.skipped.length} target(s) skipped` : ""}. Nothing has been sent${canWrite ? "; the user reviews and confirms the basket before anything is sent" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "list_investment_plans",
     {
@@ -42996,7 +43110,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment }) => {
       try {
-        const plans = await automation2.listPlans(environment);
+        const plans = await automation3.listPlans(environment);
         return result({ kind: "investment_plans", plans, demoAutomationEnabled: config3.demoAutomationEnabled }, `${plans.length} plan(s).`);
       } catch (error62) {
         return toolError(error62);
@@ -43014,7 +43128,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     dividendCashAction: external_exports.enum(["REINVEST", "TO_ACCOUNT_CASH"]).optional(),
     instrumentShares: external_exports.record(external_exports.string(), external_exports.number().positive()).optional().describe(`Ticker, symbol or name to target share, up to ${MAX_PIE_INSTRUMENTS}. Shares are normalised to sum to 1, so {"VUSA": 70, "EIMI": 30} works. On update, omit to keep the current slices.`)
   });
-  j(
+  registerAppTool(
     server2,
     "list_pies",
     {
@@ -43030,14 +43144,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment, details, fresh }) => {
       try {
-        const data = { ...await pies2.listPies(environment, { details, fresh }), writeEnabled: canWrite };
+        const data = { ...await pies3.listPies(environment, { details, fresh }), writeEnabled: canWrite };
         return result(data, `${data.pies.length} ${environment.toUpperCase()} pie(s).`);
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_pie",
     {
@@ -43049,7 +43163,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment, pieId }) => {
       try {
-        const pie = await pies2.getPie(environment, pieId);
+        const pie = await pies3.getPie(environment, pieId);
         const data = { kind: "pies", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, pies: [pie], totals: { value: pie.value, invested: pie.invested, result: pie.result, cash: pie.cash }, notes: [], timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${pie.name}: ${pie.instruments?.length ?? 0} slice(s).`);
       } catch (error62) {
@@ -43057,7 +43171,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_automation_overview",
     {
@@ -43076,7 +43190,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_quote",
     {
@@ -43096,7 +43210,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "manage_target_allocation",
     {
@@ -43110,7 +43224,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         driftThreshold: external_exports.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points"),
         sellUntargeted: external_exports.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)")
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       _meta: {}
     },
     async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
@@ -43150,7 +43264,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "list_price_alerts",
     {
@@ -43174,7 +43288,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     }
   );
   if (canWrite) {
-    j(
+    registerAppTool(
       server2,
       "review_pie_change",
       {
@@ -43187,7 +43301,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       async (draft) => {
         try {
           if (draft.action !== "create" && !draft.pieId) return toolError(new Error(`pieId is required to ${draft.action} a pie; list_pies shows the ids.`));
-          const current = draft.action === "create" || !draft.pieId ? void 0 : await pies2.getPie(draft.environment, draft.pieId);
+          const current = draft.action === "create" || !draft.pieId ? void 0 : await pies3.getPie(draft.environment, draft.pieId);
           const data = { kind: "pie_change_draft", draft, ...current ? { current } : {}, credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
         } catch (error62) {
@@ -43196,7 +43310,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     );
   }
-  j(
+  registerAppTool(
     server2,
     "manage_price_alerts",
     {
@@ -43212,7 +43326,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         percent: external_exports.number().positive().optional(),
         note: external_exports.string().max(200).optional()
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       _meta: {}
     },
     async (input2) => {
@@ -43241,7 +43355,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "manage_account_alerts",
     {
@@ -43256,7 +43370,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         percent: external_exports.number().positive().lt(100).optional().describe("Either way, for day_move"),
         note: external_exports.string().max(200).optional()
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       _meta: {}
     },
     async (input2) => {
@@ -43284,7 +43398,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "manage_trade_journal",
     {
@@ -43352,7 +43466,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_journal_review",
     {
@@ -43381,7 +43495,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "get_watchlist",
     {
@@ -43400,7 +43514,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "manage_watchlist",
     {
@@ -43436,7 +43550,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     }
   );
   if (canWrite) {
-    j(
+    registerAppTool(
       server2,
       "manage_investment_plans",
       {
@@ -43461,14 +43575,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           autoExecute: external_exports.boolean().optional().describe("Demo only: run unattended when due"),
           paused: external_exports.boolean().optional()
         }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: {}
       },
       async (input2) => {
         try {
           if (input2.action === "create") {
             if (!input2.legs && input2.targetAmount === void 0 || !input2.frequency) return toolError(new Error("frequency and either legs or targetAmount are required to create a plan"));
-            const plan2 = await automation2.createPlan({
+            const plan3 = await automation3.createPlan({
               environment: input2.environment,
               label: input2.label ?? (input2.targetAmount === void 0 ? "DCA plan" : "Invest by targets"),
               legs: input2.legs ?? [],
@@ -43479,16 +43593,16 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
               ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc },
               ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
             });
-            const unattended = plan2.autoExecute && !config3.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
-            const noTargets = plan2.targetAmount !== void 0 && !await targetAllocations.get(plan2.environment) ? " No target weights are saved yet; save them with manage_target_allocation before it is due." : "";
-            return result({ kind: "investment_plan", plan: plan2 }, `Saved plan ${plan2.id}; next due ${plan2.nextRunAt}. No order was placed.${unattended}${noTargets}`);
+            const unattended = plan3.autoExecute && !config3.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
+            const noTargets = plan3.targetAmount !== void 0 && !await targetAllocations.get(plan3.environment) ? " No target weights are saved yet; save them with manage_target_allocation before it is due." : "";
+            return result({ kind: "investment_plan", plan: plan3 }, `Saved plan ${plan3.id}; next due ${plan3.nextRunAt}. No order was placed.${unattended}${noTargets}`);
           }
           if (!input2.planId) return toolError(new Error("planId is required"));
           if (input2.action === "delete") {
-            await automation2.deletePlan(input2.planId);
+            await automation3.deletePlan(input2.planId);
             return result({ kind: "investment_plan", deleted: input2.planId }, `Deleted plan ${input2.planId}.`);
           }
-          const plan = await automation2.updatePlan(input2.planId, {
+          const plan2 = await automation3.updatePlan(input2.planId, {
             ...input2.label === void 0 ? {} : { label: input2.label },
             ...input2.legs === void 0 ? {} : { legs: input2.legs },
             ...input2.targetAmount === void 0 ? {} : { targetAmount: input2.targetAmount },
@@ -43499,13 +43613,13 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
             ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
             ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc }
           });
-          return result({ kind: "investment_plan", plan }, `Updated plan ${plan.id}; next due ${plan.nextRunAt}.`);
+          return result({ kind: "investment_plan", plan: plan2 }, `Updated plan ${plan2.id}; next due ${plan2.nextRunAt}.`);
         } catch (error62) {
           return toolError(error62);
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_investment_plan",
       {
@@ -43517,14 +43631,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       },
       async ({ planId }) => {
         try {
-          const data = { ...await trading.withInstruments(await automation2.reviewPlan(planId)), credentials: credentialStatus(config3), writeEnabled: true };
+          const data = { ...await trading.withInstruments(await automation3.reviewPlan(planId)), credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Opened ${data.legs.length} order(s) from plan "${data.title}" for review. Nothing has been sent.`);
         } catch (error62) {
           return toolError(error62);
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_protective_orders",
       {
@@ -43549,7 +43663,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_portfolio_stops",
       {
@@ -43572,7 +43686,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_order_basket",
       {
@@ -43599,7 +43713,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "review_order_cancel",
       {
@@ -43622,7 +43736,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     );
   }
-  j(
+  registerAppTool(
     server2,
     "app_get_dashboard",
     {
@@ -43634,14 +43748,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment }) => {
       try {
-        const data = await dashboard(environment);
+        const data = await dashboard2(environment);
         return result(data, "Dashboard refreshed.");
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_get_today",
     {
@@ -43660,7 +43774,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_get_holding",
     {
@@ -43679,7 +43793,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_get_holding_covariance",
     {
@@ -43710,7 +43824,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_get_automation",
     {
@@ -43728,7 +43842,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_list_pies",
     {
@@ -43740,14 +43854,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     },
     async ({ environment, fresh }) => {
       try {
-        const data = { ...await pies2.listPies(environment, { fresh: fresh === true }), writeEnabled: canWrite };
+        const data = { ...await pies3.listPies(environment, { fresh: fresh === true }), writeEnabled: canWrite };
         return result(data, "Pies refreshed.");
       } catch (error62) {
         return toolError(error62);
       }
     }
   );
-  j(
+  registerAppTool(
     server2,
     "app_get_trade_plan",
     {
@@ -43767,14 +43881,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     }
   );
   if (canWrite) {
-    j(
+    registerAppTool(
       server2,
       "app_prepare_order",
       {
         title: "Prepare order confirmation",
         description: "App-only validation. Creates a short-lived one-time confirmation token; does not place an order.",
         inputSchema: orderDraftSchema,
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async (draft) => {
@@ -43786,14 +43900,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_execute_order",
       {
         title: "Execute confirmed order",
         description: "App-only destructive external write. Consumes a one-time token created by app_prepare_order. Never retry automatically.",
         inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ token, liveAcknowledged }) => {
@@ -43805,7 +43919,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_verify_unknown_execution",
       {
@@ -43824,14 +43938,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_prepare_cancel",
       {
         title: "Prepare order cancellation",
         description: "App-only cancellation validation; does not cancel yet.",
         inputSchema: external_exports.object({ environment: environmentEnum, orderId: external_exports.string().min(1) }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ environment, orderId }) => {
@@ -43843,14 +43957,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_execute_cancel",
       {
         title: "Execute confirmed cancellation",
         description: "App-only destructive write. Consumes a one-time cancellation token. Live cancellations need liveAcknowledged=true after the user confirmed that a cancelled stop-loss no longer protects the position.",
         inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional() }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ token, liveAcknowledged }) => {
@@ -43862,7 +43976,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_prepare_basket",
       {
@@ -43876,7 +43990,7 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           planId: external_exports.string().optional(),
           notes: external_exports.array(external_exports.string().max(500)).max(20).optional()
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ environment, purpose, title, drafts, planId, notes }) => {
@@ -43896,14 +44010,14 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_execute_basket",
       {
         title: "Execute confirmed basket",
         description: "App-only destructive external write. Consumes a one-time basket token and sends the orders one by one. Never retry automatically.",
         inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ token, liveAcknowledged }) => {
@@ -43915,38 +44029,38 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_prepare_pie_change",
       {
         title: "Prepare pie change confirmation",
         description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
         inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async (draft) => {
         try {
-          const data = await pies2.preparePieChange(draft);
+          const data = await pies3.preparePieChange(draft);
           return result(data, "Pie change validated. Explicit user confirmation is still required.");
         } catch (error62) {
           return toolError(error62);
         }
       }
     );
-    j(
+    registerAppTool(
       server2,
       "app_execute_pie_change",
       {
         title: "Execute confirmed pie change",
         description: "App-only external write. Consumes a one-time pie token. Never retry automatically.",
         inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional().describe("Second confirmation that a Live pie will change") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ token, liveAcknowledged }) => {
         try {
-          const data = await pies2.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
+          const data = await pies3.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -44091,14 +44205,14 @@ var PriceAlerts = class {
         reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
         continue;
       }
-      const holding2 = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
-      let position = holding2;
+      const holding3 = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
+      let position = holding3;
       let instrument;
       const quoted2 = !position?.currentPrice;
       try {
         if (alert.condition !== "gain_percent" && alert.condition !== "loss_percent" && (quoted2 || alert.condition === "day_move")) {
           const listed = (await this.deps.trading.instruments(alert.environment)).find((item) => item.ticker.toUpperCase() === alert.ticker.toUpperCase());
-          instrument = listed ? { ...holding2?.instrument ?? {}, ...listed } : holding2?.instrument;
+          instrument = listed ? { ...holding3?.instrument ?? {}, ...listed } : holding3?.instrument;
         }
         if (quoted2) {
           const quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
@@ -44531,25 +44645,25 @@ var DailyDigest = class {
         const mark = await this.deps.store.get(markKey);
         const { since, known } = dividendsSince(mark, now);
         if (!known) await this.deps.store.put(markKey, { from: new Date(since).toISOString() });
-        const dashboard = await this.deps.trading.getDashboard(environment);
-        const account = dashboard.account;
+        const dashboard2 = await this.deps.trading.getDashboard(environment);
+        const account = dashboard2.account;
         if (!account) {
           await this.deps.store.delete(claimKey2);
           continue;
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
-        const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan) => plan.environment === environment && !plan.paused && Date.parse(plan.nextRunAt) <= now.getTime());
+        const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan2) => plan2.environment === environment && !plan2.paused && Date.parse(plan2.nextRunAt) <= now.getTime());
         const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS16;
         const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
         const saved = await this.deps.targets?.(environment);
-        const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard.positions)).maxDrift : void 0;
-        const guards = dashboard.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard.orders) }));
+        const maxDrift = saved ? allocationDrift(saved, analyzeAllocation(environment, account, dashboard2.positions)).maxDrift : void 0;
+        const guards = dashboard2.positions.map((position) => ({ ticker: position.instrument.ticker, guard: stopProtection(position, dashboard2.orders) }));
         const uncovered = guards.some((item) => item.guard) ? guards.filter((item) => !item.guard || item.guard.coverage < 1).map((item) => item.ticker) : [];
-        const day3 = dashboard.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => void 0)) : void 0;
+        const day3 = dashboard2.positions.length ? digestDay(await this.deps.today?.(environment, now).catch(() => void 0)) : void 0;
         const history = await this.deps.dividends?.(environment, new Date(Math.min(since, scheduleStart(now.getTime() - WEEK_MS))), now).catch(() => void 0);
-        const dividends = history ? digestDividends(history.items, dashboard.positions, { since, ...Array.isArray(mark?.seen) ? { seen: mark.seen } : {}, truncated: history.truncated }, now) : void 0;
+        const dividends = history ? digestDividends(history.items, dashboard2.positions, { since, ...Array.isArray(mark?.seen) ? { seen: mark.seen } : {}, truncated: history.truncated }, now) : void 0;
         const text = digestText({
           environment,
           currency: account.currency ?? "",
@@ -44557,12 +44671,12 @@ var DailyDigest = class {
           ...previous === void 0 ? {} : { previousTotalValue: previous },
           cash: account.cash?.availableToTrade ?? 0,
           ...account.investments?.unrealizedProfitLoss === void 0 ? {} : { unrealized: account.investments.unrealizedProfitLoss },
-          positions: dashboard.positions.map((position) => {
+          positions: dashboard2.positions.map((position) => {
             const wallet = position.walletImpact;
             return { ticker: position.instrument.ticker, value: positionValue(position), ...typeof wallet?.unrealizedProfitLoss === "number" ? { profitLoss: wallet.unrealizedProfitLoss } : {} };
           }),
-          pendingOrders: dashboard.orders.length,
-          duePlans: plans.map((plan) => plan.label),
+          pendingOrders: dashboard2.orders.length,
+          duePlans: plans.map((plan2) => plan2.label),
           triggeredAlerts: alerts.length,
           filledOrders,
           ...maxDrift === void 0 ? {} : { maxDrift },
@@ -44844,7 +44958,7 @@ function createServices(input2) {
     ...notify ? { notify } : {},
     ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
-    afterBasket: (planId, result2) => automation2.recordRun(planId, result2),
+    afterBasket: (planId, result2) => automation3.recordRun(planId, result2),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
     afterWrite: (environment) => insights.forgetHistory(environment)
@@ -44856,7 +44970,7 @@ function createServices(input2) {
     // The sample account's history is drawn relative to today: kept, it would go stale.
     ...deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store) }
   });
-  const automation2 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
+  const automation3 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });
   const values = new ValueHistory({ config: deps.config, store: deps.store, trading });
@@ -44869,7 +44983,7 @@ function createServices(input2) {
     tradingDay: async (environment, instrument, quoted2, now) => (await daySessionOf({ schedules }, environment, instrument, quoted2, now))?.day
   });
   const journal = new TradeJournal({ config: deps.config, store: deps.store, trading });
-  const pies2 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
+  const pies3 = new PiesService({ config: deps.config, store: deps.store, trading, ...deps.fetcher ? { fetcher: deps.fetcher } : {} });
   const targets = new TargetAllocations({ config: deps.config, store: deps.store, trading, allocation: (environment) => insights.allocation(environment) });
   const watchlist2 = new Watchlist({ config: deps.config, store: deps.store, trading });
   const priceHistory = createPriceHistory({
@@ -44913,7 +45027,7 @@ function createServices(input2) {
     links: await stage("protective links", () => links.reconcile()),
     orders: await stage("order watch", () => orders.check()),
     values: await stage("value history", () => values.snapshot()),
-    plans: await stage("plans", () => automation2.runDuePlans()),
+    plans: await stage("plans", () => automation3.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
@@ -44930,13 +45044,13 @@ function createServices(input2) {
     return all.filter((instrument) => wanted.has(instrument.ticker)).map(({ ticker, name, shortName, currencyCode: currencyCode3, type }) => ({ ticker, ...name ? { name } : {}, ...shortName ? { shortName } : {}, ...currencyCode3 ? { currencyCode: currencyCode3 } : {}, ...type ? { type } : {} }));
   };
   const automationOverview = async (environment) => {
-    const plans = await automation2.listPlans(environment);
+    const plans = await automation3.listPlans(environment);
     const priceAlerts = await alerts.list(environment);
     const onAccount = await accountAlerts.list(environment);
     const pairs = (await links.list()).filter((link) => link.environment === environment);
     const saved = await targets.get(environment);
     const instruments = await namedInstruments(environment, [
-      ...plans.flatMap((plan) => plan.legs.map((leg) => leg.ticker)),
+      ...plans.flatMap((plan2) => plan2.legs.map((leg) => leg.ticker)),
       ...priceAlerts.map((alert) => alert.ticker),
       ...pairs.map((link) => link.ticker),
       ...saved?.targets.map((target) => target.ticker) ?? []
@@ -44969,7 +45083,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation2, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies2, digest, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

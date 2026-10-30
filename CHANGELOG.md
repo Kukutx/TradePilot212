@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.58.0
+
+- Every tool declares what it returns. Each of the 55 tools has an `outputSchema`: an open object whose `kind` names the payload (portfolio, allocation, tax_year, order_preview, order_execution …), with its main fields typed and the shared ones (environment, truncated, token, status …) described. A host can plan with the shape and check it, and the server checks each result against it, so the schemas are kept true by a test that calls every tool on the sample account (all but `app_verify_unknown_execution`, which is checked by its schema). What the broker sends back for an order, cancel or pie change is not typed, so an unusual reply never turns an accepted change into an error.
+- Every tool that changes something says whether calling it again with the same arguments changes anything more (`idempotentHint`). Saving target weights and the watchlist are idempotent (saving the same targets again also keeps the day's drift notice from coming back); creating an alert, a plan or a journal note, requesting a report, preparing (each call issues a new token) and executing anything are not.
+
 ## 2.57.0
 
 - Reads Trading 212's CSV report. `manage_history_export` gains `read`: it downloads a finished report (`reportId`, or the newest report) and adds it up. It gives the rows and Total of each action (Market buy, Dividend (Ordinary), Interest on cash, Deposit …) and, per currency, the charges the API history does not itemise (currency conversion fees, stamp duty reserve tax, French transaction tax, withholding tax and other fees and levies), interest, dividends (net of withholding) and realised result, with the report's period. `rows` returns up to 200 of its newest rows as well. The file is read by its header, so the columns a period lacks and the older files that put the currency in the header are read too. It is fetched over https from Trading 212's storage without the API key (a redirect only to https), up to 25 MB counted as it arrives, within a minute, and kept per process as its totals and newest rows.
