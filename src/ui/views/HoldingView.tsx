@@ -427,7 +427,7 @@ function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, o
                   <strong>{item.netValue === undefined ? "—" : money(item.netValue, item.accountCurrency ?? "EUR", locale)}</strong>
                   {item.realisedProfitLoss ? <small className={signedClass(item.realisedProfitLoss)}>{fill(t("holdingRealized"), { amount: money(item.realisedProfitLoss, item.accountCurrency ?? "EUR", locale, { signed: true }) })}</small> : null}
                 </div>
-                {note && text && <p className="fillNote"><span>{t(note.thesis ? "journalWhy" : "journalReview")}</span>{text}</p>}
+                {note && text && <p className="fillNote" title={text}><span>{t(note.thesis ? "journalWhy" : "journalReview")}</span>{text}</p>}
                 {writing && <div className="fillNoteForm">{form}</div>}
               </li>
             );

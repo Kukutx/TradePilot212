@@ -232,7 +232,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dayLine .daySince { flex-basis: 100%; color: var(--tp-muted); font-size: 12px; }
 .dayCell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; line-height: 1.2; }
 .dayCell strong { font-size: 13px; font-weight: 700; }
-.dayCell small { font-size: 12px; font-weight: 600; opacity: .85; }
+.dayCell small { font-size: 12px; font-weight: 600; }
 .dayCell.inline { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .dayCell .daySince { flex-basis: 100%; color: var(--tp-muted); font-weight: 500; opacity: 1; }
 .positionDay { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--tp-border); font-size: 13px; }
@@ -375,7 +375,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .fillNote span { margin-right: 6px; color: var(--tp-muted); font-weight: 700; }
 .fillNoteForm { flex: 1 0 100%; }
 .fillNoteForm .alertForm { margin: 2px 0 0; }
-.inlineLink { padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.inlineLink { min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .inlineLink:hover { color: var(--tp-text); }
 .inlineLink:disabled { cursor: default; opacity: .6; }
 /* Journal review: how each noted trade has gone since, and per tag how often the reasons went your way. */
@@ -906,7 +906,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 
 .flagList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .flagList li { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 13px; }
-.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #fff; font-size: 13px; font-weight: 800; }
+.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #1c1d20; font-size: 13px; font-weight: 800; }
 
 .factList { display: grid; gap: 2px; }
 .factList > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); font-size: 13px; }
@@ -1216,7 +1216,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .holdingsToolbar .segmented button { min-height: 32px; padding: 0 12px; }
 .sortSelect { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .sortSelect select { min-height: 36px; max-width: 100%; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 600; }
-.sortHeader { position: relative; display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+.sortHeader { position: relative; display: inline-flex; align-items: center; min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
 .sortHeader:hover, .sortHeader.active { color: var(--tp-text); }
 .sortHeader:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The arrow takes no width, so sorting never widens the table: before a right-aligned label, after the first one. */

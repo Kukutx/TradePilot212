@@ -27,7 +27,7 @@ export function DetailList({ title, items }: { title: string; items: string[] })
 }
 
 export function Metric({ label, value, compact = false, tone }: { label: string; value: ReactNode; compact?: boolean; tone?: string }) {
-  return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong className={tone}>{value}</strong></div>;
+  return <div className={`metric ${compact ? "compact" : ""}`}><span>{label}</span><strong className={tone} title={typeof value === "string" ? value : undefined}>{value}</strong></div>;
 }
 
 export function SectionHeader({ title, count }: { title: string; count: number }) {
