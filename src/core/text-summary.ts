@@ -4,13 +4,13 @@
 
 import type { ExportSummary } from "./export-csv.js";
 import type { HoldingDetail } from "../shared/holding.js";
-import { equalRiskTargets, PARITY_MIN_VOLATILITY } from "../shared/holding-risk.js";
+import { equalRiskTargets, marketScenarios, PARITY_MIN_VOLATILITY } from "../shared/holding-risk.js";
 import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, MarketSensitivity, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
@@ -337,8 +337,25 @@ function holdingRiskLines(data: AllocationAnalysis): string[] {
     ...(risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : []),
     ...(risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : []),
     ...(risk.mix ? [mixLine(risk.mix, data.accountCurrency)] : []),
+    ...(risk.market ? marketLines(risk.market, risk.mix?.value, data) : []),
     ...parityLines(data),
     ...missing,
+  ];
+}
+
+/** At most this many holdings are named with their beta, the highest first. */
+const MAX_BETA_NAMED = 12;
+
+/** How the holdings measured move with the benchmark, and what a fall in it would take by their beta. */
+function marketLines(market: MarketSensitivity, value: number | undefined, data: AllocationAnalysis): string[] {
+  const scenarios = value ? marketScenarios(market.beta, value, data.totalValue) : [];
+  const worst = market.worstWeek;
+  return [
+    ...section(`Against the market (${market.ticker}, weekly closes ${market.from} to ${market.to}, ${market.weeks} weeks; its volatility ${pct(market.volatility)} a year): together a beta of ${num(market.beta, 2)}, correlation ${num(market.correlation, 2)}`,
+      rows(market.rows.slice(0, MAX_BETA_NAMED), (row) => `${row.ticker}: beta ${num(row.beta, 2)}, correlation ${num(row.correlation, 2)}, ${pct(row.weight, 0)} of the value measured`)),
+    ...(market.rows.length > MAX_BETA_NAMED ? [`And ${market.rows.length - MAX_BETA_NAMED} more.`] : []),
+    ...(scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} → ${signedPct(scenario.move)}, about ${money(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== undefined ? ` (${signedPct(scenario.account)} of the account, cash not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : []),
+    ...(worst ? [`${market.ticker}'s worst week, to ${worst.date}: ${signedPct(worst.market)}; today's mix ${signedPct(worst.mix)} that week.`] : []),
   ];
 }
 

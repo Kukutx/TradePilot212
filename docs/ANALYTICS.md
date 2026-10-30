@@ -101,6 +101,16 @@ Below it, **Today's mix over the year**, and `risk.mix` in `analyze_portfolio_al
 - **A bad week, 1 in 20** is the weekly return the mix fell to or below in its worst 5% of weeks: the ⌈n/20⌉-th worst of its n weekly returns (the 3rd worst of 52), a historical 95% value at risk. It is also given in the account currency, on today's value of the holdings measured (not the cash, nor holdings left out), with the average of those worst weeks (the expected shortfall). It says what a bad week has looked like, not the most the holdings can lose. When even that week rose (the mix fell in fewer than one week in 20), there is no figure: the tile says **No fall**.
 - **Worst week** and the best are dated by the week's last close; **Deepest fall** is the mix's largest fall from a high, as the drawdown above, and when it was made up.
 
+### Against the market
+
+Below it, **Against the market**, and `risk.market` in `analyze_portfolio_allocation`, say how the holdings measured move with the benchmark (`BENCHMARK`: the S&P 500 through SPY by default; the sample account uses its own S&P 500 fund). It is read over the holdings' weeks that the benchmark has a close in too, from weekly log returns, each in its own currency, and needs more than 26 of them.
+
+- **Beta** is a holding's covariance with the benchmark over the benchmark's variance: 1 moved as the market did, 1.5 half as much again, 0 did not follow it, and below 0 against it. The holdings' beta together is their weights times their betas; the tile gives it with their correlation to the benchmark. Each holding is a bar from 0 with a dashed mark at 1, highest first, its share of the value measured beside it; the table view adds its correlation.
+- **The benchmark's volatility** a year over those weeks, and its **worst week**, dated by its last close, with what today's mix did that week.
+- **If it fell** 5%, 10% and 20%, the holdings measured would move their beta times that, given in the account currency on their value now and as a share of the account with cash counted as not moving. The figure is the beta's alone: each holding also moves on its own, so a real fall can take more or less. It is the past year's average, not a forecast.
+
+The benchmark is read after the holdings, within the same few seconds; a benchmark that is one of the holdings is not read again. Without its closes the panel is left out and the rest of the risk stands.
+
 ### Equal-risk weights
 
 Below that, **Equal-risk weights**, and each row's `parity` in `risk.rows`, give the weights at which each holding measured would bring the same share of their risk (an equal risk contribution, or risk parity), from the same weeks. A holding that moves a lot, or moves with the rest, gets less; a quiet one, or one that offsets the others, gets more. They are shares of the holdings measured, like `weight` beside them, and `risk.parityVolatility` is their volatility together at those weights, from the same weeks.

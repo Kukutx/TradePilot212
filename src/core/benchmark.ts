@@ -54,7 +54,7 @@ export function benchmarkReturns(series: ReturnPoint[], points: PricePoint[], th
  * The benchmark's instrument: Trading 212's, or a US fund Trading 212 does not list (quote providers map US tickers
  * themselves). A query Trading 212 matches several times, or one it cannot look up, says why instead.
  */
-function benchmarkInstrument(instruments: Instrument[] | undefined, query: string): { instrument: Instrument } | { problem: string } {
+export function benchmarkInstrument(instruments: Instrument[] | undefined, query: string): { instrument: Instrument } | { problem: string } {
   const wanted = query.trim().toUpperCase();
   const us = /^[A-Z][A-Z.]{0,5}_US_EQ$/.test(wanted) ? wanted.replace(/_US_EQ$/, "") : undefined;
   const synthetic = (symbol: string) => ({ instrument: { ticker: `${symbol}_US_EQ`, name: US_FUNDS[symbol] ?? symbol, shortName: symbol, currencyCode: "USD", type: "ETF" } });

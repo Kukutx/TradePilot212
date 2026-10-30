@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AllocationAnalysis, AllocationDrift, HoldingCovariance } from "./history.js";
-import { equalRiskTargets, holdingRiskOf, MATRIX_SIZE, MAX_PARITY_TARGETS, MIN_WEEKS, parityOf, riskAtWeights, targetRiskOf, withTargetVolatility, type HoldingRiskInput } from "./holding-risk.js";
+import { equalRiskTargets, holdingRiskOf, marketScenarios, MATRIX_SIZE, MAX_PARITY_TARGETS, MIN_WEEKS, parityOf, riskAtWeights, targetRiskOf, withTargetVolatility, type HoldingRiskInput } from "./holding-risk.js";
 import type { PricePoint } from "./prices.js";
 
 const DAY_MS = 86_400_000;
@@ -421,5 +421,46 @@ describe("the risk at target weights", () => {
     });
     expect(withTargetVolatility({ holdings, drift }, undefined)).toEqual({ holdings, drift });
     expect(withTargetVolatility({ holdings }, covariance)).toEqual({ holdings });
+  });
+});
+
+describe("against the market", () => {
+  const market = pattern([1, -1, 2, -2, 1, 1, -1, -2]);
+  it("reads each holding's beta and the holdings' together, and the market's worst week", () => {
+    // A moves half as much again as the market; B does not follow it at all (+,-,+,- against its pattern's sign).
+    const a = market.map((move) => 1.5 * move);
+    const b = pattern([1, -1, -1, 1, -1, 1, 1, -1], 0.01);
+    const risk = holdingRiskOf([holding("A", 3000, a), holding("B", 1000, b)], TODAY, undefined, undefined, [], { ticker: "M", points: fridays(market) })!;
+    const sensitivity = risk.market!;
+    expect(sensitivity).toMatchObject({ ticker: "M", weeks: 52, from: "2025-10-10", to: "2026-10-09" });
+    const byTicker = new Map(sensitivity.rows.map((row) => [row.ticker, row]));
+    expect(byTicker.get("A")).toMatchObject({ beta: 1.5, correlation: 1, weight: 0.75 });
+    expect(sensitivity.rows[0]!.ticker).toBe("A");
+    // Together: their weights times their betas.
+    expect(sensitivity.beta).toBeCloseTo(0.75 * 1.5 + 0.25 * byTicker.get("B")!.beta, 4);
+    expect(sensitivity.correlation).toBeGreaterThan(0.9);
+    // The market's worst single week is a −4% log move; the mix's simple return that week at today's weights.
+    expect(sensitivity.worstWeek!.market).toBeCloseTo(Math.exp(-0.04) - 1, 6);
+    expect(sensitivity.worstWeek!.mix).toBeLessThan(sensitivity.worstWeek!.market);
+  });
+
+  it("reads only the weeks the market has a close in, and nothing from a market that does not move", () => {
+    const a = market.map((move) => 1.5 * move);
+    const holdings = [holding("A", 3000, a), holding("B", 1000, market)];
+    // The market's closes stop after 20 weeks: too few to read a beta from.
+    expect(holdingRiskOf(holdings, TODAY, undefined, undefined, [], { ticker: "M", points: fridays(market).slice(0, 21) })!.market).toBeUndefined();
+    expect(holdingRiskOf(holdings, TODAY, undefined, undefined, [], { ticker: "M", points: fridays(market.map(() => 0)) })!.market).toBeUndefined();
+    // A gap of a few weeks in the market's closes leaves the rest read.
+    const gapped = fridays(market).filter((_, index) => index < 10 || index > 13);
+    expect(holdingRiskOf(holdings, TODAY, undefined, undefined, [], { ticker: "M", points: gapped })!.market).toMatchObject({ weeks: 48 });
+  });
+
+  it("turns the beta into what a 5%, 10% and 20% fall would take, of the holdings and of the account", () => {
+    expect(marketScenarios(1.2, 10_000, 12_500)).toEqual([
+      { market: -0.05, move: -0.06, amount: -600, account: -0.048 },
+      { market: -0.1, move: -0.12, amount: -1200, account: -0.096 },
+      { market: -0.2, move: -0.24, amount: -2400, account: -0.192 },
+    ]);
+    expect(marketScenarios(0.5, 1000)[0]).toEqual({ market: -0.05, move: -0.025, amount: -25 });
   });
 });

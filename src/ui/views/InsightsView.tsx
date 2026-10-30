@@ -13,6 +13,7 @@ import { HoldingMixPanel } from "../components/holding-mix";
 import { HoldingParityPanel, type EqualRiskPlan } from "../components/holding-parity";
 import { TargetEditor, type MeasuredRisk, type TargetPreset, type TargetSave } from "../components/target-editor";
 import { HoldingRiskPanel } from "../components/holding-risk";
+import { MarketSensitivityPanel } from "../components/market-sensitivity";
 import { MonthlyReturns } from "../components/monthly-returns";
 import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
@@ -247,6 +248,7 @@ export function AllocationView({ data, book, locale, t, onRebalance, onInvestCas
 
       <HoldingRiskPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} />
       {data.risk?.mix && <HoldingMixPanel mix={data.risk.mix} currency={currency} locale={locale} t={t} />}
+      {data.risk?.market && <MarketSensitivityPanel market={data.risk.market} data={data} {...(book ? { book } : {})} locale={locale} t={t} />}
       <HoldingParityPanel data={data} {...(book ? { book } : {})} locale={locale} t={t} {...(onPlanEqualRisk ? { onPlan: onPlanEqualRisk } : {})}
         {...(onSaveTargets ? { onUseAsTargets: () => setEditing("parity") } : {})} {...(busy === undefined ? {} : { busy })} />
 

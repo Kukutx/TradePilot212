@@ -51,6 +51,42 @@ describe("reading risk by holding", () => {
     expect(risk.rows.every((row) => row.correlation > 0 && row.correlation < 1)).toBe(true);
   });
 
+  it("reads the sample account's beta to its own S&P 500 fund", async () => {
+    const services = sample();
+    let read: { positions: Position[]; instruments: Instrument[] } | undefined;
+    const analysis = await services.insights.allocation("demo", undefined, (positions) => { read = positions; });
+    const result = await readHoldingRisk({ priceHistory: services.priceHistory, benchmark: services.config.benchmark,
+      quoteOf: (item) => services.trading.externalQuote(item).then((quote) => quote?.price) }, "demo", analysis.holdings, read!);
+    const market = result.risk!.market!;
+    expect(market.ticker).toBe("VUSAl_EQ");
+    expect(market.rows).toHaveLength(result.risk!.rows.length);
+    // The sample closes share a market factor: every holding follows it, none as one.
+    expect(market.rows.every((row) => row.beta > 0 && row.correlation > 0)).toBe(true);
+    expect(market.beta).toBeGreaterThan(0);
+    expect(describePayload({ ...analysis, ...result })).toContain("Against the market (VUSAl_EQ");
+  });
+
+  it("reads a benchmark not held after the holdings, and one Trading 212 does not list as a US fund", async () => {
+    const asked: string[] = [];
+    const priceHistory = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => {
+      asked.push(request.instrument.ticker);
+      return { prices: { source: "test", points: fridays(request.instrument.ticker === "SPY_US_EQ" ? 1 : request.instrument.ticker === "A" ? 1 : 2) } };
+    };
+    const result = await readHoldingRisk({ priceHistory, benchmark: "SPY" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW);
+    expect(asked).toEqual(["A", "B", "SPY_US_EQ"]);
+    // A moves as the benchmark does.
+    expect(result.risk!.market!.rows.find((row) => row.ticker === "A")).toMatchObject({ beta: 1, correlation: 1 });
+    // A benchmark that is a holding is not read again; one that cannot be read leaves the risk without it.
+    asked.length = 0;
+    expect((await readHoldingRisk({ priceHistory, benchmark: "A" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW)).risk!.market!.beta).toBeGreaterThan(0);
+    expect(asked).toEqual(["A", "B"]);
+    const failing = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => (request.instrument.ticker === "SPY_US_EQ" ? { missing: "data", problem: "none" } : priceHistory(request));
+    const without = await readHoldingRisk({ priceHistory: failing, benchmark: "SPY" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW);
+    expect(without.risk).toBeDefined();
+    expect(without.risk!.market).toBeUndefined();
+    expect(without.riskMissing).toBeUndefined();
+  });
+
   it("reads the largest holdings first, a few at a time, waits a few seconds at most, and reads the rest on for the next read", async () => {
     vi.useFakeTimers({ now: NOW });
     try {

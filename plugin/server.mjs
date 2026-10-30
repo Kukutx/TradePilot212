@@ -35411,7 +35411,7 @@ var SKILL_PROMPTS = [
   {
     "name": "risk-check",
     "description": `Check a Trading 212 portfolio for concentration, currency exposure, cash levels, and risky pending orders using TradePilot's deterministic tools. Use when the user asks about risk, diversification, exposure, or "am I too concentrated".`,
-    "body": "# Risk check\n\n1. Call `analyze_portfolio_allocation`. If the user states their own limits, such as \"no position above 10%\", pass them as `maxSingleWeight` and the other limits.\n2. Call `get_portfolio_dashboard` to see pending orders. Its \"Stop-loss orders\" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. Where the broker values the holding, it also says what reaching the stop would cost from now and the P/L left then, in the account currency (a gap can fill a stop lower). It also names the holdings without one.\n3. For each pending order, call `get_market_hours` when its market is closed or in an extended session. A Market order placed while the market is closed is queued and fills at the next open, possibly at a gap price.\n\nReport:\n- every flag the tool raised, in plain language;\n- the largest holding, the top-5 share and the effective number of holdings;\n- the currency split, noting that FX moves affect returns in the account currency;\n- where its `risk` is: the holdings' volatility together, the diversification ratio, and any holding whose share of the risk is well above its share of the value (it swings more, or moves more with the rest); the most alike pairs from its correlations; from `risk.mix`, what a bad week (one in 20) has cost today's mix, in percent and in the account currency, and its deepest fall over the year, said as history, not a forecast; where rows carry `parity`, the equal-risk weights beside today's and `risk.parityVolatility` beside the volatility now, as one way to spread the risk, not advice. Name the holdings in `riskMissing` or `short` as not measured;\n- the cash share;\n- pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.\n\nIf a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop. When several holdings lack one, `review_portfolio_stops` drafts a stop for each of them in one basket that the user confirms once.\n\nIf the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.\n\nDo not compute weights yourself; quote the tool output. Do not prepare orders unless the user asks. Reply in the user's language."
+    "body": "# Risk check\n\n1. Call `analyze_portfolio_allocation`. If the user states their own limits, such as \"no position above 10%\", pass them as `maxSingleWeight` and the other limits.\n2. Call `get_portfolio_dashboard` to see pending orders. Its \"Stop-loss orders\" line says which holdings a pending sell stop covers, how many shares, and how far below the last price it sits. Where the broker values the holding, it also says what reaching the stop would cost from now and the P/L left then, in the account currency (a gap can fill a stop lower). It also names the holdings without one.\n3. For each pending order, call `get_market_hours` when its market is closed or in an extended session. A Market order placed while the market is closed is queued and fills at the next open, possibly at a gap price.\n\nReport:\n- every flag the tool raised, in plain language;\n- the largest holding, the top-5 share and the effective number of holdings;\n- the currency split, noting that FX moves affect returns in the account currency;\n- where its `risk` is: the holdings' volatility together, the diversification ratio, and any holding whose share of the risk is well above its share of the value (it swings more, or moves more with the rest); the most alike pairs from its correlations; from `risk.mix`, what a bad week (one in 20) has cost today's mix, in percent and in the account currency, and its deepest fall over the year, said as history, not a forecast; where rows carry `parity`, the equal-risk weights beside today's and `risk.parityVolatility` beside the volatility now, as one way to spread the risk, not advice; from `risk.market`, the holdings' beta to the benchmark together and the highest betas, and what a 10% fall in the benchmark would take by that beta (the text gives it in the account currency), said as how they moved with it over the year, not a forecast. Name the holdings in `riskMissing` or `short` as not measured;\n- the cash share;\n- pending orders that look stale, are far from the last known price, or will queue at the next open. For one that has partly filled, `get_order_status` gives the quantity filled so far.\n\nIf a large holding has no stop-loss and no price alert, or its stop covers only part of it, suggest one: `manage_price_alerts` with `trailing_drop` for a warning that never trades, or, where order tools are available, `review_protective_orders` for a broker-native stop. When several holdings lack one, `review_portfolio_stops` drafts a stop for each of them in one basket that the user confirms once.\n\nIf the user wants a stale order gone, and order tools are available, follow the order-followup skill: `review_order_cancel` opens the cancellation for the user to confirm, and it never cancels by itself.\n\nDo not compute weights yourself; quote the tool output. Do not prepare orders unless the user asks. Reply in the user's language."
   },
   {
     "name": "tax-year",
@@ -40034,7 +40034,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.60.1"
+  version: "2.61.0"
 };
 
 // src/shared/holding-risk.ts
@@ -40077,7 +40077,7 @@ function jumps(weeks) {
   const closes2 = [...weeks].sort(([a], [b]) => a - b).map(([, week]) => week.close);
   return closes2.some((close, index) => index > 0 && Math.abs(Math.log(close / closes2[index - 1])) > JUMP);
 }
-function holdingRiskOf(inputs, today, totalValue, onCovariance, alongside = []) {
+function holdingRiskOf(inputs, today, totalValue, onCovariance, alongside = [], market) {
   const valued = inputs.filter((input2) => input2.value > 0 && Number.isFinite(input2.value));
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input2) => sum + input2.value, 0));
   const read = valued.map((input2) => ({ ...input2, weeks: weeklyCloses(input2.points, today) }));
@@ -40136,6 +40136,7 @@ function holdingRiskOf(inputs, today, totalValue, onCovariance, alongside = []) 
   const correlation = (i, j2) => i === j2 ? 1 : own2[i] > 0 && own2[j2] > 0 ? round11(Math.max(-1, Math.min(1, covariance[i][j2] / (own2[i] * own2[j2]))), 4) : 0;
   const dateOf = (week) => measured.map((input2) => input2.weeks.get(week).date).sort().at(-1);
   onCovariance?.({ tickers: [...measured.map((input2) => input2.ticker), ...beside.map((input2) => input2.ticker)], matrix: all, ...unmeasured.length ? { unmeasured } : {} });
+  const sensitivity = market && marketOf(measured, weights, common, market, today);
   return {
     from: dateOf(common[0]),
     to: dateOf(common[n]),
@@ -40148,7 +40149,54 @@ function holdingRiskOf(inputs, today, totalValue, onCovariance, alongside = []) 
     ...short.length ? { short } : {},
     ...jumped.length ? { jumps: jumped.map((input2) => input2.ticker) } : {},
     mix: mixOf(measured, weights, common, dateOf, value),
-    ...parity ? { parityVolatility: round11(Math.sqrt(Math.max(0, quadratic(covariance, parity)))) } : {}
+    ...parity ? { parityVolatility: round11(Math.sqrt(Math.max(0, quadratic(covariance, parity)))) } : {},
+    ...sensitivity ? { market: sensitivity } : {}
+  };
+}
+function marketOf(measured, weights, common, market, today) {
+  const closes2 = weeklyCloses(market.points, today);
+  if (jumps(closes2)) return void 0;
+  const weeks = common.filter((week) => closes2.has(week));
+  if (weeks.length - 1 <= MIN_WEEKS) return void 0;
+  const scale = (week, before) => Math.sqrt((week - before) / 7);
+  const logReturns = (at) => weeks.slice(1).map((week, index) => Math.log(at(week) / at(weeks[index])) / scale(week, weeks[index]));
+  const benchmark2 = logReturns((week) => closes2.get(week).close);
+  const holdings = measured.map((input2) => logReturns((week) => input2.weeks.get(week).close));
+  const mix = benchmark2.map((_, k) => holdings.reduce((sum, series, i) => sum + weights[i] * series[k], 0));
+  const n = benchmark2.length;
+  const mean = (values) => values.reduce((sum, value) => sum + value, 0) / n;
+  const covarianceOf = (a, b) => {
+    const ma = mean(a);
+    const mb = mean(b);
+    return a.reduce((sum, value, k) => sum + (value - ma) * (b[k] - mb), 0) / (n - 1);
+  };
+  const variance = covarianceOf(benchmark2, benchmark2);
+  if (!(variance * WEEKS_A_YEAR > FLAT_VARIANCE)) return void 0;
+  const sd = Math.sqrt(variance);
+  const correlationWith = (series) => {
+    const own2 = Math.sqrt(covarianceOf(series, series));
+    return own2 > 0 ? Math.max(-1, Math.min(1, covarianceOf(series, benchmark2) / (own2 * sd))) : 0;
+  };
+  const rows2 = measured.map((input2, i) => ({ ticker: input2.ticker, weight: round11(weights[i]), beta: round11(covarianceOf(holdings[i], benchmark2) / variance, 4), correlation: round11(correlationWith(holdings[i]), 4) })).sort((a, b) => b.beta - a.beta || b.weight - a.weight);
+  let worst;
+  weeks.slice(1).forEach((week, index) => {
+    const before = weeks[index];
+    if (week - before !== 7) return;
+    const move = closes2.get(week).close / closes2.get(before).close - 1;
+    if (worst && move >= worst.market) return;
+    const together = measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(before).close - 1), 0);
+    worst = { date: closes2.get(week).date, market: round11(move), mix: round11(together) };
+  });
+  return {
+    ticker: market.ticker,
+    from: closes2.get(weeks[0]).date,
+    to: closes2.get(weeks.at(-1)).date,
+    weeks: n,
+    volatility: round11(sd * Math.sqrt(WEEKS_A_YEAR)),
+    beta: round11(weights.reduce((sum, weight2, i) => sum + weight2 * covarianceOf(holdings[i], benchmark2) / variance, 0), 4),
+    correlation: round11(correlationWith(mix), 4),
+    rows: rows2,
+    ...worst ? { worstWeek: worst } : {}
   };
 }
 function shrunkCovariance(returns, means) {
@@ -40319,6 +40367,14 @@ function mixOf(measured, weights, common, dateOf, value) {
     counted: weekly.length,
     ...drawdown ? { drawdown } : {}
   };
+}
+var MARKET_FALLS = [-0.05, -0.1, -0.2];
+function marketScenarios(beta, value, accountValue) {
+  return MARKET_FALLS.map((market) => {
+    const move = round11(beta * market);
+    const amount2 = round11(move * value, 2);
+    return { market, move, amount: amount2, ...accountValue && accountValue > 0 ? { account: round11(amount2 / accountValue) } : {} };
+  });
 }
 
 // src/shared/position-history.ts
@@ -40688,8 +40744,23 @@ function holdingRiskLines(data) {
     ...risk.short?.length ? [`Too few weekly closes, or weeks that do not line up with the rest's, to measure: ${risk.short.join(", ")}.`] : [],
     ...risk.jumps?.length ? [`Left out, closes that jump more than fivefold in a week (a change of unit or a split): ${risk.jumps.join(", ")}.`] : [],
     ...risk.mix ? [mixLine(risk.mix, data.accountCurrency)] : [],
+    ...risk.market ? marketLines(risk.market, risk.mix?.value, data) : [],
     ...parityLines(data),
     ...missing
+  ];
+}
+var MAX_BETA_NAMED = 12;
+function marketLines(market, value, data) {
+  const scenarios = value ? marketScenarios(market.beta, value, data.totalValue) : [];
+  const worst = market.worstWeek;
+  return [
+    ...section(
+      `Against the market (${market.ticker}, weekly closes ${market.from} to ${market.to}, ${market.weeks} weeks; its volatility ${pct(market.volatility)} a year): together a beta of ${num2(market.beta, 2)}, correlation ${num2(market.correlation, 2)}`,
+      rows(market.rows.slice(0, MAX_BETA_NAMED), (row) => `${row.ticker}: beta ${num2(row.beta, 2)}, correlation ${num2(row.correlation, 2)}, ${pct(row.weight, 0)} of the value measured`)
+    ),
+    ...market.rows.length > MAX_BETA_NAMED ? [`And ${market.rows.length - MAX_BETA_NAMED} more.`] : [],
+    ...scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} \u2192 ${signedPct(scenario.move)}, about ${money3(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== void 0 ? ` (${signedPct(scenario.account)} of the account, cash not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : [],
+    ...worst ? [`${market.ticker}'s worst week, to ${worst.date}: ${signedPct(worst.market)}; today's mix ${signedPct(worst.mix)} that week.`] : []
   ];
 }
 var MAX_PARITY_NAMED = 12;
@@ -42411,74 +42482,8 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
   };
 }
 
-// src/core/holding-risk.ts
-var DAY_MS13 = 864e5;
-var CONCURRENCY4 = 4;
-var READ_BUDGET_MS4 = 5e3;
-var MIN_DAYS = (MIN_WEEKS + 2) * 7;
-var PROVIDER_MISSES = /* @__PURE__ */ new Set(["provider", "plan"]);
-async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__PURE__ */ new Date()) {
-  const valued = holdings.filter((holding3) => holding3.value > 0).sort((a, b) => b.value - a.value);
-  if (valued.length < 2) return { riskProblem: "Risk by holding needs two holdings or more." };
-  const priceHistory = deps.priceHistory;
-  if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
-  const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
-  const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
-  const from = new Date(Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13);
-  const requestFor = (ticker) => {
-    const position = positions.get(ticker);
-    const instrument = listed.get(ticker) ?? position?.instrument;
-    return instrument && { instrument, from, minDays: MIN_DAYS, ...position?.currentPrice ? { last: position.currentPrice } : deps.quoteOf ? { quote: deps.quoteOf(instrument) } : {} };
-  };
-  const ask = (request) => priceHistory(request).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
-  const later = async (ticker) => ({ reason: "later", problem: `${ticker}'s closes were not read in time; they are read now for the next read.` });
-  const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS4);
-  const started = /* @__PURE__ */ new Set();
-  const readOne = async (ticker) => {
-    if (!listed.has(ticker) && !positions.has(ticker)) return { reason: "data", problem: `Trading 212 does not list ${ticker} at the moment.` };
-    if (Date.now() >= deadline) return later(ticker);
-    const request = requestFor(ticker);
-    started.add(ticker);
-    const result2 = await settleWithin(ask(request), Math.max(0, deadline - Date.now()));
-    if (!result2 || "late" in result2 && result2.late) return later(ticker);
-    return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
-  };
-  const held = /* @__PURE__ */ new Set([...holdings.map((holding3) => holding3.ticker), ...positions.keys()]);
-  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
-  const tickers = [...valued.map((holding3) => holding3.ticker), ...besides];
-  const results = await eachLimited(tickers, CONCURRENCY4, deadline, readOne, later);
-  const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
-  if (unread.length) void eachLimited(unread, CONCURRENCY4, Infinity, ask, ask);
-  const inputs = [];
-  const missing = [];
-  valued.forEach((holding3, index) => {
-    const result2 = results[index];
-    if ("points" in result2) inputs.push({ ticker: holding3.ticker, value: holding3.value, points: result2.points });
-    else missing.push({ ticker: holding3.ticker, reason: result2.reason, problem: result2.problem });
-  });
-  const alongside = [];
-  const unmeasured = [];
-  besides.forEach((ticker, index) => {
-    const result2 = results[valued.length + index];
-    if ("points" in result2) alongside.push({ ticker, points: result2.points });
-    else unmeasured.push({ ticker, reason: result2.reason });
-  });
-  const onCovariance = deps.onCovariance && ((found) => {
-    const left = [...unmeasured, ...found.unmeasured ?? []];
-    deps.onCovariance({ ...found, ...left.length ? { unmeasured: left } : {} });
-  });
-  if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
-    return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0].problem}` };
-  }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding3) => sum + holding3.value, 0), onCovariance, alongside);
-  return {
-    ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} weekly returns are needed), their closes jump as across a change of unit, or they did not move.` },
-    ...missing.length ? { riskMissing: missing } : {}
-  };
-}
-
 // src/core/benchmark.ts
-var DAY_MS14 = 864e5;
+var DAY_MS13 = 864e5;
 var START_SLACK_DAYS = 7;
 var LIST_WAIT_MS3 = 3e3;
 var MAX_OPTIONS = 8;
@@ -42499,7 +42504,7 @@ function benchmarkReturns(series, points3, through) {
     return index >= 0 ? points3[index] : void 0;
   };
   const base = closeOn(first.date);
-  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS14) return void 0;
+  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS13) return void 0;
   const out = series.map((point) => ({ date: point.date, return: round17(closeOn(point.date).close / base.close - 1) }));
   const drawdown = drawdownOf(out);
   const risk = through ? benchmarkRiskOf(series, out, through) : void 0;
@@ -42549,8 +42554,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
   if (none) return { ...offered, benchmarkChoice: "none" };
   if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
-  const yearAgo = Math.floor(now.getTime() / DAY_MS14) * DAY_MS14 - 365 * DAY_MS14;
-  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS14));
+  const yearAgo = Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS13));
   const read = await deps.priceHistory({
     instrument,
     from,
@@ -42575,6 +42580,85 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
       ...read.prices.symbol ? { symbol: read.prices.symbol } : {},
       ...compared
     }
+  };
+}
+
+// src/core/holding-risk.ts
+var DAY_MS14 = 864e5;
+var CONCURRENCY4 = 4;
+var READ_BUDGET_MS4 = 5e3;
+var MIN_DAYS = (MIN_WEEKS + 2) * 7;
+var PROVIDER_MISSES = /* @__PURE__ */ new Set(["provider", "plan"]);
+async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__PURE__ */ new Date()) {
+  const valued = holdings.filter((holding3) => holding3.value > 0).sort((a, b) => b.value - a.value);
+  if (valued.length < 2) return { riskProblem: "Risk by holding needs two holdings or more." };
+  const priceHistory = deps.priceHistory;
+  if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
+  const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
+  const found = deps.benchmark ? benchmarkInstrument(read.instruments, deps.benchmark) : void 0;
+  const market = found && "instrument" in found ? found.instrument : void 0;
+  if (market && !listed.has(market.ticker)) listed.set(market.ticker, market);
+  const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
+  const from = new Date(Math.floor(now.getTime() / DAY_MS14) * DAY_MS14 - 365 * DAY_MS14);
+  const requestFor = (ticker) => {
+    const position = positions.get(ticker);
+    const instrument = listed.get(ticker) ?? position?.instrument;
+    return instrument && { instrument, from, minDays: MIN_DAYS, ...position?.currentPrice ? { last: position.currentPrice } : deps.quoteOf ? { quote: deps.quoteOf(instrument) } : {} };
+  };
+  const ask = (request) => priceHistory(request).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message }));
+  const later = async (ticker) => ({ reason: "later", problem: `${ticker}'s closes were not read in time; they are read now for the next read.` });
+  const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS4);
+  const started = /* @__PURE__ */ new Set();
+  const readOne = async (ticker) => {
+    if (!listed.has(ticker) && !positions.has(ticker)) return { reason: "data", problem: `Trading 212 does not list ${ticker} at the moment.` };
+    if (Date.now() >= deadline) return later(ticker);
+    const request = requestFor(ticker);
+    started.add(ticker);
+    const result2 = await settleWithin(ask(request), Math.max(0, deadline - Date.now()));
+    if (!result2 || "late" in result2 && result2.late) return later(ticker);
+    return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
+  };
+  const held = /* @__PURE__ */ new Set([...holdings.map((holding3) => holding3.ticker), ...positions.keys()]);
+  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
+  const marketRead = market && !valued.some((holding3) => holding3.ticker === market.ticker) ? [market.ticker] : [];
+  const tickers = [...valued.map((holding3) => holding3.ticker), ...marketRead, ...besides];
+  const results = await eachLimited(tickers, CONCURRENCY4, deadline, readOne, later);
+  const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
+  if (unread.length) void eachLimited(unread, CONCURRENCY4, Infinity, ask, ask);
+  const inputs = [];
+  const missing = [];
+  valued.forEach((holding3, index) => {
+    const result2 = results[index];
+    if ("points" in result2) inputs.push({ ticker: holding3.ticker, value: holding3.value, points: result2.points });
+    else missing.push({ ticker: holding3.ticker, reason: result2.reason, problem: result2.problem });
+  });
+  const alongside = [];
+  const unmeasured = [];
+  const marketResult = marketRead.length ? results[valued.length] : void 0;
+  const marketPoints = market && (marketResult ? "points" in marketResult ? marketResult.points : void 0 : inputs.find((input2) => input2.ticker === market.ticker)?.points);
+  besides.forEach((ticker, index) => {
+    const result2 = results[valued.length + marketRead.length + index];
+    if ("points" in result2) alongside.push({ ticker, points: result2.points });
+    else unmeasured.push({ ticker, reason: result2.reason });
+  });
+  const onCovariance = deps.onCovariance && ((found2) => {
+    const left = [...unmeasured, ...found2.unmeasured ?? []];
+    deps.onCovariance({ ...found2, ...left.length ? { unmeasured: left } : {} });
+  });
+  if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
+    return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0].problem}` };
+  }
+  const risk = holdingRiskOf(
+    inputs,
+    now.toISOString().slice(0, 10),
+    valued.reduce((sum, holding3) => sum + holding3.value, 0),
+    onCovariance,
+    alongside,
+    market && marketPoints ? { ticker: market.ticker, points: marketPoints } : void 0
+  );
+  return {
+    ...risk ? { risk } : { riskProblem: inputs.length < 2 ? "Fewer than two holdings have daily closes to measure." : `The holdings have too few weeks of closes in common (more than ${MIN_WEEKS} weekly returns are needed), their closes jump as across a change of unit, or they did not move.` },
+    ...missing.length ? { riskMissing: missing } : {}
   };
 }
 
@@ -42710,7 +42794,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     });
     const holdings = only ? analysis.holdings.filter((holding3) => only.has(holding3.ticker)) : analysis.holdings;
     const quoteOf = config3.sampleData ? (instrument) => trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) : void 0;
-    const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {} };
+    const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {}, ...config3.benchmark ? { benchmark: config3.benchmark } : {} };
     const risk = read ? await readHoldingRisk(deps, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
     return { ...analysis, ...risk, fxFeeRate: config3.fxFeeRate };
   };
@@ -42806,7 +42890,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "analyze_portfolio_allocation",
     {
       title: "Portfolio Allocation Analysis",
-      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, drift.rebalance: what a rebalance to them would buy and sell (by weight, in the account currency, the buys fitted to the cash above the cash target and what the sells raise, with buysScaled the share paid for when that falls short) and the currency conversion fee on the part in other currencies (FX_FEE_RATE, 0.15% by default; at most that, as a trade paid from a balance in the instrument's currency converts nothing), drift.rebalanceOver: the same for only the targets more than the drift threshold off their weight (plan_portfolio_rebalance with band set to drift.threshold), when that trades fewer, and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
+      description: "Compute exact portfolio weights, cash share, currency and asset-type exposure, concentration (largest holding, top 5, Herfindahl, effective number of holdings) and rule-based flags. When target weights are saved (manage_target_allocation), also how far each holding and cash is from its target, drift.rebalance: what a rebalance to them would buy and sell (by weight, in the account currency, the buys fitted to the cash above the cash target and what the sells raise, with buysScaled the share paid for when that falls short) and the currency conversion fee on the part in other currencies (FX_FEE_RATE, 0.15% by default; at most that, as a trade paid from a balance in the instrument's currency converts nothing), drift.rebalanceOver: the same for only the targets more than the drift threshold off their weight (plan_portfolio_rebalance with band set to drift.threshold), when that trades fewer, and with risk by holding drift.volatility: the holdings and targets measured, together, today and at the targets (a target not held is measured from its own closes over the same weeks, else named in leftOut), and the whole account's (cash counted as not moving) when every holding and target with a weight is measured and the targets, the holdings kept beside them and the cash target come to no more than the account. With a quote provider, also risk by holding (risk): from a year of weekly closes, each in its instrument's own currency, the holdings' volatility together, each holding's share of it beside its share of value (a holding can bring far more of the swings than of the value), its own volatility and correlation with the rest, a diversification ratio, and the correlations between the ten largest; and risk.mix, what today's holdings at today's weights (kept each week) did over those weeks: the return, a bad week one in 20 (the 5% worst weekly return, a 95% value at risk, with the average of those weeks), the worst and best weeks, and the deepest fall; and each row's parity, its equal-risk weight (each holding measured bringing the same share of their risk), with risk.parityVolatility, their volatility at those weights; the text gives the plan_portfolio_rebalance targets that move to them. With a benchmark (BENCHMARK, the S&P 500 through SPY by default), risk.market gives how the holdings measured move with it over the weeks it has closes too: each one's beta and correlation to it, their beta together (their weights times their betas) and correlation, its volatility, and its worst week with what today's mix did that week; the text turns the beta into what a 5%, 10% and 20% fall in it would take, by the beta alone, not a forecast. Holdings whose closes could not be read are in riskMissing. Use this instead of estimating weights or risk yourself. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         maxSingleWeight: external_exports.number().gt(0).max(1).optional().describe("Flag a single holding above this share of invested value. Default 0.2."),
@@ -42824,7 +42908,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           covariance = found;
         }, alongside: await targetTickers(environment) });
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config3), writeEnabled: canWrite };
-        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points${driftTradeText(data.drift)}` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}` : ""}.`);
+        return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points${driftTradeText(data.drift)}` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}${data.risk.market ? `, a beta of ${data.risk.market.beta.toFixed(2)} to ${data.risk.market.ticker}` : ""}` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

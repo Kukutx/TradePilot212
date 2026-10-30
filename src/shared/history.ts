@@ -203,6 +203,32 @@ export interface HoldingRisk {
   mix?: HoldingMix;
   /** The volatility a year of the holdings measured at their equal-risk weights; present with each row's `parity`. */
   parityVolatility?: number;
+  /** How the holdings measured move with the benchmark (BENCHMARK): from 2.61, absent without one or its closes. */
+  market?: MarketSensitivity;
+}
+
+/**
+ * How the holdings measured move with the market: each one's beta to the benchmark, from the weekly log returns of the
+ * weeks the holdings and the benchmark all have a close in, each in its own currency. A beta of 1 moves as the market
+ * does; 1.5 moves half as much again; 0 does not follow it.
+ */
+export interface MarketSensitivity {
+  /** The benchmark's ticker. */
+  ticker: string;
+  from: string;
+  to: string;
+  /** Weekly returns read. */
+  weeks: number;
+  /** The benchmark's own volatility a year over those weeks. */
+  volatility: number;
+  /** The holdings measured together, at today's weights: their weights times their betas. */
+  beta: number;
+  /** The correlation of the holdings together with the benchmark. */
+  correlation: number;
+  /** Each holding measured, largest beta first. */
+  rows: Array<{ ticker: string; weight: number; beta: number; correlation: number }>;
+  /** The benchmark's worst single week, dated by its last close, and what the holdings together did that week. */
+  worstWeek?: { date: string; market: number; mix: number };
 }
 
 /**

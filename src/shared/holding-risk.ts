@@ -4,7 +4,7 @@
 // currency, so currency moves are not in them.
 
 import { drawdownOf } from "./drawdown.js";
-import type { AllocationAnalysis, HoldingCovariance, HoldingMix, HoldingRisk, HoldingRiskRow, ReturnPoint, TargetVolatility } from "./history.js";
+import type { AllocationAnalysis, HoldingCovariance, HoldingMix, HoldingRisk, HoldingRiskRow, MarketSensitivity, ReturnPoint, TargetVolatility } from "./history.js";
 import type { PricePoint } from "./prices.js";
 
 /** No more weekly returns than this, together, say too little to read a volatility or a correlation from. */
@@ -93,10 +93,10 @@ function jumps(weeks: WeeklyInput["weeks"]): boolean {
  * which is not in the result: it is long, and the volatility at any weights is worked out from it (riskAtWeights).
  * `alongside` are instruments not held, for targets that would buy them: they are in the covariance, after the
  * holdings, when they have a close in each of the holdings' weeks and their closes do not jump, and are named in its
- * `unmeasured` otherwise; they change nothing in the result.
+ * `unmeasured` otherwise; they change nothing in the result. `market` is the benchmark, which gives `market` (marketOf).
  */
 export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalValue?: number, onCovariance?: (covariance: HoldingCovariance) => void,
-  alongside: ReadonlyArray<Pick<HoldingRiskInput, "ticker" | "points">> = []): (HoldingRisk & { mix: HoldingMix }) | undefined {
+  alongside: ReadonlyArray<Pick<HoldingRiskInput, "ticker" | "points">> = [], market?: Pick<HoldingRiskInput, "ticker" | "points">): (HoldingRisk & { mix: HoldingMix }) | undefined {
   const valued = inputs.filter((input) => input.value > 0 && Number.isFinite(input.value));
   // The holdings' value, those without closes included, for the share measured.
   const total = Math.max(totalValue ?? 0, valued.reduce((sum, input) => sum + input.value, 0));
@@ -165,6 +165,7 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
   // A week is dated by the latest of the holdings' last closes in it.
   const dateOf = (week: number) => measured.map((input) => input.weeks.get(week)!.date).sort().at(-1)!;
   onCovariance?.({ tickers: [...measured.map((input) => input.ticker), ...beside.map((input) => input.ticker)], matrix: all, ...(unmeasured.length ? { unmeasured } : {}) });
+  const sensitivity = market && marketOf(measured, weights, common, market, today);
   return {
     from: dateOf(common[0]!),
     to: dateOf(common[n]!),
@@ -178,6 +179,56 @@ export function holdingRiskOf(inputs: HoldingRiskInput[], today: string, totalVa
     ...(jumped.length ? { jumps: jumped.map((input) => input.ticker) } : {}),
     mix: mixOf(measured, weights, common, dateOf, value),
     ...(parity ? { parityVolatility: round(Math.sqrt(Math.max(0, quadratic(covariance, parity)))) } : {}),
+    ...(sensitivity ? { market: sensitivity } : {}),
+  };
+}
+
+/**
+ * Each holding measured against the benchmark: over the holdings' weeks that the benchmark has a close in too, its
+ * beta (its covariance with the benchmark over the benchmark's variance) and correlation, from weekly log returns, a
+ * gap of whole weeks scaled as in holdingRiskOf; the holdings together are their weights times their betas. Undefined
+ * when the benchmark's closes jump, it does not move, or no more than MIN_WEEKS returns are left.
+ */
+function marketOf(measured: WeeklyInput[], weights: number[], common: number[], market: Pick<HoldingRiskInput, "ticker" | "points">, today: string): MarketSensitivity | undefined {
+  const closes = weeklyCloses(market.points, today);
+  if (jumps(closes)) return undefined;
+  const weeks = common.filter((week) => closes.has(week));
+  if (weeks.length - 1 <= MIN_WEEKS) return undefined;
+  const scale = (week: number, before: number) => Math.sqrt((week - before) / 7);
+  const logReturns = (at: (week: number) => number) => weeks.slice(1).map((week, index) => Math.log(at(week) / at(weeks[index]!)) / scale(week, weeks[index]!));
+  const benchmark = logReturns((week) => closes.get(week)!.close);
+  const holdings = measured.map((input) => logReturns((week) => input.weeks.get(week)!.close));
+  // The holdings together: their weights' log returns, as their covariance is read.
+  const mix = benchmark.map((_, k) => holdings.reduce((sum, series, i) => sum + weights[i]! * series[k]!, 0));
+  const n = benchmark.length;
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / n;
+  const covarianceOf = (a: number[], b: number[]) => { const ma = mean(a); const mb = mean(b); return a.reduce((sum, value, k) => sum + (value - ma) * (b[k]! - mb), 0) / (n - 1); };
+  const variance = covarianceOf(benchmark, benchmark);
+  if (!(variance * WEEKS_A_YEAR > FLAT_VARIANCE)) return undefined;
+  const sd = Math.sqrt(variance);
+  const correlationWith = (series: number[]) => { const own = Math.sqrt(covarianceOf(series, series)); return own > 0 ? Math.max(-1, Math.min(1, covarianceOf(series, benchmark) / (own * sd))) : 0; };
+  const rows = measured.map((input, i) => ({ ticker: input.ticker, weight: round(weights[i]!), beta: round(covarianceOf(holdings[i]!, benchmark) / variance, 4), correlation: round(correlationWith(holdings[i]!), 4) }))
+    .sort((a, b) => b.beta - a.beta || b.weight - a.weight);
+  // The benchmark's worst single week, and the holdings' simple return, at today's weights, that week.
+  let worst: MarketSensitivity["worstWeek"];
+  weeks.slice(1).forEach((week, index) => {
+    const before = weeks[index]!;
+    if (week - before !== 7) return;
+    const move = closes.get(week)!.close / closes.get(before)!.close - 1;
+    if (worst && move >= worst.market) return;
+    const together = measured.reduce((sum, input, i) => sum + weights[i]! * (input.weeks.get(week)!.close / input.weeks.get(before)!.close - 1), 0);
+    worst = { date: closes.get(week)!.date, market: round(move), mix: round(together) };
+  });
+  return {
+    ticker: market.ticker,
+    from: closes.get(weeks[0]!)!.date,
+    to: closes.get(weeks.at(-1)!)!.date,
+    weeks: n,
+    volatility: round(sd * Math.sqrt(WEEKS_A_YEAR)),
+    beta: round(weights.reduce((sum, weight, i) => sum + weight * covarianceOf(holdings[i]!, benchmark) / variance, 0), 4),
+    correlation: round(correlationWith(mix), 4),
+    rows,
+    ...(worst ? { worstWeek: worst } : {}),
   };
 }
 
@@ -451,4 +502,31 @@ function mixOf(measured: WeeklyInput[], weights: number[], common: number[], dat
     counted: weekly.length,
     ...(drawdown ? { drawdown } : {}),
   };
+}
+
+/** The market falls the holdings' betas are read against: 5%, 10% and 20%. */
+export const MARKET_FALLS = [-0.05, -0.1, -0.2] as const;
+
+/** What a fall in the benchmark would take, by the holdings' betas: as a share of them, in money, and of the account. */
+export interface MarketScenario {
+  /** The benchmark's move. */
+  market: number;
+  /** The holdings measured, at their beta: beta times the move. */
+  move: number;
+  /** That of the value of the holdings measured, in the account currency. */
+  amount: number;
+  /** That of the account's value, cash counted as not moving; absent without it. */
+  account?: number;
+}
+
+/**
+ * The holdings measured in each of MARKET_FALLS, by their beta alone: what moves with the market, not what each does
+ * on its own (a beta is an average over the weeks read, not a forecast). `value` is the holdings measured's value now.
+ */
+export function marketScenarios(beta: number, value: number, accountValue?: number): MarketScenario[] {
+  return MARKET_FALLS.map((market) => {
+    const move = round(beta * market);
+    const amount = round(move * value, 2);
+    return { market, move, amount, ...(accountValue && accountValue > 0 ? { account: round(amount / accountValue) } : {}) };
+  });
 }

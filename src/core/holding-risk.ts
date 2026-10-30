@@ -6,6 +6,7 @@
 import type { Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AllocationAnalysis, HoldingCovariance, HoldingWeight } from "../shared/history.js";
 import { holdingRiskOf, MIN_WEEKS, type HoldingRiskInput } from "../shared/holding-risk.js";
+import { benchmarkInstrument } from "./benchmark.js";
 import { asStructuredError } from "./errors.js";
 import { eachLimited, settleWithin, type PriceHistoryRequest, type PriceHistoryResult } from "./price-history.js";
 
@@ -32,6 +33,8 @@ export interface HoldingRiskDeps {
   alongside?: readonly string[];
   /** The quote provider's price of an instrument not held, where the sample account's path of closes ends. */
   quoteOf?: (instrument: Instrument) => Promise<number | undefined>;
+  /** The benchmark (BENCHMARK) to read each holding's beta against: read after the holdings, within the same wait. */
+  benchmark?: string;
 }
 
 type Missing = NonNullable<AllocationAnalysis["riskMissing"]>[number];
@@ -45,6 +48,10 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   const priceHistory = deps.priceHistory;
   if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
   const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
+  // The benchmark, a US fund Trading 212 does not list included (its closes come from the quote provider alone).
+  const found = deps.benchmark ? benchmarkInstrument(read.instruments, deps.benchmark) : undefined;
+  const market = found && "instrument" in found ? found.instrument : undefined;
+  if (market && !listed.has(market.ticker)) listed.set(market.ticker, market);
   const positions = new Map(read.positions.flatMap((position) => (position.instrument?.ticker ? [[position.instrument.ticker, position] as const] : [])));
   // A year back from the start of today (UTC), as the holding page and the gains ask: one cached read.
   const from = new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS);
@@ -72,7 +79,9 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   // Instruments not held, for the covariance alone: after the holdings, which the risk on screen needs first.
   const held = new Set([...holdings.map((holding) => holding.ticker), ...positions.keys()]);
   const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
-  const tickers = [...valued.map((holding) => holding.ticker), ...besides];
+  // The benchmark after the holdings, unless it is one of them; before the instruments for the covariance alone.
+  const marketRead = market && !valued.some((holding) => holding.ticker === market.ticker) ? [market.ticker] : [];
+  const tickers = [...valued.map((holding) => holding.ticker), ...marketRead, ...besides];
   const results = await eachLimited(tickers, CONCURRENCY, deadline, readOne, later);
   // The instruments not reached are read now, a few at a time, without waiting: the next read finds them cached.
   const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
@@ -86,8 +95,10 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   });
   const alongside: Array<Pick<HoldingRiskInput, "ticker" | "points">> = [];
   const unmeasured: NonNullable<HoldingCovariance["unmeasured"]> = [];
+  const marketResult = marketRead.length ? results[valued.length] : undefined;
+  const marketPoints = market && (marketResult ? ("points" in marketResult ? marketResult.points : undefined) : inputs.find((input) => input.ticker === market.ticker)?.points);
   besides.forEach((ticker, index) => {
-    const result = results[valued.length + index]!;
+    const result = results[valued.length + marketRead.length + index]!;
     if ("points" in result) alongside.push({ ticker, points: result.points });
     else unmeasured.push({ ticker, reason: result.reason });
   });
@@ -100,7 +111,8 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   if (!inputs.length && missing.length && missing.every((item) => PROVIDER_MISSES.has(item.reason))) {
     return { riskProblem: `It needs a year of daily closes from the quote provider. ${missing[0]!.problem}` };
   }
-  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0), onCovariance, alongside);
+  const risk = holdingRiskOf(inputs, now.toISOString().slice(0, 10), valued.reduce((sum, holding) => sum + holding.value, 0), onCovariance, alongside,
+    market && marketPoints ? { ticker: market.ticker, points: marketPoints } : undefined);
   return {
     ...(risk ? { risk } : { riskProblem: inputs.length < 2
       ? "Fewer than two holdings have daily closes to measure."
