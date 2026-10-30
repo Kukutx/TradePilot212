@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
-import { HistoryLedgers } from "./history-ledger.js";
+import { HistoryLedgers, MAX_CHUNKS } from "./history-ledger.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const config = {
@@ -215,7 +215,6 @@ describe("history ledger", () => {
     const whole = await read();
     expect(whole.items).toHaveLength(230);
     expect(whole.truncated).toBe(false);
-    expect(whole.kept).toBe(230);
     expect(new Set(whole.items.map((item) => item.reference)).size).toBe(230);
     // Whole: one page, the newest, is all a read asks for now.
     const before = calls.length;
@@ -233,41 +232,97 @@ describe("history ledger", () => {
     expect(updated.items.map((item) => item.reference).slice(0, 4)).toEqual(["t63", "t62", "t61", "t60"]);
     expect(updated.items).toHaveLength(63);
     expect(updated.truncated).toBe(false);
-    // 120 new ones and a budget of two pages: the hole between them and what was kept is never filled in.
+    // 120 new ones and a budget of two pages: whether records were missed between them and what is kept is not
+    // known, so nothing is added, and both are returned as cut short; a read that reaches far enough adds them.
     add(120);
-    const reset = await read(2);
-    expect(reset.items).toHaveLength(100);
-    expect(reset.truncated).toBe(true);
-    expect(reset.items[0]!.reference).toBe("t183");
+    const short = await read(2);
+    expect(short.items).toHaveLength(163);
+    expect(short.truncated).toBe(true);
+    expect(short.items[0]!.reference).toBe("t183");
+    const reached = await read(5);
+    expect(reached.items).toHaveLength(183);
+    expect(reached.truncated).toBe(false);
   });
 
   it("returns the window's records, and reads no further back than its start", async () => {
     const { fetcher, calls } = broker(400);
     const { service } = withLedger(fetcher);
-    const result = await service.collect("demo", "transactions", { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-10-02T00:00:00Z") }, 10);
-    expect(result.items).toHaveLength(31);
+    const result = await service.collect("demo", "transactions", { from: new Date("2026-06-01T00:00:00Z"), to: new Date("2026-10-02T00:00:00Z") }, 10);
+    expect(result.items).toHaveLength(123);
     expect(result.truncated).toBe(false);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(3);
   });
 
-  it("keeps the records in chunks, writes only the ones that changed, and starts again over a chunk gone missing", async () => {
+  it("adds each read's new records as a chunk of its own, merges them past a number, and loses nothing to two writers at once", async () => {
     const { fetcher, add } = broker(450);
     const { store } = withLedger(fetcher);
     const read = () => withLedger(fetcher, store).service.collect("demo", "transactions", all, 10);
     await read();
-    const chunks = await store.list<unknown[]>("ledger:demo:");
-    expect(chunks.map((chunk) => chunk.key.replace(/^ledger:demo:[0-9a-f]+:/, ""))).toEqual(["transactions:c:00000", "transactions:c:00001", "transactions:meta"]);
+    const short = (key: string) => key.replace(/^ledger:demo:[0-9a-f]+:transactions:/, "").replace(/^c:.*/, "c");
+    expect((await store.list<unknown[]>("ledger:demo:")).map((entry) => short(entry.key))).toEqual(["c", "meta"]);
     // The account is named by a digest, never by its key.
-    expect(chunks.some((chunk) => chunk.key.includes("key"))).toBe(false);
+    expect((await store.list("ledger:")).some((entry) => entry.key.includes("key"))).toBe(false);
     const writes: string[] = [];
     const put = store.put.bind(store);
-    store.put = async (key, value, expiresAt) => { writes.push(key.replace(/^ledger:demo:[0-9a-f]+:/, "")); return put(key, value, expiresAt); };
+    store.put = async (key, value, expiresAt) => { writes.push(short(key)); return put(key, value, expiresAt); };
     add(1);
     expect((await read()).items).toHaveLength(451);
-    expect(writes).toEqual(["transactions:c:00001", "transactions:meta"]);
-    await store.delete(chunks[1]!.key);
-    const again = await read();
-    expect(again.items).toHaveLength(451);
+    expect(writes).toEqual(["c", "meta"]);
+    // Two processes reading at once, each adding what it found new: the union keeps both.
+    add(2);
+    const [a, b] = await Promise.all([read(), read()]);
+    expect(a.items).toHaveLength(453);
+    expect(b.items).toHaveLength(453);
+    expect((await read()).items).toHaveLength(453);
+    // Many chunks are merged into one.
+    for (let index = 0; index < MAX_CHUNKS; index += 1) { add(1); await read(); }
+    const chunks = (await store.list("ledger:demo:")).filter((entry) => short(entry.key) === "c");
+    expect(chunks.length).toBeLessThan(MAX_CHUNKS);
+    expect((await read()).items).toHaveLength(453 + MAX_CHUNKS);
+  });
+
+  it("picks up an order made before the newest kept that filled since, by reading down to the oldest one open", async () => {
+    const day = 86_400_000;
+    const at = (days: number) => new Date(Date.parse("2026-10-01T00:00:00Z") - days * day).toISOString();
+    // A limit order made 40 days ago, open until it fills; the others filled the day they were made.
+    let open = true;
+    const filled = (id: number, days: number) => ({ order: { id, ticker: "X", createdAt: at(days) }, fill: { id: id * 10, filledAt: at(days) } });
+    const others = Array.from({ length: 120 }, (_, index) => filled(1000 - index, index));
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/equity/orders")) return Response.json(open ? [{ id: 7, ticker: "X", createdAt: at(40) }] : []);
+      // Trading 212 places an order by when it was made.
+      const items = [...others, ...(open ? [] : [{ order: { id: 7, ticker: "X", createdAt: at(40) }, fill: { id: 70, filledAt: at(0) } }])]
+        .sort((a, b) => Date.parse(b.order.createdAt) - Date.parse(a.order.createdAt));
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      return Response.json({ items: items.slice(offset, offset + 50), nextPagePath: offset + 50 < items.length ? `/api/v0/equity/history/orders?limit=50&cursor=${offset + 50}` : null });
+    }) as typeof fetch;
+    const store = new MemoryStateStore();
+    const read = () => withLedger(fetcher, store).service.collect("demo", "orders", all, 5);
+    expect((await read()).items).toHaveLength(120);
+    open = false;
+    const after = await read();
+    expect(after.items).toHaveLength(121);
+    expect(after.items.some((item) => item.order?.id === 7)).toBe(true);
+  });
+
+  it("starts the ledger again when Trading 212 refuses the way back, rather than fail every read", async () => {
+    const { fetcher: base } = broker(200);
+    let refuse = false;
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (refuse && String(input).includes("cursor=")) return new Response(JSON.stringify({ code: "BadCursor" }), { status: 400 });
+      return base(input, init);
+    }) as typeof fetch;
+    const { store } = withLedger(fetcher);
+    const read = () => withLedger(fetcher, store).service.collect("demo", "transactions", all, 2);
+    await read();
+    refuse = true;
+    const refused = await read();
+    expect(refused.truncated).toBe(true);
+    expect(refused.items).toHaveLength(100);
+    expect(await store.get(`${(await store.list("ledger:"))[0]?.key ?? "none"}`)).toBeUndefined();
+    refuse = false;
+    expect((await read()).items).toHaveLength(100);
   });
 
   it("reads one instrument's from Trading 212's own filter until the ledger reaches back far enough", async () => {

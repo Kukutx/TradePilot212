@@ -4280,8 +4280,8 @@ var $ZodXor = /* @__PURE__ */ $constructor("$ZodXor", (inst, def) => {
     });
   };
 });
-function getDiscriminatedOption(union2, value) {
-  const internals = union2._zod;
+function getDiscriminatedOption(union4, value) {
+  const internals = union4._zod;
   let map2 = internals.bag.optionsMap;
   if (!map2) {
     map2 = discriminatorMap(internals.def);
@@ -16323,12 +16323,12 @@ function foldIntersection(json3) {
   if (!unions.length) {
     folded = foldObjects(allOf);
   } else {
-    const union2 = unions[0];
-    const keyword = UNION_KEYS.find((k) => Array.isArray(union2[k]));
-    if (Object.keys(union2).length !== 1)
+    const union4 = unions[0];
+    const keyword = UNION_KEYS.find((k) => Array.isArray(union4[k]));
+    if (Object.keys(union4).length !== 1)
       return;
-    const rest = allOf.filter((m) => m !== union2);
-    const branches = union2[keyword].map((branch) => foldObjects([...rest, branch]));
+    const rest = allOf.filter((m) => m !== union4);
+    const branches = union4[keyword].map((branch) => foldObjects([...rest, branch]));
     if (branches.some((b) => !b))
       return;
     folded = { [keyword]: branches };
@@ -36773,16 +36773,16 @@ var TradingService = class {
         const draft = { ...raw, ticker: instrument.ticker };
         const held = this.positionFor(snapshot.positions, instrument.ticker);
         const alreadySold = request.independentSells ? 0 : sold.get(instrument.ticker) ?? 0;
-        const earlier = bought.get(instrument.ticker);
-        const base = held ?? (earlier ? { instrument, quantity: 0, quantityAvailableForTrading: 0, quantityInPies: 0, averagePricePaid: 0, currentPrice: 0 } : void 0);
-        const position = base ? { ...base, quantity: base.quantity + (earlier?.quantity ?? 0), quantityAvailableForTrading: base.quantityAvailableForTrading - alreadySold } : void 0;
+        const earlier2 = bought.get(instrument.ticker);
+        const base = held ?? (earlier2 ? { instrument, quantity: 0, quantityAvailableForTrading: 0, quantityInPies: 0, averagePricePaid: 0, currentPrice: 0 } : void 0);
+        const position = base ? { ...base, quantity: base.quantity + (earlier2?.quantity ?? 0), quantityAvailableForTrading: base.quantityAvailableForTrading - alreadySold } : void 0;
         const cash = snapshot.account.cash?.availableToTrade;
         const account = cash === void 0 ? snapshot.account : { ...snapshot.account, cash: { ...snapshot.account.cash, availableToTrade: cash + cashDelta } };
         const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates);
         const market = markets.get(instrument.ticker);
-        const policy2 = this.policyFor(draft, instrument, held, snapshot.account, checked.accountNotional, market, usage, earlier?.value);
+        const policy2 = this.policyFor(draft, instrument, held, snapshot.account, checked.accountNotional, market, usage, earlier2?.value);
         if (draft.side === "sell") sold.set(instrument.ticker, alreadySold + draft.quantity);
-        else bought.set(instrument.ticker, { quantity: (earlier?.quantity ?? 0) + draft.quantity, value: (earlier?.value ?? 0) + (checked.accountNotional ?? 0) });
+        else bought.set(instrument.ticker, { quantity: (earlier2?.quantity ?? 0) + draft.quantity, value: (earlier2?.value ?? 0) + (checked.accountNotional ?? 0) });
         if (checked.accountNotional !== void 0) cashDelta += draft.side === "sell" ? checked.accountNotional : -checked.accountNotional;
         usage = addUsage(usage, checked.accountNotional);
         return { draft, instrument, position: held, checked, market, policy: policy2 };
@@ -38016,13 +38016,12 @@ function summarizeTaxYear(input2) {
 }
 
 // src/core/history-ledger.ts
-var CHUNK = 400;
-var MAX_RECORDS = 4e4;
+var MAX_RECORDS = 1e4;
+var MAX_CHUNKS = 24;
 function recordKey(kind, item) {
   if (kind === "orders") {
     const { order, fill } = item;
-    const fillId = fill?.id;
-    if (fillId !== void 0 || order?.id !== void 0) return `o:${String(order?.id ?? "")}:f:${String(fillId ?? "")}:${fill?.filledAt ?? ""}`;
+    if (fill?.id !== void 0 || order?.id !== void 0) return `o:${String(order?.id ?? "")}:f:${String(fill?.id ?? "")}:${fill?.filledAt ?? ""}`;
   } else {
     const reference = item.reference;
     if (reference) return `r:${reference}`;
@@ -38034,13 +38033,13 @@ async function accountName(apiKey) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`tradepilot-ledger:${apiKey}`));
   return [...new Uint8Array(digest).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-var chunkKey = (prefix, index) => `${prefix}c:${String(index).padStart(5, "0")}`;
+var chunkKey = (prefix) => `${prefix}c:${Date.now().toString(36).padStart(9, "0")}-${crypto.randomUUID().slice(0, 8)}`;
 var HistoryLedgers = class {
   constructor(store2) {
     this.store = store2;
   }
   store;
-  /** One read or save of a ledger at a time in this process: two at once would read the same pages twice. */
+  /** One read of a ledger at a time in this process: two at once would read the same pages twice. */
   queues = /* @__PURE__ */ new Map();
   /** Runs `work` after any other work on this ledger in this process. */
   exclusive(prefix, work) {
@@ -38056,54 +38055,62 @@ var HistoryLedgers = class {
   /** What is kept, without the records. */
   async meta(prefix) {
     const meta3 = await this.store.get(`${prefix}meta`);
-    return meta3?.version === 1 ? meta3 : void 0;
+    return meta3?.version === 2 ? meta3 : void 0;
   }
-  async load(prefix) {
-    const meta3 = await this.store.get(`${prefix}meta`);
-    if (!meta3 || meta3.version !== 1) return void 0;
-    const chunks = (await this.store.list(`${prefix}c:`)).sort((a, b) => a.key.localeCompare(b.key));
-    if (chunks.length !== meta3.chunks) return void 0;
-    const oldestFirst = [];
-    const stored = /* @__PURE__ */ new Map();
-    for (const chunk of chunks) {
-      stored.set(chunk.key, JSON.stringify(chunk.value));
-      oldestFirst.push(...chunk.value);
-    }
-    if (oldestFirst.length !== meta3.count) return void 0;
-    return { meta: meta3, items: oldestFirst.reverse(), stored };
+  /** The records kept, each once, newest first by `time` (those without one last). */
+  async load(prefix, kind, time3) {
+    const meta3 = await this.meta(prefix);
+    if (!meta3) return void 0;
+    const chunks = await this.store.list(`${prefix}c:`);
+    return { meta: meta3, items: union2(kind, chunks.flatMap((chunk) => chunk.value), time3), chunks: chunks.map((chunk) => chunk.key) };
   }
-  async save(prefix, ledger) {
-    const items = ledger.items.slice(0, MAX_RECORDS);
-    const capped = items.length < ledger.items.length;
-    const oldestFirst = [...items].reverse();
-    const chunks = Math.ceil(oldestFirst.length / CHUNK);
-    for (let index = 0; index < chunks; index += 1) {
-      const key = chunkKey(prefix, index);
-      const json3 = JSON.stringify(oldestFirst.slice(index * CHUNK, (index + 1) * CHUNK));
-      if (ledger.stored?.get(key) === json3) continue;
-      await this.store.put(key, JSON.parse(json3));
+  /**
+   * Adds `added` to what `ledger` was loaded with, and sets the meta. Past MAX_CHUNKS the chunks loaded are merged
+   * into one (written before they are deleted); past MAX_RECORDS the oldest go, and with them the way further back.
+   * Returns the records now kept.
+   */
+  async add(prefix, kind, ledger, added, meta3, time3) {
+    const all = union2(kind, [...added, ...ledger?.items ?? []], time3);
+    const capped = all.length > MAX_RECORDS;
+    const kept = capped ? all.slice(0, MAX_RECORDS) : all;
+    const chunks = ledger?.chunks ?? [];
+    if (capped || chunks.length + 1 > MAX_CHUNKS) {
+      if (kept.length) await this.store.put(chunkKey(prefix), kept);
+      for (const key of chunks) await this.store.delete(key);
+    } else if (added.length) {
+      await this.store.put(chunkKey(prefix), added);
     }
-    const before = await this.store.list(`${prefix}c:`);
-    for (const { key } of before) {
-      if (chunks === 0 || key > chunkKey(prefix, chunks - 1)) await this.store.delete(key);
-    }
-    const meta3 = {
-      version: 1,
-      count: items.length,
-      chunks,
+    const oldest = kept.map(time3).filter(Number.isFinite).at(-1);
+    await this.store.put(`${prefix}meta`, {
+      version: 2,
       // Capped: the oldest records went, so the page after them would leave a hole; it is read no further.
-      next: capped ? null : ledger.meta.next,
-      complete: capped ? false : ledger.meta.complete,
-      ...ledger.meta.oldestAt ? { oldestAt: ledger.meta.oldestAt } : {},
+      next: capped ? null : meta3.next,
+      complete: capped ? false : meta3.complete,
+      ...meta3.horizon ? { horizon: meta3.horizon } : {},
+      ...oldest !== void 0 ? { oldestAt: new Date(oldest).toISOString() } : {},
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    await this.store.put(`${prefix}meta`, meta3);
+    });
+    return kept;
   }
   /** Forgets an account's ledger of one kind. */
   async clear(prefix) {
     for (const { key } of await this.store.list(prefix)) await this.store.delete(key);
   }
 };
+function union2(kind, items, time3) {
+  const seen = /* @__PURE__ */ new Set();
+  const once = items.filter((item) => {
+    const key = recordKey(kind, item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const at = (item) => {
+    const value = time3(item);
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return once.map((item, index) => ({ item, index })).sort((a, b) => at(b.item) - at(a.item) || a.index - b.index).map(({ item }) => item);
+}
 
 // src/core/insights-service.ts
 var DEFAULT_HISTORY_PAGES = 10;
@@ -38115,7 +38122,29 @@ async function covers(ledgers, prefix, start) {
   if (!meta3) return false;
   return meta3.complete || start !== void 0 && meta3.oldestAt !== void 0 && Date.parse(meta3.oldestAt) < start.getTime();
 }
-var emptyMeta = () => ({ version: 1, count: 0, chunks: 0, next: null, complete: false, updatedAt: (/* @__PURE__ */ new Date(0)).toISOString() });
+var SETTLE_MS = 3 * 864e5;
+var LEDGER_SPAN_MS = 60 * 864e5;
+var earlier = (a, b) => Date.parse(a) <= Date.parse(b) ? a : b;
+function positionTime(kind, item) {
+  if (kind !== "orders") return itemTime(kind, item);
+  const { order, fill } = item;
+  const times = [order?.createdAt, fill?.filledAt].map((value) => value ? Date.parse(value) : NaN).filter(Number.isFinite);
+  return times.length ? Math.min(...times) : NaN;
+}
+function union3(kind, items, time3) {
+  const seen = /* @__PURE__ */ new Set();
+  const once = items.filter((item) => {
+    const key = recordKey(kind, item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const at = (item) => {
+    const value = time3(item);
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return once.map((item, index) => ({ item, index })).sort((a, b) => at(b.item) - at(a.item) || a.index - b.index).map(({ item }) => item);
+}
 function itemTicker(kind, item) {
   if (kind === "orders") {
     const order = item.order;
@@ -38203,7 +38232,8 @@ var InsightsService = class {
     const client = this.client(environment);
     const ledgers = this.deps.ledgers;
     const prefix = ledgers && ledgerPrefix(environment, await accountName(this.deps.config.trading212[environment].apiKey), kind);
-    if (ledgers && prefix && (!ticker || await covers(ledgers, prefix, start))) {
+    const long = start === void 0 || start.getTime() < Date.now() - LEDGER_SPAN_MS;
+    if (ledgers && prefix && long && (!ticker || await covers(ledgers, prefix, start))) {
       const value2 = await ledgers.exclusive(prefix, () => this.fromLedger(ledgers, prefix, client, kind, start, pages, ticker));
       if (!value2.limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value: value2.collected });
       return value2.collected;
@@ -38237,13 +38267,19 @@ var InsightsService = class {
     return value;
   }
   /**
-   * The history from the ledger: the pages newer than the newest record kept, read until one is reached, then the
-   * pages further back from where the last read stopped, until the window's start, the account's first record or
-   * the page budget. What is read is kept. The records in the window are returned (one instrument's, with `ticker`).
+   * The history from the ledger. First the newest pages, down past the horizon of the last read (the records that
+   * could have come into the history since: an order open then that has filled, a movement settled late), adding
+   * the ones not kept; then the pages further back from where the last read stopped, until the window's start, the
+   * account's first record or the page budget. What is read is added to the ledger. The records in the window are
+   * returned (one instrument's, with `ticker`).
    */
   async fromLedger(ledgers, prefix, client, kind, start, pages, ticker) {
-    const kept = await ledgers.load(prefix);
-    const known = new Set((kept?.items ?? []).map((item) => recordKey(kind, item)));
+    const time3 = (item) => itemTime(kind, item);
+    const kept = await ledgers.load(prefix, kind, time3);
+    const had = kept?.items.length ? kept : void 0;
+    const horizon = await this.horizon(client, kind, kept?.meta);
+    const known = new Set((had?.items ?? []).map((item) => recordKey(kind, item)));
+    const scanTo = had?.meta.horizon ? Date.parse(had.meta.horizon) : void 0;
     let budget = pages;
     let limited = false;
     const read = (next2) => client.getHistoryPage(kind, next2).catch((error62) => {
@@ -38255,56 +38291,83 @@ var InsightsService = class {
     });
     const fresh = [];
     let next = null;
-    let linked = false;
+    let reachedKept = false;
+    let scanned = false;
     let ended = false;
     while (budget > 0) {
       const page = await read(next ?? void 0);
       if (!page) break;
       budget -= 1;
       for (const item of page.items) {
-        if (known.has(recordKey(kind, item))) {
-          linked = true;
-          break;
-        }
-        fresh.push(item);
+        if (known.has(recordKey(kind, item))) reachedKept = true;
+        else fresh.push(item);
       }
       next = page.nextPagePath ?? null;
-      if (linked) break;
       if (!next) {
         ended = true;
         break;
       }
-      const oldest2 = fresh.length ? itemTime(kind, fresh[fresh.length - 1]) : NaN;
-      if (!kept?.items.length && start !== void 0 && Number.isFinite(oldest2) && oldest2 < start.getTime()) break;
+      const lowest = Math.min(...page.items.map((item) => positionTime(kind, item)).filter(Number.isFinite));
+      if (had) {
+        if (reachedKept && (scanTo === void 0 || lowest < scanTo)) {
+          scanned = true;
+          break;
+        }
+      } else if (start !== void 0 && lowest < start.getTime()) break;
     }
-    let ledger;
-    if (linked && kept) ledger = { ...kept, items: [...fresh, ...kept.items] };
-    else if (ended) ledger = { meta: { ...kept?.meta ?? emptyMeta(), next: null, complete: true }, items: fresh, ...kept?.stored ? { stored: kept.stored } : {} };
-    else if (limited && kept) {
-      return { collected: { items: inWindow2(kind, fresh, start, ticker), truncated: true, kept: kept.meta.count }, limited };
+    let added = fresh;
+    let meta3;
+    if (!had) {
+      meta3 = { next: ended ? null : next, complete: ended, ...horizon ? { horizon } : {} };
+    } else if (scanned || ended) {
+      meta3 = { next: had.meta.next, complete: had.meta.complete || ended && !reachedKept, ...horizon ? { horizon } : {} };
+    } else if (reachedKept) {
+      meta3 = { next: had.meta.next, complete: had.meta.complete, ...had.meta.horizon ? { horizon: earlier(had.meta.horizon, horizon) } : {} };
     } else {
-      ledger = { meta: { ...kept?.meta ?? emptyMeta(), next, complete: false }, items: fresh, ...kept?.stored ? { stored: kept.stored } : {} };
+      const items2 = union3(kind, [...fresh, ...had.items], time3);
+      return { collected: { items: inWindow2(kind, items2, start, ticker), truncated: true }, limited };
     }
+    let items = union3(kind, [...added, ...had?.items ?? []], time3);
     const reached = () => {
-      const oldest2 = ledger.items.length ? itemTime(kind, ledger.items[ledger.items.length - 1]) : NaN;
-      return start !== void 0 && Number.isFinite(oldest2) && oldest2 < start.getTime();
+      const oldest = items.map(time3).filter(Number.isFinite).at(-1);
+      return start !== void 0 && oldest !== void 0 && oldest < start.getTime();
     };
-    while (budget > 0 && !limited && !ledger.meta.complete && ledger.meta.next && !reached()) {
-      const page = await read(ledger.meta.next);
+    while (budget > 0 && !limited && !meta3.complete && meta3.next && !reached()) {
+      const page = await read(meta3.next).catch((error62) => {
+        if (error62 instanceof Trading212ApiError && error62.status >= 400 && error62.status < 500) return null;
+        return void 0;
+      });
+      if (page === null) {
+        await ledgers.clear(prefix);
+        return { collected: { items: inWindow2(kind, items, start, ticker), truncated: true }, limited };
+      }
       if (!page) break;
       budget -= 1;
-      const seen = new Set(ledger.items.map((item) => recordKey(kind, item)));
-      ledger = {
-        ...ledger,
-        items: [...ledger.items, ...page.items.filter((item) => !seen.has(recordKey(kind, item)))],
-        meta: { ...ledger.meta, next: page.nextPagePath ?? null, complete: !page.nextPagePath }
-      };
+      added = [...added, ...page.items];
+      items = union3(kind, [...items, ...page.items], time3);
+      meta3 = { ...meta3, next: page.nextPagePath ?? null, complete: !page.nextPagePath };
     }
-    const oldest = ledger.items.length ? itemTime(kind, ledger.items[ledger.items.length - 1]) : NaN;
-    if (Number.isFinite(oldest)) ledger.meta = { ...ledger.meta, oldestAt: new Date(oldest).toISOString() };
-    await ledgers.save(prefix, ledger);
-    const truncated = !ledger.meta.complete && !reached();
-    return { collected: { items: inWindow2(kind, ledger.items, start, ticker), truncated, kept: Math.min(ledger.items.length, MAX_RECORDS) }, limited };
+    items = await ledgers.add(prefix, kind, kept, added, meta3, time3);
+    const truncated = !meta3.complete && !reached();
+    return { collected: { items: inWindow2(kind, items, start, ticker), truncated }, limited };
+  }
+  /**
+   * The time before which every record is final now. For orders, the creation of the oldest order still open (it is
+   * placed in the history by when it was made, and could fill later) or a few days back, whichever is earlier; for
+   * dividends and cash, a few days back. When the open orders cannot be read, the last read's time is used instead,
+   * as no order made since it can be below it.
+   */
+  async horizon(client, kind, last) {
+    let at = Date.now() - SETTLE_MS;
+    if (kind === "orders") {
+      const open2 = await client.getOrders().catch(() => void 0);
+      if (open2) for (const order of open2) {
+        const made = order.createdAt ? Date.parse(order.createdAt) : NaN;
+        if (Number.isFinite(made)) at = Math.min(at, made);
+      }
+      else at = Math.min(at, ...[last?.horizon, last?.updatedAt].map((value) => value ? Date.parse(value) : NaN).filter(Number.isFinite));
+    }
+    return new Date(at).toISOString();
   }
   /** `onRead` is handed the positions and instruments read, for a caller that needs them too (risk by holding). */
   async allocation(environment, limits, onRead) {
