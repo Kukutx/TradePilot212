@@ -87,6 +87,8 @@ describe("native controls", () => {
     expect(css).toMatch(/\.inlineLink \{[^}]*min-width: 24px; min-height: 24px/);
     expect(css).toMatch(/\.sortHeader \{[^}]*min-width: 24px; min-height: 24px/);
     expect(css).toMatch(/\.dayCell small \{(?![^}]*opacity)[^}]*\}/);
+    // The warning mark takes the page's own background as its colour, so it reads on either theme's amber.
+    expect(css).toMatch(/\.flagIcon \{[^}]*background: var\(--tp-amber\); color: var\(--tp-bg\)/);
     expect(css).toContain("::-webkit-search-cancel-button");
     // A search box draws its own clear button (Firefox has none), so the browser's is hidden there.
     expect(css).toContain(".searchField input::-webkit-search-cancel-button { display: none; }");
