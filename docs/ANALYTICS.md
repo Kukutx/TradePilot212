@@ -143,7 +143,7 @@ The closes are cached for half an hour per instrument and shared with the holdin
 
 History tools accept `period` (`1w`, `1m`, `3m`, `ytd`, `1y`, `all`) or an explicit `from` and `to` in ISO 8601. `get_tax_year_summary` takes a `year` and `yearStart` instead.
 
-They read history newest first, in pages of 50 records. Trading 212 allows about 20 history requests per minute, so each tool reads at most `maxPages` pages per data set (10 by default, 40 at most).
+They read history newest first, in pages of 50 records. Trading 212 limits history reads per minute and per endpoint, so each tool reads at most `maxPages` pages per data set (10 by default, 40 at most). Every request is paced to the limit Trading 212 reports with its responses (see [Rate limits](../README.md#rate-limits)); a read that would wait past a minute for it comes back with what it read, marked truncated.
 
 When the budget runs out before the requested period is covered, the result is marked `truncated`. The simple and annualized returns are then omitted, because they would be wrong.
 

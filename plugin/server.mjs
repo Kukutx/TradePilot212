@@ -34710,6 +34710,43 @@ function createQuoteProvider(config3, fetcher = (input2, init) => globalThis.fet
   };
 }
 
+// src/core/rate-limit.ts
+var windows = /* @__PURE__ */ new Map();
+var MAX_WINDOWS = 500;
+function endpointOf(method, path3) {
+  const bare = path3.split("?")[0].replace(/\/(\d+|[A-Za-z0-9_-]*\d[A-Za-z0-9_-]*)(?=\/|$)/g, "/{id}");
+  return `${method} ${bare}`;
+}
+function limitKey(account, method, path3) {
+  return `${account} ${endpointOf(method, path3)}`;
+}
+function recordLimit(key, headers, now = Date.now()) {
+  const remaining = Number(headers.get("x-ratelimit-remaining") ?? NaN);
+  const resetAt = Number(headers.get("x-ratelimit-reset") ?? NaN);
+  if (!Number.isFinite(remaining) || !Number.isFinite(resetAt) || remaining < 0 || resetAt <= 0) return;
+  const reset = resetAt > 1e10 ? resetAt : resetAt * 1e3;
+  if (reset <= now) {
+    windows.delete(key);
+    return;
+  }
+  windows.delete(key);
+  windows.set(key, { remaining: Math.floor(remaining), reset });
+  if (windows.size > MAX_WINDOWS) windows.delete(windows.keys().next().value);
+}
+function waitFor(key, now = Date.now()) {
+  const window = windows.get(key);
+  if (!window) return 0;
+  if (window.reset <= now) {
+    windows.delete(key);
+    return 0;
+  }
+  if (window.remaining > 0) {
+    window.remaining -= 1;
+    return 0;
+  }
+  return window.reset - now;
+}
+
 // src/core/trading212-client.ts
 var Trading212ApiError = class extends Error {
   constructor(message, status, responseBody) {
@@ -34732,6 +34769,7 @@ var ExecutionStatusUnknownError = class extends Error {
 var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 var WRITE_RETRY_MIN_MS = 2100;
 var WRITE_RETRY_MAX_MS = 15e3;
+var READ_PACE_MAX_MS = 6e4;
 function basic(value) {
   const bytes = new TextEncoder().encode(value);
   let binary = "";
@@ -34784,13 +34822,32 @@ var Trading212Client = class {
     this.target = config3.trading212[environment];
     this.fetcher = fetcher ?? ((input2, init) => globalThis.fetch(input2, init));
     if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
+    this.account = `${environment} ${this.target.baseUrl} ${this.target.apiKey}`;
   }
   environment;
   target;
   fetcher;
+  /** The account the limits are counted for: one key's requests share them, whichever client sends them. */
+  account;
+  /**
+   * Waits for the endpoint's limit when the last response left nothing of it, or refuses the request unsent when the
+   * reset is further off than a caller should wait: a write is not sent, so its status is known.
+   */
+  async pace(method, path3, key) {
+    const wait = waitFor(key);
+    if (!wait) return;
+    const most = method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS;
+    if (wait > most) {
+      throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path3)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+    }
+    await sleep2(wait + 100);
+    waitFor(key);
+  }
   async request(method, path3, body) {
     const attempts = method === "GET" ? 4 : 2;
+    const key = limitKey(this.account, method, path3);
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      await this.pace(method, path3, key);
       let response;
       try {
         response = await this.fetcher(`${this.target.baseUrl}${path3}`, { method, headers: {
@@ -34804,6 +34861,7 @@ var Trading212Client = class {
         await sleep2(Math.min(300 * 2 ** (attempt - 1), 5e3));
         continue;
       }
+      recordLimit(key, response.headers);
       let parsed;
       try {
         parsed = await readBody(response);
@@ -38030,8 +38088,17 @@ var InsightsService = class {
     const items = [];
     let next;
     let truncated = false;
+    let limited = false;
     for (let page = 0; page < pages; page++) {
-      const result2 = await client.getHistoryPage(kind, next, ticker);
+      const result2 = await client.getHistoryPage(kind, next, ticker).catch((error62) => {
+        if (page > 0 && error62 instanceof Trading212ApiError && error62.status === 429) return void 0;
+        throw error62;
+      });
+      if (!result2) {
+        truncated = true;
+        limited = true;
+        break;
+      }
       items.push(...result2.items);
       const oldest = result2.items.length ? itemTime(kind, result2.items[result2.items.length - 1]) : NaN;
       const reachedStart = start !== void 0 && Number.isFinite(oldest) && oldest < start.getTime();
@@ -38043,7 +38110,7 @@ var InsightsService = class {
       if (page === pages - 1) truncated = true;
     }
     const value = { items, truncated };
-    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value });
+    if (!limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value });
     return value;
   }
   /** `onRead` is handed the positions and instruments read, for a caller that needs them too (risk by holding). */
@@ -39175,7 +39242,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.54.0"
+  version: "2.55.0"
 };
 
 // src/shared/holding-risk.ts
@@ -41796,7 +41863,7 @@ var windowSchema = {
   period: external_exports.enum(["1w", "1m", "3m", "ytd", "1y", "all"]).default("all").describe("Shortcut window ending now. Ignored when from is given."),
   from: dateOrDateTime.optional().describe("Start: YYYY-MM-DD (start of that UTC day) or an ISO date-time"),
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
-  maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute.")
+  maxPages: external_exports.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES).describe("History pages of 50 records to read per data set. Trading 212 limits history reads per minute; TradePilot paces them to the limit it reports, and a read cut short by it comes back truncated.")
 };
 function createMcpServer({ trading, insights, automation: automation2, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies2, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");

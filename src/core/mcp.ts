@@ -151,7 +151,7 @@ const windowSchema = {
   from: dateOrDateTime.optional().describe("Start: YYYY-MM-DD (start of that UTC day) or an ISO date-time"),
   to: dateOrDateTime.optional().describe("End: YYYY-MM-DD (end of that UTC day) or an ISO date-time"),
   maxPages: z.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES)
-    .describe("History pages of 50 records to read per data set. Trading 212 allows about 20 history requests per minute."),
+    .describe("History pages of 50 records to read per data set. Trading 212 limits history reads per minute; TradePilot paces them to the limit it reports, and a read cut short by it comes back truncated."),
 };
 
 export function createMcpServer(

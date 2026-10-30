@@ -2,6 +2,7 @@ import type { AccountSummary, Instrument, OrderDraft, PendingOrder, Position, Tr
 import type { RuntimeConfig } from "./config.js";
 import type { Exchange, ExportReport, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, Page } from "../shared/history.js";
 import type { PieDetail, PieRequest, PieSummary } from "../shared/pies.js";
+import { endpointOf, limitKey, recordLimit, waitFor } from "./rate-limit.js";
 
 export type HistoryKind = "orders" | "dividends" | "transactions";
 type HistoryItem<K extends HistoryKind> = K extends "orders" ? HistoryOrderItem : K extends "dividends" ? HistoryDividendItem : HistoryTransactionItem;
@@ -15,6 +16,8 @@ export class ExecutionStatusUnknownError extends Error {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const WRITE_RETRY_MIN_MS = 2100;
 const WRITE_RETRY_MAX_MS = 15_000;
+/** A read waits this long at most for its endpoint's limit to reset, as long as a 429's retry would. */
+const READ_PACE_MAX_MS = 60_000;
 function basic(value: string): string {
   const bytes = new TextEncoder().encode(value); let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -58,15 +61,34 @@ export function retryDelayMs(response: Response, attempt: number, now = Date.now
 export class Trading212Client {
   private readonly target;
   private readonly fetcher: typeof fetch;
+  /** The account the limits are counted for: one key's requests share them, whichever client sends them. */
+  private readonly account: string;
   constructor(readonly environment: TradingEnvironment, config: RuntimeConfig, fetcher?: typeof fetch) {
     this.target = config.trading212[environment];
     this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init));
     if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
+    this.account = `${environment} ${this.target.baseUrl} ${this.target.apiKey}`;
+  }
+  /**
+   * Waits for the endpoint's limit when the last response left nothing of it, or refuses the request unsent when the
+   * reset is further off than a caller should wait: a write is not sent, so its status is known.
+   */
+  private async pace(method: "GET" | "POST" | "DELETE", path: string, key: string): Promise<void> {
+    const wait = waitFor(key);
+    if (!wait) return;
+    const most = method === "GET" ? READ_PACE_MAX_MS : WRITE_RETRY_MAX_MS;
+    if (wait > most) {
+      throw new Trading212ApiError(`Trading 212's limit for ${endpointOf(method, path)} is used up until ${new Date(Date.now() + wait).toISOString()}; the request was not sent. Try again after that.`, 429, null);
+    }
+    await sleep(wait + 100);
+    waitFor(key);
   }
   private async request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     // A rate-limited write was refused before it was processed, so it is the one write sent again.
     const attempts = method === "GET" ? 4 : 2;
+    const key = limitKey(this.account, method, path);
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      await this.pace(method, path, key);
       let response: Response;
       try {
         response = await this.fetcher(`${this.target.baseUrl}${path}`, { method, headers: {
@@ -77,6 +99,7 @@ export class Trading212Client {
         if (method !== "GET") throw new ExecutionStatusUnknownError("Trading 212 did not return a response. The order/cancel status is unknown; verify the order list before trying again.", error);
         if (attempt === attempts) throw error; await sleep(Math.min(300 * 2 ** (attempt - 1), 5000)); continue;
       }
+      recordLimit(key, response.headers);
       let parsed: unknown;
       try {
         parsed = await readBody(response);
