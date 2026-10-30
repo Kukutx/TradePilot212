@@ -92,6 +92,10 @@ describe("sample data mode", () => {
     expect(all.totals.realised).toBeCloseTo(realised, 2);
     expect(all.totals.buys + all.totals.sells).toBe(all.fills.length);
     expect(all.totals.currency).toBe("EUR");
+    // The text the model reads gives the same totals, and says only the newest are listed.
+    const text = describePayload(two);
+    expect(text).toContain(`Totals over all ${all.fills.length} fill(s) (EUR): ${all.totals.buys} buys`);
+    expect(text).toContain(`The newest 2 of ${all.fills.length} fills are listed`);
   });
 
   it("holds back the shares a pending sell covers, as Trading 212 does", async () => {

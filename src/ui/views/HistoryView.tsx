@@ -68,9 +68,12 @@ function FilterBox({ value, onChange, label }: { value: string; onChange: (next:
   );
 }
 
-/** The direction money moved, from its kind where that says it, so a withdrawal is money out whatever sign it is sent with. */
-const CASH_OUT = new Set(["WITHDRAW", "FEE"]);
-const CASH_IN = new Set(["DEPOSIT", "DIVIDEND", "INTEREST"]);
+/**
+ * The direction money moved, from its kind where that says it, so a withdrawal is money out whatever sign it is sent
+ * with (as the performance page reads it). Dividends and interest keep their sign: a correction is negative.
+ */
+const CASH_OUT = new Set(["WITHDRAW", "WITHDRAWAL", "FEE"]);
+const CASH_IN = new Set(["DEPOSIT"]);
 export function cashSigned(type: string, value: number): number {
   const kind = type.toUpperCase();
   return CASH_OUT.has(kind) ? -Math.abs(value) : CASH_IN.has(kind) ? Math.abs(value) : value;

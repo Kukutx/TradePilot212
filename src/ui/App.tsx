@@ -378,6 +378,8 @@ export default function App() {
     setHoldingReturn(null);
     setProblem(null);
     setInsightError(null);
+    // What an earlier trade or cash read was limited to does not carry over to another page the host shows.
+    setHistoryScopes({});
     const env = initialEnvironment(payload);
     setEnvironment(env);
     if (isInsight(payload)) {
@@ -393,7 +395,7 @@ export default function App() {
       if (preset) setPeriod(preset);
       if (payload.kind === "trade_history" || payload.kind === "cash_history") {
         setHistoryScopes({ [payload.kind]: { ...(payload.filter ? { filter: payload.filter } : {}), ...(range && !preset ? { window: range } : {}) } });
-      } else setHistoryScopes({});
+      }
     } else if (payload.kind === "portfolio") {
       setInsights({});
       setTab("holdings");
@@ -587,7 +589,7 @@ export default function App() {
       if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
       setInsights((current) => ({ ...current, [kind]: payload }));
     } catch (requestError) {
-      const retry = () => void loadInsight(kind, env, range, tag, compareWith, tax);
+      const retry = () => void loadInsight(kind, env, range, tag, compareWith, tax, scopes);
       const failure = problemFrom("errorTitleLoad", requestError, retry);
       // With nothing to show, the error takes the view's place; otherwise the older data stays below it.
       if (insights[kind]) setProblem(failure);
@@ -632,19 +634,21 @@ export default function App() {
     if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, next, undefined, benchmark, taxSettings, scopes);
   }
 
-  /** Read a trade or cash page again for everything in the period the switch shows. */
+  /** Read a trade or cash page again for everything: in the period the switch shows, or all time after the host's own window. */
   async function clearHistoryScope(kind: ScopedKind): Promise<void> {
     const scopes = { ...historyScopes, [kind]: undefined };
+    const range = historyScopes[kind]?.window ? "all" : period;
     setHistoryScopes(scopes);
-    await loadInsight(kind, environment, period, undefined, benchmark, taxSettings, scopes);
+    setPeriod(range);
+    await loadInsight(kind, environment, range, undefined, benchmark, taxSettings, scopes);
   }
   const scopeOf = (kind: ScopedKind) => {
     const scope = historyScopes[kind];
     return { period: scope?.window ? null : period, ...(scope?.filter || scope?.window ? { onClearFilter: () => void clearHistoryScope(kind) } : {}) };
   };
 
-  async function refresh(env = environment, target: PortfolioTab = tab): Promise<void> {
-    if (target !== "holdings" && base?.kind !== "trade_plan" && base?.kind !== "holding") return loadInsight(target, env);
+  async function refresh(env = environment, target: PortfolioTab = tab, scopes = historyScopes): Promise<void> {
+    if (target !== "holdings" && base?.kind !== "trade_plan" && base?.kind !== "holding") return loadInsight(target, env, period, undefined, benchmark, taxSettings, scopes);
     await run("errorTitleRefresh", async () => {
       if (base?.kind === "holding") {
         setBase(await callTool<HoldingDetail>("app_get_holding", { environment: env, instrument: base.ticker }));
@@ -657,7 +661,7 @@ export default function App() {
         setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment: env }));
         setTab("holdings");
       }
-    }, () => void refresh(env, target));
+    }, () => void refresh(env, target, scopes));
   }
 
   /** Create, delete or re-arm a price alert, then read the page again so it shows the change. Alerts never trade. */
@@ -789,7 +793,7 @@ export default function App() {
     setBasketResult(null);
     setInsights({});
     setInsightError(null);
-    // An instrument or window the host named was for the other account.
+    // An instrument or window the host named was for the other account; the reads below go without it.
     setHistoryScopes({});
     if (resized.payload) {
       showPayload(resized.payload);
@@ -800,7 +804,7 @@ export default function App() {
       setBase({ ...base, draft: { ...base.draft, environment: next } });
       return;
     }
-    await refresh(next);
+    await refresh(next, tab, {});
   }
 
   async function toggleDisplayMode(): Promise<void> {

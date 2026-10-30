@@ -38975,7 +38975,7 @@ var InsightsService = class {
     for (const item of filled) {
       const impact = item.fill?.walletImpact;
       const value = Math.abs(impact?.netValue ?? 0);
-      if (item.order?.side === "SELL" || item.order?.side === void 0 && (item.fill?.quantity ?? 0) < 0) {
+      if (String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0) {
         totals.sells += 1;
         totals.sold += value;
       } else {
@@ -40920,14 +40920,24 @@ function income(data) {
 }
 function tradeHistory(data) {
   const fills = data.fills;
-  const sum = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
-  const count = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
+  const sell = (fill) => String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
   const fees = /* @__PURE__ */ new Map();
   for (const fill of fills) for (const item of fill.costItems ?? []) fees.set(item.name, (fees.get(item.name) ?? 0) + item.amount);
-  const currency = fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
-  const realized = fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0);
+  const totals = data.totals ?? {
+    buys: fills.filter((fill) => !sell(fill)).length,
+    sells: fills.filter(sell).length,
+    bought: fills.filter((fill) => !sell(fill)).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    sold: fills.filter(sell).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    realised: fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0),
+    costs: fills.reduce((total, fill) => total + (fill.costs ?? 0), 0)
+  };
+  const currency = totals.currency ?? fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
+  const all = data.count ?? fills.length;
+  const partial2 = all > fills.length;
   return [
-    ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
+    ...all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num2(totals.bought)}, ${totals.sells} sells ${num2(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num2(totals.costs)}.`] : ["No fills in this window."],
+    ...fees.size ? [`Fees by kind${partial2 ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")}.`] : [],
+    ...partial2 ? [`The newest ${fills.length} of ${all} fills are listed below; a higher limit (up to 200) or a shorter window lists more.`] : [],
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
@@ -42925,7 +42935,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...history, ...notes.length ? { journal: notes } : {} };
-        return result(data, `Returned ${data.fills.length} of ${data.count} fills (bought ${data.totals.bought}, sold ${data.totals.sold}, realised ${data.totals.realised}, costs ${data.totals.costs}${data.totals.currency ? ` ${data.totals.currency}` : ""} over all of them)${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${data.fills.length} of ${data.count} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

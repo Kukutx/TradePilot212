@@ -89,7 +89,10 @@ describe("the cash history page", () => {
     expect(html).toContain("+€800.00");
     expect(html).toContain("-€200.00");
     expect(html).not.toContain("+€200.00");
-    expect(cashSigned("DIVIDEND", -4)).toBe(4);
+    expect(cashSigned("WITHDRAWAL", 50)).toBe(-50);
+    expect(cashSigned("DEPOSIT", -50)).toBe(50);
+    // A dividend or interest correction stays negative, as on the income and tax pages.
+    expect(cashSigned("DIVIDEND", -4)).toBe(-4);
     expect(cashSigned("TRANSFER", -4)).toBe(-4);
   });
 
