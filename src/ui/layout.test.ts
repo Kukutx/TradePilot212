@@ -70,3 +70,24 @@ describe("narrow layout", () => {
     expect(css).toMatch(/@container \(max-width: 420px\)[^@]*\.pieTableWrap \{ display: none; \}[^@]*\.sliceList \{ display: grid; \}/);
   });
 });
+
+describe("native controls", () => {
+  it("draws scrollbars, selects, checkboxes, search, spinners and disclosures in the widget's own style", () => {
+    expect(css).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*border-radius: 999px/);
+    expect(css).toMatch(/::-webkit-scrollbar-button\s*\{[^}]*display: none/);
+    expect(css).toMatch(/select:not\(\[multiple\]\)\s*\{[^}]*appearance: none/s);
+    expect(css).toMatch(/input\[type="checkbox"\]\s*\{[^}]*appearance: none/s);
+    expect(css).toMatch(/input\[type="number"\]\s*\{[^}]*appearance: textfield/);
+    expect(css).toContain("::-webkit-search-cancel-button");
+    expect(css).toContain("summary::-webkit-details-marker { display: none; }");
+    // Native popups (a select's list) follow the theme.
+    expect(css).toContain(':root[data-theme="dark"] :is(select, input, textarea) { color-scheme: dark; }');
+    // No resize grip: notes grow with what is typed.
+    expect(css).not.toMatch(/resize: (vertical|both)/);
+  });
+
+  it("keeps a loading view's tabs focusable", () => {
+    expect(app).toContain("aria-disabled={busy && tab !== key ? true : undefined}");
+    expect(app).not.toContain("disabled={busy && tab !== key}");
+  });
+});

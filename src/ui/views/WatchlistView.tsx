@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import type { Instrument } from "../../shared/contracts";
 import { MAX_WATCH_NOTE, WATCH_PERIODS, type WatchLevel, type WatchlistView as WatchlistData, type WatchPeriod, type WatchRow } from "../../shared/watchlist";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { Icon } from "../components/common";
+import { AssetAvatar, Icon } from "../components/common";
 import { InstrumentSearch } from "../components/instrument-search";
 import { priceDigits } from "../components/price-chart";
 import { amount, dayLabel, pct, qty, signedClass } from "../lib/format";
@@ -97,7 +97,7 @@ function WatchItem({ row, period, book, locale, t, busy, onOpen, onRemove, onNot
     <li className="watchRow">
       <button type="button" className="watchMain" disabled={busy} title={row.ticker} onClick={() => onOpen(row.ticker)}
         aria-label={fill(t("watchOpen"), { name: label.name, price: price ?? t("watchNoPrice"), change: changeWords ?? "" }).replace(/[,，]\s*$/, "")}>
-        <span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span>
+        <AssetAvatar ticker={row.ticker} label={label} />
         <span className="watchName"><strong>{label.name}</strong><small>{label.detail || row.ticker}{held ? <> · <span className="noWrap">{held}</span></> : null}</small></span>
         {row.spark ? <WatchSpark closes={row.spark.closes} /> : <span className="watchSpark empty" aria-hidden="true" />}
         <span className="watchQuote">

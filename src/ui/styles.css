@@ -1,5 +1,8 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Figures line up in columns everywhere; Inter's open digits and single-storey a read cleaner at small sizes. */
+  font-feature-settings: "tnum" 1, "cv11" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
   color: var(--color-text-primary, #171717);
   background: transparent;
   --tp-bg: var(--color-background-primary, #ffffff);
@@ -10,6 +13,10 @@
   --tp-border: var(--color-border-light, #e1e3e6);
   --tp-border-strong: color-mix(in srgb, var(--color-text-secondary, #777) 22%, transparent);
   --tp-shadow: 0 18px 48px rgba(0, 0, 0, .08);
+  /* Raised surfaces: a hairline and a soft, short shadow, as cards sit just above the page. */
+  --tp-elevation: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px -2px rgba(16, 24, 40, .06);
+  --tp-accent: #2f6fed;
+  --tp-brand: linear-gradient(140deg, #0e9f6e 0%, #1d6fd8 62%, #4f46e5 100%);
   --tp-green: #127f4c;
   --tp-green-soft: #e9f7ef;
   --tp-red: #b82f35;
@@ -18,7 +25,7 @@
   --tp-amber-soft: #fff4db;
   --tp-blue: #2e65d1;
   --tp-blue-soft: #edf3ff;
-  --tp-radius: 18px;
+  --tp-radius: 20px;
   --tp-amber-text: #79500e;
   --tp-primary-bg: #191a1c;
   --tp-primary-text: #ffffff;
@@ -49,6 +56,8 @@
   --tp-primary-text: #141517;
   --tp-buy-bg: #1f6b45;
   --tp-danger-bg: #c4343b;
+  --tp-elevation: 0 1px 0 rgba(255, 255, 255, .03) inset;
+  --tp-accent: #6f9cff;
 }
 
 * { box-sizing: border-box; }
@@ -85,12 +94,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-radius: 13px;
   display: grid;
   place-items: center;
-  background: #18191b;
+  background: var(--tp-brand);
   color: #fff;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -.02em;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 4px 12px -4px rgba(29, 111, 216, .55);
 }
 .brandCopy { min-width: 0; }
 .brandCopy h1 { margin: 2px 0 0; font-size: 20px; line-height: 1.05; letter-spacing: -.035em; font-weight: 760; white-space: nowrap; }
@@ -162,7 +171,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 650;
   flex: 0 0 auto;
 }
-.iconAction:hover { background: var(--tp-bg-soft); }
+.iconAction:hover { background: var(--tp-bg-soft); border-color: var(--tp-border-strong); }
 .icon { width: 16px; height: 16px; flex: 0 0 auto; }
 
 .environmentBar {
@@ -189,17 +198,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border: 1px solid var(--tp-border);
   background: var(--tp-bg);
   border-radius: var(--tp-radius);
+  box-shadow: var(--tp-elevation);
 }
 .overviewPanel {
   display: grid;
   grid-template-columns: minmax(210px, .9fr) minmax(0, 1.6fr);
   gap: 24px;
-  padding: 22px;
-  box-shadow: 0 1px 0 rgba(0,0,0,.015);
+  padding: 24px;
+  /* A faint wash of the brand from the top corner: the account's headline card. */
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--tp-accent) 7%, transparent) 0%, transparent 55%), var(--tp-bg);
 }
 .overviewLead { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .sectionEyebrow { display: block; margin-bottom: 7px; color: var(--tp-muted); font-size: 12px; font-weight: 720; letter-spacing: .07em; text-transform: uppercase; }
-.heroValue { display: block; font-size: clamp(28px, 4.3cqw, 42px); line-height: 1; letter-spacing: -.055em; font-weight: 760; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heroValue { display: block; font-size: clamp(30px, 4.6cqw, 46px); line-height: 1; letter-spacing: -.045em; font-weight: 720; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .heroValue.small { font-size: clamp(24px, 3.4cqw, 34px); }
 .pnlBadge {
   width: fit-content;
@@ -238,9 +249,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sparkEnd { fill: var(--tp-chart); stroke: var(--tp-bg); stroke-width: 2; }
 .noWrap { white-space: nowrap; }
 .metricGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.metric { min-width: 0; padding: 13px 14px; border-radius: 13px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
-.metric span { display: block; margin-bottom: 7px; color: var(--tp-muted); font-size: 12px; }
-.metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 720; letter-spacing: -.02em; }
+.metric { min-width: 0; padding: 14px 15px; border-radius: 14px; background: color-mix(in srgb, var(--tp-bg-soft) 70%, transparent); border: 1px solid color-mix(in srgb, var(--tp-border) 80%, transparent); }
+.metric span { display: block; margin-bottom: 8px; color: var(--tp-muted); font-size: 12px; font-weight: 560; }
+.metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 700; letter-spacing: -.025em; }
 .metric.compact strong { font-size: 13px; }
 
 .dataPanel { padding: 18px; }
@@ -256,8 +267,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .positionsTable td:not(:first-child) { white-space: nowrap; }
 .positionsTable th:last-child, .positionsTable td:last-child { padding-right: 2px; }
 .positionsTable tbody tr:last-child td { border-bottom: 0; }
+.positionsTable tbody td { transition: background .14s ease; }
+.positionsTable tbody tr:hover td { background: color-mix(in srgb, var(--tp-bg-soft) 75%, transparent); }
 .assetIdentity { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.assetAvatar { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; background: var(--tp-bg-soft); border: 1px solid var(--tp-border); color: var(--tp-text); font-size: 12px; font-weight: 800; letter-spacing: -.02em; }
+/* Each instrument keeps its own tint (--tp-hue, from its symbol), so a row is found again by colour at a glance. */
+.assetAvatar { --tp-hue: 220; width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; background: hsl(var(--tp-hue) 75% 95%); border: 1px solid hsl(var(--tp-hue) 60% 88%); color: hsl(var(--tp-hue) 60% 26%); font-size: 12px; font-weight: 800; letter-spacing: -.02em; }
+:root[data-theme="dark"] .assetAvatar { background: hsl(var(--tp-hue) 35% 20%); border-color: hsl(var(--tp-hue) 30% 28%); color: hsl(var(--tp-hue) 80% 80%); }
 .assetIdentity > div { min-width: 0; }
 .assetIdentity strong, .assetIdentity small { display: block; }
 .assetIdentity strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -494,10 +509,11 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   font-size: 14px;
   font-weight: 720;
 }
-.secondaryButton { border: 1px solid var(--tp-border); background: var(--tp-bg); color: var(--tp-text); }
-.secondaryButton:hover { background: var(--tp-bg-soft); }
+.secondaryButton { border: 1px solid var(--tp-border); background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .05); }
+.secondaryButton:hover { background: var(--tp-bg-soft); border-color: var(--tp-border-strong); }
 .secondaryButton.danger { min-height: 40px; padding: 0 12px; border-color: color-mix(in srgb, var(--tp-red) 25%, var(--tp-border)); color: var(--tp-red); background: transparent; }
-.primaryButton { background: var(--tp-primary-bg); color: var(--tp-primary-text); }
+.primaryButton { background: var(--tp-primary-bg); color: var(--tp-primary-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .1), inset 0 1px 0 rgba(255, 255, 255, .08); }
+.primaryButton:hover:not(:disabled) { background: color-mix(in srgb, var(--tp-primary-bg) 88%, var(--tp-accent)); }
 .dangerButton { background: var(--tp-danger-bg); color: #fff; }
 
 .transactionStage {
@@ -539,17 +555,20 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .resolutionRisk.over strong { color: var(--tp-amber); }
 .resolutionEdited button { min-height: 36px; border: 0; border-radius: 8px; padding: 0 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 12px; font-weight: 700; cursor: pointer; }
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.field { display: grid; gap: 6px; min-width: 0; }
+/* Rows from the top: a field beside a taller one (one with a hint) keeps its control under its label. */
+.field { display: grid; align-content: start; gap: 6px; min-width: 0; }
 .field > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
 .field input, .field select { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
-.field textarea { display: block; width: 100%; min-width: 0; min-height: 66px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font: inherit; font-size: 14px; line-height: 1.45; resize: vertical; }
+.field textarea { display: block; width: 100%; min-width: 0; min-height: 66px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font: inherit; font-size: 14px; line-height: 1.45; resize: none; field-sizing: content; max-height: 220px; }
 .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--tp-border-strong); }
 .wideField { grid-column: 1 / -1; min-width: 0; }
 .toggleField { display: flex; align-items: center; gap: 9px; align-self: end; min-height: 44px; color: var(--tp-muted); font-size: 12px; cursor: pointer; }
 .toggleField input { position: absolute; opacity: 0; pointer-events: none; }
 .toggleTrack { width: 32px; height: 19px; padding: 2px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--tp-border-strong); transition: background .16s ease; }
 .toggleTrack > span { width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform .16s ease; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
-.toggleField input:checked + .toggleTrack { background: #333; }
+.toggleField input:checked + .toggleTrack { background: var(--tp-green); }
+/* The box itself is hidden, so the track shows the keyboard focus. */
+.toggleField input:focus-visible + .toggleTrack { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
 .toggleField input:checked + .toggleTrack > span { transform: translateX(13px); }
 .transactionFooter {
   display: flex;
@@ -663,7 +682,18 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .headerActions { flex-wrap: wrap; justify-content: flex-start; }
 }
 
+/* Panels rise in as a view opens, a few frames apart; nothing moves once they are there. */
+@keyframes tp-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.contentStack > * { animation: tp-rise .32s cubic-bezier(.2, .7, .2, 1) both; }
+.contentStack > :nth-child(2) { animation-delay: .04s; }
+.contentStack > :nth-child(3) { animation-delay: .08s; }
+.contentStack > :nth-child(4) { animation-delay: .12s; }
+.contentStack > :nth-child(n + 5) { animation-delay: .16s; }
+
+.skeletonView > * { animation: none; }
+
 @media (prefers-reduced-motion: reduce) {
+  .contentStack > * { animation: none; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
@@ -672,14 +702,20 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --tp-chart: #3987e5; } }
 :root[data-theme="dark"] .appShell { --tp-chart: #3987e5; }
 
-.viewTabs { display: flex; gap: 4px; margin: 0 0 12px; padding: 3px; scroll-padding-inline: 32px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg-soft); overflow-x: auto; scrollbar-width: none; }
-.viewTabs button { flex: 1 0 auto; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 700; white-space: nowrap; }
-.viewTabs button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+/* Pills on a quiet rail; the strip around it fades whichever edge has more tabs past it. */
+.viewTabs { display: flex; gap: 4px; margin: 0 0 12px; padding: 4px; scroll-padding-inline: 32px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-bg-soft); overflow-x: auto; scrollbar-width: none; }
+.viewTabs::-webkit-scrollbar { display: none; }
+.viewTabs button { flex: 1 0 auto; min-height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 680; white-space: nowrap; transition: background .16s ease, color .16s ease, box-shadow .16s ease; }
+/* A tab waits while a view loads, but keeps the keyboard focus a disabled button would drop. */
+.viewTabs button[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+.viewTabs button:hover:not(.active):not([aria-disabled="true"]) { color: var(--tp-text); background: color-mix(in srgb, var(--tp-bg) 55%, transparent); }
+.viewTabs button.active { background: var(--tp-bg); color: var(--tp-text); font-weight: 740; box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
 
 .viewToolbar { display: flex; justify-content: flex-end; }
 .segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); }
 .segmented button { min-height: 36px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 700; }
-.segmented button.active { background: var(--tp-bg); color: var(--tp-text); }
+.segmented button { transition: background .16s ease, color .16s ease; }
+.segmented button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
 
 .twoColumn { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .twoColumn > .dataPanel { margin: 0; }
@@ -970,8 +1006,8 @@ h2[tabindex="-1"]:focus { outline: none; }
 .tabStrip { position: relative; margin: 0 0 12px; }
 .tabStrip .viewTabs { margin: 0; }
 .tabStrip::before, .tabStrip::after { content: ""; position: absolute; top: 1px; bottom: 1px; z-index: 1; width: 32px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.tabStrip::before { left: 1px; border-radius: 11px 0 0 11px; background: linear-gradient(to right, var(--tp-bg-soft) 30%, transparent); }
-.tabStrip::after { right: 1px; border-radius: 0 11px 11px 0; background: linear-gradient(to left, var(--tp-bg-soft) 30%, transparent); }
+.tabStrip::before { left: 1px; border-radius: 13px 0 0 13px; background: linear-gradient(to right, var(--tp-bg-soft) 30%, transparent); }
+.tabStrip::after { right: 1px; border-radius: 0 13px 13px 0; background: linear-gradient(to left, var(--tp-bg-soft) 30%, transparent); }
 .tabStrip.fadeStart::before, .tabStrip.fadeEnd::after { opacity: 1; }
 
 /* ---- Loading, error and setup states ---- */
@@ -1369,3 +1405,81 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .targetEditor .panelTitle:focus { outline: none; }
 .targetEditor .panelTitle:focus-visible { outline: 2px solid var(--tp-focus, var(--tp-chart)); outline-offset: 3px; border-radius: 4px; }
 .targetEditor .alertFormActions { flex-wrap: wrap; }
+
+/* ---- Native controls, drawn in the widget's own style ----
+   The browser's defaults (grey scrollbars, system checkboxes and select arrows, a blue search clear, disclosure
+   triangles, number spinners) differ by browser and ignore the theme. Each is drawn here instead; the controls
+   stay native, so keyboard, screen readers and the system's own select list work as before. */
+:is(select, input, textarea) { color-scheme: light; }
+:root[data-theme="dark"] :is(select, input, textarea) { color-scheme: dark; }
+::selection { background: color-mix(in srgb, var(--tp-accent) 24%, transparent); }
+
+/* Scrollbars: a thin rounded thumb on no track, the page's own border colour, and no arrow buttons. Chrome and Safari
+   draw it from the ::-webkit-scrollbar parts, which the standard properties would switch off (and bring the arrows
+   back), so those are for Firefox alone. */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--tp-border-strong) transparent; }
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--tp-border-strong) padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--tp-muted) padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Selects: the system arrow gives way to a chevron in the muted text colour, with room for it. */
+select:not([multiple]) {
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+  padding-inline-end: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%236a6f76' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 11px center;
+  background-size: 12px 12px;
+  background-repeat: no-repeat;
+}
+:root[data-theme="dark"] select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23a3a7ae' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+select:not([multiple]):hover { border-color: var(--tp-border-strong); }
+select:disabled { cursor: not-allowed; opacity: .6; }
+select option { background: var(--tp-bg); color: var(--tp-text); }
+
+/* Checkboxes: a rounded box that fills with the primary colour and a tick. */
+input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; flex: 0 0 auto;
+  display: inline-grid; place-content: center; width: 18px; height: 18px; margin: 0;
+  border: 1.5px solid var(--tp-border-strong); border-radius: 5px; background: var(--tp-bg);
+  cursor: pointer; transition: background .14s ease, border-color .14s ease;
+}
+input[type="checkbox"]::before {
+  content: ""; width: 10px; height: 10px; transform: scale(0); transition: transform .12s ease;
+  background: var(--tp-primary-text);
+  clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+}
+input[type="checkbox"]:hover { border-color: var(--tp-muted); }
+input[type="checkbox"]:checked { border-color: var(--tp-primary-bg); background: var(--tp-primary-bg); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .5; }
+
+/* Number fields type a number; there is no spinner to nudge it by one. */
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Search: no magnifier decoration, and the clear button a muted cross in the theme's colour. */
+input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-inline-start: 6px; cursor: pointer;
+  background: var(--tp-muted);
+  clip-path: polygon(20% 8%, 50% 38%, 80% 8%, 92% 20%, 62% 50%, 92% 80%, 80% 92%, 50% 62%, 20% 92%, 8% 80%, 38% 50%, 8% 20%);
+}
+input[type="search"]::-webkit-search-cancel-button:hover { background: var(--tp-text); }
+
+/* Disclosures: the triangle gives way to a chevron that turns as it opens. */
+summary { list-style: none; }
+summary::-webkit-details-marker { display: none; }
+.candidateDetails > summary::after, .policyPassed > summary::after {
+  content: ""; width: 6px; height: 6px; margin-inline-start: 8px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg); transition: transform .16s ease;
+}
+.candidateDetails[open] > summary::after, .policyPassed[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+.liveAck input[type="checkbox"] { margin-top: 1px; }

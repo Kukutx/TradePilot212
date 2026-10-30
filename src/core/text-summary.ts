@@ -64,7 +64,8 @@ function journalLine(entry: JournalEntry, withTicker = true): string {
     + `${entry.thesis ? `; why: ${quoted(entry.thesis)}` : ""}${entry.review ? `; review: ${quoted(entry.review)}` : ""}${entry.tags?.length ? `; tags ${entry.tags.join(", ")}` : ""}`;
 }
 
-const signedPct = (value: number) => `${value >= 0 ? "+" : ""}${num(value * 100, 1)}%`;
+// Signed by the figure shown: a move that rounds to 0 reads "+0%" either way, not "0%" for a tiny loss.
+const signedPct = (value: number) => { const shown = Math.round(value * 1000) / 10 || 0; return `${shown >= 0 ? "+" : ""}${num(shown, 1)}%`; };
 
 function tagStatsLine(row: JournalTagStats, currency: string, name = row.tag === undefined ? "(no tag)" : `#${row.tag}`): string {
   const edge = row.averageEdge === undefined ? "no price now" : `${row.inFavour}/${row.priced} in your favour, average ${signedPct(row.averageEdge)}`;
