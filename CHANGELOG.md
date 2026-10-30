@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.61.0
+
+- Against the market, on the Allocation tab: how the holdings move with the benchmark (`BENCHMARK`, the S&P 500 through SPY by default). Each holding's beta and correlation to it from a year of weekly closes, the holdings' beta together (their weights times their betas), the benchmark's volatility and its worst week with what today's mix did that week, and what a 5%, 10% and 20% fall in it would take by that beta, in the account currency and as a share of the account. Each holding is a bar from 0 with a mark at 1, with a table view. `analyze_portfolio_allocation` returns it as `risk.market`, its text gives the falls, and the risk-check skill reports them as history, not a forecast.
+
 ## 2.60.1
 
 - An order looked up by id opens on a page of its own (`get_order_status`): where it stands, how much of it filled as a bar, the average fill price and value, each fill, **Check again**, and **Review cancel** while it is open (with order tools); a cancellation made there comes back to the order, showing how it ended.
