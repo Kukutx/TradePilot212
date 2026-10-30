@@ -1,5 +1,7 @@
 # Portfolio analytics
 
+English · [简体中文](./zh-CN/ANALYTICS.md)
+
 TradePilot computes portfolio figures deterministically from Trading 212 data, so the model does not have to do arithmetic. All of these tools are read-only, except that `manage_history_export` can request a report (one already made that holds the period is given instead of a second) and `manage_trade_journal` and `manage_watchlist` write to TradePilot's own store.
 
 | Tool | What it returns | Trading 212 API permission |

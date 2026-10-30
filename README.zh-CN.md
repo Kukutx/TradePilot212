@@ -15,7 +15,7 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 - **异常可恢复**：写入结果不确定时不会自动重试，而是提供只读状态检查。
 - **界面可扩展**：支持内嵌/全屏、自适应桌面和移动端；订单审查使用正常文档流，不依赖固定 iframe 浮层；当前提供中文和英文。
 
-**先试用：** 打开样例数据，不需要 Trading 212 Key 就能在模拟账户上体验全部功能，然后再接入你的 Demo 账户。步骤见 [docs/TRY_IT.md](./docs/TRY_IT.md)（英文），下方“快速试用”有中文简版。
+**先试用：** 打开样例数据，不需要 Trading 212 Key 就能在模拟账户上体验全部功能，然后再接入你的 Demo 账户。步骤见 [docs/zh-CN/TRY_IT.md](./docs/zh-CN/TRY_IT.md)，下方“快速试用”有中文简版。
 
 ## 快速试用
 
@@ -31,41 +31,41 @@ TradePilot 212 是一个面向 Trading 212 Invest 的自托管 MCP 应用。它�
 ## 功能
 
 - Trading 212 Invest 账户概览、持仓、待处理订单和近期 TradePilot 操作记录
-- 持仓可以看列表，也可以看热力图：列表能按市值、当日涨跌、盈亏或名称排序；热力图每个持仓一块，面积按市值，颜色按当日涨跌或持有以来的收益，点一块就进入该持仓的页面（[docs/ANALYTICS.md](./docs/ANALYTICS.md#the-holdings-map)）
-- 每个持仓和整个账户的当日涨跌：现价对比前一交易日收盘价，盈亏换算成账户币种，当天买卖的股数按成交价计算；开盘前和周末显示上个交易日的涨跌。持仓详情页也显示该标的的当日涨跌，每日摘要开头就是它（[docs/ANALYTICS.md](./docs/ANALYTICS.md#the-days-move)）
+- 持仓可以看列表，也可以看热力图：列表能按市值、当日涨跌、盈亏或名称排序；热力图每个持仓一块，面积按市值，颜色按当日涨跌或持有以来的收益，点一块就进入该持仓的页面（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#the-holdings-map)）
+- 每个持仓和整个账户的当日涨跌：现价对比前一交易日收盘价，盈亏换算成账户币种，当天买卖的股数按成交价计算；开盘前和周末显示上个交易日的涨跌。持仓详情页也显示该标的的当日涨跌，每日摘要开头就是它（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#the-days-move)）
 - 每个持仓一页：持仓和占账户比例、过去一年日线价格走势图（标出你的买卖点，成本价、挂单止损限价和提醒价横线）、同样价位的价格阶梯、过去一年成交和分红，以及它的交易日志
-- 自选列表：持有和没持有的标的都能加，显示现价、1日/1月/3月/1年涨跌、三个月走势小图、在 12 个月区间里的位置、最近一笔挂单或提醒还差多少、加入以来涨跌和你的备注；可从搜索或任意标的页加入（[docs/WATCHLIST.md](./docs/WATCHLIST.md)）
-- 交易日志：下单时写下理由，或事后补在成交上，之后再写复盘；存在 TradePilot 里并关联 Trading 212 订单。“日志”标签页把每条理由和这笔交易之后的走势对照，按标签统计你的判断有多少次对了（[docs/JOURNAL.md](./docs/JOURNAL.md)）
-- 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录（含已撤销和被拒的订单）、逐笔股息与资金流水，以及仓位集中度（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
+- 自选列表：持有和没持有的标的都能加，显示现价、1日/1月/3月/1年涨跌、三个月走势小图、在 12 个月区间里的位置、最近一笔挂单或提醒还差多少、加入以来涨跌和你的备注；可从搜索或任意标的页加入（[docs/zh-CN/WATCHLIST.md](./docs/zh-CN/WATCHLIST.md)）
+- 交易日志：下单时写下理由，或事后补在成交上，之后再写复盘；存在 TradePilot 里并关联 Trading 212 订单。“日志”标签页把每条理由和这笔交易之后的走势对照，按标签统计你的判断有多少次对了（[docs/zh-CN/JOURNAL.md](./docs/zh-CN/JOURNAL.md)）
+- 基于 Trading 212 历史数据计算收益、分红和利息收入、交易费用、成交记录（含已撤销和被拒的订单）、逐笔股息与资金流水，以及仓位集中度（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md)）
 - 在对话里跟进订单：查询单个订单的状态和成交明细；发起撤单后在界面里由你确认
 - 交易时段感知：休市时下市价单会提示订单将排队到下次开盘
-- 规则引擎：单一持仓占比上限、每日下单笔数和金额预算、标的和品种白名单/黑名单、休市禁止市价单、参考价时效（[docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)）
+- 规则引擎：单一持仓占比上限、每日下单笔数和金额预算、标的和品种白名单/黑名单、休市禁止市价单、参考价时效（[docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md#policy-engine)）
 - 组合篮子：最多 20 笔订单一起校验、一次确认，先卖后买，遇到结果不确定的订单就停止发送剩余订单
-- 按目标权重再平衡：根据券商价格和可用现金算出买卖数量；目标可以直接在界面里设置（手动输入，或填入今天的权重、等权重、风险平价权重，还可以搜索添加还没持有的标的，边输入边算出这组目标下的波动率），也可以让助手设置；保存的目标在界面里显示偏离，偏离超过阈值时提醒，一键再平衡（全部调到目标，或只调偏离超过阈值的），或只买不卖把闲置现金投给低配的标的；调仓计划、偏离面板和目标表单都会给出要买卖的金额，以及按 Trading 212 的 0.15% 汇兑费估算的费用（[docs/AUTOMATION.md](./docs/AUTOMATION.md#saved-targets-and-drift-notices)）
+- 按目标权重再平衡：根据券商价格和可用现金算出买卖数量；目标可以直接在界面里设置（手动输入，或填入今天的权重、等权重、风险平价权重，还可以搜索添加还没持有的标的，边输入边算出这组目标下的波动率），也可以让助手设置；保存的目标在界面里显示偏离，偏离超过阈值时提醒，一键再平衡（全部调到目标，或只调偏离超过阈值的），或只买不卖把闲置现金投给低配的标的；调仓计划、偏离面板和目标表单都会给出要买卖的金额，以及按 Trading 212 的 0.15% 汇兑费估算的费用（[docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md#saved-targets-and-drift-notices)）
 - 券商原生止损和止盈单（GTC，长期有效），两张联动：一张成交后 TradePilot 自动撤另一张
-- 挂单成交通知（包括在 Trading 212 App 里下的单）：全部成交（附均价）、部分成交、未成交就关闭，写进操作记录并推送到 webhook（[docs/AUTOMATION.md](./docs/AUTOMATION.md#order-fill-notices)）
+- 挂单成交通知（包括在 Trading 212 App 里下的单）：全部成交（附均价）、部分成交、未成交就关闭，写进操作记录并推送到 webhook（[docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md#order-fill-notices)）
 - 每周或每月定投计划：到期后等你确认，每一项可以用市价单，或用限价单封顶以防跳空高开；也可以按保存的目标权重分配一笔金额，最低配的买得最多；Demo 计划可以选择无人值守自动执行
-- Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/PIES.md](./docs/PIES.md)）
+- Trading 212 Pies：查看每个 Pie 的市值、收益、股息、目标进度，以及每个成分的目标占比和实际偏离；确认后可新建、修改、复制、删除 Pie（[docs/zh-CN/PIES.md](./docs/zh-CN/PIES.md)）
 - 价格提醒（持仓或任何能取到外部报价的标的）：高于或低于某价格、当日相对前收盘涨跌超过一定比例（每个交易日自动重新启用）、从最高点回撤一定比例（移动止损式提醒）、相对成本价盈利或亏损一定比例，每分钟检查
-- 账户提醒：账户总值或可用现金不低于或不高于某个金额，或整个账户单日涨跌达到一定比例（任一方向，每个交易日自动重新启用）；在“自动化”页添加，也可以直接让 Claude 设置（[docs/AUTOMATION.md](./docs/AUTOMATION.md#account-alerts)）
-- 内置样例账户（`TRADEPILOT_SAMPLE_DATA=true`），不需要 API Key 就能试用全部功能（[docs/TRY_IT.md](./docs/TRY_IT.md)）
+- 账户提醒：账户总值或可用现金不低于或不高于某个金额，或整个账户单日涨跌达到一定比例（任一方向，每个交易日自动重新启用）；在“自动化”页添加，也可以直接让 Claude 设置（[docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md#account-alerts)）
+- 内置样例账户（`TRADEPILOT_SAMPLE_DATA=true`），不需要 API Key 就能试用全部功能（[docs/zh-CN/TRY_IT.md](./docs/zh-CN/TRY_IT.md)）
 - 未持仓标的的外部报价，数据源可插拔：默认免费的 Stooq，无需注册；也可以填自己的 Finnhub、Twelve Data 或 Alpha Vantage Key。价格提醒、自选列表、未持有标的的详情页、定投、再平衡和日志复盘都能用
 - 可选的 webhook 通知（Slack、Discord 或你自己的接口）：计划到期、订单发出、止损止盈成交、价格提醒和账户提醒、结果不确定时都会推送；还可以每天推一条账户摘要，包括当日涨跌、上次摘要以来到账的分红和未来一周预计的分红
 - 界面里的“自动化”页：定投计划、价格提醒和账户提醒、联动的止损止盈、今日额度使用和各项设置一目了然
 - 根据每只持仓过去 12 个月的派息，预计未来 12 个月的股息收入；分红日历按月显示本月已到账和预计金额，列出每笔预计分红的大概日期，持仓页也会显示这只标的接下来的分红
 - 账户市值走势图，来自 TradePilot 自己每天的记录（Trading 212 的 API 没有历史市值）
-- 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
-- 风险指标：业绩页给出年化波动率、收益 ÷ 波动、相对基准的 Beta 和相关系数、单日最大涨跌幅，以及每日涨跌分布图（[docs/ANALYTICS.md](./docs/ANALYTICS.md#risk)）
-- 风险平价权重：配置页给出让每个持仓贡献相同风险份额的权重（相关性向平均值收缩，防止追着噪声走），和今天的权重并排对比；可以一键把调仓生成为待检查的订单篮，确认前不发送（[docs/ANALYTICS.md](./docs/ANALYTICS.md#equal-risk-weights)）
-- 当前持仓回看一年：配置页按今天的持仓比例回看过去一年，给出收益、“20 周一遇的糟糕周”（历史 95% VaR，含按今天市值折算的金额）、最差一周和最大回撤（[docs/ANALYTICS.md](./docs/ANALYTICS.md#todays-mix-over-the-year)）
-- 持仓风险分布：配置页按最近一年的周收盘价，给出每个持仓的风险占比和市值占比、组合波动率、分散度，以及最大几个持仓之间的相关系数（[docs/ANALYTICS.md](./docs/ANALYTICS.md#risk-by-holding)）
-- 持仓走势：持仓详情页画出该持仓每天收盘时的市值，并和“净投入”（期初持股按当天收盘价计，加买入减卖出）的虚线对比，看出价格本身为这笔持仓赚了或亏了多少，不受买卖影响（[docs/ANALYTICS.md](./docs/ANALYTICS.md#your-position)）
-- 月度收益：按月、按年的时间加权收益，用红绿深浅的年×月表格展示（[docs/ANALYTICS.md](./docs/ANALYTICS.md#monthly-returns)）
-- 回撤：时间加权收益距前高的最大跌幅、哪天回到前高、目前比高点低多少，以及同期指数基金的最大回撤，在收益图里切到“回撤”查看（[docs/ANALYTICS.md](./docs/ANALYTICS.md#drawdown)）
-- 收益来源：近 1 个月、3 个月、今年、12 个月或全部历史里，每个标的赚了或亏了多少（现值对比期初市值，加减买入、卖出和分红），画成零线两侧的条形图（[docs/ANALYTICS.md](./docs/ANALYTICS.md#gain-by-instrument)）
-- 年化资金加权收益（XIRR），以及按税务年度汇总：已实现盈利和亏损分开列、股息、利息和费用（[docs/ANALYTICS.md](./docs/ANALYTICS.md)）
-- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进、再平衡和税务年度七个 skill（[docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)）
-- 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/TRY_IT.md](./docs/TRY_IT.md#preview-the-ui-locally)）
+- 时间加权收益，可以和同期指数基金对比：默认是标普 500，也可以选你持有或自选里的任意 ETF，在收益图上画成第二条线，并给出跑赢或跑输多少个百分点（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md)）
+- 风险指标：业绩页给出年化波动率、收益 ÷ 波动、相对基准的 Beta 和相关系数、单日最大涨跌幅，以及每日涨跌分布图（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#risk)）
+- 风险平价权重：配置页给出让每个持仓贡献相同风险份额的权重（相关性向平均值收缩，防止追着噪声走），和今天的权重并排对比；可以一键把调仓生成为待检查的订单篮，确认前不发送（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#equal-risk-weights)）
+- 当前持仓回看一年：配置页按今天的持仓比例回看过去一年，给出收益、“20 周一遇的糟糕周”（历史 95% VaR，含按今天市值折算的金额）、最差一周和最大回撤（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#todays-mix-over-the-year)）
+- 持仓风险分布：配置页按最近一年的周收盘价，给出每个持仓的风险占比和市值占比、组合波动率、分散度，以及最大几个持仓之间的相关系数（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#risk-by-holding)）
+- 持仓走势：持仓详情页画出该持仓每天收盘时的市值，并和“净投入”（期初持股按当天收盘价计，加买入减卖出）的虚线对比，看出价格本身为这笔持仓赚了或亏了多少，不受买卖影响（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#your-position)）
+- 月度收益：按月、按年的时间加权收益，用红绿深浅的年×月表格展示（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#monthly-returns)）
+- 回撤：时间加权收益距前高的最大跌幅、哪天回到前高、目前比高点低多少，以及同期指数基金的最大回撤，在收益图里切到“回撤”查看（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#drawdown)）
+- 收益来源：近 1 个月、3 个月、今年、12 个月或全部历史里，每个标的赚了或亏了多少（现值对比期初市值，加减买入、卖出和分红），画成零线两侧的条形图（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md#gain-by-instrument)）
+- 年化资金加权收益（XIRR），以及按税务年度汇总：已实现盈利和亏损分开列、股息、利息和费用（[docs/zh-CN/ANALYTICS.md](./docs/zh-CN/ANALYTICS.md)）
+- Claude Code 插件：本地 stdio 服务，附带复盘、简报、风险检查、交易日志、订单跟进、再平衡和税务年度七个 skill（[docs/zh-CN/CLAUDE_PLUGIN.md](./docs/zh-CN/CLAUDE_PLUGIN.md)）
+- 本地界面预览（`pnpm preview`）：在样例账户上打开真实的界面，可切换中英文、深浅色和屏幕宽度（[docs/zh-CN/TRY_IT.md](./docs/zh-CN/TRY_IT.md#preview-the-ui-locally)）
 - Demo / Live 独立凭据和独立状态提示
 - 短期 / 中期 / 长期交易计划卡片
 - 可展开查看核心逻辑、催化剂、风险、反方观点、来源和数据时间
@@ -191,7 +191,7 @@ OAuth 页面要求输入你自己 `.env.local` 里的 `APP_LOGIN_PASSWORD`。不
 /plugin install tradepilot212 --marketplace Kukutx/TradePilot212
 ```
 
-安装时会提示填写 Trading 212 API Key（保存在系统凭据库中）。下单工具默认关闭，原因和用法见 [docs/CLAUDE_PLUGIN.md](./docs/CLAUDE_PLUGIN.md)。
+安装时会提示填写 Trading 212 API Key（保存在系统凭据库中）。下单工具默认关闭，原因和用法见 [docs/zh-CN/CLAUDE_PLUGIN.md](./docs/zh-CN/CLAUDE_PLUGIN.md)。
 
 连接后可以直接用自然语言：
 
@@ -232,7 +232,7 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
 
 如果写请求超时，或 Trading 212 返回无法确定执行结果的服务端错误，TradePilot **不会再次发送原请求**。界面会提供只读状态检查，用当前待处理订单和持仓变化判断是否存在执行迹象。如果仍无法确认，就保持“不确定”，不会擅自转换成重试。
 
-具体规则见 [docs/ORDERING.md](./docs/ORDERING.md)。
+具体规则见 [docs/zh-CN/ORDERING.md](./docs/zh-CN/ORDERING.md)。
 
 ## 自动化级别
 
@@ -245,7 +245,7 @@ TradePilot 会把自然语言请求解析成 Trading 212 能接受的标准数�
 
 价格提醒、账户提醒和 webhook 通知在任何级别都可用，它们只通知，不会下单。
 
-Live 账户永远不会无人值守下单，这一点写在代码里，不能通过配置打开。唯一的 Live 无人值守写操作，是止损/止盈其中一张成交后撤销另一张（可用 `PROTECTIVE_OCO=false` 关闭）。Live 单笔订单和篮子还需要勾选“使用真实资金”作为第二次确认。市场研究和新闻仍由定时的 ChatGPT 或 Claude 任务完成。详见 [docs/AUTOMATION.md](./docs/AUTOMATION.md)。
+Live 账户永远不会无人值守下单，这一点写在代码里，不能通过配置打开。唯一的 Live 无人值守写操作，是止损/止盈其中一张成交后撤销另一张（可用 `PROTECTIVE_OCO=false` 关闭）。Live 单笔订单和篮子还需要勾选“使用真实资金”作为第二次确认。市场研究和新闻仍由定时的 ChatGPT 或 Claude 任务完成。详见 [docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md)。
 
 ## 常用配置
 
@@ -278,7 +278,7 @@ POLICY_ALLOWED_TYPES=ETF,STOCK
 POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 ```
 
-全部规则变量见 [docs/AUTOMATION.md](./docs/AUTOMATION.md#policy-engine)。
+全部规则变量见 [docs/zh-CN/AUTOMATION.md](./docs/zh-CN/AUTOMATION.md#policy-engine)。
 
 通知是可选的：
 
@@ -370,7 +370,7 @@ React App UI ← MCP App Resource
 
 核心业务代码不依赖 Node 文件系统或 Cloudflare API，运行时差异集中在 `src/adapters/`。
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+详见 [docs/zh-CN/ARCHITECTURE.md](./docs/zh-CN/ARCHITECTURE.md)。
 
 ## 自托管模型
 
@@ -381,7 +381,7 @@ React App UI ← MCP App Resource
 
 不要把自己的已部署 Worker 作为公共地址提供给无关用户。真正的多用户托管服务需要独立身份、凭据隔离和租户授权体系，这不属于本仓库的默认架构。
 
-详见 [docs/PUBLISHING.md](./docs/PUBLISHING.md)。
+详见 [docs/zh-CN/PUBLISHING.md](./docs/zh-CN/PUBLISHING.md)。
 
 ## 调用限速
 

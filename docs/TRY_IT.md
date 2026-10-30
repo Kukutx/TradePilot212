@@ -1,5 +1,7 @@
 # Try TradePilot
 
+English · [简体中文](./zh-CN/TRY_IT.md)
+
 Three ways to check that TradePilot works for you, from quickest to most complete. None of them touches a real-money account.
 
 | | Needs | You see |

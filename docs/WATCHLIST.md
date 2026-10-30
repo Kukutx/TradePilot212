@@ -1,5 +1,7 @@
 # Watchlist
 
+English · [简体中文](./zh-CN/WATCHLIST.md)
+
 The watchlist follows instruments you hold or not: how each one's price is moving, where it sits in its year, and how close it is to the orders and alerts you have on it. Trading 212's Public API has no watchlists, so TradePilot keeps its own, per account, in the store that keeps price alerts and plans. It is never sent to Trading 212 and places nothing.
 
 ## Adding and removing
