@@ -25,6 +25,7 @@ import { scheduleStart } from "./dividends.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
 import { Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
+import { summarizeExport, type ExportSummary } from "./export-csv.js";
 import { accountName, ledgerPrefix, recordKey, SETTLE_MS, union, type HistoryLedgers, type LedgerPending, type LedgerSegment } from "./history-ledger.js";
 
 export interface InsightsDeps {
@@ -589,12 +590,72 @@ export class InsightsService {
 
   listExports(environment: TradingEnvironment): Promise<ExportReport[]> { return this.client(environment).listExports(); }
 
-  requestExport(environment: TradingEnvironment, window: HistoryWindow) {
+  /**
+   * Asks Trading 212 for a CSV report of the window, unless one of the same period (its start on the same day, its
+   * end within a day) is queued, being built or finished: that one is given instead, as `reused`, rather than a
+   * second report of the same records (Trading 212 allows one request in 30 seconds).
+   */
+  async requestExport(environment: TradingEnvironment, window: HistoryWindow): Promise<{ reportId: number; reused?: ExportReport }> {
     const timeFrom = (window.from ?? new Date(window.to.getTime() - 365 * 86_400_000)).toISOString();
-    return this.client(environment).requestExport({
-      timeFrom, timeTo: window.to.toISOString(),
+    const timeTo = window.to.toISOString();
+    const client = this.client(environment);
+    const reports = await client.listExports().catch(() => [] as ExportReport[]);
+    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && report.timeFrom && report.timeTo
+      && report.timeFrom.slice(0, 10) === timeFrom.slice(0, 10) && Math.abs(Date.parse(report.timeTo) - Date.parse(timeTo)) <= 86_400_000);
+    if (same) return { reportId: same.reportId, reused: same };
+    return client.requestExport({
+      timeFrom, timeTo,
       dataIncluded: { includeDividends: true, includeInterest: true, includeOrders: true, includeTransactions: true },
     });
   }
+
+  /**
+   * Downloads a finished report (the newest, or `reportId`) and reads it: what each kind of row adds up to, and the
+   * charges, interest and dividends it holds. A report not finished yet gives its status. Read files are kept for the
+   * process's life: a finished report does not change.
+   */
+  async readExport(environment: TradingEnvironment, reportId?: number): Promise<ExportRead> {
+    const reports = await this.client(environment).listExports();
+    const finished = (report: ExportReport) => /finish|complete|ready/i.test(report.status ?? "") && Boolean(report.downloadLink);
+    const report = reportId !== undefined
+      ? reports.find((item) => item.reportId === reportId)
+      : [...reports].filter(finished).sort((a, b) => b.reportId - a.reportId)[0];
+    if (!report) fail("INVALID_INPUT", reportId !== undefined ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no finished report yet: request one, then read it once it is finished.");
+    if (!finished(report)) return { report };
+    const key = `${environment}:${report.reportId}`;
+    let read = this.exportReads.get(key);
+    if (!read) {
+      read = this.download(report.downloadLink!).then(summarizeExport);
+      this.exportReads.set(key, read);
+      read.catch(() => this.exportReads.delete(key));
+      if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value!);
+    }
+    return { report, ...(await read) };
+  }
+
+  private readonly exportReads = new Map<string, Promise<ReturnType<typeof summarizeExport>>>();
+
+  /** The report's file, from Trading 212's storage: over https, no API key sent, MAX_EXPORT_BYTES at most. */
+  private async download(link: string): Promise<string> {
+    const url = new URL(link);
+    if (url.protocol !== "https:") fail("BROKER_REQUEST_FAILED", "The report's download link is not https, so it is not read.");
+    const response = await (this.deps.fetcher ?? globalThis.fetch)(url.toString(), { redirect: "follow" });
+    if (!response.ok) fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (HTTP ${response.status}); its link may have expired: list the reports again for a new one.`);
+    const size = Number(response.headers.get("content-length") ?? NaN);
+    if (size > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", `The report is ${Math.round(size / 1_000_000)} MB, more than TradePilot reads; request a shorter period.`);
+    const text = await response.text();
+    if (text.length > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads; request a shorter period.");
+    return text;
+  }
 }
+
+/** A report and, once finished, what it holds. */
+export interface ExportRead {
+  report: ExportReport;
+  summary?: ExportSummary;
+  records?: Array<Record<string, string>>;
+}
+
+/** The largest report file read. */
+const MAX_EXPORT_BYTES = 25_000_000;
 

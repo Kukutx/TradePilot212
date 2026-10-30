@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.57.0
+
+- Reads Trading 212's CSV report. `manage_history_export` gains `read`: it downloads a finished report (the newest, or `reportId`) and adds it up, giving the rows and Total of each action (Market buy, Dividend (Ordinary), Interest on cash, Deposit …) and, per currency, the charges the API history does not itemise (currency conversion fees, stamp duty reserve tax, French transaction tax, withholding tax), interest, dividends and realised result. `rows` returns up to 200 of the report's rows as well. The file is read by its header, so the columns a period lacks and the older files that put the currency in the header are read too. It is fetched over https from Trading 212's storage without the API key, up to 25 MB, and read once per process.
+- Asking twice no longer builds two reports: `request` gives a report of the same period (its start on the same day, its end within a day) that is queued, being built or finished, instead of asking Trading 212 for another. The tax-year skill reads the report for the withholding and charges a return may need.
+
 ## 2.56.0
 
 - History is read once and kept. Trading 212's history records are final, so TradePilot now keeps what it reads, per account and kind (orders, dividends, cash movements), up to 10,000 of each. Reads that reach back more than 60 days (performance, tax year, income, journal, all-time trade history) read the newest records down to what is kept, then spend the rest of their `maxPages` going further back from where the last one stopped. They therefore reach further back with every call instead of stopping at the same 2,000 records, and once the whole history is kept a read asks only for the records since the last one and the three days before it.

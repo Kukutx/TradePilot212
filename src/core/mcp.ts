@@ -535,20 +535,36 @@ export function createMcpServer(
     {
       title: "Trading 212 CSV Export",
       description:
-        "List Trading 212 CSV history reports with their download links, or request a new report for a period (orders, dividends, interest and transactions). Requesting a report does not trade; the broker builds it asynchronously, so list again later for the link.",
-      inputSchema: z.object({ environment: environmentWithDefault, action: z.enum(["list", "request"]).default("list"), ...windowSchema }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        "Trading 212's CSV history reports (orders, dividends, interest and transactions). `list` gives them with their download links. `request` asks for one of a period; it does not trade, and a report of the same period already queued or finished is given instead of a second one. The broker builds it in a minute or so. `read` downloads a finished report (the newest, or `reportId`) and adds it up: rows and Total per action, the charges the API history does not itemise (currency conversion fees, stamp duty, French transaction tax, withholding tax), interest, dividends and realised result, per currency; `rows` also returns up to that many of its rows.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        action: z.enum(["list", "request", "read"]).default("list"),
+        ...windowSchema,
+        reportId: z.number().int().optional().describe("read: the report to read; the newest finished one when left out."),
+        rows: z.number().int().min(0).max(200).default(0).describe("read: how many of the report's rows to return as well, newest last as in the file."),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       _meta: {},
     },
-    async ({ environment, action, period, from, to }) => {
+    async ({ environment, action, period, from, to, reportId, rows }) => {
       try {
         if (action === "request") {
           // Requesting a report is a broker write, so it needs the same write access as orders.
-          if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing existing reports works without it."));
+          if (!canWrite) return toolError(new Error("Requesting a new export needs order tools enabled (trade:write). Listing and reading existing reports works without it."));
           const window = parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) });
           const created = await insights.requestExport(environment, window);
+          if (created.reused) {
+            const status = created.reused.status ?? "queued";
+            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} of the same period is already ${status.toLowerCase()}, so no second one was requested.${/finish/i.test(status) ? " Read it with action read." : " List or read it in a minute."}`);
+          }
           const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} List exports again in a minute for the download link.`);
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read in a minute or so.`);
+        }
+        if (action === "read") {
+          const read = await insights.readExport(environment, reportId);
+          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${(read.report.status ?? "not ready").toLowerCase()}; read it again once it is finished.`);
+          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...(rows ? { records: read.records!.slice(0, rows), recordCount: read.records!.length } : {}) };
+          return result(payload, `Read report ${read.report.reportId}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);

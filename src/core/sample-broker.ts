@@ -298,9 +298,37 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     return json({ code: "NotFound", path }, 404);
   };
 
+  /** A report as Trading 212 writes it: the period's fills, dividends and cash movements, oldest first. */
+  const report = (from: string, to: string) => {
+    const header = "Action,Time,ISIN,Ticker,Name,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Currency conversion fee,Currency (Currency conversion fee)";
+    const time = (iso: string) => iso.replace("T", " ").slice(0, 19);
+    const quote = (text: unknown) => (/[",]/.test(String(text)) ? `"${String(text).replace(/"/g, "\"\"")}"` : String(text ?? ""));
+    const rows: Array<[string, string]> = [];
+    for (const item of history) {
+      const order = item.order as Json, fill = item.fill as Json, impact = fill.walletImpact as Json;
+      const ticker = String(order.ticker), currency = instrumentOf(ticker)?.currencyCode ?? "EUR", quantity = Number(fill.quantity);
+      const fee = currency === "EUR" ? "" : round(Number(impact.netValue) * 0.0015);
+      rows.push([String(fill.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time(String(fill.filledAt)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill.id}`, Math.abs(quantity), fill.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
+    }
+    for (const item of dividends) {
+      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity);
+      rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", round(gross * 0.15), item.tickerCurrency, "", ""].join(",")]);
+    }
+    for (const item of transactions) {
+      const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST" ? "Interest on cash" : String(item.type);
+      rows.push([String(item.dateTime), [action, time(String(item.dateTime)), "", "", "", String(item.reference), "", "", "", "", "", "", item.amount, "EUR", "", "", "", ""].join(",")]);
+    }
+    const inside = rows.filter(([at]) => at >= from && at <= to).sort(([a], [b]) => a.localeCompare(b));
+    return [header, ...inside.map(([, row]) => row)].join("\n") + "\n";
+  };
+
   return async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const base = new URL(SAMPLE_BASE_URL);
+    if (url.host === base.host && /^\/report-\d+\.csv$/.test(url.pathname)) {
+      const listed = exports.find((item) => item.downloadLink === url.href);
+      return listed ? new Response(report(String(listed.timeFrom), String(listed.timeTo)), { headers: { "content-type": "text/csv" } }) : new Response("Not found", { status: 404 });
+    }
     if (url.host !== base.host) return passthrough(input, init);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
