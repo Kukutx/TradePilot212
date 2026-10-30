@@ -78,6 +78,15 @@ describe("native controls", () => {
     expect(css).toMatch(/select:not\(\[multiple\]\)\s*\{[^}]*appearance: none/s);
     expect(css).toMatch(/input\[type="checkbox"\]\s*\{[^}]*appearance: none/s);
     expect(css).toMatch(/input\[type="number"\]\s*\{[^}]*appearance: textfield/);
+    // Search and date boxes are drawn as the other text boxes (pnpm audit:ui finds any control left out).
+    expect(css).toMatch(/input\[type="search"\]\s*\{[^}]*appearance: none/);
+    expect(css).toMatch(/\.field input\[type="date"\]\s*\{[^}]*appearance: none/);
+    // <small> is never drawn under 12px, however small its parent's text.
+    expect(css).toContain("small { font-size: max(12px, .85em); }");
+    // Links inside text and sortable headers are still 24px targets (WCAG 2.5.8); the day's move keeps full contrast.
+    expect(css).toMatch(/\.inlineLink \{[^}]*min-width: 24px; min-height: 24px/);
+    expect(css).toMatch(/\.sortHeader \{[^}]*min-width: 24px; min-height: 24px/);
+    expect(css).toMatch(/\.dayCell small \{(?![^}]*opacity)[^}]*\}/);
     expect(css).toContain("::-webkit-search-cancel-button");
     // A search box draws its own clear button (Firefox has none), so the browser's is hidden there.
     expect(css).toContain(".searchField input::-webkit-search-cancel-button { display: none; }");

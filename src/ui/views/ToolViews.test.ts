@@ -20,7 +20,8 @@ describe("the order status page", () => {
     expect(html).toContain("Partly filled");
     expect(html).toContain("1 / 4");
     expect(html).toContain('aria-valuenow="0.25"');
-    expect(html).toContain("Limit price $210.00");
+    // "Limit $210.00", not "Limit · Limit price $210.00".
+    expect(html).toContain("<b class=\"orderSide buy\">Buy</b> 4 · Limit $210.00</small>");
     expect(html).toContain(">Review cancel</button>");
     // Without order tools the page only reads.
     expect(render({ ...base, state: "open", order: { id: 42, ticker: "AAPL_US_EQ", quantity: 1 }, fills: [] }, false)).not.toContain("Review cancel");

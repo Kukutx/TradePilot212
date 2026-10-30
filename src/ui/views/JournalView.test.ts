@@ -48,7 +48,7 @@ describe("journal review view", () => {
     const html = render(review);
     expect(html).toContain('<strong class="heroValue positive">+4.0%</strong>');
     expect(html).toContain("Went your way · 1 of 2");
-    expect(html).toContain("<strong>1 of 2</strong>");
+    expect(html).toContain('<strong title="1 of 2">1 of 2</strong>');
     expect(html).toContain('<span class="edgeBadge positive">38.9% your way</span>');
     expect(html).toContain('<span class="edgeBadge negative">30.7% against you</span>');
     expect(html).toContain("Realised +€36.00");

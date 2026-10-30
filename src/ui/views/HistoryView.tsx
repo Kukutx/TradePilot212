@@ -196,7 +196,7 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
                       {item.realisedProfitLoss ? <small className={signedClass(item.realisedProfitLoss)}>{fill(t("holdingRealized"), { amount: money(item.realisedProfitLoss, item.accountCurrency ?? currency, locale, { signed: true }) })}</small>
                         : item.costs > 0 ? <small>{fill(t("historyCostOf"), { amount: money(item.costs, item.accountCurrency ?? currency, locale) })}</small> : null}
                     </div>
-                    {text && <p className="fillNote"><span>{t(note?.thesis ? "journalWhy" : "journalReview")}</span>{text}</p>}
+                    {text && <p className="fillNote" title={text}><span>{t(note?.thesis ? "journalWhy" : "journalReview")}</span>{text}</p>}
                   </li>
                 );
               })}

@@ -310,7 +310,8 @@ function ViewTabs({ tab, history, busy, t, onSelect }: { tab: PortfolioTab; hist
   }, [tab]);
   return (
     <div className={`tabStrip${edges.start ? " fadeStart" : ""}${edges.end ? " fadeEnd" : ""}`}>
-      <nav className="viewTabs" aria-label={t("viewsLabel")} ref={nav}>
+      {/* A tab reached with the keyboard scrolls into view, ring and all. */}
+      <nav className="viewTabs" aria-label={t("viewsLabel")} ref={nav} onFocus={(event) => event.target.scrollIntoView?.({ inline: "nearest", block: "nearest" })}>
         {TABS.map((key) => {
           const target: PortfolioTab = key === "history" ? history : key;
           const active = key === "history" ? isHistory(tab) : tab === key;

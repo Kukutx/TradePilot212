@@ -63,6 +63,8 @@
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; width: 100%; min-width: 0; }
 body { background: transparent; overflow-x: hidden; }
+/* The browser draws <small> a size smaller (under 11px beside 13px text); never under the widget's 12px. */
+small { font-size: max(12px, .85em); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled, .segmented button[aria-disabled="true"], .linkButton[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
@@ -230,7 +232,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dayLine .daySince { flex-basis: 100%; color: var(--tp-muted); font-size: 12px; }
 .dayCell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; line-height: 1.2; }
 .dayCell strong { font-size: 13px; font-weight: 700; }
-.dayCell small { font-size: 12px; font-weight: 600; opacity: .85; }
+.dayCell small { font-size: 12px; font-weight: 600; }
 .dayCell.inline { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .dayCell .daySince { flex-basis: 100%; color: var(--tp-muted); font-weight: 500; opacity: 1; }
 .positionDay { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--tp-border); font-size: 13px; }
@@ -373,7 +375,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .fillNote span { margin-right: 6px; color: var(--tp-muted); font-weight: 700; }
 .fillNoteForm { flex: 1 0 100%; }
 .fillNoteForm .alertForm { margin: 2px 0 0; }
-.inlineLink { padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.inlineLink { min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .inlineLink:hover { color: var(--tp-text); }
 .inlineLink:disabled { cursor: default; opacity: .6; }
 /* Journal review: how each noted trade has gone since, and per tag how often the reasons went your way. */
@@ -732,7 +734,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .rangeNote { margin: 0; color: var(--tp-muted); font-size: 12px; }
 .rangeActions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .rangeActions .linkButton { margin-right: auto; }
-.field input[type="date"] { min-height: 44px; font-variant-numeric: tabular-nums; }
+.field input[type="date"] { -webkit-appearance: none; appearance: none; min-height: 44px; font-variant-numeric: tabular-nums; }
 .field input[type="date"]::-webkit-calendar-picker-indicator {
   width: 18px; height: 18px; padding: 2px; border-radius: 6px; cursor: pointer; opacity: 1;
   background: var(--tp-muted);
@@ -755,6 +757,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .linkButton:hover { color: var(--tp-text); }
 .chartTable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .chartTable th, .chartTable td { padding: 7px 4px; border-bottom: 1px solid var(--tp-border); text-align: left; }
+.chartTable td small { color: var(--tp-muted); }
 .chartTable td:last-child, .chartTable th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .ukTable td:nth-child(2), .ukTable th:nth-child(2) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ukTable td:first-child strong { display: block; font-weight: 650; }
@@ -903,7 +906,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 
 .flagList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .flagList li { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 13px; }
-.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #fff; font-size: 13px; font-weight: 800; }
+.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #1c1d20; font-size: 13px; font-weight: 800; }
 
 .factList { display: grid; gap: 2px; }
 .factList > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); font-size: 13px; }
@@ -1213,7 +1216,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .holdingsToolbar .segmented button { min-height: 32px; padding: 0 12px; }
 .sortSelect { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .sortSelect select { min-height: 36px; max-width: 100%; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 600; }
-.sortHeader { position: relative; display: inline-flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+.sortHeader { position: relative; display: inline-flex; align-items: center; min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
 .sortHeader:hover, .sortHeader.active { color: var(--tp-text); }
 .sortHeader:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The arrow takes no width, so sorting never widens the table: before a right-aligned label, after the first one. */
@@ -1555,7 +1558,8 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .5; }
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
-/* Search: no magnifier decoration, and the clear button a muted cross in the theme's colour. */
+/* Search: drawn as the other text boxes (Safari would round it), no magnifier decoration, and the clear button a muted cross in the theme's colour. */
+input[type="search"] { -webkit-appearance: none; appearance: none; }
 input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 input[type="search"]::-webkit-search-cancel-button {
   -webkit-appearance: none; width: 14px; height: 14px; margin-inline-start: 6px; cursor: pointer;
@@ -1691,6 +1695,7 @@ strong.historyAmount { flex: none; font-size: 13px; }
 /* Pages for one order and for the CSV reports. */
 .statusPill.ended { background: var(--tp-red-soft); color: var(--tp-red); }
 .orderStatusWho { margin-top: 6px; }
+.orderStatusWho small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 13px; }
 .orderStatusWho strong, .orderStatusWho .reviewName { font-size: 18px; }
 .orderFillMeter { margin-top: 14px; background: var(--tp-bg); }
 .toolActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
