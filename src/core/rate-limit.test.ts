@@ -78,7 +78,7 @@ describe("rate limits", () => {
       sent.push(`${init?.method} ${new URL(String(input)).pathname.replace(/^\/api\/v0/, "")}`);
       await new Promise((resolve) => setTimeout(resolve, 5));
       const body = init?.method === "GET" ? { currency: "EUR", totalValue: sent.length } : { id: 1 };
-      return new Response(JSON.stringify(body), { status: 200, headers: { "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(Math.ceil((Date.now() + resetIn) / 1000)) } });
+      return new Response(JSON.stringify(body), { status: 200, headers: { "x-ratelimit-remaining": String(remaining), "x-ratelimit-reset": String(Date.now() + resetIn) } });
     }) as typeof fetch;
     const client = () => new Trading212Client("demo", config, fetcher);
     // Two views opened together: one request.
@@ -94,7 +94,7 @@ describe("rate limits", () => {
     expect((await client().getAccountSummary()).totalValue).toBe(2);
     expect(sent).toHaveLength(2);
     // A read that must be current (an order's send) is not answered from a moment ago: it waits and reads again.
-    resetIn = 1000;
+    resetIn = 300;
     await client().getPositions();
     await client().getPositions();
     expect(sent).toHaveLength(3);
@@ -106,6 +106,28 @@ describe("rate limits", () => {
     await client().placeOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1 });
     await client().getPositions();
     expect(sent.slice(4)).toEqual(["POST /equity/orders/market", "GET /equity/positions"]);
+  });
+
+  it("does not keep an answer read while an order was on its way: the read after the order reads again", async () => {
+    const config = createConfig({ T212_DEMO_API_KEY: "during", T212_DEMO_API_SECRET: "secret" });
+    let release: () => void = () => {};
+    let reads = 0;
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return new Response(JSON.stringify({ id: 1 }), { status: 200 });
+      }
+      reads += 1;
+      return new Response(JSON.stringify({ totalValue: reads }), { status: 200, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Date.now() + 300) } });
+    }) as typeof fetch;
+    const client = () => new Trading212Client("demo", config, fetcher);
+    const order = client().placeOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await client().getAccountSummary()).totalValue).toBe(1);
+    release();
+    await order;
+    // The limit is used up, but the answer from during the order is not given: the read waits and reads again.
+    expect((await client().getAccountSummary()).totalValue).toBe(2);
   });
 
   it("joins no read on its way where that is turned off (Cloudflare), but still shares answers already given", async () => {
@@ -142,7 +164,7 @@ describe("rate limits", () => {
     const sent: string[] = [];
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       sent.push(`${init?.method} ${String(input).includes("live") ? "live" : "demo"} ${new URL(String(input)).pathname.replace(/^\/api\/v0/, "")}`);
-      return new Response(JSON.stringify([]), { status: 200, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 2) } });
+      return new Response(JSON.stringify([]), { status: 200, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Date.now() + 300) } });
     }) as typeof fetch;
     const demo = new Trading212Client("demo", config, fetcher);
     const live = new Trading212Client("live", config, fetcher);

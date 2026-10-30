@@ -28,7 +28,7 @@ import { requireCredentials } from "./config.js";
 import { scheduleStart } from "./dividends.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
-import { Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
+import { readsOnTheirWayShared, Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
 import { summarizeExport, type ExportSummary } from "./export-csv.js";
 import { accountName, ledgerPrefix, recordKey, SETTLE_MS, union, type HistoryLedgers, type LedgerPending, type LedgerSegment } from "./history-ledger.js";
 
@@ -570,12 +570,13 @@ export class InsightsService {
   private async exchanges(environment: TradingEnvironment) {
     const cached = this.exchangeCache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.exchanges;
-    const pending = this.exchangeReads.get(environment);
+    // Not on Cloudflare, where a read another request started can be cancelled under it (see shareReadsOnTheirWay).
+    const pending = readsOnTheirWayShared() ? this.exchangeReads.get(environment) : undefined;
     if (pending) return pending;
-    const read = this.client(environment).getExchanges().then((exchanges) => {
+    const read: Promise<Exchange[]> = this.client(environment).getExchanges().then((exchanges) => {
       this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
       return exchanges;
-    }).finally(() => this.exchangeReads.delete(environment));
+    }).finally(() => { if (this.exchangeReads.get(environment) === read) this.exchangeReads.delete(environment); });
     this.exchangeReads.set(environment, read);
     return read;
   }
@@ -641,7 +642,9 @@ export class InsightsService {
         const newest = records.map((record, index) => ({ record, index })).sort((a, b) => (b.record.Time ?? "").localeCompare(a.record.Time ?? "") || b.index - a.index);
         return { report, summary, records: newest.slice(0, MAX_EXPORT_RECORDS).map(({ record }) => record), recordCount: records.length };
       });
-      this.exportReads.set(key, read);
+      // Kept from the start where another caller may wait on it; on Cloudflare only once read (see shareReadsOnTheirWay).
+      if (readsOnTheirWayShared()) this.exportReads.set(key, read);
+      else { const done = read; done.then(() => this.exportReads.set(key, done), () => undefined); }
       read.catch(() => this.exportReads.delete(key));
       if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value!);
     }

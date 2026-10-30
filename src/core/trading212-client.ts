@@ -148,6 +148,8 @@ export class Trading212Client {
     const now = Date.now();
     if (!fresh && kept?.promise && joinPending && now - kept.started! < PENDING_READ_MAX_MS) return kept.promise as Promise<T>;
     if (!fresh && kept?.at !== undefined && now - kept.at < SHARED_READ_MS && waitIfSent(limitKey(this.account, "GET", path)) > 0) return Promise.resolve(kept.value as T);
+    // A read whose answer is not kept and that no one may join has nothing to share.
+    if (!joinPending && !KEPT_READS.has(path)) return this.send<T>("GET", path);
     const promise: Promise<T> = this.send<T>("GET", path).then(
       (value) => {
         if (shared.get(key)?.promise !== promise) return value;

@@ -34934,6 +34934,7 @@ var Trading212Client = class {
     const now = Date.now();
     if (!fresh && kept?.promise && joinPending && now - kept.started < PENDING_READ_MAX_MS) return kept.promise;
     if (!fresh && kept?.at !== void 0 && now - kept.at < SHARED_READ_MS && waitIfSent(limitKey(this.account, "GET", path3)) > 0) return Promise.resolve(kept.value);
+    if (!joinPending && !KEPT_READS.has(path3)) return this.send("GET", path3);
     const promise2 = this.send("GET", path3).then(
       (value) => {
         if (shared.get(key)?.promise !== promise2) return value;
@@ -36539,7 +36540,7 @@ var TradingService = class {
   async getDashboard(environment, maxAgeMs = 0) {
     const recent = this.dashboards.get(environment);
     if (maxAgeMs > 0 && recent && Date.now() - recent.at <= maxAgeMs) return recent.payload;
-    const pending = this.reading.get(environment);
+    const pending = readsOnTheirWayShared() ? this.reading.get(environment) : void 0;
     if (maxAgeMs > 0 && pending) return pending;
     const generation = this.writes;
     const read = this.readDashboard(environment);
@@ -39175,12 +39176,14 @@ var InsightsService = class {
   async exchanges(environment) {
     const cached2 = this.exchangeCache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.exchanges;
-    const pending = this.exchangeReads.get(environment);
+    const pending = readsOnTheirWayShared() ? this.exchangeReads.get(environment) : void 0;
     if (pending) return pending;
     const read = this.client(environment).getExchanges().then((exchanges) => {
       this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
       return exchanges;
-    }).finally(() => this.exchangeReads.delete(environment));
+    }).finally(() => {
+      if (this.exchangeReads.get(environment) === read) this.exchangeReads.delete(environment);
+    });
     this.exchangeReads.set(environment, read);
     return read;
   }
@@ -39243,7 +39246,11 @@ var InsightsService = class {
         const newest = records.map((record2, index) => ({ record: record2, index })).sort((a, b) => (b.record.Time ?? "").localeCompare(a.record.Time ?? "") || b.index - a.index);
         return { report, summary, records: newest.slice(0, MAX_EXPORT_RECORDS).map(({ record: record2 }) => record2), recordCount: records.length };
       });
-      this.exportReads.set(key, read);
+      if (readsOnTheirWayShared()) this.exportReads.set(key, read);
+      else {
+        const done = read;
+        done.then(() => this.exportReads.set(key, done), () => void 0);
+      }
       read.catch(() => this.exportReads.delete(key));
       if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value);
     }

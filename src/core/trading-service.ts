@@ -631,7 +631,7 @@ export class TradingService {
   async getDashboard(environment: TradingEnvironment, maxAgeMs = 0): Promise<DashboardPayload> {
     const recent = this.dashboards.get(environment);
     if (maxAgeMs > 0 && recent && Date.now() - recent.at <= maxAgeMs) return recent.payload;
-    const pending = this.reading.get(environment);
+    const pending = readsOnTheirWayShared() ? this.reading.get(environment) : undefined;
     if (maxAgeMs > 0 && pending) return pending;
     const generation = this.writes;
     const read = this.readDashboard(environment);

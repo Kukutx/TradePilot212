@@ -4,7 +4,7 @@
 
 - Fewer waits on Trading 212's limits. Reads of one account are shared by the widget, the model's tools and the scheduler in a process: a read already on its way is joined rather than sent again, and when the account summary, positions or orders are read again with their limit used up (the summary allows one in five seconds), the answer from the last five seconds is returned instead of waiting. The income page reads the summary and the positions at once.
 - What must be current is read from Trading 212 then: the holdings and cash an order or a basket is sent against, the order book linked stop-loss and take-profit pairs are settled from, and the check of an order whose outcome was unknown. An order or a cancel forgets what was kept for its account.
-- On Cloudflare a read another request started is never waited on, the instrument list and the account summary included: Workers cancels a request's fetch once it has answered, which could leave the others waiting. A read on its way for longer than any read can take is not joined anywhere.
+- On Cloudflare a read another request started is never waited on (Trading 212 reads, the instrument and exchange lists, the account summary, the dashboard, a report's download): Workers cancels a request's fetch once it has answered, which could leave the others waiting. Elsewhere a Trading 212 read on its way for longer than any read can take is not joined.
 
 ## 2.65.0
 
