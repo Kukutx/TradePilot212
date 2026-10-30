@@ -35440,11 +35440,12 @@ var TITLES = {
 var ABOUT_INSTRUMENT = /* @__PURE__ */ new Set(["order-followup", "trade-journal"]);
 function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2 }, config3) {
   const environmentOf = (value) => {
-    if (value === void 0 || value === "") return config3.defaultTradingEnvironment;
-    if (value === "demo" || value === "live") return value;
+    const named = (value ?? "").trim().toLowerCase();
+    if (named === "") return config3.defaultTradingEnvironment;
+    if (named === "demo" || named === "live") return named;
     throw new Error(`Unknown account "${value}": use demo or live`);
   };
-  const environments = (value) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.toLowerCase()));
+  const environments = (value) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.trim().toLowerCase()));
   const instruments = async (value, environment) => {
     if (!credentialStatus(config3)[environment]) return [];
     const [dashboard2, watched] = await Promise.all([trading.getDashboard(environment, 6e4).catch(() => void 0), watchlist2.list(environment).catch(() => [])]);
@@ -35462,8 +35463,11 @@ function registerPromptsAndResources(server2, { trading, journal, targets, watch
       // Completable inside optional: the SDK looks for the completion under the optional.
       environment: completable(external_exports.string().describe("demo or live; this server's default when left out."), (value) => environments(value)).optional(),
       ...about ? { instrument: completable(external_exports.string().describe("The instrument, as a ticker or name."), (value, context) => {
-        const environment = context?.arguments?.environment;
-        return environment === void 0 || environment === "demo" || environment === "live" ? instruments(value, environmentOf(environment)) : [];
+        try {
+          return instruments(value, environmentOf(context?.arguments?.environment));
+        } catch {
+          return [];
+        }
       }).optional() } : {},
       request: external_exports.string().optional().describe("What the user asked, in their words.")
     });

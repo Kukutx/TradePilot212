@@ -25,7 +25,7 @@
     "cf:types": "wrangler types",
     "build:node": "tsc -p tsconfig.node.json",
     "build:plugin": "pnpm build:prompts && pnpm build:widget && node scripts/build-plugin.mjs",
-    "build:prompts": "node scripts/build-prompts.mjs",
+    "build:prompts": "tsx scripts/build-prompts.ts",
     "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {

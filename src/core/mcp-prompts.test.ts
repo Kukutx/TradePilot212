@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createServices } from "../app/services.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
+import { parseSkill } from "./skill-parse.js";
 import { SKILL_PROMPTS } from "./skill-prompts.js";
 import { MemoryStateStore } from "./state-store.js";
 
@@ -22,11 +23,15 @@ describe("skill prompts", () => {
   it("carry each skill as it is written in skills/ (run `pnpm build:prompts` after changing one)", async () => {
     const names = (await readdir(new URL("../../skills/", import.meta.url), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
     expect(SKILL_PROMPTS.map((prompt) => prompt.name)).toEqual(names);
-    for (const prompt of SKILL_PROMPTS) {
-      const text = (await readFile(new URL(`../../skills/${prompt.name}/SKILL.md`, import.meta.url), "utf8")).replace(/\r\n/g, "\n");
-      expect(text.trim().endsWith(prompt.body), prompt.name).toBe(true);
-      expect(text).toContain(`description: ${prompt.description}`);
-    }
+    const written = await Promise.all(names.map(async (name) => parseSkill(name, await readFile(new URL(`../../skills/${name}/SKILL.md`, import.meta.url), "utf8"))));
+    expect(SKILL_PROMPTS).toEqual(written);
+  });
+
+  it("refuse front matter a YAML loader would read differently", () => {
+    expect(() => parseSkill("x", "---\nname: x\ndescription: >-\n  Folded\n---\nBody")).toThrow(/plain text on one line/);
+    expect(() => parseSkill("x", "---\nname: x\ndescription: \"Quoted\"\n---\nBody")).toThrow(/plain text on one line/);
+    expect(() => parseSkill("x", "---\nname: x\ndescription:\n  Next line\n---\nBody")).toThrow(/plain text on one line/);
+    expect(parseSkill("x", "---\r\nname: x\r\ndescription: Use it: often\r\n---\r\n\r\n# X\r\n")).toEqual({ name: "x", description: "Use it: often", body: "# X" });
   });
 
   it("are offered with the account, instrument and request filled in, and complete what the account has", async () => {
@@ -45,6 +50,12 @@ describe("skill prompts", () => {
       client.complete({ ref: { type: "ref/prompt", name }, argument: { name: argument, value }, ...(context ? { context: { arguments: context } } : {}) }).then((reply) => reply.completion.values);
     expect(await complete("rebalance", "environment", "l")).toEqual(["live"]);
     expect(await complete("order-followup", "instrument", "a", { environment: "demo" })).toContain("AAPL_US_EQ");
+    // An empty field is the default account, and the name is read in any case, as the prompt reads them.
+    expect(await complete("order-followup", "instrument", "a", { environment: "" })).toContain("AAPL_US_EQ");
+    expect(await complete("order-followup", "instrument", "a", { environment: "Demo" })).toContain("AAPL_US_EQ");
+    expect(await complete("order-followup", "instrument", "a", { environment: "paper" })).toEqual([]);
+    expect(((await client.getPrompt({ name: "risk-check", arguments: { environment: "DEMO" } })).messages[0]!.content as { text: string }).text).toContain("DEMO Trading 212 account");
+    await expect(client.getPrompt({ name: "risk-check", arguments: { environment: "paper" } })).rejects.toThrow();
     // No keys for Live on the sample account: nothing to offer.
     expect(await complete("order-followup", "instrument", "", { environment: "live" })).toEqual([]);
   });

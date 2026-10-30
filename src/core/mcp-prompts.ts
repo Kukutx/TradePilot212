@@ -28,12 +28,14 @@ const ABOUT_INSTRUMENT = new Set(["order-followup", "trade-journal"]);
 type PromptDeps = Pick<Services, "trading" | "journal" | "targets" | "watchlist">;
 
 export function registerPromptsAndResources(server: McpServer, { trading, journal, targets, watchlist }: PromptDeps, config: RuntimeConfig): void {
+  /** The account named, in any case; this server's default when none is (a form sends an empty field as ""). */
   const environmentOf = (value: string | undefined): TradingEnvironment => {
-    if (value === undefined || value === "") return config.defaultTradingEnvironment;
-    if (value === "demo" || value === "live") return value;
+    const named = (value ?? "").trim().toLowerCase();
+    if (named === "") return config.defaultTradingEnvironment;
+    if (named === "demo" || named === "live") return named;
     throw new Error(`Unknown account "${value}": use demo or live`);
   };
-  const environments = (value: string) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.toLowerCase()));
+  const environments = (value: string) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.trim().toLowerCase()));
   /** The tickers held, ordered or watched on the account that start with what is typed; none when it cannot be read. */
   const instruments = async (value: string, environment: TradingEnvironment) => {
     if (!credentialStatus(config)[environment]) return [];
@@ -53,8 +55,11 @@ export function registerPromptsAndResources(server: McpServer, { trading, journa
       // Completable inside optional: the SDK looks for the completion under the optional.
       environment: completable(z.string().describe("demo or live; this server's default when left out."), (value) => environments(value)).optional(),
       ...(about ? { instrument: completable(z.string().describe("The instrument, as a ticker or name."), (value, context) => {
-        const environment = context?.arguments?.environment;
-        return environment === undefined || environment === "demo" || environment === "live" ? instruments(value, environmentOf(environment)) : [];
+        try {
+          return instruments(value, environmentOf(context?.arguments?.environment));
+        } catch {
+          return [];
+        }
       }).optional() } : {}),
       request: z.string().optional().describe("What the user asked, in their words."),
     });
