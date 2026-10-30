@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { CashHistory, CashHistoryItem, TaxYearSummary, TradeFill, TradeHistory } from "../../shared/history";
+import type { CashHistory, CashHistoryItem, FillTotals, HistoryFilter, TaxYearSummary, TradeFill, TradeHistory } from "../../shared/history";
 import type { JournalEntry } from "../../shared/journal";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { AssetAvatar, Metric } from "../components/common";
@@ -19,7 +19,10 @@ export const TAX_RULES: Record<TaxRule, { yearStart: string; timeZone?: string }
   calendar: { yearStart: "01-01" },
   uk: { yearStart: "04-06", timeZone: "Europe/London" },
 };
-export const taxRuleOf = (yearStart: string): TaxRule => (yearStart === TAX_RULES.uk.yearStart ? "uk" : "calendar");
+/** The rule a year start is counted by; none for another start (a fiscal year from 1 July, say), which is kept as it is. */
+export const taxRuleOf = (yearStart: string): TaxRule | undefined => (Object.keys(TAX_RULES) as TaxRule[]).find((rule) => TAX_RULES[rule].yearStart === yearStart);
+/** A year that starts on 1 January is named by its number; any other by the two years it spans, as 2025/26. */
+export const taxYearLabel = (year: number, yearStart: string) => (yearStart === TAX_RULES.calendar.yearStart ? String(year) : `${year}/${String((year + 1) % 100).padStart(2, "0")}`);
 
 export function HistorySwitch({ value, onChange, t, disabled }: { value: HistoryKind; onChange: (next: HistoryKind) => void; t: Translator; disabled: boolean }) {
   const options: Array<[HistoryKind, MessageKey]> = [["trade_history", "historyTrades"], ["cash_history", "historyCash"], ["tax_year", "historyTaxYear"]];
@@ -65,7 +68,33 @@ function FilterBox({ value, onChange, label }: { value: string; onChange: (next:
   );
 }
 
-function Toolbar({ kind, period, t, busy, onKind, onPeriod }: { kind: HistoryKind; period: InsightPeriod; t: Translator; busy: boolean; onKind: (next: HistoryKind) => void; onPeriod: (next: InsightPeriod) => void }) {
+/** The direction money moved, from its kind where that says it, so a withdrawal is money out whatever sign it is sent with. */
+const CASH_OUT = new Set(["WITHDRAW", "FEE"]);
+const CASH_IN = new Set(["DEPOSIT", "DIVIDEND", "INTEREST"]);
+export function cashSigned(type: string, value: number): number {
+  const kind = type.toUpperCase();
+  return CASH_OUT.has(kind) ? -Math.abs(value) : CASH_IN.has(kind) ? Math.abs(value) : value;
+}
+
+/** What a read the host made was limited to, with a way back to everything. */
+function FilterNote({ filter, name, period, book, t, locale, busy, onClear }: {
+  filter?: HistoryFilter; name?: string; period: { from?: string; to: string } | null; book?: InstrumentBook; t: Translator; locale: SupportedLocale; busy: boolean; onClear?: () => void;
+}) {
+  const parts = [
+    ...(filter?.ticker ? [instrumentLabel(filter.ticker, book, name ? { name } : undefined).name] : []),
+    ...(filter?.types ?? []).map((type) => cashTypeLabel(type, t)),
+    ...(period ? [period.from ? fill(t("taxSpan"), { from: dayLabel(period.from, locale), to: dayLabel(period.to, locale) }) : fill(t("historyUntil"), { to: dayLabel(period.to, locale) })] : []),
+  ];
+  if (!parts.length) return null;
+  return (
+    <div className="notice compactNotice historyFiltered">
+      <span>{t("historyFilteredBy")} <strong>{parts.join(" · ")}</strong></span>
+      {onClear && <button type="button" className="linkButton" disabled={busy} onClick={onClear}>{t("historyShowAll")}</button>}
+    </div>
+  );
+}
+
+function Toolbar({ kind, period, t, busy, onKind, onPeriod }: { kind: HistoryKind; period: InsightPeriod | null; t: Translator; busy: boolean; onKind: (next: HistoryKind) => void; onPeriod: (next: InsightPeriod) => void }) {
   return (
     <div className="viewToolbar reviewToolbar">
       <HistorySwitch value={kind} onChange={onKind} t={t} disabled={busy} />
@@ -74,35 +103,46 @@ function Toolbar({ kind, period, t, busy, onKind, onPeriod }: { kind: HistoryKin
   );
 }
 
-export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen }: {
-  data: TradeHistory & { journal?: JournalEntry[] }; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; busy: boolean;
-  onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void;
+/** Adds up fills the way the server does for a whole window. */
+function totalsOf(fills: TradeFill[]): FillTotals {
+  const sum: FillTotals = { bought: 0, sold: 0, realised: 0, costs: 0, buys: 0, sells: 0 };
+  for (const item of fills) {
+    const value = Math.abs(item.netValue ?? 0);
+    if (sellOf(item)) { sum.sold += value; sum.sells += 1; } else { sum.bought += value; sum.buys += 1; }
+    sum.realised += item.realisedProfitLoss ?? 0;
+    sum.costs += item.costs ?? 0;
+  }
+  return sum;
+}
+
+/**
+ * `period` is null when the host read a window none of the switch's periods is; the window then shows with the filter.
+ * The page's own filter box narrows only the fills listed, so its totals are of those.
+ */
+export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter }: {
+  data: TradeHistory & { journal?: JournalEntry[] }; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; busy: boolean;
+  onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void; onClearFilter?: () => void;
 }) {
   const [filter, setFilter] = useState("");
   const currency = data.fills.find((item) => item.accountCurrency)?.accountCurrency ?? "EUR";
   const m = (value: number | undefined, signed = false) => money(value, currency, locale, { signed });
   const fills = data.fills.filter((item) => matches(filter, item.ticker, item.name, book));
   const unfilled = (data.unfilled ?? []).filter((item) => matches(filter, item.ticker, item.name, book));
-  const totals = useMemo(() => {
-    const sum = { bought: 0, sold: 0, realised: 0, costs: 0, buys: 0, sells: 0 };
-    for (const item of fills) {
-      const value = Math.abs(item.netValue ?? 0);
-      if (sellOf(item)) { sum.sold += value; sum.sells += 1; } else { sum.bought += value; sum.buys += 1; }
-      sum.realised += item.realisedProfitLoss ?? 0;
-      sum.costs += item.costs ?? 0;
-    }
-    return sum;
-  }, [fills]);
+  const filtering = filter.trim() !== "";
+  // A result from before the server added up the whole window (a host's saved one) is added up here.
+  const totals = useMemo(() => (filtering || !data.totals ? totalsOf(fills) : data.totals), [filtering, fills, data.totals]);
+  const count = filtering ? fills.length : data.count ?? data.fills.length;
   const notes = new Map((data.journal ?? []).flatMap((entry) => (entry.orderId ? [[entry.orderId, entry] as const] : [])));
   return (
     <main className="contentStack">
       <Toolbar kind="trade_history" period={period} t={t} busy={busy} onKind={onKind} onPeriod={onPeriod} />
+      <FilterNote filter={data.filter} name={data.fills.find((item) => item.ticker === data.filter?.ticker)?.name} period={period ? null : data.period} book={book} t={t} locale={locale} busy={busy} onClear={onClearFilter} />
       {data.truncated && <div className="notice warning compactNotice">{t("historyTruncated")}</div>}
       <section className="overviewPanel">
         <div className="overviewLead">
           <span className="sectionEyebrow">{t("realizedPnL")}</span>
           <strong className={`heroValue ${signedClass(totals.realised)}`}>{m(totals.realised, true)}</strong>
-          <span className="overviewSubline">{plural(fills.length, locale, t("historyFillsOne"), t("historyFills"))} · {fill(t("historyBuysSells"), { buys: String(totals.buys), sells: String(totals.sells) })}</span>
+          <span className="overviewSubline">{plural(count, locale, t("historyFillsOne"), t("historyFills"))} · {fill(t("historyBuysSells"), { buys: String(totals.buys), sells: String(totals.sells) })}</span>
         </div>
         <div className="metricGrid">
           <Metric label={t("historyBought")} value={m(totals.bought)} />
@@ -147,7 +187,7 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
             </ul>
           </div>
         ))}
-        {data.fills.length >= 200 && <p className="panelNote">{t("historyNewestOnly")}</p>}
+        {(data.count ?? 0) > data.fills.length && <p className="panelNote">{fill(t(filtering ? "historyShowingNewestFiltered" : "historyShowingNewest"), { shown: String(data.fills.length), count: String(data.count) })}</p>}
       </section>
       {unfilled.length > 0 && (
         <section className="dataPanel activityPanel">
@@ -211,21 +251,23 @@ export function cashTypeLabel(type: string, t: Translator, one = false): string 
 const CASH_ORDER = ["DEPOSIT", "WITHDRAW", "DIVIDEND", "INTEREST", "FEE"];
 const cashRank = (type: string) => { const at = CASH_ORDER.indexOf(type); return at < 0 ? CASH_ORDER.length : at; };
 
-export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen }: {
-  data: CashHistory; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; busy: boolean;
-  onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void;
+export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter }: {
+  data: CashHistory; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; busy: boolean;
+  onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void; onClearFilter?: () => void;
 }) {
   const [type, setType] = useState<string | null>(null);
   const currency = data.currency || "EUR";
   const types = Object.keys(data.totals).sort((a, b) => cashRank(a) - cashRank(b) || a.localeCompare(b));
   const shown = type && types.includes(type) ? type : null;
   const items = shown ? data.items.filter((item) => item.type === shown) : data.items;
-  const net = Object.values(data.totals).reduce((sum, value) => sum + value, 0);
-  const contributed = (data.totals.DEPOSIT ?? 0) + (data.totals.WITHDRAW ?? 0);
+  const total = (key: string) => cashSigned(key, data.totals[key] ?? 0);
+  const net = types.reduce((sum, key) => sum + total(key), 0);
+  const contributed = total("DEPOSIT") + total("WITHDRAW");
   const who = (item: CashHistoryItem) => (item.ticker ? instrumentLabel(item.ticker, book, item.name ? { name: item.name } : undefined) : undefined);
   return (
     <main className="contentStack">
       <Toolbar kind="cash_history" period={period} t={t} busy={busy} onKind={onKind} onPeriod={onPeriod} />
+      <FilterNote filter={data.filter} name={data.items.find((item) => item.ticker === data.filter?.ticker)?.name} period={period ? null : data.period} book={book} t={t} locale={locale} busy={busy} onClear={onClearFilter} />
       {data.truncated && <div className="notice warning compactNotice">{t("historyTruncated")}</div>}
       <section className="overviewPanel">
         <div className="overviewLead">
@@ -234,7 +276,7 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
           <span className="overviewSubline">{t("netContributions")} · {money(contributed, currency, locale, { signed: true })}</span>
         </div>
         <div className="metricGrid">
-          {types.length === 0 ? <Metric label={t("historyCash")} value="—" /> : types.map((key) => <Metric key={key} label={cashTypeLabel(key, t)} value={money(data.totals[key], currency, locale, { signed: true })} />)}
+          {types.length === 0 ? <Metric label={t("historyCash")} value="—" /> : types.map((key) => <Metric key={key} label={cashTypeLabel(key, t)} value={money(total(key), currency, locale, { signed: true })} />)}
         </div>
       </section>
       <section className="dataPanel">
@@ -254,10 +296,11 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
             <ul className="historyList">
               {group.items.map((item, index) => {
                 const label = who(item);
+                const value = cashSigned(item.type, item.amount);
                 return (
                   <li key={`${item.reference ?? ""}-${index}`} className="historyRow">
                     <div className="historyWho">
-                      {label && item.ticker ? <AssetAvatar ticker={item.ticker} label={label} /> : <span className={`cashMark ${item.amount < 0 ? "out" : "in"}`} aria-hidden="true">{item.amount < 0 ? "−" : "+"}</span>}
+                      {label && item.ticker ? <AssetAvatar ticker={item.ticker} label={label} /> : <span className={`cashMark ${value < 0 ? "out" : "in"}`} aria-hidden="true">{value < 0 ? "−" : "+"}</span>}
                       <div>
                         {label && item.ticker
                           ? (onOpen ? <button type="button" className="inlineLink reviewName" disabled={busy} title={item.ticker} onClick={() => onOpen(item.ticker!)}>{label.name}</button> : <strong title={item.ticker}>{label.name}</strong>)
@@ -270,7 +313,7 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
                         </small>
                       </div>
                     </div>
-                    <strong className={`historyAmount ${signedClass(item.amount)}`}>{money(item.amount, item.currency || currency, locale, { signed: true })}</strong>
+                    <strong className={`historyAmount ${signedClass(value)}`}>{money(value, item.currency || currency, locale, { signed: true })}</strong>
                   </li>
                 );
               })}
@@ -290,7 +333,7 @@ export function TaxYearView({ data, book, locale, t, busy, onKind, onYear, onRul
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined, signed = false) => money(value, currency, locale, { signed });
   const rule = taxRuleOf(data.yearStart);
-  const yearLabel = rule === "uk" ? `${data.year}/${String((data.year + 1) % 100).padStart(2, "0")}` : String(data.year);
+  const yearLabel = taxYearLabel(data.year, data.yearStart);
   const rules: Array<[TaxRule, MessageKey]> = [["calendar", "taxRuleCalendar"], ["uk", "taxRuleUk"]];
   return (
     <main className="contentStack">

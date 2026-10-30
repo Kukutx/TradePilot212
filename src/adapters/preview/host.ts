@@ -67,6 +67,7 @@ const labels: Record<string, { en: string; zh: string }> = {
   review: { en: "Journal review", zh: "日志复盘" },
   watchlist: { en: "Watchlist", zh: "自选" },
   trades: { en: "Trades", zh: "成交记录" },
+  tradesnvda: { en: "Trades, one instrument", zh: "单个标的的成交" },
   cash: { en: "Cash movements", zh: "资金流水" },
   taxyear: { en: "Tax year", zh: "税年" },
   order: { en: "Order review", zh: "下单确认" },

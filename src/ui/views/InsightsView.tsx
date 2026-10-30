@@ -66,7 +66,7 @@ export function instrumentDatum(ticker: string, book: InstrumentBook | undefined
   return { label: label.name, ...(label.detail ? { sublabel: label.detail } : {}), title: ticker };
 }
 
-export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
+export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod | null; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
   // Short labels keep five periods on one line in a phone-width frame; the full name is the accessible name.
   const options: Array<[InsightPeriod, MessageKey, MessageKey]> = [
     ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],

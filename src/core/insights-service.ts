@@ -16,6 +16,7 @@ import type {
   PerformanceSummary,
   TaxYearSummary,
   TradeHistory,
+  FillTotals,
   ValuePoint,
 } from "../shared/history.js";
 import {
@@ -477,6 +478,7 @@ export class InsightsService {
       count: items.length,
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
+      ...(options.ticker?.trim() || types.size ? { filter: { ...(options.ticker?.trim() ? { ticker: exact ?? options.ticker.trim() } : {}), ...(types.size ? { types: [...types] } : {}) } } : {}),
       truncated: !!(dividends?.truncated || transactions?.truncated),
       timestamp: new Date().toISOString(),
     };
@@ -521,8 +523,8 @@ export class InsightsService {
           initiatedFrom: item.order?.initiatedFrom,
         }))
       : undefined;
-    const fills = inWindow
-      .filter((item) => item.fill)
+    const filled = inWindow.filter((item) => item.fill);
+    const fills = filled
       .slice(0, max)
       .map((item) => ({
         ...orderIdOf(item.order?.id),
@@ -544,7 +546,22 @@ export class InsightsService {
         costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
         ...(item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...(tax.currency ? { currency: tax.currency } : {}) })) } : {}),
       }));
-    return { kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, ...(unfilled ? { unfilled } : {}), truncated: collected.truncated, timestamp: new Date().toISOString() };
+    const totals: FillTotals = { buys: 0, sells: 0, bought: 0, sold: 0, realised: 0, costs: 0 };
+    for (const item of filled) {
+      const impact = item.fill?.walletImpact;
+      const value = Math.abs(impact?.netValue ?? 0);
+      // A sell is told by its side, or by the shares it took away.
+      if (item.order?.side === "SELL" || (item.order?.side === undefined && (item.fill?.quantity ?? 0) < 0)) { totals.sells += 1; totals.sold += value; } else { totals.buys += 1; totals.bought += value; }
+      totals.realised += impact?.realisedProfitLoss ?? 0;
+      totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
+      totals.currency ??= impact?.currency;
+    }
+    for (const key of ["bought", "sold", "realised", "costs"] as const) totals[key] = Math.round(totals[key] * 100) / 100;
+    const filter = ticker?.trim() ? { filter: { ticker: exact ?? ticker.trim() } } : {};
+    return {
+      kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, count: filled.length, limit: max, totals, ...(unfilled ? { unfilled } : {}), ...filter,
+      truncated: collected.truncated, timestamp: new Date().toISOString(),
+    };
   }
 
   /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */

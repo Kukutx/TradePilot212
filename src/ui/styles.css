@@ -1514,6 +1514,10 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .yearStepper button:hover:not(:disabled) { background: var(--tp-bg); color: var(--tp-text); }
 .yearStepper button:disabled { opacity: .4; cursor: default; }
 .yearStepper strong { min-width: 64px; text-align: center; font-size: 14px; font-variant-numeric: tabular-nums; }
+.historyFiltered { align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0; }
+.historyFiltered > span { min-width: 0; overflow-wrap: anywhere; }
+.historyFiltered strong { white-space: normal; }
+.historyFiltered .linkButton { min-height: 28px; font-size: 12px; }
 .taxRunning { margin-left: 8px; letter-spacing: 0; text-transform: none; vertical-align: 1px; }
 @container (max-width: 420px) {
   .historyFilter { flex-basis: 100%; }

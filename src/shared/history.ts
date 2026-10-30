@@ -551,8 +551,16 @@ export interface CashHistory {
   /** Each type's total over the whole window, in the account currency. */
   totals: Record<string, number>;
   currency: string;
+  /** What the read was limited to, when it was: an instrument's dividends, or some types. */
+  filter?: HistoryFilter;
   truncated: boolean;
   timestamp: string;
+}
+
+/** What a history read was limited to besides its window. */
+export interface HistoryFilter {
+  ticker?: string;
+  types?: string[];
 }
 
 /** One executed fill. Amounts in the account currency unless a field names another. */
@@ -599,11 +607,27 @@ export interface TradeHistory {
   kind: "trade_history";
   environment: TradingEnvironment;
   period: { from?: string; to: string };
-  /** Newest first. */
+  /** Newest first, up to `limit`; `count` is how many fills the window holds. */
   fills: TradeFill[];
+  count: number;
+  limit: number;
+  /** Over every fill in the window, not only those listed, in the account currency. */
+  totals: FillTotals;
   unfilled?: UnfilledOrder[];
+  filter?: HistoryFilter;
   truncated: boolean;
   timestamp: string;
+}
+
+export interface FillTotals {
+  buys: number;
+  sells: number;
+  /** Money spent on buys and taken in by sells, both as positive amounts. */
+  bought: number;
+  sold: number;
+  realised: number;
+  costs: number;
+  currency?: string;
 }
 
 export interface TaxYearSummary {

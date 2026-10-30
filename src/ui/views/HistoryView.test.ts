@@ -3,11 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CashHistory, TaxYearSummary, TradeHistory } from "../../shared/history";
 import { createTranslator } from "../i18n";
-import { cashTypeLabel, CashHistoryView, TaxYearView, taxRuleOf, TradeHistoryView } from "./HistoryView";
+import { cashSigned, cashTypeLabel, CashHistoryView, TaxYearView, taxRuleOf, TradeHistoryView } from "./HistoryView";
 
 const noop = () => {};
 const trades: TradeHistory = {
   kind: "trade_history", environment: "demo", period: { from: "2026-01-01T00:00:00.000Z", to: "2026-10-30T12:00:00.000Z" }, truncated: false, timestamp: "2026-10-30T12:00:00Z",
+  count: 3, limit: 200, totals: { buys: 2, sells: 1, bought: 536.4, sold: 410.5, realised: 52.25, costs: 0.92, currency: "EUR" },
   fills: [
     { orderId: "3", ticker: "AAPL_US_EQ", name: "Apple", side: "SELL", type: "LIMIT", filledAt: "2026-10-29T15:00:00Z", quantity: -2, price: 230, priceCurrency: "USD", netValue: 410.5, accountCurrency: "EUR", realisedProfitLoss: 52.25, costs: 0.62 },
     { orderId: "2", ticker: "AAPL_US_EQ", name: "Apple", side: "BUY", type: "MARKET", filledAt: "2026-10-29T14:00:00Z", quantity: 1, price: 228, priceCurrency: "USD", netValue: -196.4, accountCurrency: "EUR", costs: 0.3 },
@@ -39,6 +40,20 @@ describe("the trade history page", () => {
     expect(html).toContain("Cancelled");
   });
 
+  it("shows the totals of the whole window when only the newest fills are listed, and says what the host limited it to", () => {
+    const html = renderToStaticMarkup(createElement(TradeHistoryView, {
+      data: { ...trades, fills: trades.fills.slice(0, 1), count: 40, totals: { ...trades.totals, buys: 30, sells: 10, realised: 1234.5 }, filter: { ticker: "AAPL_US_EQ" } },
+      locale: "en", t: createTranslator("en"), period: null, busy: false, onPeriod: noop, onKind: noop, onClearFilter: noop,
+    }));
+    expect(html).toContain("+€1,234.50");
+    expect(html).toContain("40 fills");
+    expect(html).toContain("The newest 1 of 40 are listed; the totals cover all of them.");
+    // The host's window is none of the switch's periods: none is checked, and the window shows with the instrument.
+    expect(html).not.toContain('aria-checked="true" aria-label="Year to date"');
+    expect(html).toMatch(/Only <strong>Apple · Jan 1, 2026 to Oct 30, 2026<\/strong>/);
+    expect(html).toContain(">Show all</button>");
+  });
+
   it("reads in Chinese", () => {
     const html = render("zh-CN");
     expect(html).toContain("成交记录");
@@ -66,6 +81,16 @@ describe("the cash history page", () => {
     expect(html).toContain("-€200.00");
     expect(html).toContain(">Withdrawal</strong>");
     expect(html).toContain("The newest 3 of 4 are listed");
+  });
+
+  it("takes the direction of a withdrawal or deposit from its kind, whatever sign it is sent with", () => {
+    const positive: CashHistory = { ...cash, totals: { DEPOSIT: 1000, WITHDRAW: 200 }, count: 1, items: [{ date: "2026-10-02T09:00:00Z", type: "WITHDRAW", amount: 200, currency: "EUR" }] };
+    const html = renderToStaticMarkup(createElement(CashHistoryView, { data: positive, locale: "en", t: createTranslator("en"), period: "all", busy: false, onPeriod: noop, onKind: noop }));
+    expect(html).toContain("+€800.00");
+    expect(html).toContain("-€200.00");
+    expect(html).not.toContain("+€200.00");
+    expect(cashSigned("DIVIDEND", -4)).toBe(4);
+    expect(cashSigned("TRANSFER", -4)).toBe(-4);
   });
 
   it("names a kind it does not know as Trading 212 sends it", () => {
@@ -99,8 +124,14 @@ describe("the tax year page", () => {
     expect(running).toMatch(/aria-label="Next tax year" disabled/);
   });
 
-  it("reads the rule back from the year's first day", () => {
+  it("reads the rule back from the year's first day, and keeps a year that starts on another day as it is", () => {
     expect(taxRuleOf("04-06")).toBe("uk");
     expect(taxRuleOf("01-01")).toBe("calendar");
+    expect(taxRuleOf("07-01")).toBeUndefined();
+    const fiscal = renderToStaticMarkup(createElement(TaxYearView, {
+      data: { ...year, year: 2026, yearStart: "07-01", firstDay: "2026-07-01", lastDay: "2027-06-30", ended: false }, locale: "en", t: createTranslator("en"), busy: false, onKind: noop, onYear: noop, onRule: noop,
+    }));
+    expect(fiscal).toContain("2026/27");
+    expect(fiscal).not.toMatch(/role="radio" aria-checked="true"[^>]*>(Calendar|UK)/);
   });
 });

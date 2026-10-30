@@ -34,9 +34,9 @@ import type { PortfolioToday } from "../shared/today";
 import { AllocationView, IncomeView, PerformanceView, periodOf, type InsightPeriod } from "./views/InsightsView";
 import type { EqualRiskPlan } from "./components/holding-parity";
 import { covarianceFits, type MeasuredRisk, type TargetSave } from "./components/target-editor";
-import type { AllocationAnalysis, CashHistory, HoldingCovariancePayload, IncomeSummary, PerformanceSummary, TaxYearSummary, TradeHistory } from "../shared/history";
+import type { AllocationAnalysis, CashHistory, HistoryFilter, HoldingCovariancePayload, IncomeSummary, PerformanceSummary, TaxYearSummary, TradeHistory } from "../shared/history";
 import type { JournalEntry } from "../shared/journal";
-import { CashHistoryView, HISTORY_KINDS, TAX_RULES, TaxYearView, TradeHistoryView, taxRuleOf, type HistoryKind, type TaxRule } from "./views/HistoryView";
+import { CashHistoryView, HISTORY_KINDS, TAX_RULES, TaxYearView, TradeHistoryView, type HistoryKind } from "./views/HistoryView";
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
@@ -71,8 +71,17 @@ type InsightPayload = WithAccess<AllocationAnalysis> | WithAccess<PerformanceSum
 type InsightKind = InsightPayload["kind"];
 type PortfolioTab = "holdings" | InsightKind;
 type InsightCache = { [K in InsightKind]?: Extract<InsightPayload, { kind: K }> };
-/** The tax year the History tab shows: the latest that has started unless a year was picked, counted by `rule`. */
-interface TaxSettings { year?: number; rule: TaxRule }
+/**
+ * The tax year the History tab shows: the latest that has started unless a year was picked, starting on `yearStart`
+ * (month-day) in `timeZone` (the viewer's own when left out).
+ */
+interface TaxSettings { year?: number; yearStart: string; timeZone?: string }
+/**
+ * What the host limited a trade or cash read to, kept while the page is read again: an instrument or types, and a window
+ * none of the switch's periods is. Choosing a period drops the window; Show all drops both.
+ */
+type ScopedKind = "trade_history" | "cash_history";
+type HistoryScopes = Partial<Record<ScopedKind, { filter?: HistoryFilter; window?: { from?: string; to: string } }>>;
 
 /** A failed action: a title naming what failed, the reason, and a way to try again when that is safe. */
 interface Problem {
@@ -108,6 +117,16 @@ const INSIGHT_KINDS: ReadonlySet<string> = new Set(Object.keys(INSIGHT_TOOLS));
 const isInsight = (payload: BasePayload | null): payload is InsightPayload => !!payload && INSIGHT_KINDS.has(payload.kind);
 /** The window a tab with a period was read for. */
 const periodOfPayload = (payload: InsightPayload): { from?: string; to: string } | undefined => ("period" in payload && !timeless(payload.kind) ? payload.period : undefined);
+/** How long after a read its window may end and still be "up to now", as the switch's periods are. */
+const NOW_SLACK_MS = 10 * 60_000;
+/** The switch's period a read was for, or none when the host read another window (its own dates, or a week). */
+function presetOf(range: { from?: string; to: string }, readAt: string): InsightPeriod | undefined {
+  if (!(Math.abs(Date.parse(range.to) - Date.parse(readAt)) <= NOW_SLACK_MS)) return undefined;
+  if (!range.from) return "all";
+  const period = periodOf(range);
+  // periodOf names any bounded window it does not know 12 months.
+  return period === "1y" && Math.abs((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000 - 365) >= 1 ? undefined : period;
+}
 /** The zone the calendar tax year is counted in: the viewer's own. */
 function localZone(): string {
   try {
@@ -289,7 +308,8 @@ export default function App() {
   const [period, setPeriod] = useState<InsightPeriod>("ytd");
   /** The History tab's page shown last, and the tax year it shows. */
   const [historyKind, setHistoryKind] = useState<HistoryKind>("trade_history");
-  const [taxSettings, setTaxSettings] = useState<TaxSettings>({ rule: "calendar" });
+  const [taxSettings, setTaxSettings] = useState<TaxSettings>({ yearStart: TAX_RULES.calendar.yearStart });
+  const [historyScopes, setHistoryScopes] = useState<HistoryScopes>({});
   const [environment, setEnvironment] = useState<TradingEnvironment>("demo");
   const [draft, setDraft] = useState<OrderDraft | null>(null);
   const [preview, setPreview] = useState<OrderPreview | null>(null);
@@ -367,9 +387,13 @@ export default function App() {
       setInsights({ [payload.kind]: payload });
       setTab(payload.kind);
       if (isHistory(payload.kind)) setHistoryKind(payload.kind);
-      if (payload.kind === "tax_year") setTaxSettings({ year: payload.year, rule: taxRuleOf(payload.yearStart) });
+      if (payload.kind === "tax_year") setTaxSettings({ year: payload.year, yearStart: payload.yearStart, timeZone: payload.timeZone });
       const range = periodOfPayload(payload);
-      if (range) setPeriod(periodOf(range));
+      const preset = range && presetOf(range, payload.timestamp);
+      if (preset) setPeriod(preset);
+      if (payload.kind === "trade_history" || payload.kind === "cash_history") {
+        setHistoryScopes({ [payload.kind]: { ...(payload.filter ? { filter: payload.filter } : {}), ...(range && !preset ? { window: range } : {}) } });
+      } else setHistoryScopes({});
     } else if (payload.kind === "portfolio") {
       setInsights({});
       setTab("holdings");
@@ -537,16 +561,20 @@ export default function App() {
   }
 
   /** Read a tab. The journal keeps the tag it shows unless `tag` changes it (null shows every trade). */
-  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null, compareWith = benchmark, tax = taxSettings): Promise<void> {
+  async function loadInsight(kind: InsightKind, env = environment, range = period, tag?: string | null, compareWith = benchmark, tax = taxSettings, scopes = historyScopes): Promise<void> {
     setStatus("loading");
     setProblem(null);
     setInsightError(null);
     const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
-      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), yearStart: TAX_RULES[tax.rule].yearStart, timeZone: TAX_RULES[tax.rule].timeZone ?? localZone() }
+      const scope = kind === "trade_history" || kind === "cash_history" ? scopes[kind] : undefined;
+      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), yearStart: tax.yearStart, timeZone: tax.timeZone ?? localZone() }
         : timeless(kind) ? { environment: env }
         : {
-          environment: env, period: range,
+          environment: env,
+          ...(scope?.window ? { ...(scope.window.from ? { from: scope.window.from } : {}), to: scope.window.to } : { period: range }),
+          ...(scope?.filter?.ticker ? { ticker: scope.filter.ticker } : {}),
+          ...(kind === "cash_history" && scope?.filter?.types ? { types: scope.filter.types } : {}),
           ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}),
           ...(kind === "performance" && compareWith ? { benchmark: compareWith } : {}),
           // Every fill the page can list, and the orders that never filled.
@@ -589,15 +617,31 @@ export default function App() {
   function stale(kind: InsightKind): boolean {
     const loaded = insights[kind];
     if (!loaded || loaded.environment !== environment) return true;
-    if (loaded.kind === "tax_year") return taxRuleOf(loaded.yearStart) !== taxSettings.rule || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
+    if (loaded.kind === "tax_year") return loaded.yearStart !== taxSettings.yearStart || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
+    // A window the host chose stays as read until a period is chosen.
+    if ((loaded.kind === "trade_history" || loaded.kind === "cash_history") && historyScopes[loaded.kind]?.window) return false;
     const range = periodOfPayload(loaded);
     return !!range && periodOf(range) !== period;
   }
 
   async function changePeriod(next: InsightPeriod): Promise<void> {
     setPeriod(next);
-    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, next);
+    // A period chosen replaces a window the host read; an instrument or types it named still hold.
+    const scopes: HistoryScopes = Object.fromEntries(Object.entries(historyScopes).map(([kind, scope]) => [kind, { ...(scope?.filter ? { filter: scope.filter } : {}) }]));
+    setHistoryScopes(scopes);
+    if (tab !== "holdings" && !timeless(tab)) await loadInsight(tab, environment, next, undefined, benchmark, taxSettings, scopes);
   }
+
+  /** Read a trade or cash page again for everything in the period the switch shows. */
+  async function clearHistoryScope(kind: ScopedKind): Promise<void> {
+    const scopes = { ...historyScopes, [kind]: undefined };
+    setHistoryScopes(scopes);
+    await loadInsight(kind, environment, period, undefined, benchmark, taxSettings, scopes);
+  }
+  const scopeOf = (kind: ScopedKind) => {
+    const scope = historyScopes[kind];
+    return { period: scope?.window ? null : period, ...(scope?.filter || scope?.window ? { onClearFilter: () => void clearHistoryScope(kind) } : {}) };
+  };
 
   async function refresh(env = environment, target: PortfolioTab = tab): Promise<void> {
     if (target !== "holdings" && base?.kind !== "trade_plan" && base?.kind !== "holding") return loadInsight(target, env);
@@ -745,6 +789,8 @@ export default function App() {
     setBasketResult(null);
     setInsights({});
     setInsightError(null);
+    // An instrument or window the host named was for the other account.
+    setHistoryScopes({});
     if (resized.payload) {
       showPayload(resized.payload);
       return;
@@ -1165,16 +1211,17 @@ export default function App() {
               />
             )}
             {portfolioLike && tab === "trade_history" && insights.trade_history && (
-              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} period={period} busy={loading}
+              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} {...scopeOf("trade_history")} busy={loading}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "cash_history" && insights.cash_history && (
-              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} period={period} busy={loading}
+              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} {...scopeOf("cash_history")} busy={loading}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "tax_year" && insights.tax_year && (
               <TaxYearView data={insights.tax_year} book={book} locale={locale} t={t} busy={loading} onKind={(next) => void selectTab(next)}
-                onYear={(year) => void changeTax({ ...taxSettings, year })} onRule={(rule) => void changeTax({ rule })} />
+                onYear={(year) => void changeTax({ year, yearStart: insights.tax_year!.yearStart, timeZone: insights.tax_year!.timeZone })}
+                onRule={(rule) => void changeTax({ yearStart: TAX_RULES[rule].yearStart, ...(TAX_RULES[rule].timeZone ? { timeZone: TAX_RULES[rule].timeZone } : {}) })} />
             )}
             {portfolioLike && tab === "pies" && insights.pies && <PiesView payload={insights.pies} book={book} locale={locale} t={t} />}
             {portfolioLike && tab === "automation" && insights.automation && (

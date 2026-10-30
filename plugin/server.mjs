@@ -35347,7 +35347,7 @@ var TOOL_OUTPUT = {
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),
-  get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s truncated:b timestamp:s"),
+  get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
   get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
@@ -35360,7 +35360,7 @@ var TOOL_OUTPUT = {
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
   get_recent_trading_activity: payload("activity", "environment:s activity:a"),
   get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
-  get_trade_history: payload("trade_history", "environment:s period:o fills:a unfilled:a journal:a truncated:b timestamp:s"),
+  get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
   get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
   list_investment_plans: payload("investment_plans", "plans:a demoAutomationEnabled:b"),
@@ -38913,6 +38913,7 @@ var InsightsService = class {
       count: items.length,
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
+      ...options.ticker?.trim() || types.size ? { filter: { ...options.ticker?.trim() ? { ticker: exact2 ?? options.ticker.trim() } : {}, ...types.size ? { types: [...types] } : {} } } : {},
       truncated: !!(dividends?.truncated || transactions?.truncated),
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -38949,7 +38950,8 @@ var InsightsService = class {
       priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
       initiatedFrom: item.order?.initiatedFrom
     })) : void 0;
-    const fills = inWindow3.filter((item) => item.fill).slice(0, max).map((item) => ({
+    const filled = inWindow3.filter((item) => item.fill);
+    const fills = filled.slice(0, max).map((item) => ({
       ...orderIdOf2(item.order?.id),
       ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
@@ -38969,7 +38971,36 @@ var InsightsService = class {
       costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
       ...item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...tax.currency ? { currency: tax.currency } : {} })) } : {}
     }));
-    return { kind: "trade_history", environment, period: periodOfWindow(window), fills, ...unfilled ? { unfilled } : {}, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+    const totals = { buys: 0, sells: 0, bought: 0, sold: 0, realised: 0, costs: 0 };
+    for (const item of filled) {
+      const impact = item.fill?.walletImpact;
+      const value = Math.abs(impact?.netValue ?? 0);
+      if (item.order?.side === "SELL" || item.order?.side === void 0 && (item.fill?.quantity ?? 0) < 0) {
+        totals.sells += 1;
+        totals.sold += value;
+      } else {
+        totals.buys += 1;
+        totals.bought += value;
+      }
+      totals.realised += impact?.realisedProfitLoss ?? 0;
+      totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
+      totals.currency ??= impact?.currency;
+    }
+    for (const key of ["bought", "sold", "realised", "costs"]) totals[key] = Math.round(totals[key] * 100) / 100;
+    const filter = ticker?.trim() ? { filter: { ticker: exact2 ?? ticker.trim() } } : {};
+    return {
+      kind: "trade_history",
+      environment,
+      period: periodOfWindow(window),
+      fills,
+      count: filled.length,
+      limit: max,
+      totals,
+      ...unfilled ? { unfilled } : {},
+      ...filter,
+      truncated: collected.truncated,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
   }
   /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */
   exchangeReads = /* @__PURE__ */ new Map();
@@ -42894,7 +42925,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...history, ...notes.length ? { journal: notes } : {} };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${data.fills.length} of ${data.count} fills (bought ${data.totals.bought}, sold ${data.totals.sold}, realised ${data.totals.realised}, costs ${data.totals.costs}${data.totals.currency ? ` ${data.totals.currency}` : ""} over all of them)${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }

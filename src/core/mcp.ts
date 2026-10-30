@@ -445,7 +445,7 @@ export function createMcpServer(
         // The notes are an extra: a store that cannot be read leaves the history as it is.
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...history, ...(notes.length ? { journal: notes } : {}) };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${data.fills.length} of ${data.count} fills (bought ${data.totals.bought}, sold ${data.totals.sold}, realised ${data.totals.realised}, costs ${data.totals.costs}${data.totals.currency ? ` ${data.totals.currency}` : ""} over all of them)${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
