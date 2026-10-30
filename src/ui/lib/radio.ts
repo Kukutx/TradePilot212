@@ -1,12 +1,17 @@
 // Keyboard use of the widget's radio groups (period switches, table or map, and the like), as native radios work:
-// one Tab stop on the chosen option, and the arrow keys, Home and End move to another option and choose it.
+// one Tab stop on the chosen option, and the arrow keys, Home and End move to another option and choose it. A group
+// whose choice reads data (a period, a history view) only moves with the keys; Space or Enter chooses.
 
 import type { KeyboardEvent } from "react";
 
 const STEPS: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
-/** On a `role="radiogroup"`: moves to the next or previous enabled option (wrapping round), or the first or last. */
-export function radioKeys(event: KeyboardEvent<HTMLElement>): void {
+/**
+ * On a `role="radiogroup"`: moves to the next or previous enabled option (wrapping round), or the first or last, and
+ * chooses it unless `follow` is false. Keys with Alt, Ctrl or Meta are the browser's (back, forward) and left alone.
+ */
+export function radioKeys(event: KeyboardEvent<HTMLElement>, follow = true): void {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
   const step = STEPS[event.key];
   if (step === undefined && event.key !== "Home" && event.key !== "End") return;
   const radios = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not(:disabled)')];
@@ -16,8 +21,11 @@ export function radioKeys(event: KeyboardEvent<HTMLElement>): void {
   event.preventDefault();
   const target = radios[next]!;
   target.focus();
-  if (target.getAttribute("aria-checked") !== "true") target.click();
+  if (follow && target.getAttribute("aria-checked") !== "true") target.click();
 }
+
+/** radioKeys for a group whose choice reads data: the keys move between options, Space or Enter chooses one. */
+export const radioMoveKeys = (event: KeyboardEvent<HTMLElement>): void => radioKeys(event, false);
 
 /**
  * An option's place in the Tab order: only the chosen one is a stop, the rest are reached with the arrow keys. When

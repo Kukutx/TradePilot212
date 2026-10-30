@@ -19,7 +19,7 @@ import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { bandPoints, fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
-import { radioKeys, radioTab, radioTabOf } from "../lib/radio";
+import { radioKeys, radioMoveKeys, radioTab, radioTabOf } from "../lib/radio";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
@@ -74,9 +74,10 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
     ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],
   ];
   return (
-    <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("period")}>
+    <div className="segmented" role="radiogroup" onKeyDown={radioMoveKeys} aria-label={t("period")}>
+      {/* Off while a period is read, but still focusable (aria-disabled), so the focus stays on the switch. */}
       {options.map(([key, short, full]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTabOf(options.map(([option]) => option), value, key)} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTabOf(options.map(([option]) => option), value, key)} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} aria-disabled={disabled || undefined} onClick={() => { if (!disabled && value !== key) onChange(key); }}>{t(short)}</button>
       ))}
     </div>
   );
