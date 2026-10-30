@@ -1,10 +1,11 @@
-// A once-a-day account digest sent to the notification webhook at DIGEST_HOUR_UTC, so you can
+// A once-a-day account digest sent to the notification webhook at DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC, so you can
 // follow the account without opening a chat. It only reads; it never trades. It is sent whatever
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
 import type { Position, TradingEnvironment } from "../shared/contracts.js";
 import type { HistoryDividendItem } from "../shared/history.js";
 import { stopProtection } from "../shared/protection.js";
+import { localDay, localHour } from "../shared/time-zone.js";
 import type { AccountAlert, DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import type { PortfolioToday } from "../shared/today.js";
 import { analyzeAllocation, expectedDividends, positionValue } from "./analytics.js";
@@ -189,11 +190,11 @@ export class DailyDigest {
     dividends?: (environment: TradingEnvironment, from: Date, now: Date) => Promise<{ items: HistoryDividendItem[]; truncated: boolean }>;
   }) {}
 
-  /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
+  /** Send at most one digest per environment per day in the digest's time zone, at or after its hour. */
   async run(now = new Date()): Promise<string[]> {
-    const hour = this.deps.config.digestHourUtc;
-    if (hour === undefined || !this.deps.notify || now.getUTCHours() < hour) return [];
-    const day = now.toISOString().slice(0, 10);
+    const digest = this.deps.config.digest;
+    if (!digest || !this.deps.notify || localHour(now.getTime(), digest.timeZone) < digest.hour) return [];
+    const day = localDay(now.getTime(), digest.timeZone);
     const sent: string[] = [];
     const credentials = credentialStatus(this.deps.config);
     for (const environment of ["demo", "live"] as const) {

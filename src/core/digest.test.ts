@@ -372,6 +372,28 @@ describe("daily digest", () => {
     }
   });
 
+  it("goes out at DIGEST_HOUR in TIMEZONE, once a local day", async () => {
+    const services = setup({ DIGEST_HOUR: "7", TIMEZONE: "America/New_York" });
+    expect(services.config.digest).toEqual({ hour: 7, timeZone: "America/New_York" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const runAt = (time: string) => { vi.setSystemTime(new Date(time)); return services.digest.run(new Date()); };
+      // 07:00 in New York is 11:00 UTC in summer time (EDT).
+      expect(await runAt("2026-10-15T10:59:00Z")).toEqual([]);
+      expect(await runAt("2026-10-15T11:00:00Z")).toEqual(["demo"]);
+      // Past midnight UTC, still the 15th in New York: no second digest.
+      expect(await runAt("2026-10-16T02:00:00Z")).toEqual([]);
+      expect(await runAt("2026-10-16T11:00:00Z")).toEqual(["demo"]);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Without TIMEZONE, DIGEST_HOUR is in UTC; DIGEST_HOUR_UTC is always UTC, and not both.
+    expect(createConfig({ DIGEST_HOUR: "7" }).digest).toEqual({ hour: 7, timeZone: "UTC" });
+    expect(createConfig({ DIGEST_HOUR_UTC: "7", TIMEZONE: "Europe/Berlin" }).digest).toEqual({ hour: 7, timeZone: "UTC" });
+    expect(() => createConfig({ DIGEST_HOUR: "7", DIGEST_HOUR_UTC: "7" })).toThrow(/not both/);
+    expect(() => createConfig({ DIGEST_HOUR: "24" })).toThrow(/DIGEST_HOUR /);
+  });
+
   it("is off without an hour or a webhook", async () => {
     expect(await setup({}).digest.run(new Date("2026-10-11T12:00:00Z"))).toEqual([]);
     expect(() => createConfig({ DIGEST_HOUR_UTC: "25" })).toThrow(/DIGEST_HOUR_UTC/);

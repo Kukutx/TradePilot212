@@ -35129,6 +35129,46 @@ function bandEstimate(over, within3, band, totalValue, accountCurrency, fxFeeRat
   };
 }
 
+// src/shared/time-zone.ts
+function parseYearStart(value) {
+  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
+  const month = Number(match?.[1]), day2 = Number(match?.[2]);
+  const valid = match && month >= 1 && month <= 12 && day2 >= 1 && day2 <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
+  return valid ? { month, day: day2, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
+}
+function validTimeZone(timeZone2) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timeZone2 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function zoneOffset(instant, timeZone2) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: timeZone2,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - Math.floor(instant / 1e3) * 1e3;
+}
+function localDay(instant, timeZone2) {
+  return new Date(instant + zoneOffset(instant, timeZone2)).toISOString().slice(0, 10);
+}
+function localMidnight(year, month, day2, timeZone2) {
+  const guess = Date.UTC(year, month - 1, day2);
+  const first = guess - zoneOffset(guess, timeZone2);
+  return guess - zoneOffset(first, timeZone2);
+}
+function localHour(instant, timeZone2) {
+  return new Date(instant + zoneOffset(instant, timeZone2)).getUTCHours();
+}
+
 // src/core/config.ts
 function isLoopbackHost(hostname3) {
   return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
@@ -35199,12 +35239,45 @@ function webhookUrl(env2) {
   if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
   return url2.toString();
 }
-function digestHour(env2) {
-  const raw = (env2.DIGEST_HOUR_UTC ?? "").trim();
+function timeZone(env2) {
+  const raw = (env2.TIMEZONE ?? "").trim();
   if (!raw) return void 0;
-  const hour = Number(raw);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
-  return hour;
+  if (!validTimeZone(raw)) throw new Error("TIMEZONE must be an IANA time zone, such as Europe/London or America/New_York");
+  return new Intl.DateTimeFormat("en-US", { timeZone: raw }).resolvedOptions().timeZone;
+}
+function taxYearStart(env2) {
+  const raw = (env2.TAX_YEAR_START ?? "").trim();
+  if (!raw) return "01-01";
+  const start = parseYearStart(raw);
+  if (start.text !== raw) throw new Error("TAX_YEAR_START must be a real month and day as MM-DD, such as 04-06 for the UK");
+  return start.text;
+}
+function digest(env2, zone) {
+  const read = (name) => {
+    const raw = (env2[name] ?? "").trim();
+    if (!raw) return void 0;
+    const hour = Number(raw);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error(`${name} must be an integer from 0 to 23`);
+    return hour;
+  };
+  const local = read("DIGEST_HOUR");
+  const utc = read("DIGEST_HOUR_UTC");
+  if (local !== void 0 && utc !== void 0) throw new Error("Set DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC, not both");
+  if (local !== void 0) return { hour: local, timeZone: zone ?? "UTC" };
+  return utc === void 0 ? void 0 : { hour: utc, timeZone: "UTC" };
+}
+function tradingBaseUrl(env2, name, fallback) {
+  const raw = (env2[name] ?? "").trim();
+  if (!raw) return fallback;
+  let url2;
+  try {
+    url2 = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be a URL, such as ${fallback}`);
+  }
+  if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error(`${name} must use HTTPS`);
+  if (url2.username || url2.password || url2.search || url2.hash) throw new Error(`${name} must be a plain URL, without credentials, a query or a fragment`);
+  return url2.toString().replace(/\/+$/, "");
 }
 function quoteProvider(env2) {
   const value = (env2.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
@@ -35236,7 +35309,9 @@ function createConfig(env2, requestOrigin) {
     quoteApiKey: env2.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
     benchmark: benchmark(env2, sampleData),
-    ...digestHour(env2) === void 0 ? {} : { digestHourUtc: digestHour(env2) },
+    ...digest(env2, timeZone(env2)) ? { digest: digest(env2, timeZone(env2)) } : {},
+    ...timeZone(env2) ? { timeZone: timeZone(env2) } : {},
+    taxYearStart: taxYearStart(env2),
     sampleData,
     oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     fxFeeRate: fxFeeRate(env2),
@@ -35245,8 +35320,8 @@ function createConfig(env2, requestOrigin) {
       demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
       live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" }
     } : {
-      demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env2.T212_DEMO_API_KEY ?? "", apiSecret: env2.T212_DEMO_API_SECRET ?? "" },
-      live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env2.T212_LIVE_API_KEY ?? "", apiSecret: env2.T212_LIVE_API_SECRET ?? "" }
+      demo: { baseUrl: tradingBaseUrl(env2, "T212_DEMO_BASE_URL", "https://demo.trading212.com/api/v0"), apiKey: env2.T212_DEMO_API_KEY ?? "", apiSecret: env2.T212_DEMO_API_SECRET ?? "" },
+      live: { baseUrl: tradingBaseUrl(env2, "T212_LIVE_BASE_URL", "https://live.trading212.com/api/v0"), apiKey: env2.T212_LIVE_API_KEY ?? "", apiSecret: env2.T212_LIVE_API_SECRET ?? "" }
     }
   };
 }
@@ -35322,7 +35397,7 @@ function payload(kinds, fields) {
   });
 }
 var drafted = "environment:s purpose:s title:s legs:a notes:a credentials:o writeEnabled:b";
-var dashboard = "appName:s environment:s credentials:o account:o positions:a orders:a activity:a timestamp:s writeEnabled:b";
+var dashboard = "appName:s environment:s credentials:o account:o positions:a orders:a activity:a preferences:o timestamp:s writeEnabled:b";
 var holding = "environment:s credentials:o ticker:s instrument:o accountCurrency:s accountRate:n position:o watching:o weight:n orders:a alerts:a journal:a market:o history:o prices:o day:o timestamp:s writeEnabled:b";
 var pies = "environment:s credentials:o timestamp:s pies:a totals:o currency:s notes:a writeEnabled:b";
 var plan = "environment:s credentials:o candidates:a account:o timestamp:s writeEnabled:b";
@@ -35954,8 +36029,8 @@ function evaluatePolicy(policy2, input2) {
 function blockingChecks(checks) {
   return checks.filter((check2) => check2.status === "block");
 }
-function usageKey(environment, now = /* @__PURE__ */ new Date()) {
-  return `usage:${environment}:${now.toISOString().slice(0, 10)}`;
+function usageKey(environment, now = /* @__PURE__ */ new Date(), timeZone2 = "UTC") {
+  return `usage:${environment}:${localDay(now.getTime(), timeZone2)}`;
 }
 function addUsage(usage, accountNotional) {
   return { orders: usage.orders + 1, notional: usage.notional + (accountNotional && accountNotional > 0 ? accountNotional : 0) };
@@ -36709,11 +36784,11 @@ var TradingService = class {
     }
   }
   async usageToday(environment) {
-    return await this.deps.store.get(usageKey(environment)) ?? EMPTY_USAGE;
+    return await this.deps.store.get(usageKey(environment, /* @__PURE__ */ new Date(), this.deps.config.timeZone)) ?? EMPTY_USAGE;
   }
   async recordUsage(environment, accountNotional) {
     try {
-      const key = usageKey(environment);
+      const key = usageKey(environment, /* @__PURE__ */ new Date(), this.deps.config.timeZone);
       const next = addUsage(await this.deps.store.get(key) ?? EMPTY_USAGE, accountNotional);
       await this.deps.store.put(key, next, Date.now() + USAGE_TTL_MS);
     } catch (error62) {
@@ -38162,52 +38237,17 @@ function marketStatus(instrument, exchanges, now = /* @__PURE__ */ new Date()) {
     checkedAt
   };
 }
-function parseYearStart(value) {
-  const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
-  const month = Number(match?.[1]), day2 = Number(match?.[2]);
-  const valid = match && month >= 1 && month <= 12 && day2 >= 1 && day2 <= new Date(Date.UTC(2001, month, 0)).getUTCDate();
-  return valid ? { month, day: day2, text: `${match[1]}-${match[2]}` } : { month: 1, day: 1, text: "01-01" };
+function taxYearWindow(year, start, timeZone2 = "UTC") {
+  return { from: new Date(localMidnight(year, start.month, start.day, timeZone2)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone2) - 1) };
 }
-function validTimeZone(timeZone) {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function zoneOffset(instant, timeZone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).formatToParts(new Date(instant)).map((part) => [part.type, Number(part.value)]));
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - Math.floor(instant / 1e3) * 1e3;
-}
-function localDay(instant, timeZone) {
-  return new Date(instant + zoneOffset(instant, timeZone)).toISOString().slice(0, 10);
-}
-function localMidnight(year, month, day2, timeZone) {
-  const guess = Date.UTC(year, month - 1, day2);
-  const first = guess - zoneOffset(guess, timeZone);
-  return guess - zoneOffset(first, timeZone);
-}
-function taxYearWindow(year, start, timeZone = "UTC") {
-  return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
-}
-function currentTaxYear(start, now = /* @__PURE__ */ new Date(), timeZone = "UTC") {
-  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
-  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone) ? year : year - 1;
+function currentTaxYear(start, now = /* @__PURE__ */ new Date(), timeZone2 = "UTC") {
+  const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone2)).getUTCFullYear();
+  return now.getTime() >= localMidnight(year, start.month, start.day, timeZone2) ? year : year - 1;
 }
 function summarizeTaxYear(input2) {
   const now = input2.now ?? /* @__PURE__ */ new Date();
-  const timeZone = input2.timeZone ?? "UTC";
-  const window = taxYearWindow(input2.year, input2.yearStart, timeZone);
+  const timeZone2 = input2.timeZone ?? "UTC";
+  const window = taxYearWindow(input2.year, input2.yearStart, timeZone2);
   const fills = input2.orders.filter((item) => item.fill && inWindow(item.fill.filledAt, window));
   const undated = input2.orders.filter((item) => item.fill && !Number.isFinite(Date.parse(item.fill.filledAt ?? ""))).length;
   let count = 0, proceeds = 0, gains = 0, losses = 0, unvalued = 0;
@@ -38247,7 +38287,7 @@ function summarizeTaxYear(input2) {
     "Dividends are the amounts paid into the account, after any tax withheld at source. The Trading 212 annual statement and CSV export (manage_history_export) give the detail a return may need."
   ];
   if (!ended) notes.push("This tax year is still running; the figures cover it up to now.");
-  if (timeZone === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
+  if (timeZone2 === "UTC") notes.push("Days are counted in UTC. Pass timeZone (for example Europe/London) so trades just after local midnight fall in the right year.");
   if (unvalued) notes.push(`${unvalued} sale(s) had no account-currency value from Trading 212; proceeds leave them out, but their realised P/L is counted.`);
   if (undated) notes.push(`${undated} fill(s) had no fill date and are left out; check them in the Trading 212 statement.`);
   if (input2.truncated) notes.push("History was truncated at the page limit; older records of this tax year may be missing. Rerun with a larger maxPages.");
@@ -38257,9 +38297,9 @@ function summarizeTaxYear(input2) {
     accountCurrency: input2.accountCurrency,
     year: input2.year,
     yearStart: input2.yearStart.text,
-    timeZone,
+    timeZone: timeZone2,
     firstDay: `${input2.year}-${input2.yearStart.text}`,
-    lastDay: localDay(window.to.getTime(), timeZone),
+    lastDay: localDay(window.to.getTime(), timeZone2),
     period: { from: window.from.toISOString(), to: window.to.toISOString() },
     ended,
     disposals: { count, proceeds: round7(proceeds), gains: round7(gains), losses: round7(losses), net: round7(gains + losses) },
@@ -38378,8 +38418,8 @@ function recordKey(kind, item) {
 }
 var ledgerPrefix = (environment, account, kind) => `ledger:${environment}:${account}:${kind}:`;
 async function accountName(apiKey) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`tradepilot-ledger:${apiKey}`));
-  return [...new Uint8Array(digest).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest2 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`tradepilot-ledger:${apiKey}`));
+  return [...new Uint8Array(digest2).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 var chunkKey = (prefix) => `${prefix}c:${Date.now().toString(36).padStart(9, "0")}-${crypto.randomUUID().slice(0, 8)}`;
 var HistoryLedgers = class {
@@ -38836,10 +38876,10 @@ var InsightsService = class {
   async taxYear(environment, options = {}, now = /* @__PURE__ */ new Date()) {
     const start = parseYearStart(options.yearStart);
     if (options.yearStart?.trim() && start.text !== options.yearStart.trim()) fail("INVALID_INPUT", "yearStart must be a real month and day as MM-DD, such as 04-06", { field: "yearStart" });
-    const timeZone = options.timeZone?.trim() || "UTC";
-    if (!validTimeZone(timeZone)) fail("INVALID_INPUT", "timeZone must be an IANA time zone such as Europe/London", { field: "timeZone" });
-    const year = options.year ?? currentTaxYear(start, now, timeZone);
-    const window = taxYearWindow(year, start, timeZone);
+    const timeZone2 = options.timeZone?.trim() || "UTC";
+    if (!validTimeZone(timeZone2)) fail("INVALID_INPUT", "timeZone must be an IANA time zone such as Europe/London", { field: "timeZone" });
+    const year = options.year ?? currentTaxYear(start, now, timeZone2);
+    const window = taxYearWindow(year, start, timeZone2);
     if (window.from.getTime() > now.getTime()) fail("INVALID_INPUT", `The tax year starting ${window.from.toISOString().slice(0, 10)} has not started yet`, { field: "year", year });
     const client = this.client(environment);
     const account = await client.getAccountSummary();
@@ -38852,7 +38892,7 @@ var InsightsService = class {
       accountCurrency: account.currency ?? "",
       year,
       yearStart: start,
-      timeZone,
+      timeZone: timeZone2,
       now,
       orders: orders.items,
       dividends: dividends.items,
@@ -40034,7 +40074,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.61.0"
+  version: "2.62.0"
 };
 
 // src/shared/holding-risk.ts
@@ -42784,13 +42824,14 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     canWrite ? ORDER_INSTRUCTIONS : ""
   ].filter(Boolean).join("\n\n");
   const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const preferences = { ...config3.timeZone ? { timeZone: config3.timeZone } : {}, taxYearStart: config3.taxYearStart };
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist: watchlist2, closes: closes2 };
   const dashboard2 = async (environment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
     const account = data.account?.id;
     const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
-    return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
+    return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {}, preferences };
   };
   const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs, alongside, market } = {}) => {
     let read;
@@ -42982,20 +43023,20 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_tax_year_summary",
     {
       title: "Tax Year Summary",
-      description: "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 01-01 unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+      description: "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else UTC). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         year: external_exports.number().int().min(2e3).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
-        yearStart: external_exports.string().regex(/^\d{2}-\d{2}$/).default("01-01").describe("First day of the tax year as MM-DD, such as 04-06 for the UK"),
-        timeZone: external_exports.string().min(1).max(64).default("UTC").describe("IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin"),
+        yearStart: external_exports.string().regex(/^\d{2}-\d{2}$/).default(config3.taxYearStart).describe(`First day of the tax year as MM-DD, such as 04-06 for the UK. Default: ${config3.taxYearStart} (TAX_YEAR_START)`),
+        timeZone: external_exports.string().min(1).max(64).default(config3.timeZone ?? "UTC").describe(`IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin. Default: ${config3.timeZone ?? "UTC"}${config3.timeZone ? " (TIMEZONE)" : ""}`),
         maxPages: windowSchema.maxPages
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, year, yearStart, timeZone, maxPages }) => {
+    async ({ environment, year, yearStart, timeZone: timeZone2, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.taxYear(environment, { ...year === void 0 ? {} : { year }, yearStart, timeZone, maxPages }) };
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.taxYear(environment, { ...year === void 0 ? {} : { year }, yearStart, timeZone: timeZone2, maxPages }) };
         return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num2(data.disposals.gains)}, losses ${num2(data.disposals.losses)}, net ${num2(data.disposals.net)} ${data.accountCurrency}; dividends ${num2(data.income.dividends)}, interest ${num2(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -43287,7 +43328,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_trading_policy",
     {
       title: "Trading Policy",
-      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
+      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used (the day counted in the server's TIMEZONE, UTC without one). Read-only.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -44896,11 +44937,11 @@ var DailyDigest = class {
     this.deps = deps;
   }
   deps;
-  /** Send at most one digest per environment per UTC day, at or after DIGEST_HOUR_UTC. */
+  /** Send at most one digest per environment per day in the digest's time zone, at or after its hour. */
   async run(now = /* @__PURE__ */ new Date()) {
-    const hour = this.deps.config.digestHourUtc;
-    if (hour === void 0 || !this.deps.notify || now.getUTCHours() < hour) return [];
-    const day2 = now.toISOString().slice(0, 10);
+    const digest2 = this.deps.config.digest;
+    if (!digest2 || !this.deps.notify || localHour(now.getTime(), digest2.timeZone) < digest2.hour) return [];
+    const day2 = localDay(now.getTime(), digest2.timeZone);
     const sent = [];
     const credentials = credentialStatus(this.deps.config);
     for (const environment of ["demo", "live"]) {
@@ -45276,7 +45317,7 @@ function createServices(input2) {
     fills: (env2, from) => insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, DAY_ORDER_PAGES)
   }, environment, now);
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
-  const digest = new DailyDigest({
+  const digest2 = new DailyDigest({
     config: deps.config,
     store: deps.store,
     trading,
@@ -45302,7 +45343,7 @@ function createServices(input2) {
     alerts: await stage("alerts", () => alerts.check()),
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
-    digest: await stage("digest", () => digest.run())
+    digest: await stage("digest", () => digest2.run())
   });
   let running;
   const runScheduled = () => running ??= tick2().finally(() => {
@@ -45349,13 +45390,16 @@ function createServices(input2) {
         protectiveLinking: deps.config.protectiveLinking,
         orderWatch: deps.config.orderWatch,
         webhook: !!deps.config.notifyWebhookUrl,
-        digestHourUtc: deps.config.digestHourUtc ?? null,
+        digestHour: deps.config.digest?.hour ?? null,
+        ...deps.config.digest ? { digestTimeZone: deps.config.digest.timeZone } : {},
+        ...deps.config.timeZone ? { timeZone: deps.config.timeZone } : {},
+        taxYearStart: deps.config.taxYearStart,
         quoteProvider: deps.config.sampleData ? "sample" : deps.config.quoteProvider
       },
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest: digest2, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

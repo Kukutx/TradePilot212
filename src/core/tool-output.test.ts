@@ -90,3 +90,22 @@ describe("tool output fields", () => {
     expect(z.toJSONSchema(schema, { io: "output" }).properties!.cashWeight).toMatchObject({ type: ["number", "null"] });
   });
 });
+
+describe("the server's settings in tool results", () => {
+  it("counts the tax year from TAX_YEAR_START in TIMEZONE, and tells the widget both", async () => {
+    const { Client, InMemoryTransport } = await import("@modelcontextprotocol/client");
+    const { createMcpServer } = await import("./mcp.js");
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true", TAX_YEAR_START: "04-06", TIMEZONE: "Europe/London" } as RuntimeEnv);
+    const server = createMcpServer(createServices({ config, store: new MemoryStateStore() }), config, async () => "<html></html>");
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverSide);
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientSide);
+    const tax = (await client.callTool({ name: "get_tax_year_summary", arguments: {} })).structuredContent as { yearStart: string; timeZone: string };
+    expect(tax).toMatchObject({ yearStart: "04-06", timeZone: "Europe/London" });
+    const dashboard = (await client.callTool({ name: "get_portfolio_dashboard", arguments: {} })).structuredContent as { preferences: unknown };
+    expect(dashboard.preferences).toEqual({ timeZone: "Europe/London", taxYearStart: "04-06" });
+    // A year asked for another way still counts that way.
+    expect((await client.callTool({ name: "get_tax_year_summary", arguments: { yearStart: "01-01", timeZone: "UTC" } })).structuredContent).toMatchObject({ yearStart: "01-01", timeZone: "UTC" });
+  }, 30_000);
+});

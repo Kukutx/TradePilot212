@@ -32,7 +32,7 @@ You can change these later under `/plugin` → Installed → Configure options.
 
 The plugin ships a prebuilt server (`plugin/server.mjs`) and needs only `node` 22+ on your `PATH`. State and the audit log are kept in the plugin data directory, so they survive plugin updates.
 
-The plugin ignores `.env` files in the folder you open Claude Code in, so another project's settings cannot change its policy. For settings that have no option above, such as `POLICY_*` rules, `DIGEST_HOUR_UTC`, `BENCHMARK` or `NOTIFY_WEBHOOK_SECRET`, put a `.env.local` in the plugin data directory. The options above take precedence over it.
+The plugin ignores `.env` files in the folder you open Claude Code in, so another project's settings cannot change its policy. For settings that have no option above, such as `POLICY_*` rules, `TIMEZONE`, `TAX_YEAR_START`, `DIGEST_HOUR`, `BENCHMARK` or `NOTIFY_WEBHOOK_SECRET`, put a `.env.local` in the plugin data directory. The options above take precedence over it.
 
 ### Skills included
 

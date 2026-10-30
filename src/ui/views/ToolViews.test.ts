@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { OrderStatusReport } from "../../shared/contracts";
 import type { AutomationOverview } from "../../shared/automation";
 import { createTranslator } from "../i18n";
-import { TradingRules } from "./AutomationView";
+import { AutomationView, TradingRules, yearStartLabel } from "./AutomationView";
 import { ExportView, OrderStatusView } from "./ToolViews";
 
 const noop = () => {};
@@ -102,7 +102,7 @@ describe("the trading rules", () => {
       kind: "automation", environment: "demo", credentials: { demo: true, live: false }, plans: [], alerts: [], links: [], currency: "EUR",
       usageToday: { orders: 4, notional: 900 }, orderLimits: { notional: 5000, quantity: 0 },
       policy: { maxPositionWeight: 0.25, dailyOrderLimit: 5, dailyNotionalLimit: 1000, allowedTickers: [], blockedTickers: ["TSLA_US_EQ"], allowedTypes: ["ETF"], marketOrdersWhenClosed: false, maxReferenceAgeSeconds: 300 },
-      settings: { demoAutomation: false, protectiveLinking: true, orderWatch: true, webhook: false, digestHourUtc: null, quoteProvider: "stooq" }, timestamp: "2026-10-30T12:00:00Z",
+      settings: { demoAutomation: false, protectiveLinking: true, orderWatch: true, webhook: false, digestHour: null, quoteProvider: "stooq" }, timestamp: "2026-10-30T12:00:00Z",
     } satisfies AutomationOverview;
     const html = renderToStaticMarkup(createElement(TradingRules, { data, locale: "en", t: en }));
     expect(html).toContain("4 / 5");
@@ -115,5 +115,22 @@ describe("the trading rules", () => {
     expect(html).toContain("TSLA");
     expect(html).toContain("Market orders wait for the open");
     expect(html).toContain("Newer than 300 s");
+  });
+});
+
+describe("the automation settings", () => {
+  it("give the digest's hour in its zone, the zone days are counted in and the tax year's first day", () => {
+    const data = {
+      kind: "automation", environment: "demo", credentials: { demo: true, live: false }, plans: [], alerts: [], links: [], currency: "EUR",
+      usageToday: { orders: 0, notional: 0 },
+      policy: { maxPositionWeight: 0, dailyOrderLimit: 0, dailyNotionalLimit: 0, allowedTickers: [], blockedTickers: [], allowedTypes: [], marketOrdersWhenClosed: true, maxReferenceAgeSeconds: 0 },
+      settings: { demoAutomation: false, protectiveLinking: true, orderWatch: true, webhook: true, digestHour: 7, digestTimeZone: "Europe/London", timeZone: "Europe/London", taxYearStart: "04-06", quoteProvider: "stooq" },
+      timestamp: "2026-10-30T12:00:00Z",
+    } satisfies AutomationOverview;
+    const html = renderToStaticMarkup(createElement(AutomationView, { data, locale: "en", t: en }));
+    expect(html).toContain("07:00 Europe/London");
+    expect(html).toMatch(/Days counted in<\/span><strong[^>]*>Europe\/London/);
+    expect(html).toMatch(/Tax year starts<\/span><strong[^>]*>April 6/);
+    expect(yearStartLabel("04-06", "zh-CN")).toBe("4月6日");
   });
 });

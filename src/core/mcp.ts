@@ -18,7 +18,7 @@ import type { AllocationAnalysis, AllocationDrift, HoldingCovariance, HoldingCov
 import type { TradeTotals } from "../shared/trade-cost.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
-import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
+import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, Preferences, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
 import { APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
@@ -175,6 +175,7 @@ export function createMcpServer(
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
   const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const preferences: Preferences = { ...(config.timeZone ? { timeZone: config.timeZone } : {}), taxYearStart: config.taxYearStart };
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist, closes };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
   const dashboard = async (environment: TradingEnvironment) => {
@@ -183,7 +184,7 @@ export function createMcpServer(
     // Only the days of the account on screen: after a switch of keys, the old account's days are left out.
     const account = data.account?.id;
     const trend = await values.points(environment, { from, ...(typeof account === "number" ? { account } : {}) }).catch(() => []);
-    return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}) };
+    return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}), preferences };
   };
 
   /**
@@ -402,12 +403,12 @@ export function createMcpServer(
     {
       title: "Tax Year Summary",
       description:
-        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on 01-01 unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else UTC). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         year: z.number().int().min(2000).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
-        yearStart: z.string().regex(/^\d{2}-\d{2}$/).default("01-01").describe("First day of the tax year as MM-DD, such as 04-06 for the UK"),
-        timeZone: z.string().min(1).max(64).default("UTC").describe("IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin"),
+        yearStart: z.string().regex(/^\d{2}-\d{2}$/).default(config.taxYearStart).describe(`First day of the tax year as MM-DD, such as 04-06 for the UK. Default: ${config.taxYearStart} (TAX_YEAR_START)`),
+        timeZone: z.string().min(1).max(64).default(config.timeZone ?? "UTC").describe(`IANA time zone the tax year's days are counted in, such as Europe/London or Europe/Berlin. Default: ${config.timeZone ?? "UTC"}${config.timeZone ? " (TIMEZONE)" : ""}`),
         maxPages: windowSchema.maxPages,
       }),
       annotations: readOnly,
@@ -725,7 +726,7 @@ export function createMcpServer(
     "get_trading_policy",
     {
       title: "Trading Policy",
-      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
+      description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used (the day counted in the server's TIMEZONE, UTC without one). Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },

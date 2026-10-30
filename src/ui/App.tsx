@@ -15,6 +15,7 @@ import type {
   OrderPreview,
   OrderResolution,
   OrderStatusReport,
+  Preferences,
   StructuredError,
   TradeCandidate,
   TradePlanPayload,
@@ -77,9 +78,10 @@ type PortfolioTab = "holdings" | InsightKind;
 type InsightCache = { [K in InsightKind]?: Extract<InsightPayload, { kind: K }> };
 /**
  * The tax year the History tab shows: the latest that has started unless a year was picked, starting on `yearStart`
- * (month-day) in `timeZone` (the viewer's own when left out).
+ * (month-day; the server's TAX_YEAR_START when left out) in `timeZone` (the server's TIMEZONE, else the viewer's own,
+ * when left out).
  */
-interface TaxSettings { year?: number; yearStart: string; timeZone?: string }
+interface TaxSettings { year?: number; yearStart?: string; timeZone?: string }
 /**
  * What the host limited a trade or cash read to, kept while the page is read again: an instrument or types, and a window
  * none of the switch's periods is. Choosing a period drops the window; Show all drops both.
@@ -334,7 +336,13 @@ export default function App() {
   const [period, setPeriod] = useState<InsightPeriod>("ytd");
   /** The History tab's page shown last, and the tax year it shows. */
   const [historyKind, setHistoryKind] = useState<HistoryKind>("trade_history");
-  const [taxSettings, setTaxSettings] = useState<TaxSettings>({ yearStart: TAX_RULES.calendar.yearStart });
+  const [taxSettings, setTaxSettings] = useState<TaxSettings>({});
+  // The server's TIMEZONE and TAX_YEAR_START, from the dashboard: the tax year's defaults.
+  const [preferences, setPreferences] = useState<Preferences | undefined>(undefined);
+  useEffect(() => {
+    if (base?.kind === "portfolio" && base.preferences) setPreferences(base.preferences);
+    else if (base?.kind === "automation" && base.settings.taxYearStart) setPreferences({ ...(base.settings.timeZone ? { timeZone: base.settings.timeZone } : {}), taxYearStart: base.settings.taxYearStart });
+  }, [base]);
   const [historyScopes, setHistoryScopes] = useState<HistoryScopes>({});
   const [environment, setEnvironment] = useState<TradingEnvironment>("demo");
   const [draft, setDraft] = useState<OrderDraft | null>(null);
@@ -609,7 +617,10 @@ export default function App() {
     const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
       const scope = kind === "trade_history" || kind === "cash_history" ? scopes[kind] : undefined;
-      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), yearStart: tax.yearStart, timeZone: tax.timeZone ?? localZone() }
+      // Without a zone chosen: the server's TIMEZONE, or, where the server has none, the viewer's own. Before the
+      // dashboard says which, the server's default.
+      const zone = tax.timeZone ?? (preferences ? preferences.timeZone ?? localZone() : undefined);
+      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), ...(tax.yearStart ? { yearStart: tax.yearStart } : {}), ...(zone ? { timeZone: zone } : {}) }
         : timeless(kind) ? { environment: env }
         : {
           environment: env,
@@ -658,7 +669,7 @@ export default function App() {
   function stale(kind: InsightKind): boolean {
     const loaded = insights[kind];
     if (!loaded || loaded.environment !== environment) return true;
-    if (loaded.kind === "tax_year") return loaded.yearStart !== taxSettings.yearStart || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
+    if (loaded.kind === "tax_year") return (taxSettings.yearStart !== undefined && loaded.yearStart !== taxSettings.yearStart) || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
     // A window the host chose stays as read until a period is chosen.
     if ((loaded.kind === "trade_history" || loaded.kind === "cash_history") && historyScopes[loaded.kind]?.window) return false;
     const range = periodOfPayload(loaded);

@@ -4,6 +4,7 @@
 import type { AccountSummary, Instrument, OrderDraft, Position } from "../shared/contracts.js";
 import type { PolicyCheck, TradingPolicy } from "../shared/automation.js";
 import type { MarketStatus } from "../shared/history.js";
+import { localDay } from "../shared/time-zone.js";
 
 export interface DailyUsage {
   orders: number;
@@ -120,8 +121,9 @@ export function blockingChecks(checks: PolicyCheck[]): PolicyCheck[] {
   return checks.filter((check) => check.status === "block");
 }
 
-export function usageKey(environment: string, now = new Date()): string {
-  return `usage:${environment}:${now.toISOString().slice(0, 10)}`;
+/** The day's usage, by the day in `timeZone` (TIMEZONE; UTC without one), so the daily limits reset at local midnight. */
+export function usageKey(environment: string, now = new Date(), timeZone = "UTC"): string {
+  return `usage:${environment}:${localDay(now.getTime(), timeZone)}`;
 }
 
 /** Add an order to the running usage; its value counts when it is known in the account currency. */
