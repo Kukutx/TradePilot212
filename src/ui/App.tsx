@@ -470,7 +470,10 @@ export default function App() {
     if (!app || !route) return;
     setRoute(null);
     if (routeFresh(route)) void openRoute(route);
-    else setLaterRoute(route);
+    else {
+      setEnvironment(routeEnvironment(route));
+      setLaterRoute(route);
+    }
     // Each result is opened once, when it and the connection are both there.
   }, [app, route]);
 
