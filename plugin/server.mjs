@@ -35347,7 +35347,7 @@ var TOOL_OUTPUT = {
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),
-  get_cash_history: payload("cash_history", "environment:s items:a count:n totals:o currency:s truncated:b timestamp:s"),
+  get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
   get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
@@ -35360,7 +35360,7 @@ var TOOL_OUTPUT = {
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
   get_recent_trading_activity: payload("activity", "environment:s activity:a"),
   get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
-  get_trade_history: payload("trade_history", "environment:s fills:a unfilled:a journal:a truncated:b timestamp:s"),
+  get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
   get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
   list_investment_plans: payload("investment_plans", "plans:a demoAutomationEnabled:b"),
@@ -38543,6 +38543,7 @@ function itemTime(kind, item) {
   const time3 = value ? Date.parse(value) : NaN;
   return Number.isFinite(time3) ? time3 : NaN;
 }
+var periodOfWindow = (window) => ({ ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() });
 var orderIdOf2 = (id) => id === void 0 || id === null || id === "" ? {} : { orderId: String(id) };
 var DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 var DAY_MS2 = 864e5;
@@ -38907,10 +38908,12 @@ var InsightsService = class {
     return {
       kind: "cash_history",
       environment,
+      period: periodOfWindow(window),
       items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
       count: items.length,
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
+      ...options.ticker?.trim() || types.size ? { filter: { ...options.ticker?.trim() ? { ticker: exact2 ?? options.ticker.trim() } : {}, ...types.size ? { types: [...types] } : {} } } : {},
       truncated: !!(dividends?.truncated || transactions?.truncated),
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -38947,7 +38950,8 @@ var InsightsService = class {
       priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
       initiatedFrom: item.order?.initiatedFrom
     })) : void 0;
-    const fills = inWindow3.filter((item) => item.fill).slice(0, max).map((item) => ({
+    const filled = inWindow3.filter((item) => item.fill);
+    const fills = filled.slice(0, max).map((item) => ({
       ...orderIdOf2(item.order?.id),
       ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
@@ -38967,7 +38971,36 @@ var InsightsService = class {
       costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
       ...item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...tax.currency ? { currency: tax.currency } : {} })) } : {}
     }));
-    return { kind: "trade_history", environment, fills, ...unfilled ? { unfilled } : {}, truncated: collected.truncated, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+    const totals = { buys: 0, sells: 0, bought: 0, sold: 0, realised: 0, costs: 0 };
+    for (const item of filled) {
+      const impact = item.fill?.walletImpact;
+      const value = Math.abs(impact?.netValue ?? 0);
+      if (String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0) {
+        totals.sells += 1;
+        totals.sold += value;
+      } else {
+        totals.buys += 1;
+        totals.bought += value;
+      }
+      totals.realised += impact?.realisedProfitLoss ?? 0;
+      totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
+      totals.currency ??= impact?.currency;
+    }
+    for (const key of ["bought", "sold", "realised", "costs"]) totals[key] = Math.round(totals[key] * 100) / 100;
+    const filter = ticker?.trim() ? { filter: { ticker: exact2 ?? ticker.trim() } } : {};
+    return {
+      kind: "trade_history",
+      environment,
+      period: periodOfWindow(window),
+      fills,
+      count: filled.length,
+      limit: max,
+      totals,
+      ...unfilled ? { unfilled } : {},
+      ...filter,
+      truncated: collected.truncated,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
   }
   /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */
   exchangeReads = /* @__PURE__ */ new Map();
@@ -40001,7 +40034,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.59.0"
+  version: "2.60.0"
 };
 
 // src/shared/holding-risk.ts
@@ -40887,14 +40920,24 @@ function income(data) {
 }
 function tradeHistory(data) {
   const fills = data.fills;
-  const sum = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
-  const count = (side) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
+  const sell = (fill) => String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
   const fees = /* @__PURE__ */ new Map();
   for (const fill of fills) for (const item of fill.costItems ?? []) fees.set(item.name, (fees.get(item.name) ?? 0) + item.amount);
-  const currency = fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
-  const realized = fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0);
+  const totals = data.totals ?? {
+    buys: fills.filter((fill) => !sell(fill)).length,
+    sells: fills.filter(sell).length,
+    bought: fills.filter((fill) => !sell(fill)).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    sold: fills.filter(sell).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    realised: fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0),
+    costs: fills.reduce((total, fill) => total + (fill.costs ?? 0), 0)
+  };
+  const currency = totals.currency ?? fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
+  const all = data.count ?? fills.length;
+  const partial2 = all > fills.length;
   return [
-    ...fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num2(sum("BUY"))}, ${count("SELL")} sells ${num2(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num2([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")})` : ""}.`] : ["No fills in this window."],
+    ...all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num2(totals.bought)}, ${totals.sells} sells ${num2(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num2(totals.costs)}.`] : ["No fills in this window."],
+    ...fees.size ? [`Fees by kind${partial2 ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")}.`] : [],
+    ...partial2 ? [`The newest ${fills.length} of ${all} fills are listed below; a higher limit (up to 200) or a shorter window lists more.`] : [],
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
@@ -42859,11 +42902,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         maxPages: windowSchema.maxPages
       }),
       annotations: readOnly,
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, year, yearStart, timeZone, maxPages }) => {
       try {
-        const data = await insights.taxYear(environment, { ...year === void 0 ? {} : { year }, yearStart, timeZone, maxPages });
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.taxYear(environment, { ...year === void 0 ? {} : { year }, yearStart, timeZone, maxPages }) };
         return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num2(data.disposals.gains)}, losses ${num2(data.disposals.losses)}, net ${num2(data.disposals.net)} ${data.accountCurrency}; dividends ${num2(data.income.dividends)}, interest ${num2(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -42884,15 +42927,15 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         ...windowSchema
       }),
       annotations: readOnly,
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
       try {
         const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled);
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
-        const data = { ...history, ...notes.length ? { journal: notes } : {} };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...history, ...notes.length ? { journal: notes } : {} };
+        return result(data, `Returned ${data.fills.length} of ${data.count} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -42912,11 +42955,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         ...windowSchema
       }),
       annotations: readOnly,
-      _meta: {}
+      _meta: { ui: { resourceUri: WIDGET_URI } }
     },
     async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.cashHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), { ...ticker ? { ticker } : {}, ...types ? { types } : {}, limit, ...maxPages ? { maxPages } : {} });
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), { ...ticker ? { ticker } : {}, ...types ? { types } : {}, limit, ...maxPages ? { maxPages } : {} }) };
         return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);

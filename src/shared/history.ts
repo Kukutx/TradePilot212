@@ -523,6 +523,113 @@ export interface PerformanceSummary {
 }
 
 /** One tax year's sales, income and costs, for preparing a tax return. Not a tax calculation. */
+/** A cash movement or dividend, as the cash history lists it. */
+export interface CashHistoryItem {
+  date: string;
+  /** DIVIDEND, or Trading 212's transaction type (DEPOSIT, WITHDRAW, INTEREST, FEE …). */
+  type: string;
+  amount: number;
+  currency: string;
+  ticker?: string;
+  name?: string;
+  quantity?: number;
+  grossPerShare?: number;
+  perShareCurrency?: string;
+  /** The dividend's own type, such as ORDINARY. */
+  subtype?: string;
+  reference?: string;
+}
+
+export interface CashHistory {
+  kind: "cash_history";
+  environment: TradingEnvironment;
+  /** The window read. */
+  period: { from?: string; to: string };
+  /** Newest first, up to the limit asked for; `count` is how many the window holds. */
+  items: CashHistoryItem[];
+  count: number;
+  /** Each type's total over the whole window, in the account currency. */
+  totals: Record<string, number>;
+  currency: string;
+  /** What the read was limited to, when it was: an instrument's dividends, or some types. */
+  filter?: HistoryFilter;
+  truncated: boolean;
+  timestamp: string;
+}
+
+/** What a history read was limited to besides its window. */
+export interface HistoryFilter {
+  ticker?: string;
+  types?: string[];
+}
+
+/** One executed fill. Amounts in the account currency unless a field names another. */
+export interface TradeFill {
+  orderId?: string;
+  ticker?: string;
+  name?: string;
+  side?: string;
+  type?: string;
+  status?: string;
+  initiatedFrom?: string;
+  filledAt?: string;
+  fillType?: string;
+  /** Negative for a sale. */
+  quantity?: number;
+  price?: number;
+  priceCurrency?: string;
+  netValue?: number;
+  accountCurrency?: string;
+  realisedProfitLoss?: number;
+  fxRate?: number;
+  costs: number;
+  costItems?: Array<{ name: string; amount: number; currency?: string }>;
+}
+
+/** An order that closed without a fill: cancelled, rejected or expired. */
+export interface UnfilledOrder {
+  orderId?: string;
+  ticker?: string;
+  name?: string;
+  side?: string;
+  type?: string;
+  status?: string;
+  createdAt?: string;
+  quantity?: number;
+  value?: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  priceCurrency?: string;
+  initiatedFrom?: string;
+}
+
+export interface TradeHistory {
+  kind: "trade_history";
+  environment: TradingEnvironment;
+  period: { from?: string; to: string };
+  /** Newest first, up to `limit`; `count` is how many fills the window holds. */
+  fills: TradeFill[];
+  count: number;
+  limit: number;
+  /** Over every fill in the window, not only those listed, in the account currency. */
+  totals: FillTotals;
+  unfilled?: UnfilledOrder[];
+  filter?: HistoryFilter;
+  truncated: boolean;
+  timestamp: string;
+}
+
+export interface FillTotals {
+  buys: number;
+  sells: number;
+  /** Money spent on buys and taken in by sells, both as positive amounts. */
+  bought: number;
+  sold: number;
+  realised: number;
+  costs: number;
+  currency?: string;
+}
+
 export interface TaxYearSummary {
   kind: "tax_year";
   environment: TradingEnvironment;

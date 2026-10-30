@@ -410,11 +410,11 @@ export function createMcpServer(
         maxPages: windowSchema.maxPages,
       }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, year, yearStart, timeZone, maxPages }) => {
       try {
-        const data = await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone, maxPages });
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone, maxPages }) };
         return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
@@ -436,7 +436,7 @@ export function createMcpServer(
         ...windowSchema,
       }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
       try {
@@ -444,8 +444,8 @@ export function createMcpServer(
         const orderIds = [...history.fills, ...(history.unfilled ?? [])].flatMap((item) => (item.orderId ? [item.orderId] : []));
         // The notes are an extra: a store that cannot be read leaves the history as it is.
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
-        const data = { ...history, ...(notes.length ? { journal: notes } : {}) };
-        return result(data, `Returned ${data.fills.length} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...history, ...(notes.length ? { journal: notes } : {}) };
+        return result(data, `Returned ${data.fills.length} of ${data.count} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -466,11 +466,11 @@ export function createMcpServer(
         ...windowSchema,
       }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
       try {
-        const data = await insights.cashHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), { ...(ticker ? { ticker } : {}), ...(types ? { types } : {}), limit, ...(maxPages ? { maxPages } : {}) });
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), { ...(ticker ? { ticker } : {}), ...(types ? { types } : {}), limit, ...(maxPages ? { maxPages } : {}) }) };
         return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);

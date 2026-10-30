@@ -336,7 +336,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .levelRow.stop .levelMark { border-radius: 2px; background: var(--tp-red); }
 .levelRow.limit .levelMark { width: 9px; height: 9px; transform: rotate(45deg); background: var(--tp-green); }
 .levelRow.alert .levelMark { width: 12px; height: 11px; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: var(--tp-amber); box-shadow: none; }
-.historyList { list-style: none; margin: 0; padding: 0; display: grid; }
+.historyList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .historyList li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--tp-border); }
 .historyList li:last-child { border-bottom: 0; }
 .historyList li > div { min-width: 0; }
@@ -1483,3 +1483,54 @@ summary::-webkit-details-marker { display: none; }
 }
 .candidateDetails[open] > summary::after, .policyPassed[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
 .liveAck input[type="checkbox"] { margin-top: 1px; }
+
+/* History: the records of a period, a day at a time. */
+.historyDay + .historyDay { margin-top: 6px; }
+.historyDayTitle { margin: 0; padding: 8px 2px 6px; border-bottom: 1px solid var(--tp-border); background: var(--tp-bg); color: var(--tp-muted); font-size: 12px; font-weight: 720; letter-spacing: .04em; text-transform: uppercase; }
+.historyWho { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.historyWho > div { min-width: 0; }
+.historyWho strong, .historyWho .reviewName { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.historyWho small b { font-weight: 760; }
+.historyRow .historyAmount small { white-space: nowrap; }
+/* The name gives way on a narrow row; the amount never does, and stays beside the name when a note follows. */
+.historyRow > .historyWho { flex: 1 1 0; }
+.historyRow > .historyAmount { flex: none; }
+strong.historyAmount { flex: none; font-size: 13px; }
+.historyList strong.positive, .historyList small.positive { color: var(--tp-green); }
+.historyList strong.negative, .historyList small.negative { color: var(--tp-red); }
+.cashMark { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; font-size: 17px; font-weight: 760; }
+.cashMark.in { background: var(--tp-green-soft); color: var(--tp-green); }
+.cashMark.out { background: var(--tp-red-soft); color: var(--tp-red); }
+.historyFilter { flex: 0 1 240px; min-width: 0; }
+.historyFilter input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
+.historyFilter input:hover { border-color: var(--tp-border-strong); }
+.filterChips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.filterChips button { min-height: 32px; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 999px; background: transparent; color: var(--tp-muted); font-size: 13px; font-weight: 680; transition: background .16s ease, color .16s ease, border-color .16s ease; }
+.filterChips button:hover { border-color: var(--tp-border-strong); color: var(--tp-text); }
+.filterChips button.active { border-color: var(--tp-primary-bg); background: var(--tp-primary-bg); color: var(--tp-primary-text); }
+.taxControls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.yearStepper { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); }
+.yearStepper button { width: 34px; min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--tp-muted); font-size: 18px; font-weight: 700; line-height: 1; }
+.yearStepper button:hover:not(:disabled) { background: var(--tp-bg); color: var(--tp-text); }
+.yearStepper button:disabled { opacity: .4; cursor: default; }
+.yearStepper strong { min-width: 64px; text-align: center; font-size: 14px; font-variant-numeric: tabular-nums; }
+.historyFiltered { align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0; }
+.historyFiltered > span { min-width: 0; overflow-wrap: anywhere; }
+.historyFiltered strong { white-space: normal; }
+.historyFiltered .linkButton { min-height: 28px; font-size: 12px; }
+.taxRunning { margin-left: 8px; letter-spacing: 0; text-transform: none; vertical-align: 1px; }
+@container (max-width: 420px) {
+  .historyFilter { flex-basis: 100%; }
+  .historyWho .assetAvatar, .cashMark { width: 30px; height: 30px; border-radius: 9px; }
+}
+@media (forced-colors: active) {
+  .filterChips button.active { border-color: Highlight; background: Highlight; color: HighlightText; }
+  .cashMark { border: 1px solid CanvasText; }
+}
+.reviewToolbar > .segmented, .taxControls > * { flex: none; max-width: 100%; }
+@container (max-width: 420px) {
+  /* On a phone each switch takes the row, its choices sharing it evenly. */
+  .reviewToolbar > .segmented, .taxControls, .taxControls > .segmented { display: flex; width: 100%; }
+  .reviewToolbar > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
+  .taxControls > .yearStepper { margin-inline: auto; }
+}

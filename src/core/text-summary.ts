@@ -10,7 +10,7 @@ import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/price
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
-import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
@@ -648,16 +648,27 @@ interface TradeFill {
 
 interface UnfilledOrder { orderId?: string; ticker?: string; name?: string; side?: string; type?: string; status?: string; createdAt?: string; quantity?: number; value?: number; limitPrice?: number; stopPrice?: number; priceCurrency?: string }
 
-function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; journal?: JournalEntry[]; truncated?: boolean }): string[] {
+function tradeHistory(data: { fills: TradeFill[]; count?: number; totals?: FillTotals; unfilled?: UnfilledOrder[]; journal?: JournalEntry[]; truncated?: boolean }): string[] {
   const fills = data.fills;
-  const sum = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0);
-  const count = (side: string) => fills.filter((fill) => String(fill.side).toUpperCase() === side).length;
+  const sell = (fill: TradeFill) => String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
   const fees = new Map<string, number>();
   for (const fill of fills) for (const item of fill.costItems ?? []) fees.set(item.name, (fees.get(item.name) ?? 0) + item.amount);
-  const currency = fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
-  const realized = fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0);
+  // The window's totals from the server cover every fill in it; a result without them (an older one) is added up here.
+  const totals: FillTotals = data.totals ?? {
+    buys: fills.filter((fill) => !sell(fill)).length,
+    sells: fills.filter(sell).length,
+    bought: fills.filter((fill) => !sell(fill)).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    sold: fills.filter(sell).reduce((total, fill) => total + Math.abs(fill.netValue ?? 0), 0),
+    realised: fills.reduce((total, fill) => total + (fill.realisedProfitLoss ?? 0), 0),
+    costs: fills.reduce((total, fill) => total + (fill.costs ?? 0), 0),
+  };
+  const currency = totals.currency ?? fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
+  const all = data.count ?? fills.length;
+  const partial = all > fills.length;
   return [
-    ...(fills.length ? [`Totals${currency ? ` (${currency})` : ""}: ${count("BUY")} buys ${num(sum("BUY"))}, ${count("SELL")} sells ${num(sum("SELL"))}, realized P/L ${signed(realized)}, fees ${num([...fees.values()].reduce((a, b) => a + b, 0))}${fees.size ? ` (${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")})` : ""}.`] : ["No fills in this window."]),
+    ...(all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num(totals.bought)}, ${totals.sells} sells ${num(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num(totals.costs)}.`] : ["No fills in this window."]),
+    ...(fees.size ? [`Fees by kind${partial ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")}.`] : []),
+    ...(partial ? [`The newest ${fills.length} of ${all} fills are listed below; a higher limit (up to 200) or a shorter window lists more.`] : []),
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}`
       + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`

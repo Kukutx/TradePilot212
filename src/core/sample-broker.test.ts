@@ -78,6 +78,24 @@ describe("sample data mode", () => {
     expect(history.unfilled).toEqual([expect.objectContaining({ ticker: "MSFT_US_EQ", status: "CANCELLED", limitPrice: 400 })]);
     expect(history.fills.every((fill) => fill.ticker === "MSFT_US_EQ")).toBe(true);
     expect((await services.insights.tradeHistory("demo", { to: new Date() }, "MSFT")).unfilled).toBeUndefined();
+    expect(history.filter).toEqual({ ticker: "MSFT_US_EQ" });
+  });
+
+  it("adds up every fill in the window, not only the ones listed", async () => {
+    const services = createServices({ config: createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), store: new MemoryStateStore(), fetcher: (async () => new Response("{}")) as typeof fetch });
+    const all = await services.insights.tradeHistory("demo", { to: new Date() }, undefined, 200);
+    const two = await services.insights.tradeHistory("demo", { to: new Date() }, undefined, 2);
+    expect(two.fills).toHaveLength(2);
+    expect(two).toMatchObject({ count: all.fills.length, limit: 2, totals: all.totals });
+    expect(all.filter).toBeUndefined();
+    const realised = all.fills.reduce((sum, fill) => sum + (fill.realisedProfitLoss ?? 0), 0);
+    expect(all.totals.realised).toBeCloseTo(realised, 2);
+    expect(all.totals.buys + all.totals.sells).toBe(all.fills.length);
+    expect(all.totals.currency).toBe("EUR");
+    // The text the model reads gives the same totals, and says only the newest are listed.
+    const text = describePayload(two);
+    expect(text).toContain(`Totals over all ${all.fills.length} fill(s) (EUR): ${all.totals.buys} buys`);
+    expect(text).toContain(`The newest 2 of ${all.fills.length} fills are listed`);
   });
 
   it("holds back the shares a pending sell covers, as Trading 212 does", async () => {
@@ -115,6 +133,8 @@ describe("sample data mode", () => {
     expect(coke.items.every((item) => item.type === "DIVIDEND" && item.ticker === "KO_US_EQ")).toBe(true);
     const deposits = await insights.cashHistory("demo", { to: new Date() }, { types: ["deposit"] });
     expect(deposits.totals).toEqual({ DEPOSIT: 14_000 });
+    expect(deposits.filter).toEqual({ types: ["DEPOSIT"] });
+    expect(coke.filter).toEqual({ ticker: "KO_US_EQ" });
     expect(describePayload(deposits)).toContain("deposit +14000");
   });
 

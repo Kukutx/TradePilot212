@@ -4,6 +4,8 @@
 import type { AccountSummary, Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
 import type {
   AllocationAnalysis,
+  CashHistory,
+  CashHistoryItem,
   Exchange,
   ExportReport,
   HistoryDividendItem,
@@ -13,6 +15,8 @@ import type {
   MarketStatus,
   PerformanceSummary,
   TaxYearSummary,
+  TradeHistory,
+  FillTotals,
   ValuePoint,
 } from "../shared/history.js";
 import {
@@ -99,25 +103,11 @@ function itemTime(kind: HistoryKind, item: HistoryOrderItem | HistoryDividendIte
 }
 
 /** One dividend or cash movement; amounts are in `currency`, the account currency for Trading 212. */
-export interface CashHistoryItem {
-  date: string;
-  /** DIVIDEND, or Trading 212's transaction type (DEPOSIT, WITHDRAW, INTEREST, FEE …). */
-  type: string;
-  amount: number;
-  currency: string;
-  ticker?: string;
-  name?: string;
-  quantity?: number;
-  grossPerShare?: number;
-  perShareCurrency?: string;
-  /** The dividend's own type, such as ORDINARY. */
-  subtype?: string;
-  reference?: string;
-}
-
 export type HistoryPeriod = "1w" | "1m" | "3m" | "ytd" | "1y" | "all";
 
 /** The Trading 212 order id of a history record, as text, so a journal note can name it. */
+/** A window as a payload gives it. */
+const periodOfWindow = (window: HistoryWindow) => ({ ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString() });
 const orderIdOf = (id: number | string | undefined): { orderId?: string } => (id === undefined || id === null || id === "" ? {} : { orderId: String(id) });
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -433,7 +423,7 @@ export class InsightsService {
    * Dividends and cash movements (deposits, withdrawals, interest, fees) one by one, newest first,
    * with totals per type. `types` takes DIVIDEND and Trading 212's transaction types; a ticker limits it to dividends.
    */
-  async cashHistory(environment: TradingEnvironment, window: HistoryWindow, options: { ticker?: string; types?: string[]; limit?: number; maxPages?: number } = {}) {
+  async cashHistory(environment: TradingEnvironment, window: HistoryWindow, options: { ticker?: string; types?: string[]; limit?: number; maxPages?: number } = {}): Promise<CashHistory> {
     let exact: string | undefined;
     if (options.ticker?.trim()) {
       try {
@@ -483,16 +473,18 @@ export class InsightsService {
     return {
       kind: "cash_history" as const,
       environment,
+      period: periodOfWindow(window),
       items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
       count: items.length,
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
+      ...(options.ticker?.trim() || types.size ? { filter: { ...(options.ticker?.trim() ? { ticker: exact ?? options.ticker.trim() } : {}), ...(types.size ? { types: [...types] } : {}) } } : {}),
       truncated: !!(dividends?.truncated || transactions?.truncated),
       timestamp: new Date().toISOString(),
     };
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false) {
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false): Promise<TradeHistory> {
     // A name or symbol resolves to the exact ticker, which Trading 212 filters on its side, so a rarely
     // traded instrument is not lost past the page limit. One it no longer lists falls back to a prefix match.
     let exact: string | undefined;
@@ -531,8 +523,8 @@ export class InsightsService {
           initiatedFrom: item.order?.initiatedFrom,
         }))
       : undefined;
-    const fills = inWindow
-      .filter((item) => item.fill)
+    const filled = inWindow.filter((item) => item.fill);
+    const fills = filled
       .slice(0, max)
       .map((item) => ({
         ...orderIdOf(item.order?.id),
@@ -554,7 +546,22 @@ export class InsightsService {
         costs: (item.fill?.walletImpact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0),
         ...(item.fill?.walletImpact?.taxes?.length ? { costItems: item.fill.walletImpact.taxes.map((tax) => ({ name: tax.name ?? "fee", amount: Math.abs(tax.quantity ?? 0), ...(tax.currency ? { currency: tax.currency } : {}) })) } : {}),
       }));
-    return { kind: "trade_history" as const, environment, fills, ...(unfilled ? { unfilled } : {}), truncated: collected.truncated, timestamp: new Date().toISOString() };
+    const totals: FillTotals = { buys: 0, sells: 0, bought: 0, sold: 0, realised: 0, costs: 0 };
+    for (const item of filled) {
+      const impact = item.fill?.walletImpact;
+      const value = Math.abs(impact?.netValue ?? 0);
+      // A sell is told by its side, or by the shares it took away, as everywhere else.
+      if (String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0) { totals.sells += 1; totals.sold += value; } else { totals.buys += 1; totals.bought += value; }
+      totals.realised += impact?.realisedProfitLoss ?? 0;
+      totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
+      totals.currency ??= impact?.currency;
+    }
+    for (const key of ["bought", "sold", "realised", "costs"] as const) totals[key] = Math.round(totals[key] * 100) / 100;
+    const filter = ticker?.trim() ? { filter: { ticker: exact ?? ticker.trim() } } : {};
+    return {
+      kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, count: filled.length, limit: max, totals, ...(unfilled ? { unfilled } : {}), ...filter,
+      truncated: collected.truncated, timestamp: new Date().toISOString(),
+    };
   }
 
   /** Exchange-list reads under way, shared by callers at the same moment (Trading 212 allows one in 30 seconds). */

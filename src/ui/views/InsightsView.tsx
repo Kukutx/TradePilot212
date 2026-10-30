@@ -44,7 +44,7 @@ const COST_KEYS: Record<string, MessageKey> = {
   ACCOUNT_FEE: "costAccountFee",
 };
 
-function costLabel(code: string, t: Translator): string {
+export function costLabel(code: string, t: Translator): string {
   const known = COST_KEYS[code];
   return known ? t(known) : code.replaceAll("_", " ").toLowerCase();
 }
@@ -58,15 +58,15 @@ const FLAG_KEYS: Record<AllocationAnalysis["flags"][number]["code"], MessageKey>
   DRIFT_OVER_THRESHOLD: "flagDrift",
 };
 
-const chartLabels = (t: Translator): ChartLabels => ({ table: t("tableView"), chart: t("chartView") });
+export const chartLabels = (t: Translator): ChartLabels => ({ table: t("tableView"), chart: t("chartView") });
 
 /** A bar row for an instrument: its name, its symbol under it, the exact ticker on hover. */
-function instrumentDatum(ticker: string, book: InstrumentBook | undefined, name?: string) {
+export function instrumentDatum(ticker: string, book: InstrumentBook | undefined, name?: string) {
   const label = instrumentLabel(ticker, book, name ? { name } : undefined);
   return { label: label.name, ...(label.detail ? { sublabel: label.detail } : {}), title: ticker };
 }
 
-export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
+export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod | null; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
   // Short labels keep five periods on one line in a phone-width frame; the full name is the accessible name.
   const options: Array<[InsightPeriod, MessageKey, MessageKey]> = [
     ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],
