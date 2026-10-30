@@ -39613,7 +39613,10 @@ function journalLine(entry, withTicker = true) {
   const order = entry.order ? ` ${entry.order.side.toUpperCase()} ${num2(entry.order.quantity, 8)} ${entry.order.type.replace("_", "-")}${entry.order.unconfirmed ? " (result unclear when sent)" : ""}` : "";
   return `${entry.id} ${day(entry.createdAt)}${withTicker ? ` ${entry.ticker}` : ""}${entry.orderId ? ` order ${entry.orderId}` : ""}${order}${entry.thesis ? `; why: ${quoted(entry.thesis)}` : ""}${entry.review ? `; review: ${quoted(entry.review)}` : ""}${entry.tags?.length ? `; tags ${entry.tags.join(", ")}` : ""}`;
 }
-var signedPct = (value) => `${value >= 0 ? "+" : ""}${num2(value * 100, 1)}%`;
+var signedPct = (value) => {
+  const shown = Math.round(value * 1e3) / 10 || 0;
+  return `${shown >= 0 ? "+" : ""}${num2(shown, 1)}%`;
+};
 function tagStatsLine(row, currency, name = row.tag === void 0 ? "(no tag)" : `#${row.tag}`) {
   const edge = row.averageEdge === void 0 ? "no price now" : `${row.inFavour}/${row.priced} in your favour, average ${signedPct(row.averageEdge)}`;
   return `${name}: ${row.trades} trade(s), ${edge}${row.realisedProfitLoss ? `, realised ${num2(row.realisedProfitLoss)} ${currency}` : ""}`;
