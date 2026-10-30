@@ -34799,6 +34799,10 @@ function waitFor(key, now = Date.now()) {
   }
   return window.reset - now;
 }
+function waitIfSent(key, now = Date.now()) {
+  const window = windows.get(key);
+  return window && window.reset > now && window.remaining <= 0 ? window.reset - now : 0;
+}
 
 // src/core/trading212-client.ts
 var Trading212ApiError = class extends Error {
@@ -34869,11 +34873,21 @@ function retryDelayMs(response, attempt, now = Date.now()) {
   if (Number.isFinite(reset) && reset > 0) return Math.min(Math.max(0, (reset > 1e10 ? reset : reset * 1e3) - now) + 100, 6e4);
   return Math.min(300 * 2 ** Math.max(0, attempt - 1), 5e3);
 }
+var globalFetch = (input2, init) => globalThis.fetch(input2, init);
+var reads = /* @__PURE__ */ new WeakMap();
+var SHARED_READ_MS = 5e3;
+var KEPT_READS = /* @__PURE__ */ new Set(["/equity/account/summary", "/equity/positions", "/equity/orders"]);
+var MAX_SHARED_READS = 200;
+var PENDING_READ_MAX_MS = 18e4;
+var joinPending = true;
+function readsOnTheirWayShared() {
+  return joinPending;
+}
 var Trading212Client = class {
   constructor(environment, config3, fetcher) {
     this.environment = environment;
     this.target = config3.trading212[environment];
-    this.fetcher = fetcher ?? ((input2, init) => globalThis.fetch(input2, init));
+    this.fetcher = fetcher ?? globalFetch;
     if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
     this.account = `${environment} ${this.target.baseUrl} ${this.target.apiKey}`;
   }
@@ -34895,7 +34909,56 @@ var Trading212Client = class {
       await sleep2(wait + 100);
     }
   }
-  async request(method, path3, body) {
+  shared() {
+    let shared = reads.get(this.fetcher);
+    if (!shared) {
+      shared = /* @__PURE__ */ new Map();
+      reads.set(this.fetcher, shared);
+    }
+    return shared;
+  }
+  /** Forget this account's kept and pending reads: what a write may have changed is read again. */
+  forgetReads() {
+    const shared = this.shared();
+    for (const key of [...shared.keys()]) if (key.startsWith(`${this.account} `)) shared.delete(key);
+  }
+  /** `fresh`: read Trading 212 now, neither joining a read on its way nor taking a kept answer. */
+  request(method, path3, body, fresh = false) {
+    if (method !== "GET") {
+      this.forgetReads();
+      return this.send(method, path3, body).finally(() => this.forgetReads());
+    }
+    const shared = this.shared();
+    const key = `${this.account} ${path3}`;
+    const kept = shared.get(key);
+    const now = Date.now();
+    if (!fresh && kept?.promise && joinPending && now - kept.started < PENDING_READ_MAX_MS) return kept.promise;
+    if (!fresh && kept?.at !== void 0 && now - kept.at < SHARED_READ_MS && waitIfSent(limitKey(this.account, "GET", path3)) > 0) return Promise.resolve(kept.value);
+    if (!joinPending && !KEPT_READS.has(path3)) return this.send("GET", path3);
+    const promise2 = this.send("GET", path3).then(
+      (value) => {
+        if (shared.get(key)?.promise !== promise2) return value;
+        if (KEPT_READS.has(path3)) {
+          shared.delete(key);
+          shared.set(key, { value, at: Date.now() });
+          if (shared.size > MAX_SHARED_READS) shared.delete(shared.keys().next().value);
+        } else shared.delete(key);
+        return value;
+      },
+      (error62) => {
+        const entry = shared.get(key);
+        if (entry?.promise === promise2) {
+          if (entry.at === void 0) shared.delete(key);
+          else shared.set(key, { value: entry.value, at: entry.at });
+        }
+        throw error62;
+      }
+    );
+    shared.delete(key);
+    shared.set(key, { promise: promise2, started: now, ...kept?.at !== void 0 ? { value: kept.value, at: kept.at } : {} });
+    return promise2;
+  }
+  async send(method, path3, body) {
     const attempts = method === "GET" ? 4 : 2;
     const key = limitKey(this.account, method, path3);
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -34950,14 +35013,16 @@ var Trading212Client = class {
     }
     throw new Error("Unreachable Trading 212 request state");
   }
-  getAccountSummary() {
-    return this.request("GET", "/equity/account/summary");
+  // A read's answer may be shared with other callers (see `reads`), so each gets its own copy of the outer object.
+  // `fresh` reads Trading 212 now rather than an answer of the last seconds (see `reads`).
+  async getAccountSummary(options = {}) {
+    return { ...await this.request("GET", "/equity/account/summary", void 0, options.fresh) };
   }
-  async getPositions() {
-    return unwrapArray(await this.request("GET", "/equity/positions")).map(normalizePosition);
+  async getPositions(options = {}) {
+    return unwrapArray(await this.request("GET", "/equity/positions", void 0, options.fresh)).map(normalizePosition);
   }
-  async getOrders() {
-    return unwrapArray(await this.request("GET", "/equity/orders"));
+  async getOrders(options = {}) {
+    return [...unwrapArray(await this.request("GET", "/equity/orders", void 0, options.fresh))];
   }
   getOrder(id) {
     return this.request("GET", `/equity/orders/${encodeURIComponent(id)}`);
@@ -36321,9 +36386,9 @@ var TradingService = class {
   async accountSummary(environment, maxAgeMs = 0) {
     if (maxAgeMs > 0) {
       const board = this.dashboards.get(environment);
-      const reads = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : void 0].filter((read2) => read2 !== void 0 && Date.now() - read2.at <= maxAgeMs).sort((a, b) => b.at - a.at);
-      if (reads[0]) return reads[0].account;
-      const pending = this.summaryReading.get(environment);
+      const reads2 = [this.summaries.get(environment), board?.payload.account ? { at: board.at, account: board.payload.account } : void 0].filter((read2) => read2 !== void 0 && Date.now() - read2.at <= maxAgeMs).sort((a, b) => b.at - a.at);
+      if (reads2[0]) return reads2[0].account;
+      const pending = readsOnTheirWayShared() ? this.summaryReading.get(environment) : void 0;
       if (pending) return pending;
     }
     const generation = this.writes;
@@ -36348,12 +36413,14 @@ var TradingService = class {
   async instruments(environment) {
     const cached2 = this.cache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.instruments;
-    const pending = this.instrumentReads.get(environment);
+    const pending = readsOnTheirWayShared() ? this.instrumentReads.get(environment) : void 0;
     if (pending) return pending;
     const read = this.client(environment).getInstruments().then((instruments) => {
       this.cache.set(environment, { instruments, expiresAt: Date.now() + 6e5 });
       return instruments;
-    }).finally(() => this.instrumentReads.delete(environment));
+    }).finally(() => {
+      if (this.instrumentReads.get(environment) === read) this.instrumentReads.delete(environment);
+    });
     this.instrumentReads.set(environment, read);
     return read;
   }
@@ -36473,7 +36540,7 @@ var TradingService = class {
   async getDashboard(environment, maxAgeMs = 0) {
     const recent = this.dashboards.get(environment);
     if (maxAgeMs > 0 && recent && Date.now() - recent.at <= maxAgeMs) return recent.payload;
-    const pending = this.reading.get(environment);
+    const pending = readsOnTheirWayShared() ? this.reading.get(environment) : void 0;
     if (maxAgeMs > 0 && pending) return pending;
     const generation = this.writes;
     const read = this.readDashboard(environment);
@@ -36753,12 +36820,16 @@ var TradingService = class {
       note
     };
   }
-  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  /**
+   * `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache, and
+   * the holdings and cash the order is checked against from Trading 212 now, not an answer of the last seconds.
+   */
   async current(draft, options = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
-    const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
+    const now = { fresh: options.fresh === true };
+    const [positions, account] = await Promise.all([client.getPositions(now), client.getAccountSummary(now)]);
     const position = this.positionFor(positions, instrument.ticker);
     const risky = !!draft.riskBudget && draft.side === "buy";
     const lookup = { fresh: risky && !!options.fresh };
@@ -36797,9 +36868,10 @@ var TradingService = class {
       fail("RISK_CHECK_UNAVAILABLE", `No ${accountCode} to ${instrumentCode} exchange rate is known just now (no holding is priced in ${instrumentCode} and the quote source has none), so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     return { instrument, position, account, ...marketPrice ? { marketPrice } : {}, ...checked };
   }
-  async snapshot(environment) {
+  /** `fresh` (a basket at its send) reads the holdings and cash from Trading 212 now. */
+  async snapshot(environment, fresh = false) {
     const client = this.client(environment);
-    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions({ fresh }), client.getAccountSummary({ fresh })]);
     if (account.currency) this.currencies.set(environment, account.currency);
     return { instruments, positions, account };
   }
@@ -37272,7 +37344,7 @@ var TradingService = class {
     let stopReason;
     let assessed;
     try {
-      const snapshot = await this.snapshot(pending.environment);
+      const snapshot = await this.snapshot(pending.environment, true);
       const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
       assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets, await this.basketRates(snapshot, pending.drafts));
     } catch (error62) {
@@ -37352,7 +37424,7 @@ var TradingService = class {
   }
   /** Ids of the orders currently pending at the broker. */
   async pendingOrderIds(environment) {
-    const orders = await this.client(environment).getOrders();
+    const orders = await this.client(environment).getOrders({ fresh: true });
     return new Set(orders.map((order) => order.id).filter((id) => id !== void 0 && id !== null).map(String));
   }
   /**
@@ -37511,7 +37583,7 @@ var TradingService = class {
     const client = this.client(record2.environment);
     let result2;
     if (record2.kind === "order") {
-      const [orders, positions] = await Promise.all([client.getOrders(), client.getPositions()]);
+      const [orders, positions] = await Promise.all([client.getOrders({ fresh: true }), client.getPositions({ fresh: true })]);
       const recordTime = Date.parse(record2.createdAt);
       const pendingMatch = orders.find((order) => {
         if ((order.ticker ?? "").toUpperCase() !== record2.draft.ticker.toUpperCase()) return false;
@@ -38910,7 +38982,7 @@ var InsightsService = class {
   }
   async income(environment, window, maxPages) {
     const client = this.client(environment);
-    const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
+    const [account, positions] = await Promise.all([client.getAccountSummary(), client.getPositions()]);
     const yearAgo = new Date(Math.min(window.to.getTime() - 365 * 864e5, scheduleStart(window.to.getTime())));
     const fetchWindow = { to: window.to, ...window.from && window.from < yearAgo ? { from: window.from } : window.from ? { from: yearAgo } : {} };
     const dividends = await this.collect(environment, "dividends", fetchWindow, maxPages);
@@ -39104,12 +39176,14 @@ var InsightsService = class {
   async exchanges(environment) {
     const cached2 = this.exchangeCache.get(environment);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.exchanges;
-    const pending = this.exchangeReads.get(environment);
+    const pending = readsOnTheirWayShared() ? this.exchangeReads.get(environment) : void 0;
     if (pending) return pending;
     const read = this.client(environment).getExchanges().then((exchanges) => {
       this.exchangeCache.set(environment, { exchanges, expiresAt: Date.now() + EXCHANGE_CACHE_MS });
       return exchanges;
-    }).finally(() => this.exchangeReads.delete(environment));
+    }).finally(() => {
+      if (this.exchangeReads.get(environment) === read) this.exchangeReads.delete(environment);
+    });
     this.exchangeReads.set(environment, read);
     return read;
   }
@@ -39172,7 +39246,11 @@ var InsightsService = class {
         const newest = records.map((record2, index) => ({ record: record2, index })).sort((a, b) => (b.record.Time ?? "").localeCompare(a.record.Time ?? "") || b.index - a.index);
         return { report, summary, records: newest.slice(0, MAX_EXPORT_RECORDS).map(({ record: record2 }) => record2), recordCount: records.length };
       });
-      this.exportReads.set(key, read);
+      if (readsOnTheirWayShared()) this.exportReads.set(key, read);
+      else {
+        const done = read;
+        done.then(() => this.exportReads.set(key, done), () => void 0);
+      }
       read.catch(() => this.exportReads.delete(key));
       if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value);
     }
@@ -40131,7 +40209,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.65.0"
+  version: "2.66.0"
 };
 
 // src/shared/holding-risk.ts

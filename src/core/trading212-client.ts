@@ -2,7 +2,7 @@ import type { AccountSummary, Instrument, OrderDraft, PendingOrder, Position, Tr
 import type { RuntimeConfig } from "./config.js";
 import type { Exchange, ExportReport, HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem, Page } from "../shared/history.js";
 import type { PieDetail, PieRequest, PieSummary } from "../shared/pies.js";
-import { endpointOf, limitKey, recordLimit, waitFor } from "./rate-limit.js";
+import { endpointOf, limitKey, recordLimit, waitFor, waitIfSent } from "./rate-limit.js";
 
 export type HistoryKind = "orders" | "dividends" | "transactions";
 type HistoryItem<K extends HistoryKind> = K extends "orders" ? HistoryOrderItem : K extends "dividends" ? HistoryDividendItem : HistoryTransactionItem;
@@ -58,6 +58,49 @@ export function retryDelayMs(response: Response, attempt: number, now = Date.now
   return Math.min(300 * 2 ** Math.max(0, attempt - 1), 5000);
 }
 
+/** The fetch every client uses unless handed another: one function, so their reads can be shared (see `reads`). */
+const globalFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+
+/** A read on its way (since `started`), or the last answer of a read kept for a few seconds (from `at`). */
+interface SharedRead { promise?: Promise<unknown>; started?: number; value?: unknown; at?: number }
+/**
+ * Reads shared by every client of one account in this process (the widget's, the model's tools', the scheduler's),
+ * kept per fetch function so a test's fake never answers another's:
+ * - a read already on its way is joined rather than sent again, so a dashboard and the day's change opened together
+ *   read the account summary once (not on Cloudflare: see `shareReadsOnTheirWay`);
+ * - when an endpoint's limit is used up (one account summary in five seconds), the answer it gave in the last few
+ *   seconds is returned rather than waiting for the limit to reset. A read that must be current (the order book the
+ *   protective links are settled from, the holdings and cash an order is sent against) asks `fresh` and never gets one.
+ * An order or a cancel sent from this process forgets what is kept of its account, before it is sent and after it is
+ * answered, so nothing read before it answers a read made after it here. Writes from elsewhere (another isolate,
+ * Trading 212's app) are not seen: that is what `fresh` is for.
+ */
+const reads = new WeakMap<typeof fetch, Map<string, SharedRead>>();
+/** How old a kept answer may be. Trading 212's tightest read limits are one in five seconds. */
+export const SHARED_READ_MS = 5000;
+/** The reads whose answer is kept: what the account holds and owes, read by nearly every view. */
+const KEPT_READS = new Set(["/equity/account/summary", "/equity/positions", "/equity/orders"]);
+/** No more kept reads than this per fetch function; the oldest go first. */
+const MAX_SHARED_READS = 200;
+/**
+ * A read on its way longer than this is not joined: the longest a read can take (a minute's wait for its limit, four
+ * attempts of 20 seconds and their backoff) and some. One that never settles cannot hold the reads after it.
+ */
+const PENDING_READ_MAX_MS = 180_000;
+let joinPending = true;
+
+/**
+ * Whether a read on its way is joined by other callers. Cloudflare Workers cancels a request's fetch once that request
+ * has answered, which would leave the readers that joined it waiting for good, so its adapter turns this off: there
+ * only answers already given are shared, which are plain data.
+ */
+export function shareReadsOnTheirWay(on: boolean): void { joinPending = on; }
+/** Whether a caller may join a read another caller started (see `shareReadsOnTheirWay`). */
+export function readsOnTheirWayShared(): boolean { return joinPending; }
+
+/** For tests: forget every shared read. */
+export function resetSharedReads(): void { reads.delete(globalFetch); }
+
 export class Trading212Client {
   private readonly target;
   private readonly fetcher: typeof fetch;
@@ -65,7 +108,7 @@ export class Trading212Client {
   private readonly account: string;
   constructor(readonly environment: TradingEnvironment, config: RuntimeConfig, fetcher?: typeof fetch) {
     this.target = config.trading212[environment];
-    this.fetcher = fetcher ?? ((input, init) => globalThis.fetch(input, init));
+    this.fetcher = fetcher ?? globalFetch;
     if (!this.target.apiKey || !this.target.apiSecret) throw new Error(`Trading 212 ${environment.toUpperCase()} API credentials are not configured`);
     this.account = `${environment} ${this.target.baseUrl} ${this.target.apiKey}`;
   }
@@ -83,7 +126,55 @@ export class Trading212Client {
       await sleep(wait + 100);
     }
   }
-  private async request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+  private shared(): Map<string, SharedRead> {
+    let shared = reads.get(this.fetcher);
+    if (!shared) { shared = new Map(); reads.set(this.fetcher, shared); }
+    return shared;
+  }
+  /** Forget this account's kept and pending reads: what a write may have changed is read again. */
+  private forgetReads(): void {
+    const shared = this.shared();
+    for (const key of [...shared.keys()]) if (key.startsWith(`${this.account} `)) shared.delete(key);
+  }
+  /** `fresh`: read Trading 212 now, neither joining a read on its way nor taking a kept answer. */
+  private request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown, fresh = false): Promise<T> {
+    if (method !== "GET") {
+      this.forgetReads();
+      return this.send<T>(method, path, body).finally(() => this.forgetReads());
+    }
+    const shared = this.shared();
+    const key = `${this.account} ${path}`;
+    const kept = shared.get(key);
+    const now = Date.now();
+    if (!fresh && kept?.promise && joinPending && now - kept.started! < PENDING_READ_MAX_MS) return kept.promise as Promise<T>;
+    if (!fresh && kept?.at !== undefined && now - kept.at < SHARED_READ_MS && waitIfSent(limitKey(this.account, "GET", path)) > 0) return Promise.resolve(kept.value as T);
+    // A read whose answer is not kept and that no one may join has nothing to share.
+    if (!joinPending && !KEPT_READS.has(path)) return this.send<T>("GET", path);
+    const promise: Promise<T> = this.send<T>("GET", path).then(
+      (value) => {
+        if (shared.get(key)?.promise !== promise) return value;
+        if (KEPT_READS.has(path)) {
+          shared.delete(key);
+          shared.set(key, { value, at: Date.now() });
+          if (shared.size > MAX_SHARED_READS) shared.delete(shared.keys().next().value!);
+        } else shared.delete(key);
+        return value;
+      },
+      (error: unknown) => {
+        const entry = shared.get(key);
+        if (entry?.promise === promise) {
+          if (entry.at === undefined) shared.delete(key);
+          else shared.set(key, { value: entry.value, at: entry.at });
+        }
+        throw error;
+      },
+    );
+    // A kept answer stays while the new read is on its way, for a reader that finds the limit used up meanwhile.
+    shared.delete(key);
+    shared.set(key, { promise, started: now, ...(kept?.at !== undefined ? { value: kept.value, at: kept.at } : {}) });
+    return promise;
+  }
+  private async send<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     // A rate-limited write was refused before it was processed, so it is the one write sent again.
     const attempts = method === "GET" ? 4 : 2;
     const key = limitKey(this.account, method, path);
@@ -132,9 +223,11 @@ export class Trading212Client {
     }
     throw new Error("Unreachable Trading 212 request state");
   }
-  getAccountSummary() { return this.request<AccountSummary>("GET", "/equity/account/summary"); }
-  async getPositions() { return unwrapArray<Position>(await this.request("GET", "/equity/positions")).map(normalizePosition); }
-  async getOrders() { return unwrapArray<PendingOrder>(await this.request("GET", "/equity/orders")); }
+  // A read's answer may be shared with other callers (see `reads`), so each gets its own copy of the outer object.
+  // `fresh` reads Trading 212 now rather than an answer of the last seconds (see `reads`).
+  async getAccountSummary(options: { fresh?: boolean } = {}) { return { ...await this.request<AccountSummary>("GET", "/equity/account/summary", undefined, options.fresh) }; }
+  async getPositions(options: { fresh?: boolean } = {}) { return unwrapArray<Position>(await this.request("GET", "/equity/positions", undefined, options.fresh)).map(normalizePosition); }
+  async getOrders(options: { fresh?: boolean } = {}) { return [...unwrapArray<PendingOrder>(await this.request("GET", "/equity/orders", undefined, options.fresh))]; }
   getOrder(id: string) { return this.request<PendingOrder>("GET", `/equity/orders/${encodeURIComponent(id)}`); }
   async getInstruments() { return unwrapArray<Instrument>(await this.request("GET", "/equity/metadata/instruments")); }
   placeOrder(draft: OrderDraft): Promise<unknown> {
