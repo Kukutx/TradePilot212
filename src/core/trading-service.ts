@@ -495,7 +495,10 @@ export class TradingService {
     const known = cached && cached.expiresAt > Date.now() ? cached.instruments : [];
     return orders.map((order) => {
       if (order.instrument || typeof order.ticker !== "string") return order;
-      const instrument = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument ?? known.find((item) => item.ticker === order.ticker);
+      // A holding names it without a short name; the cached list has one.
+      const held = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument;
+      const listed = known.find((item) => item.ticker === order.ticker);
+      const instrument = held || listed ? { ...held, ...listed } as Instrument : undefined;
       return instrument ? { ...order, instrument: { ticker: instrument.ticker, name: instrument.name, shortName: instrument.shortName, currencyCode: instrument.currencyCode } } : order;
     });
   }

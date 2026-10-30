@@ -100,9 +100,9 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   ].map((holding) => ({ ...holding, rate: EUR_PER_UNIT_BOUGHT[instrumentOf(holding.ticker)?.currencyCode ?? "EUR"] }));
   let nextId = 90_000;
   const pending: Json[] = [
-    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    { id: 81234, ticker: "TSLA_US_EQ", side: "BUY", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
     // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
-    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
+    { id: 81235, ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) },
   ];
   /** Shares held back by pending sells, as Trading 212 does; released when the order is cancelled. */
   const reservedShares = (ticker: string) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
@@ -254,7 +254,13 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const items = kind === "orders" ? history : kind === "dividends" ? dividends : kind === "transactions" ? transactions : undefined;
       if (!items) return json({ code: "NotFound" }, 404);
       const ticker = query.get("ticker");
-      return json({ items: ticker ? items.filter((item) => (item.ticker ?? (item.order as Json | undefined)?.ticker) === ticker) : items, nextPagePath: null });
+      const matching = ticker ? items.filter((item) => (item.ticker ?? (item.order as Json | undefined)?.ticker) === ticker) : items;
+      // Pages of 10 at most, as a larger account's would come, so the reads follow nextPagePath. The cursor is where
+      // the next page starts; Trading 212's is an id, read only back from nextPagePath, as here.
+      const size = Math.min(10, Math.max(1, Number(query.get("limit")) || 20));
+      const start = Math.max(0, Number(query.get("cursor")) || 0);
+      const next = new URLSearchParams({ limit: String(size), cursor: String(start + size), ...(ticker ? { ticker } : {}), ...(kind === "transactions" ? { time: String(matching[start + size - 1]?.dateTime ?? "") } : {}) });
+      return json({ items: matching.slice(start, start + size), nextPagePath: start + size < matching.length ? `/api/v0/equity/history/${kind}?${next}` : null });
     }
     if (method === "GET" && path === "/equity/history/exports") return json(exports);
     if (method === "POST" && path === "/equity/history/exports") {
@@ -268,7 +274,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const quantity = Number(body.quantity);
       if (!instrumentOf(ticker)) return json({ code: "InstrumentNotFound" }, 404);
       if (!Number.isFinite(quantity) || quantity === 0) return json({ code: "InvalidQuantity" }, 400);
-      const order: Json = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: new Date().toISOString(), ...(body.limitPrice ? { limitPrice: body.limitPrice } : {}), ...(body.stopPrice ? { stopPrice: body.stopPrice } : {}), ...(body.timeValidity ? { timeInForce: body.timeValidity } : {}) };
+      const order: Json = { id: nextId++, ticker, side: quantity < 0 ? "SELL" : "BUY", quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: new Date().toISOString(), ...(body.limitPrice ? { limitPrice: body.limitPrice } : {}), ...(body.stopPrice ? { stopPrice: body.stopPrice } : {}), ...(body.timeValidity ? { timeInForce: body.timeValidity } : {}) };
       if (type === "MARKET") {
         const result = fill(ticker, quantity, Number(order.id));
         if (result.error) return result.error as Response;

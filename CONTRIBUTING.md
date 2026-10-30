@@ -43,7 +43,7 @@ Never include `.env.local`, `.dev.vars`, account information, screenshots contai
 
 ## Trading 212 API changes
 
-`docs/api/trading212-public-api-v0.json` records what Trading 212's OpenAPI document (https://docs.trading212.com/_bundle/api.json) lists: every operation with its query parameters and documented rate limit, the fields of the responses TradePilot reads and of every request body, and the enums it relies on. `pnpm check:api` (also part of `pnpm check`) runs the client against the sample account offline and fails when the client calls an operation the document does not have, leaves one out, sends a parameter or body field it does not list, or when the sample account answers with a field it does not list. When Trading 212 changes the API, update the file from the document (and its `readOn` date) first; the failures then say what to change.
+`docs/api/trading212-public-api-v0.json` records what Trading 212's OpenAPI document (https://docs.trading212.com/_bundle/api.json) lists: every operation with its query parameters and documented rate limit, the fields of the responses TradePilot reads (the pies' not yet) and of every request body, and the enums it relies on. `pnpm check:api` (also part of `pnpm check`) runs the client against the sample account offline, following every history page, and checks the pie and report bodies TradePilot builds. It fails when the client calls an operation the document does not have, leaves one out, sends a parameter or body field it does not list, or when the sample account answers with a field it does not list. When Trading 212 changes the API, update the file from the document (and its `readOn` date) first; the failures then say what to change.
 
 ## UI / i18n changes
 

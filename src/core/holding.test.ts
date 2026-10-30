@@ -77,6 +77,8 @@ describe("holding detail", () => {
     const detail = await holdingDetail({ ...services, trading }, "demo", "NVDA_US_EQ");
     expect(detail.market?.session).not.toBe("unknown");
     expect(detail.market?.scheduleId).toBe(1);
+    // Its type and short name are the list's too.
+    expect(detail.instrument).toMatchObject({ ticker: "NVDA_US_EQ", shortName: "NVDA", type: "STOCK", currencyCode: "USD" });
   });
 
   it("totals a year of dividends and lists the newest", async () => {

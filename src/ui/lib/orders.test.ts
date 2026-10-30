@@ -19,6 +19,9 @@ describe("pending order summaries", () => {
     expect(summarizeOrder(stop, createTranslator("zh-CN"), "zh-CN", positions).distance).toBe("比现价 US$200.00 低 5.0%");
     // How long it stays open, as Trading 212 answers with it.
     expect(summarizeOrder({ ...stop, timeInForce: "GOOD_TILL_CANCEL" }, t, "en", positions).validity).toBe("Good till cancelled");
+    expect(summarizeOrder({ ...stop, timeInForce: "DAY" }, t, "en", positions).validity).toBe("Day only");
+    expect(summarizeOrder({ ...stop, timeInForce: "GOOD_TILL_CANCEL" }, createTranslator("zh-CN"), "zh-CN", positions).validity).toBe("撤单前有效");
+    expect(summarizeOrder({ ...stop, timeInForce: "DAY" }, createTranslator("zh-CN"), "zh-CN", positions).validity).toBe("当日有效");
     expect(summarizeOrder(stop, t, "en", positions).validity).toBeUndefined();
   });
 

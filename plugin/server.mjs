@@ -34277,9 +34277,9 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   ].map((holding3) => ({ ...holding3, rate: EUR_PER_UNIT_BOUGHT[instrumentOf(holding3.ticker)?.currencyCode ?? "EUR"] }));
   let nextId = 9e4;
   const pending = [
-    { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
+    { id: 81234, ticker: "TSLA_US_EQ", side: "BUY", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
     // A stop-loss on a holding, so the widget can show how far the trigger is from the last price.
-    { id: 81235, ticker: "NVDA_US_EQ", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) }
+    { id: 81235, ticker: "NVDA_US_EQ", side: "SELL", quantity: -5, filledQuantity: 0, status: "NEW", type: "STOP", stopPrice: 118, timeInForce: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(3) }
   ];
   const reservedShares = (ticker) => pending.reduce((sum, order) => sum + (order.ticker === ticker && Number(order.quantity) < 0 ? -Number(order.quantity) : 0), 0);
   const sellable = (holding3) => round(holding3.quantity - holding3.inPies - reservedShares(holding3.ticker), 6);
@@ -34421,7 +34421,11 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       const items = kind === "orders" ? history : kind === "dividends" ? dividends : kind === "transactions" ? transactions : void 0;
       if (!items) return json2({ code: "NotFound" }, 404);
       const ticker = query.get("ticker");
-      return json2({ items: ticker ? items.filter((item) => (item.ticker ?? item.order?.ticker) === ticker) : items, nextPagePath: null });
+      const matching = ticker ? items.filter((item) => (item.ticker ?? item.order?.ticker) === ticker) : items;
+      const size = Math.min(10, Math.max(1, Number(query.get("limit")) || 20));
+      const start = Math.max(0, Number(query.get("cursor")) || 0);
+      const next = new URLSearchParams({ limit: String(size), cursor: String(start + size), ...ticker ? { ticker } : {}, ...kind === "transactions" ? { time: String(matching[start + size - 1]?.dateTime ?? "") } : {} });
+      return json2({ items: matching.slice(start, start + size), nextPagePath: start + size < matching.length ? `/api/v0/equity/history/${kind}?${next}` : null });
     }
     if (method === "GET" && path3 === "/equity/history/exports") return json2(exports2);
     if (method === "POST" && path3 === "/equity/history/exports") {
@@ -34435,7 +34439,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       const quantity = Number(body.quantity);
       if (!instrumentOf(ticker)) return json2({ code: "InstrumentNotFound" }, 404);
       if (!Number.isFinite(quantity) || quantity === 0) return json2({ code: "InvalidQuantity" }, 400);
-      const order = { id: nextId++, ticker, quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: (/* @__PURE__ */ new Date()).toISOString(), ...body.limitPrice ? { limitPrice: body.limitPrice } : {}, ...body.stopPrice ? { stopPrice: body.stopPrice } : {}, ...body.timeValidity ? { timeInForce: body.timeValidity } : {} };
+      const order = { id: nextId++, ticker, side: quantity < 0 ? "SELL" : "BUY", quantity, filledQuantity: 0, type, status: "NEW", strategy: "QUANTITY", createdAt: (/* @__PURE__ */ new Date()).toISOString(), ...body.limitPrice ? { limitPrice: body.limitPrice } : {}, ...body.stopPrice ? { stopPrice: body.stopPrice } : {}, ...body.timeValidity ? { timeInForce: body.timeValidity } : {} };
       if (type === "MARKET") {
         const result2 = fill(ticker, quantity, Number(order.id));
         if (result2.error) return result2.error;
@@ -36433,7 +36437,9 @@ var TradingService = class {
     const known = cached2 && cached2.expiresAt > Date.now() ? cached2.instruments : [];
     return orders.map((order) => {
       if (order.instrument || typeof order.ticker !== "string") return order;
-      const instrument = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument ?? known.find((item) => item.ticker === order.ticker);
+      const held = positions.find((position) => position.instrument.ticker === order.ticker)?.instrument;
+      const listed = known.find((item) => item.ticker === order.ticker);
+      const instrument = held || listed ? { ...held, ...listed } : void 0;
       return instrument ? { ...order, instrument: { ticker: instrument.ticker, name: instrument.name, shortName: instrument.shortName, currencyCode: instrument.currencyCode } } : order;
     });
   }
@@ -42236,15 +42242,6 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const listed = held ? void 0 : resolveInstrumentFromList(await deps.trading.instruments(environment), query);
   const ticker = held?.instrument.ticker ?? listed.ticker;
   const position = held ?? dashboard2.positions.find((item) => item.instrument.ticker === ticker);
-  const source = { ...position?.instrument ?? {}, ...listed ?? {} };
-  const instrument = {
-    ticker,
-    ...source.name ? { name: source.name } : {},
-    ...source.shortName ? { shortName: source.shortName } : {},
-    ...source.currencyCode ? { currencyCode: source.currencyCode } : {},
-    ...source.type ? { type: source.type } : {},
-    ...source.isin ? { isin: source.isin } : {}
-  };
   const total = dashboard2.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10), to: now };
@@ -42277,6 +42274,14 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     deps.insights.schedules(environment).catch(() => void 0)
   ]);
   const market = exchanges ? marketStatusOf(full, exchanges, now) : void 0;
+  const instrument = {
+    ticker,
+    ...full.name ? { name: full.name } : {},
+    ...full.shortName ? { shortName: full.shortName } : {},
+    ...full.currencyCode ? { currencyCode: full.currencyCode } : {},
+    ...full.type ? { type: full.type } : {},
+    ...full.isin ? { isin: full.isin } : {}
+  };
   const unitProblem = quoted2 ? quoteUnitProblem(quoted2, ticker, unitReference(void 0, await levels, await fills)) : void 0;
   const quote = quoted2 && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted2 : void 0;
   const prices = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
@@ -45176,6 +45181,11 @@ var TradeJournal = class {
   }
 };
 
+// src/shared/ticker.ts
+function symbolFromTicker(ticker) {
+  return ticker.replace(/_US_EQ$/, "").replace(/[a-z]?_EQ$/, "") || ticker;
+}
+
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
@@ -45329,7 +45339,7 @@ function dividendMark(dividends, now) {
   return { at: now.toISOString(), seen: [...new Set(seen.map(dividendKey))] };
 }
 function digestDividends(dividends, positions, window, now, timeZone2 = "UTC") {
-  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
+  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || symbolFromTicker(position.instrument.ticker)]));
   const seen = new Set(window.seen ?? []);
   const received = /* @__PURE__ */ new Map();
   for (const item of dividends) {

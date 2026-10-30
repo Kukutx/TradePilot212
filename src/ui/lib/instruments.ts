@@ -1,4 +1,5 @@
 import type { Instrument, PendingOrder, Position } from "../../shared/contracts";
+import { symbolFromTicker } from "../../shared/ticker";
 
 /** What the widget has learned about an instrument from any payload it has seen. */
 export interface KnownInstrument {
@@ -14,10 +15,7 @@ export type InstrumentBook = Record<string, KnownInstrument>;
 const BOOK_STORAGE_KEY = "tradepilot212.instruments";
 const BOOK_LIMIT = 400;
 
-/** Trading 212 tickers end in a venue suffix: AAPL_US_EQ, VUSAl_EQ (London), SAPd_EQ (Xetra). */
-export function symbolFromTicker(ticker: string): string {
-  return ticker.replace(/_US_EQ$/, "").replace(/[a-z]?_EQ$/, "") || ticker;
-}
+export { symbolFromTicker };
 
 export interface InstrumentLabel {
   /** The instrument's name, or its symbol when no name is known. */

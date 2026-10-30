@@ -6,8 +6,11 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { createServices } from "../app/services.js";
 import { createConfig } from "./config.js";
+import { InsightsService, parseWindow } from "./insights-service.js";
 import { createSampleBroker } from "./sample-broker.js";
+import { MemoryStateStore } from "./state-store.js";
 import { Trading212Client } from "./trading212-client.js";
 
 interface ApiDocument {
@@ -24,30 +27,46 @@ const documented = new Set(api.operations.map((item) => operation(item.method, i
 /** An id in a path is the document's `{id}`. */
 const template = (path: string) => path.replace(/\/\d+(?=\/|$)/g, "/{id}");
 
-/** A body's or a response's fields as the document names them: `a.b` inside objects, `[]` for each item of a list. */
+/**
+ * A body's or a response's fields as the document names them: `a.b` inside objects, `[]` for each item of a list. A
+ * field the document lists as a whole (a map such as `instrumentShares`) is not looked into; an empty list or object
+ * is a field of its own, so an unlisted one is not missed.
+ */
 function fields(value: unknown, known: Set<string>, prefix = ""): string[] {
-  if (Array.isArray(value)) return [...new Set(value.flatMap((item) => fields(item, known, `${prefix}[]`)))];
+  if (Array.isArray(value)) return value.length ? [...new Set(value.flatMap((item) => fields(item, known, `${prefix}[]`)))] : known.has(prefix) || [...known].some((key) => key.startsWith(`${prefix}[]`)) ? [] : [prefix];
   if (value === null || typeof value !== "object" || (prefix && known.has(prefix))) return prefix ? [prefix] : [];
-  return Object.entries(value as Record<string, unknown>).flatMap(([key, inner]) => fields(inner, known, prefix ? `${prefix}.${key}` : key));
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (!entries.length) return prefix ? [prefix] : [];
+  return entries.flatMap(([key, inner]) => fields(inner, known, prefix ? `${prefix}.${key}` : key));
 }
 
-interface Sent { operation: string; query: string[]; body: string[]; response: unknown }
+interface Sent { operation: string; query: string[]; limit?: number; body: string[]; response: unknown }
 
-/** The client, against the sample broker, with each request and its answer kept. */
-function recordedClient() {
+/** A fetcher to the sample broker that keeps each request and its answer; nothing leaves the process. */
+function recording() {
   const sent: Sent[] = [];
   const broker = createSampleBroker((async () => new Response("{}", { status: 599 })) as typeof fetch);
-  const recording = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const method = (init?.method ?? "GET").toUpperCase();
     const key = operation(method, template(url.pathname));
     const response = await broker(input, init);
     const text = await response.clone().text();
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-    sent.push({ operation: key, query: [...url.searchParams.keys()], body: body === undefined ? [] : fields(body, new Set(api.requests[key] ?? [])), response: text ? JSON.parse(text) : undefined });
+    const limit = url.searchParams.get("limit");
+    sent.push({
+      operation: key, query: [...url.searchParams.keys()], ...(limit === null ? {} : { limit: Number(limit) }),
+      body: body === undefined ? [] : fields(body, new Set(api.requests[key] ?? [])), response: text ? JSON.parse(text) : undefined,
+    });
     return response;
   }) as typeof fetch;
-  return { client: new Trading212Client("demo", createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), recording), sent };
+  return { sent, fetcher };
+}
+
+/** The client, against the sample broker, with each request and its answer kept. */
+function recordedClient() {
+  const { sent, fetcher } = recording();
+  return { client: new Trading212Client("demo", createConfig({ TRADEPILOT_SAMPLE_DATA: "true" }), fetcher), sent };
 }
 
 /** Everything the client can ask of Trading 212, once each. */
@@ -57,7 +76,11 @@ async function everyRequest() {
   await client.getPositions();
   await client.getInstruments();
   await client.getExchanges();
-  for (const kind of ["orders", "dividends", "transactions"] as const) await client.getHistoryPage(kind, undefined, "AAPL_US_EQ");
+  // Every page, by the nextPagePath each answer gives, as the history reads do; once for one instrument.
+  for (const kind of ["orders", "dividends", "transactions"] as const) {
+    for (let page = await client.getHistoryPage(kind); page.nextPagePath;) page = await client.getHistoryPage(kind, page.nextPagePath);
+    await client.getHistoryPage(kind, undefined, "AAPL_US_EQ");
+  }
   await client.listExports();
   await client.requestExport({ timeFrom: "2026-01-01T00:00:00Z", timeTo: "2026-02-01T00:00:00Z", dataIncluded: { includeDividends: true, includeInterest: true, includeOrders: true, includeTransactions: true } });
   await client.placeOrder({ environment: "demo", ticker: "AAPL_US_EQ", side: "buy", type: "market", quantity: 1, extendedHours: false });
@@ -84,11 +107,35 @@ describe("Trading 212's published API", () => {
   });
 
   it("is sent only documented query parameters and body fields", async () => {
-    for (const item of await everyRequest()) {
+    const sent = await everyRequest();
+    for (const item of sent) {
       const spec = api.operations.find((entry) => operation(entry.method, entry.path) === item.operation)!;
       expect(item.query.filter((key) => !spec.query.includes(key)), item.operation).toEqual([]);
       expect(item.body.filter((key) => !(api.requests[item.operation] ?? []).includes(key)), item.operation).toEqual([]);
+      // Trading 212 serves at most 50 records a page.
+      if (item.limit !== undefined) expect(item.limit, item.operation).toBeLessThanOrEqual(50);
     }
+    // The later pages were read too, with the cursor their nextPagePath gave.
+    expect(sent.filter((item) => item.query.includes("cursor")).map((item) => item.operation)).toEqual(expect.arrayContaining(["GET /api/v0/equity/history/orders", "GET /api/v0/equity/history/dividends"]));
+  });
+
+  it("is sent only documented fields in the bodies TradePilot builds: a pie and a report", async () => {
+    const config = createConfig({ TRADEPILOT_SAMPLE_DATA: "true" });
+    const services = createServices({ config, store: new MemoryStateStore(), fetcher: (async () => new Response("{}", { status: 599 })) as typeof fetch });
+    const pie = { name: "Test", icon: "Home", goal: 1000, endDate: new Date(Date.now() + 400 * 86_400_000).toISOString(), dividendCashAction: "TO_ACCOUNT_CASH" as const, instrumentShares: { AAPL: 0.5, MSFT_US_EQ: 0.5 } };
+    const pies = await services.pies.listPies("demo");
+    for (const draft of [{ environment: "demo" as const, action: "create" as const, ...pie }, { environment: "demo" as const, action: "update" as const, pieId: pies.pies[0]!.id, ...pie }]) {
+      const preview = await services.pies.preparePieChange(draft);
+      const key = draft.action === "create" ? "POST /api/v0/equity/pies" : "POST /api/v0/equity/pies/{id}";
+      const listed = new Set(api.requests[key]);
+      expect(fields(preview.request, listed).filter((field) => !listed.has(field)), key).toEqual([]);
+    }
+    const { sent, fetcher } = recording();
+    // A span no report the sample account holds covers, so one is asked for.
+    await new InsightsService({ config, fetcher, instruments: async () => [] }).requestExport("demo", parseWindow({ from: "2020-01-01" }));
+    const asked = sent.find((item) => item.operation === "POST /api/v0/equity/history/exports")!;
+    expect(asked.body.filter((field) => !api.requests[asked.operation]!.includes(field))).toEqual([]);
+    expect(asked.body).toHaveLength(6);
   });
 
   it("is what the sample account answers with: no field the document does not list", async () => {
@@ -111,14 +158,12 @@ describe("Trading 212's published API", () => {
       expect(api.enums["Order.status"]).toContain(order.status);
       expect(api.enums["Order.type"]).toContain(order.type);
       expect(api.enums["Order.strategy"]).toContain(order.strategy);
+      expect(api.enums["Order.side"]).toContain(order.side);
       if (order.timeInForce !== undefined) expect(api.enums.timeValidity).toContain(order.timeInForce);
     }
-    const transactions = sent.find((item) => item.operation === "GET /api/v0/equity/history/transactions")!.response as { items: Array<{ type: string }> };
-    // Only the history of one instrument was asked for, so read every type the sample account has.
-    const { client, sent: all } = recordedClient();
-    await client.getHistoryPage("transactions");
-    const types = (all[0]!.response as { items: Array<{ type: string }> }).items.map((item) => item.type);
+    // Every type the sample account's cash history has, over all its pages.
+    const types = sent.filter((item) => item.operation === "GET /api/v0/equity/history/transactions").flatMap((item) => (item.response as { items: Array<{ type: string }> }).items.map((entry) => entry.type));
+    expect(types.length).toBeGreaterThan(0);
     expect(types.filter((type) => !api.enums["Transaction.type"]!.includes(type))).toEqual([]);
-    expect(transactions.items.every((item) => api.enums["Transaction.type"]!.includes(item.type))).toBe(true);
   });
 });

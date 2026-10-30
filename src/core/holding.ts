@@ -63,15 +63,6 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const listed = held ? undefined : resolveInstrumentFromList(await deps.trading.instruments(environment), query);
   const ticker = held?.instrument.ticker ?? listed!.ticker;
   const position = held ?? dashboard.positions.find((item) => item.instrument.ticker === ticker);
-  const source = { ...(position?.instrument ?? {}), ...(listed ?? {}) };
-  const instrument = {
-    ticker,
-    ...(source.name ? { name: source.name } : {}),
-    ...(source.shortName ? { shortName: source.shortName } : {}),
-    ...(source.currencyCode ? { currencyCode: source.currencyCode } : {}),
-    ...(source.type ? { type: source.type } : {}),
-    ...(source.isin ? { isin: source.isin } : {}),
-  };
   const total = dashboard.account?.totalValue;
   const value = (position?.walletImpact as { currentValue?: unknown } | undefined)?.currentValue;
   const window = { from: new Date(Math.floor(now.getTime() / DAY_MS) * DAY_MS - 365 * DAY_MS), to: now };
@@ -115,6 +106,16 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     deps.insights.schedules(environment).catch(() => undefined),
   ]);
   const market = exchanges ? marketStatusOf(full, exchanges, now) : undefined;
+  // A Trading 212 position names its instrument by ticker, name, ISIN and currency only: the type and short name
+  // come from the instrument list, read above.
+  const instrument = {
+    ticker,
+    ...(full.name ? { name: full.name } : {}),
+    ...(full.shortName ? { shortName: full.shortName } : {}),
+    ...(full.currencyCode ? { currencyCode: full.currencyCode } : {}),
+    ...(full.type ? { type: full.type } : {}),
+    ...(full.isin ? { isin: full.isin } : {}),
+  };
   // The quote comes from the closes' mapping: in another unit when they are, and checked the same way when they did not come.
   const unitProblem = quoted ? quoteUnitProblem(quoted, ticker, unitReference(undefined, await levels, await fills)) : undefined;
   const quote = quoted && !unitProblem && !(read && "missing" in read && read.missing === "unit") ? quoted : undefined;
