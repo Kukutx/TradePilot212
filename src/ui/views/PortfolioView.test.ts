@@ -84,7 +84,7 @@ describe("the dashboard's day", () => {
   it("offers the table or a map, and an order: by a column header or the menu, the day's only when there is one", () => {
     const html = render({ data: today, loading: false });
     expect(html).toContain('<div class="segmented" role="radiogroup" aria-label="Show holdings as"><button type="button" role="radio" aria-checked="true" tabindex="0" class="active">Table</button><button type="button" role="radio" aria-checked="false" tabindex="-1" class="">Map</button></div>');
-    expect(html).toMatch(/role="combobox"[^>]*aria-label="Sort"[^>]*><span class="selectValue" title="Trading 212&#x27;s order">Trading 212&#x27;s order<\/span>/);
+    expect(html).toMatch(/role="combobox"[^>]*aria-label="Sort"[^>]*><span class="selectValue">Trading 212&#x27;s order<\/span>/);
     expect(html).toMatch(/aria-selected="true" data-value="default"[^>]*><span>Trading 212&#x27;s order<\/span>/);
     expect(html).toMatch(/aria-selected="false" data-value="day-asc"[^>]*><span>Day&#x27;s move, worst first<\/span>/);
     expect(html).toContain('<th aria-sort="none"><button type="button" class="sortHeader">Position value</button></th>');

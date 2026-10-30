@@ -54,7 +54,7 @@ export function Field({ label, children, hint, error, unit, group }: {
   const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={`field${error ? " invalid" : ""}`}>
-      {group ? <span className="fieldLabel" id={`${id}-label`}>{label}</span> : <label htmlFor={id}>{label}</label>}
+      {group ? <span className="fieldLabel" id={`${id}-label`}>{label}</span> : <label htmlFor={id} id={`${id}-label`}>{label}</label>}
       <div className={unit ? "fieldControl withUnit" : "fieldControl"}>
         {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
         {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}

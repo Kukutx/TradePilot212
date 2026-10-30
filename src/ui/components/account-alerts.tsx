@@ -137,7 +137,7 @@ export function AccountAlertList({ alerts, currency, now, locale, t, busy, onSav
     <section className="dataPanel" aria-label={t("accountAlertsTitle")}>
       <div className="pieHeader">
         <h2>{t("accountAlertsTitle")}</h2>
-        {onSave && !adding && <button type="button" className="secondaryButton compactButton" onClick={() => setAdding(true)}>{t("addAlert")}</button>}
+        {onSave && !adding && <button type="button" className="secondaryButton compactButton" data-reveals="form" onClick={() => setAdding(true)}>{t("addAlert")}</button>}
       </div>
       {adding && onSave && (
         <AccountAlertForm {...(currency ? { currency } : {})} now={now} locale={locale} t={t} busy={busy}

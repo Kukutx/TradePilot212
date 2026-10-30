@@ -9,7 +9,7 @@ describe("the widget's own select", () => {
   it("is a closed combobox showing the choice, its list in the page but hidden", () => {
     const html = renderToStaticMarkup(createElement(Select<"added" | "move" | "level">, { value: "move", options, label: "Sort", onChange: () => {} }));
     expect(html).toMatch(/<button type="button" id="[^"]+" class="selectBox" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="([^"]+)" aria-label="Sort">/);
-    expect(html).toContain('<span class="selectValue" title="Day&#x27;s move">Day&#x27;s move</span>');
+    expect(html).toContain('<span class="selectValue">Day&#x27;s move</span>');
     expect(html).toMatch(/<ul id="[^"]+" role="listbox" tabindex="-1" hidden="" aria-label="Sort" class="selectList">/);
     // Each option carries its value, and the chosen one is marked, with a tick.
     expect([...html.matchAll(/aria-selected="(true|false)" data-value="([a-z]+)"/g)].map((match) => `${match[2]} ${match[1]}`)).toEqual(["added false", "move true", "level false"]);

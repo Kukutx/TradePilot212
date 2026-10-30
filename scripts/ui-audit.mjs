@@ -212,6 +212,29 @@ function inspect(host = []) {
   }
   for (const item of [...faint].slice(0, 5)) problems.push(`low contrast: ${item}`);
 
+  // Something to press drawn under something else: a list under the next panel, a button under a sticky bar. What is
+  // scrolled out of a box that clips it is not drawn at all, so it is left out.
+  const covered = new Set();
+  for (const control of document.querySelectorAll("button, a[href], input:not([type=hidden]), [role=option], [role=tab], [role=radio], summary")) {
+    if (!visible(control) || hidden(control)) continue;
+    const box = control.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    let shown = x >= 0 && y >= 0 && x <= window.innerWidth && y <= window.innerHeight;
+    for (let parent = control.parentElement; shown && parent && parent !== document.body; parent = parent.parentElement) {
+      if (getComputedStyle(parent).overflow === "visible") continue;
+      const edge = parent.getBoundingClientRect();
+      shown = x >= edge.left && x <= edge.right && y >= edge.top && y <= edge.bottom;
+    }
+    if (!shown) continue;
+    const top = document.elementFromPoint(x, y);
+    // An open list is meant to lie over what is below it, and the tab strip's arrow over a tab half scrolled away.
+    if (top?.closest(".selectList:not([hidden]), .tabScroll") && !control.closest(".selectList")) continue;
+    // A label or the switch track drawn over its own input stands for it.
+    if (top && top !== control && !control.contains(top) && !(control.matches("input") && (top.closest("label") === control.closest("label") || top === control.nextElementSibling))) covered.add(`${describe(control)} under ${describe(top)}`);
+  }
+  for (const item of [...covered].slice(0, 5)) problems.push(`covered: ${item}`);
+
   // The browser's own controls: each is drawn by the project (appearance: none, or textfield for a number box without
   // its spinner) or hidden behind one that is.
   for (const control of document.querySelectorAll("select, input[type=checkbox], input[type=radio], input[type=range], input[type=date], input[type=search], input[type=number], input[type=file], input[type=color], progress, meter")) {
@@ -317,7 +340,8 @@ async function audit(context, base, run) {
     // elsewhere closes it.
     for (let round = 0; round < 2; round++) {
       await frame.evaluate(() => {
-        for (const element of document.querySelectorAll("figcaption button.linkButton, details:not([open]) > summary, button[aria-expanded=false]:not(.rangeButton)")) element.click();
+        // (data-reveals marks a button that shows a form in its place, such as "Add alert".)
+        for (const element of document.querySelectorAll("figcaption button.linkButton, details:not([open]) > summary, button[aria-expanded=false]:not(.rangeButton, .selectBox), button[data-reveals]")) element.click();
       });
       await settle(page, 20);
     }
@@ -325,6 +349,21 @@ async function audit(context, base, run) {
     await settle(page, 20);
     await note("opened: ");
     await picture("-opened");
+    // Each select's list open, one at a time, as a press opens it.
+    const selects = await frame.evaluate(() => document.querySelectorAll(".selectBox:not(:disabled)").length);
+    for (let index = 0; index < selects; index++) {
+      const name = await frame.evaluate((index) => {
+        const box = document.querySelectorAll(".selectBox:not(:disabled)")[index];
+        if (!box) return null;
+        box.focus();
+        box.click();
+        return box.getAttribute("aria-label") || box.textContent.trim().slice(0, 30);
+      }, index);
+      if (name === null) break;
+      await settle(page, 8);
+      await note(`with "${name}" open: `);
+      await frame.evaluate(() => { document.activeElement?.blur(); });
+    }
     // Each choice of every switch and tab list, one at a time.
     const groups = await frame.evaluate(() => document.querySelectorAll("[role=radiogroup], [role=tablist]").length);
     for (let group = 0; group < groups; group++) {
