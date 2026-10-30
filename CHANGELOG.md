@@ -3,8 +3,8 @@
 ## 2.59.0
 
 - The skills are MCP prompts. Any MCP client, not only the Claude Code plugin, can run the daily brief, portfolio review, risk check, trade journal, order follow-up, tax year and rebalance. Each prompt takes the account (`environment`) and the request in the user's words; the trade journal and order follow-up also take an `instrument`. The prompts are generated from `skills/` (`pnpm build:prompts`), and a test keeps them the same.
-- The account's saved state is available as resources: `tradepilot://{environment}/holdings` (account summary, holdings and open orders), `/journal`, `/targets` and `/watchlist`, as JSON. Each is listed for the accounts with keys.
-- Arguments complete as they are typed. `environment` offers demo and live, and `instrument` offers the tickers the account holds, has orders on or watches.
+- The account's saved state is available as resources: `tradepilot://<demo|live>/holdings` (account summary, holdings and open orders), `/journal`, `/targets` and `/watchlist`, as JSON, for each account with keys.
+- The prompts' arguments complete as they are typed: `environment` offers demo and live, and `instrument` the tickers the account holds, has orders on or watches.
 
 ## 2.58.0
 

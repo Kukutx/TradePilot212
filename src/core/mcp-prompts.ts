@@ -1,8 +1,8 @@
 // The skills as MCP prompts, and the account's saved state as resources a host can attach: each prompt gives the
 // skill's steps with the account and request filled in, and each resource is one JSON document per account. The
-// environment and instrument arguments complete from what the account has.
+// prompts' environment and instrument arguments complete from what the account has.
 
-import { completable, McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import { completable, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { SKILL_PROMPTS } from "./skill-prompts.js";
@@ -69,22 +69,17 @@ export function registerPromptsAndResources(server: McpServer, { trading, journa
     });
   }
 
-  /** One JSON document per account, listed for the accounts with keys. */
+  /**
+   * One JSON document per account with keys. Fixed addresses rather than a URI template: the accounts are known when
+   * the server starts, and a template brings in the SDK's template matcher for nothing.
+   */
   const perAccount = (name: string, title: string, description: string, read: (environment: TradingEnvironment) => Promise<unknown>) => {
-    const template = new ResourceTemplate(`tradepilot://{environment}/${name}`, {
-      list: async () => ({
-        resources: ENVIRONMENTS.filter((environment) => credentialStatus(config)[environment]).map((environment) => ({
-          uri: `tradepilot://${environment}/${name}`, name: `${environment}-${name}`, title: `${title} (${environment.toUpperCase()})`, mimeType: "application/json",
-        })),
-      }),
-      complete: { environment: environments },
-    });
-    server.registerResource(name, template, { title, description, mimeType: "application/json" }, async (uri, variables) => {
-      const value = String(variables.environment ?? "");
-      if (value !== "demo" && value !== "live") throw new Error(`Unknown account "${value}": use demo or live`);
-      const data = await read(value);
-      return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(data, null, 2) }] };
-    });
+    for (const environment of ENVIRONMENTS.filter((item) => credentialStatus(config)[item])) {
+      const uri = `tradepilot://${environment}/${name}`;
+      server.registerResource(`${environment}-${name}`, uri, { title: `${title} (${environment.toUpperCase()})`, description, mimeType: "application/json" }, async () => ({
+        contents: [{ uri, mimeType: "application/json", text: JSON.stringify(await read(environment), null, 2) }],
+      }));
+    }
   };
   perAccount("holdings", "Holdings", "The account summary, holdings and open orders as Trading 212 gives them, read at most a minute ago.", async (environment) => {
     const { kind: _kind, appName: _appName, activity: _activity, credentials: _credentials, ...snapshot } = await trading.getDashboard(environment, 60_000);

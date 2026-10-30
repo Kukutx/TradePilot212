@@ -53,10 +53,9 @@ describe("skill prompts", () => {
 describe("account resources", () => {
   it("lists each document for the accounts with keys and reads it as JSON", async () => {
     const { client, services } = await connect();
-    const templates = (await client.listResourceTemplates()).resourceTemplates.map((template) => template.uriTemplate).sort();
-    expect(templates).toEqual(["tradepilot://{environment}/holdings", "tradepilot://{environment}/journal", "tradepilot://{environment}/targets", "tradepilot://{environment}/watchlist"]);
     const listed = (await client.listResources()).resources.map((resource) => resource.uri);
     expect(listed).toEqual(expect.arrayContaining(["tradepilot://demo/holdings", "tradepilot://demo/journal", "tradepilot://demo/targets", "tradepilot://demo/watchlist"]));
+    // No keys for Live on the sample account: nothing for it.
     expect(listed.some((uri) => uri.startsWith("tradepilot://live/"))).toBe(false);
 
     const read = async (uri: string) => JSON.parse(((await client.readResource({ uri })).contents[0] as { text: string }).text) as Record<string, unknown>;
@@ -70,9 +69,6 @@ describe("account resources", () => {
     await services.watchlist.add("demo", "MSFT", "Cloud");
     expect((await read("tradepilot://demo/watchlist")).items).toEqual([expect.objectContaining({ ticker: "MSFT_US_EQ", note: "Cloud" })]);
     expect((await read("tradepilot://demo/journal")).entries).toEqual([]);
-    await expect(client.readResource({ uri: "tradepilot://paper/holdings" })).rejects.toThrow();
-
-    const completed = await client.complete({ ref: { type: "ref/resource", uri: "tradepilot://{environment}/holdings" }, argument: { name: "environment", value: "d" } });
-    expect(completed.completion.values).toEqual(["demo"]);
+    await expect(client.readResource({ uri: "tradepilot://live/holdings" })).rejects.toThrow();
   });
 });
