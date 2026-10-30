@@ -409,13 +409,23 @@ export class InsightsService {
     const client = this.client(environment);
     const account: AccountSummary = await client.getAccountSummary();
     const fetchWindow = { from: window.from, to: window.to.getTime() > now.getTime() ? now : window.to };
-    const orders = await this.collect(environment, "orders", fetchWindow, options.maxPages);
+    // A UK year's sales are matched with buys of the same day, of the next 30 days and of the pool of every earlier
+    // one: all history, read once, from which the year's own sales are taken too. What it adds up to is checked
+    // against the shares held now.
+    const uk = start.text === "04-06";
+    const orders = await this.collect(environment, "orders", uk ? { to: now } : fetchWindow, options.maxPages);
+    // Cut short, all history still covers the year when it reached back past the year's first day.
+    const ordersTruncated = orders.truncated && !(uk && orders.items.some((item) => itemTime("orders", item) < window.from.getTime()));
     const dividends = await this.collect(environment, "dividends", fetchWindow, options.maxPages);
     const transactions = await this.collect(environment, "transactions", fetchWindow, options.maxPages);
+    const holdings = uk && !orders.truncated
+      ? (await client.getPositions()).flatMap((position) => (position.instrument?.ticker ? [{ ticker: position.instrument.ticker, ...(position.instrument.isin ? { isin: position.instrument.isin } : {}), quantity: position.quantity }] : []))
+      : undefined;
     return summarizeTaxYear({
       environment, accountCurrency: account.currency ?? "", year, yearStart: start, timeZone, now,
       orders: orders.items, dividends: dividends.items, transactions: transactions.items,
-      truncated: orders.truncated || dividends.truncated || transactions.truncated,
+      ...(uk ? { ukHistory: { orders: orders.items, complete: !orders.truncated, ...(holdings ? { holdings } : {}) } } : {}),
+      truncated: ordersTruncated || dividends.truncated || transactions.truncated,
     });
   }
 

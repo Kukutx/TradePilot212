@@ -157,6 +157,7 @@ describe("tax year summary", () => {
       ] },
       "https://demo.test/api/v0/equity/history/dividends?limit=50": { items: [] },
       "https://demo.test/api/v0/equity/history/transactions?limit=50": { items: [] },
+      "https://demo.test/api/v0/equity/positions": [],
     }, calls),
   });
 
@@ -167,6 +168,18 @@ describe("tax year summary", () => {
     expect(result.disposals).toEqual({ count: 1, proceeds: 180, gains: 0, losses: -12, net: -12 });
     expect(result.byTicker).toEqual([{ ticker: "VUSAl_EQ", disposals: 1, proceeds: 180, realizedProfitLoss: -12 }]);
     expect(calls.some((url) => url.includes("/equity/history/orders"))).toBe(true);
+  });
+
+  it("matches a UK year's sales by the UK rules from one read of all history, checked against the shares held", async () => {
+    const calls: string[] = [];
+    const uk = await service(calls).taxYear("demo", { yearStart: "04-06", timeZone: "Europe/London" }, new Date("2026-10-01T00:00:00Z"));
+    expect(calls.filter((url) => url.includes("/equity/history/orders"))).toHaveLength(1);
+    expect(calls.some((url) => url.endsWith("/equity/positions"))).toBe(true);
+    // No buys were read, and none are held: the sale cannot be matched.
+    expect(uk.ukMatching).toMatchObject({ rule: "uk", complete: false, realizedProfitLoss: -12 });
+    expect(uk.ukMatching?.byTicker[0]).toMatchObject({ ticker: "VUSAl_EQ", unmatched: 2, reconciliation: { held: 0, fills: -3 } });
+    const calendar = await service([]).taxYear("demo", { yearStart: "01-01" }, new Date("2026-10-01T00:00:00Z"));
+    expect(calendar.ukMatching).toBeUndefined();
   });
 
   it("rejects a start day that does not exist and a year that has not started", async () => {

@@ -15,6 +15,7 @@ import type {
   ReturnPoint,
   TaxYearSummary,
   TimeWeightedReturn,
+  UkMatching,
   ValuePoint,
 } from "../shared/history.js";
 import { drawdownOf } from "../shared/drawdown.js";
@@ -25,6 +26,9 @@ import { calendarReturns } from "../shared/returns.js";
 import { riskOf } from "../shared/risk.js";
 import { resultSplit } from "../shared/result-split.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
+import { ukShareMatching } from "./uk-matching.js";
+
+const UK_ZONE = "Europe/London";
 
 export interface AllocationLimits {
   maxSingleWeight: number;
@@ -555,6 +559,17 @@ export function taxYearWindow(year: number, start: { month: number; day: number 
   return { from: new Date(localMidnight(year, start.month, start.day, timeZone)), to: new Date(localMidnight(year + 1, start.month, start.day, timeZone) - 1) };
 }
 
+/** All history for a UK year's matching: see `summarizeTaxYear`. */
+export interface UkHistory { orders: HistoryOrderItem[]; complete: boolean; holdings?: Array<{ ticker: string; isin?: string; quantity: number }> }
+
+/** The UK matching of a year, on the UK tax year's own days; said so when the summary counts days in another zone. */
+function ukMatchingFor(history: UkHistory, year: number, yearStart: { month: number; day: number }, timeZone: string, currency: string, now: Date): UkMatching {
+  const window = taxYearWindow(year, yearStart, UK_ZONE);
+  const matching = ukShareMatching({ orders: history.orders, from: window.from, to: window.to, currency, complete: history.complete, ...(history.holdings ? { holdings: history.holdings } : {}), now });
+  if (timeZone !== UK_ZONE) matching.notes.push(`The figures above count days in ${timeZone}; the UK matching counts them in UK time (Europe/London), so a sale just after midnight can fall in a different year in each.`);
+  return matching;
+}
+
 /** The latest tax year that has started by `now` in `timeZone`. */
 export function currentTaxYear(start: { month: number; day: number }, now = new Date(), timeZone = "UTC"): number {
   const year = new Date(now.getTime() + zoneOffset(now.getTime(), timeZone)).getUTCFullYear();
@@ -572,6 +587,12 @@ export function summarizeTaxYear(input: {
   /** IANA zone the tax year's days are counted in; UTC by default. */
   timeZone?: string;
   truncated: boolean;
+  /**
+   * Every fill read, up to now, for matching the year's sales by the UK rules; `complete` when history was read back
+   * to its start, and `holdings` the shares held now to check it against. Given for a UK year (from 6 April), whose
+   * days are then UK days whatever `timeZone` is.
+   */
+  ukHistory?: UkHistory;
   now?: Date;
 }): TaxYearSummary {
   const now = input.now ?? new Date();
@@ -637,6 +658,7 @@ export function summarizeTaxYear(input: {
       .sort((a, b) => Math.abs(b.realizedProfitLoss) - Math.abs(a.realizedProfitLoss)),
     income: { dividends: round(dividends), interest: round(interest) },
     costs: { total: round(costs.reduce((sum, item) => sum + item.amount, 0)), byType: sumBy(costs, (item) => item.key, (item) => item.amount) },
+    ...(input.ukHistory ? { ukMatching: ukMatchingFor(input.ukHistory, input.year, input.yearStart, timeZone, input.accountCurrency, now) } : {}),
     truncated: input.truncated,
     notes,
     timestamp: now.toISOString(),

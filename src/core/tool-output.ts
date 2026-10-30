@@ -95,7 +95,7 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   get_portfolio_today: payload("portfolio", `${dashboard} today:o`),
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
   get_recent_trading_activity: payload("activity", "environment:s activity:a timestamp:s"),
-  get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
+  get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o ukMatching:o truncated:b notes:a timestamp:s"),
   get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
   get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b timestamp:s"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),

@@ -10,6 +10,7 @@ import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from 
 import { allTimeAction, chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
 import { taxYearZone } from "../../shared/time-zone";
 import { radioKeys, radioMoveKeys, radioTab, radioTabOf } from "../lib/radio";
+import { UkMatchingPanel } from "../components/uk-matching";
 
 /** The three pages of the History tab, read by their own tools. */
 export type HistoryKind = "trade_history" | "cash_history" | "tax_year";
@@ -384,6 +385,7 @@ export function TaxYearView({ data, book, locale, t, busy, onKind, onYear, onRul
             data={data.byTicker.map((item) => ({ key: item.ticker, ...instrumentDatum(item.ticker, book), value: item.realizedProfitLoss, display: m(item.realizedProfitLoss, true) }))} />
         )}
       </section>
+      {data.ukMatching && data.ukMatching.byTicker.length > 0 && <UkMatchingPanel data={data.ukMatching} book={book} locale={locale} t={t} />}
       {data.costs.byType.length > 0 && (
         <section className="dataPanel">
           <BarList title={t("costBreakdown")} nameHeader={t("costs")} valueHeader={t("amountColumn")} labels={chartLabels(t)}

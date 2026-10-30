@@ -730,6 +730,12 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .chartTable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .chartTable th, .chartTable td { padding: 7px 4px; border-bottom: 1px solid var(--tp-border); text-align: left; }
 .chartTable td:last-child, .chartTable th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.ukTable td:nth-child(2), .ukTable th:nth-child(2) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ukTable td:first-child strong { display: block; font-weight: 650; }
+.ukTable td:first-child small { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
+.ukTable td:last-child { color: var(--tp-muted); white-space: nowrap; }
+.ukTable td:first-child small.ukProblem { color: var(--tp-amber-text); }
+.ukMatching .metricGrid { margin: 4px 0 12px; }
 
 .barList { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
 .barList li { display: grid; grid-template-columns: minmax(84px, 30%) minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 24px; }
