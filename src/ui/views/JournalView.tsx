@@ -96,7 +96,7 @@ function TradeCard({ trade, currency, book, locale, t, busy, editing, onOpen, on
  * Choosing a tag reads the review again for that tag alone, so every figure on the page is about it.
  */
 export function JournalReviewView({ data, book, locale, t, period, busy, onPeriod, onTag, onOpen, onSaveNote }: {
-  data: JournalReview; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; busy: boolean;
+  data: JournalReview; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; busy: boolean;
   onPeriod: (next: InsightPeriod) => void;
   /** Show only the trades with this tag; null shows them all. */
   onTag?: (tag: string | null) => void;

@@ -702,7 +702,6 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 
 /* ---- Portfolio view tabs and insight views ---- */
 .appShell { --tp-chart: #2a78d6; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --tp-chart: #3987e5; } }
 :root[data-theme="dark"] .appShell { --tp-chart: #3987e5; }
 
 /* Pills on a quiet rail; the strip around it fades whichever edge has more tabs past it. */
@@ -719,6 +718,33 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .segmented button { min-height: 36px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 700; }
 .segmented button { transition: background .16s ease, color .16s ease; }
 .segmented button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
+/* A custom range beside the periods: a calendar button that names the range once chosen, and a panel of two date
+   boxes under the switch. The widget draws the boxes' calendar icon; the browser's own picker still opens from it. */
+.rangePicker { display: contents; }
+.periodControls { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+.rangeButton { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; min-width: 42px; justify-content: center; padding: 0 10px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.rangeButton:hover { color: var(--tp-text); border-color: var(--tp-border-strong); }
+.rangeButton .icon { width: 17px; height: 17px; flex: none; }
+.rangeButton.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
+.rangeButton[aria-expanded="true"] { border-color: var(--tp-border-strong); color: var(--tp-text); }
+.rangePanel { flex: 1 0 100%; display: grid; gap: 10px; margin-top: 2px; padding: 14px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-bg); box-shadow: var(--tp-shadow, 0 8px 24px rgba(16, 24, 40, .08)); text-align: left; animation: tp-rise .18s ease both; }
+.rangeFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rangeNote { margin: 0; color: var(--tp-muted); font-size: 12px; }
+.rangeActions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
+.rangeActions .linkButton { margin-right: auto; }
+.field input[type="date"] { min-height: 44px; font-variant-numeric: tabular-nums; }
+.field input[type="date"]::-webkit-calendar-picker-indicator {
+  width: 18px; height: 18px; padding: 2px; border-radius: 6px; cursor: pointer; opacity: 1;
+  background: var(--tp-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15.5' rx='2.5'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E") center / 18px 18px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15.5' rx='2.5'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E") center / 18px 18px no-repeat;
+}
+.field input[type="date"]::-webkit-calendar-picker-indicator:hover { background: var(--tp-text); }
+.field input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+.field input[type="date"]::-webkit-datetime-edit-text { color: var(--tp-muted); padding: 0 1px; }
+.field input[type="date"]::-webkit-datetime-edit-month-field:focus, .field input[type="date"]::-webkit-datetime-edit-day-field:focus, .field input[type="date"]::-webkit-datetime-edit-year-field:focus { background: color-mix(in srgb, var(--tp-accent) 20%, transparent); color: var(--tp-text); border-radius: 4px; }
+@media (forced-colors: active) { .field input[type="date"]::-webkit-calendar-picker-indicator { background: ButtonText; forced-color-adjust: none; } .rangeButton.active { border-color: Highlight; } }
+@container (max-width: 420px) { .rangeFields { grid-template-columns: 1fr; } .rangeButton span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; } }
 
 .twoColumn { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .twoColumn > .dataPanel { margin: 0; }
@@ -1168,7 +1194,6 @@ h2[tabindex="-1"]:focus { outline: none; }
 /* ---- Holdings: table or map, and their order ---- */
 .appShell { --tp-map-max: 70%; --tp-map-none: repeating-linear-gradient(135deg, var(--tp-bg-soft) 0 6px, var(--tp-border) 6px 7px); }
 /* Darker tiles under light text: the strongest colour stays at 4.5:1 or more against it. */
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --tp-map-max: 50%; } }
 :root[data-theme="dark"] .appShell { --tp-map-max: 50%; }
 
 .holdingsToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -1318,7 +1343,6 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 
 /* ---- Risk by holding: each one's share of the risk over its share of the value, then the correlations ---- */
 .appShell { --corr-max: 75%; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --corr-max: 45%; } }
 :root[data-theme="dark"] .appShell { --corr-max: 45%; }
 .riskShareLegend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; color: var(--tp-muted); font-size: 12px; }
 .riskShareLegend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -1628,11 +1652,12 @@ strong.historyAmount { flex: none; font-size: 13px; }
   .filterChips button.active { border-color: Highlight; background: Highlight; color: HighlightText; }
   .cashMark { border: 1px solid CanvasText; }
 }
-.reviewToolbar > .segmented, .taxControls > * { flex: none; max-width: 100%; }
+.reviewToolbar > .segmented, .reviewToolbar > .periodControls, .taxControls > * { flex: none; max-width: 100%; }
 @container (max-width: 420px) {
   /* On a phone each switch takes the row, its choices sharing it evenly. */
-  .reviewToolbar > .segmented, .taxControls, .taxControls > .segmented { display: flex; width: 100%; }
-  .reviewToolbar > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
+  .reviewToolbar > .segmented, .reviewToolbar > .periodControls, .taxControls, .taxControls > .segmented { display: flex; width: 100%; }
+  .reviewToolbar > .segmented button, .reviewToolbar > .periodControls > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
+  .reviewToolbar > .periodControls > .segmented { flex: 1 1 auto; }
   .taxControls > .yearStepper { margin-inline: auto; }
 }
 

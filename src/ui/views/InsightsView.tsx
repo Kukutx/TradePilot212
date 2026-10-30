@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import type { Instrument } from "../../shared/contracts";
 import type { AllocationAnalysis, AllocationDrift, BenchmarkOption, HoldingCovariancePayload, IncomeSummary, PerformanceSummary, ReturnPoint, TimeWeightedReturn, ValuePoint } from "../../shared/history";
 import type { PricesMissing } from "../../shared/prices";
@@ -15,6 +15,7 @@ import { TargetEditor, type MeasuredRisk, type TargetPreset, type TargetSave } f
 import { HoldingRiskPanel } from "../components/holding-risk";
 import { MarketSensitivityPanel } from "../components/market-sensitivity";
 import { MonthlyReturns } from "../components/monthly-returns";
+import { RangeContext, RangePicker } from "../components/range-picker";
 import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -75,11 +76,12 @@ export function allTimeAction(period: InsightPeriod | null, onPeriod: ((next: In
 }
 
 export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightPeriod | null; onChange: (next: InsightPeriod) => void; t: Translator; disabled: boolean }) {
+  const ranged = !!useContext(RangeContext);
   // Short labels keep five periods on one line in a phone-width frame; the full name is the accessible name.
   const options: Array<[InsightPeriod, MessageKey, MessageKey]> = [
     ["1m", "period1mShort", "period1m"], ["3m", "period3mShort", "period3m"], ["ytd", "periodYtdShort", "periodYtd"], ["1y", "period1yShort", "period1y"], ["all", "periodAllShort", "periodAll"],
   ];
-  return (
+  const group = (
     <div className="segmented" role="radiogroup" onKeyDown={radioMoveKeys} aria-label={t("period")}>
       {/* Off while a period is read, but still focusable (aria-disabled), so the focus stays on the switch. */}
       {options.map(([key, short, full]) => (
@@ -87,6 +89,8 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
       ))}
     </div>
   );
+  // Where a view can read the reader's own days, they are chosen beside the periods.
+  return ranged ? <div className="periodControls">{group}<RangePicker t={t} disabled={disabled} /></div> : group;
 }
 
 /**
@@ -449,7 +453,7 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
 }
 
 export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, onOpen, busy }: {
-  data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; onPeriod: (next: InsightPeriod) => void; busy: boolean;
+  data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; onPeriod: (next: InsightPeriod) => void; busy: boolean;
   /** Read the performance again compared with another fund, or "none". */
   onBenchmark?: (choice: string) => void;
   /** Open an instrument's page. */
@@ -545,7 +549,7 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
 }
 
 export function IncomeView({ data, book, locale, t, period, onPeriod, busy }: {
-  data: IncomeSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod; onPeriod: (next: InsightPeriod) => void; busy: boolean;
+  data: IncomeSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; onPeriod: (next: InsightPeriod) => void; busy: boolean;
 }) {
   const currency = data.accountCurrency || "EUR";
   const m = (value: number | undefined) => money(value, currency, locale);

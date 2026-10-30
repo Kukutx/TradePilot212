@@ -30,7 +30,7 @@ The **Journal** tab, or `get_journal_review` in the chat, sets each note on an o
 - **Trades with a note**: how many of the period's fills have a note, and how many of those have a look back.
 - **Due for a look back**: trades with a reason, no look back, and at least 30 days since the fill. Each says so, and **Add a look back** writes one under the trade, which stays in view while you write.
 
-The tab follows the period switch (1M, 3M, YTD, 1Y, All), and an instrument's name opens its holding page, whose Back link returns to the journal. Notes on orders that are not among the period's fills (still open, cancelled, filled before it, or reported without a price) and notes without an order are counted at the foot. An order history read is kept for a minute for each period; sending or cancelling an order drops it, so a new fill shows the next time the tab opens. A note written on a holding page opened from the journal shows when Back returns to it.
+The tab follows the period switch (1M, 3M, YTD, 1Y, All, or a custom range from the calendar button beside it), and an instrument's name opens its holding page, whose Back link returns to the journal. Notes on orders that are not among the period's fills (still open, cancelled, filled before it, or reported without a price) and notes without an order are counted at the foot. An order history read is kept for a minute for each period; sending or cancelling an order drops it, so a new fill shows the next time the tab opens. A note written on a holding page opened from the journal shows when Back returns to it.
 
 The `trade-journal` skill uses all of these to review your trades: it reads the reasons you gave at the time next to how each trade turned out, and saves what you take from it as the review.
 

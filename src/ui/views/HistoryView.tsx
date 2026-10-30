@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import type { CashHistory, CashHistoryItem, FillTotals, HistoryFilter, TaxYearSummary, TradeFill, TradeHistory } from "../../shared/history";
 import type { JournalEntry } from "../../shared/journal";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { AssetAvatar, EmptyState, Metric, SearchField } from "../components/common";
 import { BarList } from "../components/charts";
+import { RangeContext } from "../components/range-picker";
 import { amount, dayLabel, money, qty, signedClass, time } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from "../lib/messages";
@@ -91,10 +92,12 @@ export function cashSigned(type: string, value: number): number {
 function FilterNote({ filter, name, period, book, t, locale, busy, onClear }: {
   filter?: HistoryFilter; name?: string; period: { from?: string; to: string } | null; book?: InstrumentBook; t: Translator; locale: SupportedLocale; busy: boolean; onClear?: () => void;
 }) {
+  // A range the reader chose shows on its own button.
+  const chosen = useContext(RangeContext)?.range;
   const parts = [
     ...(filter?.ticker ? [instrumentLabel(filter.ticker, book, name ? { name } : undefined).name] : []),
     ...(filter?.types ?? []).map((type) => cashTypeLabel(type, t)),
-    ...(period ? [period.from ? fill(t("taxSpan"), { from: dayLabel(period.from, locale), to: dayLabel(period.to, locale) }) : fill(t("historyUntil"), { to: dayLabel(period.to, locale) })] : []),
+    ...(period && !chosen ? [period.from ? fill(t("taxSpan"), { from: dayLabel(period.from, locale), to: dayLabel(period.to, locale) }) : fill(t("historyUntil"), { to: dayLabel(period.to, locale) })] : []),
   ];
   if (!parts.length) return null;
   return (
