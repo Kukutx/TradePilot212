@@ -35291,7 +35291,7 @@ var FIELDS = {
   token: "One-time confirmation token for the matching app_execute_* tool.",
   expiresAt: "When the token expires.",
   ok: "Whether Trading 212 accepted it.",
-  status: "submitted, rejected or unknown (check with app_verify_unknown_execution; never resend).",
+  status: "What became of it; when unknown, never send it again before checking.",
   message: "What happened, in words.",
   legs: "The orders, each with its draft and checks.",
   notes: "Notes on what the figures leave out or assume.",
@@ -35318,13 +35318,13 @@ var holding = "environment:s credentials:o ticker:s instrument:o accountCurrency
 var pies = "environment:s credentials:o timestamp:s pies:a totals:o currency:s notes:a writeEnabled:b";
 var plan = "environment:s credentials:o candidates:a account:o timestamp:s writeEnabled:b";
 var automation = "environment:s credentials:o plans:a alerts:a accountAlerts:a links:a instruments:a usageToday:o currency:s account:o policy:o settings:o timestamp:s writeEnabled:b";
-var execution = "environment:s ok:b status:s order:o message:s";
+var execution = "environment:s ok:b status:s order:u message:s";
 var TOOL_OUTPUT = {
   analyze_portfolio_allocation: payload("allocation", "environment:s accountCurrency:s totalValue:n investedValue:n cash:n availableCash:n cashWeight:n holdings:a byCurrency:a byType:a concentration:o flags:a drift:o risk:o fxFeeRate:n timestamp:s credentials:o writeEnabled:b"),
   app_execute_basket: payload("basket_execution", "environment:s purpose:s ok:b status:s legs:a message:s"),
   app_execute_cancel: payload("order_execution", execution),
   app_execute_order: payload("order_execution", `${execution} verificationId:s`),
-  app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:o message:s"),
+  app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:u message:s"),
   app_get_automation: payload("automation", automation),
   app_get_dashboard: payload("portfolio", dashboard),
   app_get_holding: payload("holding", holding),
@@ -39071,7 +39071,9 @@ var TargetAllocations = class {
     if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString() };
+    const before = await this.get(environment);
+    const same = before && before.cashWeight === cashWeight && before.driftThreshold === driftThreshold && !!before.sellUntargeted === !!input2.sellUntargeted && before.targets.length === targets.length && before.targets.every((target, index) => target.ticker === targets[index].ticker && target.weight === targets[index].weight);
+    const saved = { environment, targets, cashWeight, driftThreshold, ...input2.sellUntargeted ? { sellUntargeted: true } : {}, updatedAt: now.toISOString(), ...same && before.lastNotifiedAt ? { lastNotifiedAt: before.lastNotifiedAt } : {} };
     await this.deps.store.put(targetKey(environment), saved);
     return saved;
   }
@@ -43886,7 +43888,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         title: "Prepare order confirmation",
         description: "App-only validation. Creates a short-lived one-time confirmation token; does not place an order.",
         inputSchema: orderDraftSchema,
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async (draft) => {
@@ -43943,7 +43945,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         title: "Prepare order cancellation",
         description: "App-only cancellation validation; does not cancel yet.",
         inputSchema: external_exports.object({ environment: environmentEnum, orderId: external_exports.string().min(1) }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ environment, orderId }) => {
@@ -43988,7 +43990,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           planId: external_exports.string().optional(),
           notes: external_exports.array(external_exports.string().max(500)).max(20).optional()
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async ({ environment, purpose, title, drafts, planId, notes }) => {
@@ -44034,7 +44036,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         title: "Prepare pie change confirmation",
         description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
         inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
       async (draft) => {

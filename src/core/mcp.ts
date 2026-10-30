@@ -1617,7 +1617,7 @@ export function createMcpServer(
         title: "Prepare order confirmation",
         description: "App-only validation. Creates a short-lived one-time confirmation token; does not place an order.",
         inputSchema: orderDraftSchema,
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async (draft) => {
@@ -1678,7 +1678,7 @@ export function createMcpServer(
         title: "Prepare order cancellation",
         description: "App-only cancellation validation; does not cancel yet.",
         inputSchema: z.object({ environment: environmentEnum, orderId: z.string().min(1) }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ environment, orderId }) => {
@@ -1725,7 +1725,7 @@ export function createMcpServer(
           planId: z.string().optional(),
           notes: z.array(z.string().max(500)).max(20).optional(),
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ environment, purpose, title, drafts, planId, notes }) => {
@@ -1771,7 +1771,7 @@ export function createMcpServer(
         title: "Prepare pie change confirmation",
         description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
         inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async (draft) => {

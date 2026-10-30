@@ -184,6 +184,19 @@ describe("saved targets", () => {
     expect(await services.targets.get("demo")).toBeUndefined();
   });
 
+  it("keeps the day's drift notice when the same targets are saved again, and not when they change", async () => {
+    const services = sample();
+    const input = { targets: [{ instrument: "KO_US_EQ", weight: 0.9 }], cashWeight: 0.1 };
+    await services.targets.set("demo", input);
+    const notified = (await services.targets.check(new Date("2026-10-01T10:00:00Z")))[0]!;
+    expect(notified.notified).toBe(true);
+    const kept = await services.targets.set("demo", input, new Date("2026-10-01T11:00:00Z"));
+    expect(kept.lastNotifiedAt).toBe("2026-10-01T10:00:00.000Z");
+    expect((await services.targets.check(new Date("2026-10-01T12:00:00Z")))[0]!.notified).toBe(false);
+    const changed = await services.targets.set("demo", { ...input, driftThreshold: 0.04 });
+    expect(changed.lastNotifiedAt).toBeUndefined();
+  });
+
   it("adds the drift and a flag to the allocation analysis", async () => {
     const services = sample();
     await services.targets.set("demo", { targets: [{ instrument: "KO_US_EQ", weight: 0.9 }], cashWeight: 0.1 });

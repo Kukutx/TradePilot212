@@ -31,7 +31,7 @@ const FIELDS: Record<string, string> = {
   token: "One-time confirmation token for the matching app_execute_* tool.",
   expiresAt: "When the token expires.",
   ok: "Whether Trading 212 accepted it.",
-  status: "submitted, rejected or unknown (check with app_verify_unknown_execution; never resend).",
+  status: "What became of it; when unknown, never send it again before checking.",
   message: "What happened, in words.",
   legs: "The orders, each with its draft and checks.",
   notes: "Notes on what the figures leave out or assume.",
@@ -60,7 +60,8 @@ const holding = "environment:s credentials:o ticker:s instrument:o accountCurren
 const pies = "environment:s credentials:o timestamp:s pies:a totals:o currency:s notes:a writeEnabled:b";
 const plan = "environment:s credentials:o candidates:a account:o timestamp:s writeEnabled:b";
 const automation = "environment:s credentials:o plans:a alerts:a accountAlerts:a links:a instruments:a usageToday:o currency:s account:o policy:o settings:o timestamp:s writeEnabled:b";
-const execution = "environment:s ok:b status:s order:o message:s";
+// What the broker sent back, as it sent it.
+const execution = "environment:s ok:b status:s order:u message:s";
 
 /** Each tool's structured content, by tool name. */
 export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
@@ -68,7 +69,7 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   app_execute_basket: payload("basket_execution", "environment:s purpose:s ok:b status:s legs:a message:s"),
   app_execute_cancel: payload("order_execution", execution),
   app_execute_order: payload("order_execution", `${execution} verificationId:s`),
-  app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:o message:s"),
+  app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:u message:s"),
   app_get_automation: payload("automation", automation),
   app_get_dashboard: payload("portfolio", dashboard),
   app_get_holding: payload("holding", holding),

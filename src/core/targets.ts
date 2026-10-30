@@ -147,7 +147,11 @@ export class TargetAllocations {
     if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
-    const saved: TargetAllocation = { environment, targets, cashWeight, driftThreshold, ...(input.sellUntargeted ? { sellUntargeted: true } : {}), updatedAt: now.toISOString() };
+    // Saving the same targets again keeps when drift was last notified, so it does not bring the day's notice back.
+    const before = await this.get(environment);
+    const same = before && before.cashWeight === cashWeight && before.driftThreshold === driftThreshold && !!before.sellUntargeted === !!input.sellUntargeted
+      && before.targets.length === targets.length && before.targets.every((target, index) => target.ticker === targets[index]!.ticker && target.weight === targets[index]!.weight);
+    const saved: TargetAllocation = { environment, targets, cashWeight, driftThreshold, ...(input.sellUntargeted ? { sellUntargeted: true } : {}), updatedAt: now.toISOString(), ...(same && before.lastNotifiedAt ? { lastNotifiedAt: before.lastNotifiedAt } : {}) };
     await this.deps.store.put(targetKey(environment), saved);
     return saved;
   }
