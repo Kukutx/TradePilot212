@@ -13,6 +13,13 @@ function weekdayName(weekday: number | undefined, locale: SupportedLocale): stri
   return new Intl.DateTimeFormat(localeTag(locale), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, weekday)));
 }
 
+/** A tax year's first day, MM-DD, as the locale writes a day of the year: "6 April", "4月6日". */
+export function yearStartLabel(start: string, locale: SupportedLocale): string {
+  const [month, day] = start.split("-").map(Number);
+  if (!month || !day) return start;
+  return new Intl.DateTimeFormat(localeTag(locale), { month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2001, month - 1, day)));
+}
+
 function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string {
   const hour = `${String(plan.hourUtc).padStart(2, "0")}:00 UTC`;
   return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
@@ -94,7 +101,9 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
           <DetailRow label={t("settingOrderWatch")} value={on(data.settings.orderWatch)} />
           <DetailRow label={t("settingWebhook")} value={on(data.settings.webhook)} />
-          <DetailRow label={t("settingDigest")} value={data.settings.digestHourUtc === null ? t("settingOff") : `${String(data.settings.digestHourUtc).padStart(2, "0")}:00 UTC`} />
+          <DetailRow label={t("settingDigest")} value={data.settings.digestHour === null ? t("settingOff") : `${String(data.settings.digestHour).padStart(2, "0")}:00 ${data.settings.digestTimeZone ?? "UTC"}`} />
+          <DetailRow label={t("settingTimeZone")} value={data.settings.timeZone ?? "UTC"} />
+          {data.settings.taxYearStart && <DetailRow label={t("settingTaxYear")} value={yearStartLabel(data.settings.taxYearStart, locale)} />}
           <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />
         </div>
       </section>

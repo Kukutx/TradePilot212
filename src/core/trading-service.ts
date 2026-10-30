@@ -1023,12 +1023,12 @@ export class TradingService {
   }
 
   async usageToday(environment: TradingEnvironment): Promise<DailyUsage> {
-    return (await this.deps.store.get<DailyUsage>(usageKey(environment))) ?? EMPTY_USAGE;
+    return (await this.deps.store.get<DailyUsage>(usageKey(environment, new Date(), this.deps.config.timeZone))) ?? EMPTY_USAGE;
   }
 
   private async recordUsage(environment: TradingEnvironment, accountNotional: number | undefined) {
     try {
-      const key = usageKey(environment);
+      const key = usageKey(environment, new Date(), this.deps.config.timeZone);
       const next = addUsage((await this.deps.store.get<DailyUsage>(key)) ?? EMPTY_USAGE, accountNotional);
       await this.deps.store.put(key, next, Date.now() + USAGE_TTL_MS);
     } catch (error) {

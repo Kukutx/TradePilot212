@@ -118,7 +118,7 @@ T212_LIVE_API_KEY=
 T212_LIVE_API_SECRET=
 ```
 
-Demo and Live use separate Trading 212 credentials. Configure either one or both.
+Demo and Live use separate Trading 212 credentials. Configure either one or both. To reach Trading 212 through a proxy you run, set `T212_DEMO_BASE_URL` or `T212_LIVE_BASE_URL` (HTTPS only; the keys are sent to it, and redirects are never followed).
 
 Trading 212 API documentation:
 
@@ -278,8 +278,17 @@ Notifications are optional:
 NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
 NOTIFY_WEBHOOK_SECRET=        # optional HMAC signature
 NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
-DIGEST_HOUR_UTC=7             # optional daily digest at 07:00 UTC
+DIGEST_HOUR=7                 # optional daily digest at 07:00 in TIMEZONE (or DIGEST_HOUR_UTC=7)
 ```
+
+Days are counted in UTC unless you set your own zone; the tax year starts on 1 January unless you set its first day:
+
+```env
+TIMEZONE=Europe/London        # daily order limits reset at local midnight; the digest hour and tax year use it
+TAX_YEAR_START=04-06          # the UK tax year; the History tab and get_tax_year_summary default to it
+```
+
+On the day you switch from UTC to another zone (or first set one), the limits and the digest join the new days once: in a zone behind UTC the day's budget can count a few hours more than the local day, and in one ahead of it the digest can go out a second time.
 
 The Performance tab compares the return with the S&P 500 (SPY) by default; `BENCHMARK=VWRLl_EQ` picks another fund (map non-US listings in `QUOTE_SYMBOLS`) and `BENCHMARK=none` turns it off.
 

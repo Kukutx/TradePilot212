@@ -219,6 +219,7 @@ function config(): RuntimeConfig {
     sampleData: false,
     oauthRedirectHosts: [],
     fxFeeRate: 0.0015,
+    taxYearStart: "01-01",
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },
       live: { baseUrl: "https://live.test", apiKey: "key", apiSecret: "secret" },

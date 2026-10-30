@@ -4,6 +4,7 @@ import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 import { fail } from "./errors.js";
 import { DEFAULT_FX_FEE_RATE, MAX_FX_FEE_RATE } from "../shared/trade-cost.js";
+import { parseYearStart, validTimeZone } from "../shared/time-zone.js";
 
 /** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -40,8 +41,15 @@ export interface RuntimeConfig {
   quoteSymbols: Map<string, string>;
   /** The instrument the time-weighted return is compared with (BENCHMARK); empty for none. */
   benchmark: string;
-  /** UTC hour of the daily webhook digest; undefined turns it off. */
-  digestHourUtc?: number;
+  /** The hour of the daily webhook digest, in its time zone (DIGEST_HOUR in TIMEZONE, or DIGEST_HOUR_UTC); undefined turns it off. */
+  digest?: { hour: number; timeZone: string };
+  /**
+   * The IANA time zone days are counted in (TIMEZONE): the day the daily order limits reset, the digest's hour and the
+   * tax year's days. Undefined when not set: UTC on the server, the viewer's own zone for the widget's tax year.
+   */
+  timeZone?: string;
+  /** The first day of the tax year as MM-DD (TAX_YEAR_START), the default for the tax year summary: 01-01, or 04-06 for the UK. */
+  taxYearStart: string;
   /** Serve a simulated Demo account instead of Trading 212 (TRADEPILOT_SAMPLE_DATA). Live is off. */
   sampleData: boolean;
   /** OAuth redirect hosts clients may register (OAUTH_REDIRECT_HOSTS); empty allows any HTTPS host. Loopback is always allowed. */
@@ -62,7 +70,7 @@ export type RuntimeEnv = Partial<Record<
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "BENCHMARK" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
-  | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE",
+  | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE" | "TIMEZONE" | "TAX_YEAR_START" | "DIGEST_HOUR" | "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL",
   string
 >>;
 
@@ -150,12 +158,55 @@ function webhookUrl(env: RuntimeEnv): string {
   return url.toString();
 }
 
-function digestHour(env: RuntimeEnv): number | undefined {
-  const raw = (env.DIGEST_HOUR_UTC ?? "").trim();
+function timeZone(env: RuntimeEnv): string | undefined {
+  const raw = (env.TIMEZONE ?? "").trim();
   if (!raw) return undefined;
-  const hour = Number(raw);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("DIGEST_HOUR_UTC must be an integer from 0 to 23");
-  return hour;
+  if (!validTimeZone(raw)) throw new Error("TIMEZONE must be an IANA time zone, such as Europe/London or America/New_York");
+  // The runtime's own spelling, so "europe/london" and "Europe/London" are one zone.
+  return new Intl.DateTimeFormat("en-US", { timeZone: raw }).resolvedOptions().timeZone;
+}
+
+function taxYearStart(env: RuntimeEnv): string {
+  const raw = (env.TAX_YEAR_START ?? "").trim();
+  if (!raw) return "01-01";
+  const start = parseYearStart(raw);
+  if (start.text !== raw) throw new Error("TAX_YEAR_START must be a real month and day as MM-DD, such as 04-06 for the UK");
+  return start.text;
+}
+
+/** DIGEST_HOUR in TIMEZONE (UTC without one), or DIGEST_HOUR_UTC; not both. */
+function digest(env: RuntimeEnv, zone: string | undefined): RuntimeConfig["digest"] {
+  const read = (name: "DIGEST_HOUR" | "DIGEST_HOUR_UTC") => {
+    const raw = (env[name] ?? "").trim();
+    if (!raw) return undefined;
+    const hour = Number(raw);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error(`${name} must be an integer from 0 to 23`);
+    return hour;
+  };
+  const local = read("DIGEST_HOUR");
+  const utc = read("DIGEST_HOUR_UTC");
+  if (local !== undefined && utc !== undefined) throw new Error("Set DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC, not both");
+  if (local !== undefined) return { hour: local, timeZone: zone ?? "UTC" };
+  return utc === undefined ? undefined : { hour: utc, timeZone: "UTC" };
+}
+
+/**
+ * Trading 212's API for an account: its own, or T212_DEMO_BASE_URL / T212_LIVE_BASE_URL (a proxy or a test double).
+ * HTTPS only, but for a loopback host; the keys are sent to it.
+ */
+function tradingBaseUrl(env: RuntimeEnv, name: "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL", fallback: string): string {
+  const raw = (env[name] ?? "").trim();
+  if (!raw) return fallback;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be a URL, such as ${fallback}`);
+  }
+  if (url.protocol !== "https:" && !(isLoopbackHost(url.hostname) && url.protocol === "http:")) throw new Error(`${name} must use HTTPS`);
+  if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must be a plain URL, without credentials, a query or a fragment`);
+  // The origin and path alone: an empty "?" or "#" left on would carry the paths requested after it.
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 function quoteProvider(env: RuntimeEnv): QuoteProviderName {
@@ -189,7 +240,9 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     quoteApiKey: env.QUOTE_API_KEY ?? "",
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     benchmark: benchmark(env, sampleData),
-    ...(digestHour(env) === undefined ? {} : { digestHourUtc: digestHour(env)! }),
+    ...(digest(env, timeZone(env)) ? { digest: digest(env, timeZone(env))! } : {}),
+    ...(timeZone(env) ? { timeZone: timeZone(env)! } : {}),
+    taxYearStart: taxYearStart(env),
     sampleData,
     oauthRedirectHosts: list(env, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     fxFeeRate: fxFeeRate(env),
@@ -200,8 +253,8 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
           live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: "", apiSecret: "" },
         }
       : {
-          demo: { baseUrl: "https://demo.trading212.com/api/v0", apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
-          live: { baseUrl: "https://live.trading212.com/api/v0", apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },
+          demo: { baseUrl: tradingBaseUrl(env, "T212_DEMO_BASE_URL", "https://demo.trading212.com/api/v0"), apiKey: env.T212_DEMO_API_KEY ?? "", apiSecret: env.T212_DEMO_API_SECRET ?? "" },
+          live: { baseUrl: tradingBaseUrl(env, "T212_LIVE_BASE_URL", "https://live.trading212.com/api/v0"), apiKey: env.T212_LIVE_API_KEY ?? "", apiSecret: env.T212_LIVE_API_SECRET ?? "" },
         },
   };
 }

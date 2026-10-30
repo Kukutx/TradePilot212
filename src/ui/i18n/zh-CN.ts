@@ -841,6 +841,8 @@ export const zhCN: Record<MessageKey, string> = {
   settingWebhook: "Webhook 通知",
   settingDigest: "每日摘要",
   settingQuotes: "行情来源",
+  settingTimeZone: "日期按此时区计算",
+  settingTaxYear: "税年起始日",
   plansTitle: "定投计划",
   noPlans: "没有定投计划。",
   planMonthly: "每月 {day} 日",

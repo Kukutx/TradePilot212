@@ -55,7 +55,7 @@ function payload(kinds: string, fields: string) {
 }
 
 const drafted = "environment:s purpose:s title:s legs:a notes:a credentials:o writeEnabled:b";
-const dashboard = "appName:s environment:s credentials:o account:o positions:a orders:a activity:a timestamp:s writeEnabled:b";
+const dashboard = "appName:s environment:s credentials:o account:o positions:a orders:a activity:a preferences:o timestamp:s writeEnabled:b";
 const holding = "environment:s credentials:o ticker:s instrument:o accountCurrency:s accountRate:n position:o watching:o weight:n orders:a alerts:a journal:a market:o history:o prices:o day:o timestamp:s writeEnabled:b";
 const pies = "environment:s credentials:o timestamp:s pies:a totals:o currency:s notes:a writeEnabled:b";
 const plan = "environment:s credentials:o candidates:a account:o timestamp:s writeEnabled:b";

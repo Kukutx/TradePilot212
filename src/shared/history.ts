@@ -1,7 +1,7 @@
 // Trading 212 history, schedule, and report shapes, plus the analytics payloads built from them.
 // Broker fields are optional because the Public API is still marked Beta and omits empty values.
 
-import type { TradingEnvironment } from "./contracts.js";
+import type { Preferences, TradingEnvironment } from "./contracts.js";
 import type { PricesMissing } from "./prices.js";
 import type { TradeTotals } from "./trade-cost.js";
 
@@ -683,6 +683,8 @@ export interface FillTotals {
 export interface TaxYearSummary {
   kind: "tax_year";
   environment: TradingEnvironment;
+  /** The server's TIMEZONE and TAX_YEAR_START, so the widget counts its next year the server's way: from 2.62. */
+  preferences?: Preferences;
   accountCurrency: string;
   /** Calendar year the tax year starts in, and the month-day it starts on ("01-01", or "04-06" in the UK). */
   year: number;

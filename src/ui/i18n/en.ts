@@ -839,6 +839,8 @@ export const en = {
   settingWebhook: "Webhook notifications",
   settingDigest: "Daily digest",
   settingQuotes: "Quote source",
+  settingTimeZone: "Days counted in",
+  settingTaxYear: "Tax year starts",
   plansTitle: "Investment plans",
   noPlans: "No investment plans.",
   planMonthly: "Monthly on day {day}",

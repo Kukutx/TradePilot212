@@ -33,8 +33,14 @@ PROTECTIVE_OCO=true
 NOTIFY_WEBHOOK_URL=
 NOTIFY_WEBHOOK_SECRET=
 NOTIFY_EVENTS=
-# Send a short daily account digest to the webhook at this UTC hour (0-23). Empty turns it off.
+# Send a short daily account digest to the webhook at this hour (0-23) in TIMEZONE, or at
+# DIGEST_HOUR_UTC in UTC (set one, not both). Empty turns it off.
+DIGEST_HOUR=
 DIGEST_HOUR_UTC=
+# The IANA time zone days are counted in (daily order limits, the digest, the tax year); empty is UTC.
+TIMEZONE=
+# The tax year's first day as MM-DD (04-06 for the UK); empty is 01-01.
+TAX_YEAR_START=
 
 # Quotes for instruments you do not hold (Trading 212 has no quote endpoint). Used by get_quote,
 # price alerts, plan legs and rebalance targets. stooq (default) is free, needs no key, and is

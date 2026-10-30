@@ -15,6 +15,7 @@ import type {
   OrderPreview,
   OrderResolution,
   OrderStatusReport,
+  Preferences,
   StructuredError,
   TradeCandidate,
   TradePlanPayload,
@@ -48,6 +49,7 @@ import { WatchlistView } from "./views/WatchlistView";
 import { ExportView, OrderStatusView, type ExportPayload } from "./views/ToolViews";
 import type { WatchlistView as WatchlistPayload } from "../shared/watchlist";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PiesPayload } from "../shared/pies";
+import { taxYearZone } from "../shared/time-zone";
 
 type BasePayload =
   | DashboardPayload
@@ -77,9 +79,10 @@ type PortfolioTab = "holdings" | InsightKind;
 type InsightCache = { [K in InsightKind]?: Extract<InsightPayload, { kind: K }> };
 /**
  * The tax year the History tab shows: the latest that has started unless a year was picked, starting on `yearStart`
- * (month-day) in `timeZone` (the viewer's own when left out).
+ * (month-day; the server's TAX_YEAR_START when left out) in `timeZone` (the server's TIMEZONE, else the viewer's own,
+ * when left out).
  */
-interface TaxSettings { year?: number; yearStart: string; timeZone?: string }
+interface TaxSettings { year?: number; yearStart?: string; timeZone?: string }
 /**
  * What the host limited a trade or cash read to, kept while the page is read again: an instrument or types, and a window
  * none of the switch's periods is. Choosing a period drops the window; Show all drops both.
@@ -149,7 +152,14 @@ function presetOf(range: { from?: string; to: string }, readAt: string): Insight
   // periodOf names any bounded window it does not know 12 months.
   return period === "1y" && Math.abs((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000 - 365) >= 1 ? undefined : period;
 }
-/** The zone the calendar tax year is counted in: the viewer's own. */
+/**
+ * The zone a tax year is counted in when none was chosen: the server's TIMEZONE, else the zone its first day is known
+ * by (London's for 6 April), else the viewer's own.
+ */
+function taxZone(yearStart: string | undefined, preferences: Preferences | undefined): string {
+  return preferences?.timeZone ?? taxYearZone(yearStart) ?? localZone();
+}
+/** The viewer's own zone. */
 function localZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -334,7 +344,13 @@ export default function App() {
   const [period, setPeriod] = useState<InsightPeriod>("ytd");
   /** The History tab's page shown last, and the tax year it shows. */
   const [historyKind, setHistoryKind] = useState<HistoryKind>("trade_history");
-  const [taxSettings, setTaxSettings] = useState<TaxSettings>({ yearStart: TAX_RULES.calendar.yearStart });
+  const [taxSettings, setTaxSettings] = useState<TaxSettings>({});
+  // The server's TIMEZONE and TAX_YEAR_START, from the dashboard: the tax year's defaults.
+  const [preferences, setPreferences] = useState<Preferences | undefined>(undefined);
+  useEffect(() => {
+    if (base?.kind === "portfolio" && base.preferences) setPreferences(base.preferences);
+    else if (base?.kind === "automation" && base.settings.taxYearStart) setPreferences({ ...(base.settings.timeZone ? { timeZone: base.settings.timeZone } : {}), taxYearStart: base.settings.taxYearStart });
+  }, [base]);
   const [historyScopes, setHistoryScopes] = useState<HistoryScopes>({});
   const [environment, setEnvironment] = useState<TradingEnvironment>("demo");
   const [draft, setDraft] = useState<OrderDraft | null>(null);
@@ -609,7 +625,8 @@ export default function App() {
     const journalFilter = tag === undefined ? journalTag : tag ?? undefined;
     try {
       const scope = kind === "trade_history" || kind === "cash_history" ? scopes[kind] : undefined;
-      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), yearStart: tax.yearStart, timeZone: tax.timeZone ?? localZone() }
+      const zone = tax.timeZone ?? taxZone(tax.yearStart ?? preferences?.taxYearStart, preferences);
+      const args = kind === "tax_year" ? { environment: env, ...(tax.year === undefined ? {} : { year: tax.year }), ...(tax.yearStart ? { yearStart: tax.yearStart } : {}), timeZone: zone }
         : timeless(kind) ? { environment: env }
         : {
           environment: env,
@@ -623,6 +640,12 @@ export default function App() {
           ...(kind === "cash_history" ? { limit: 500 } : {}),
         };
       const payload = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
+      // The server's settings, first learned here: a year counted in another zone than they give is read again in it.
+      if (payload.kind === "tax_year" && payload.preferences) {
+        setPreferences(payload.preferences);
+        const wanted = taxZone(payload.yearStart, payload.preferences);
+        if (!preferences && !tax.timeZone && wanted !== payload.timeZone) return await loadInsight(kind, env, range, tag, compareWith, { ...tax, timeZone: wanted }, scopes);
+      }
       if (payload.kind === "journal_review") setJournalTag(payload.tag);
       // A choice holds once a read made with it came back.
       if (payload.kind === "performance" && payload.benchmarkChoice) setBenchmark(payload.benchmarkChoice);
@@ -658,7 +681,10 @@ export default function App() {
   function stale(kind: InsightKind): boolean {
     const loaded = insights[kind];
     if (!loaded || loaded.environment !== environment) return true;
-    if (loaded.kind === "tax_year") return loaded.yearStart !== taxSettings.yearStart || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
+    if (loaded.kind === "tax_year") {
+      const yearStart = taxSettings.yearStart ?? preferences?.taxYearStart ?? loaded.yearStart;
+      return loaded.yearStart !== yearStart || loaded.timeZone !== (taxSettings.timeZone ?? taxZone(yearStart, preferences)) || (taxSettings.year !== undefined && loaded.year !== taxSettings.year);
+    }
     // A window the host chose stays as read until a period is chosen.
     if ((loaded.kind === "trade_history" || loaded.kind === "cash_history") && historyScopes[loaded.kind]?.window) return false;
     const range = periodOfPayload(loaded);

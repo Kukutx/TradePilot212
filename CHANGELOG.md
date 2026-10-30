@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.62.0
+
+- Your own time zone and tax year. `TIMEZONE` (an IANA zone such as Europe/London) sets the day TradePilot counts in: the daily order and value limits reset at local midnight rather than UTC, the digest's dividend week follows it, and the tax year's days are counted in it. `TAX_YEAR_START` (MM-DD, `04-06` for the UK) is the tax year `get_tax_year_summary` and the History tab use unless another is chosen. Without `TIMEZONE`, a year from 6 April is counted in London and any other in UTC on the server, and in the viewer's own zone in the widget, as before; the History tab reads its year again in the server's zone once it learns it. On the day the zone first changes, the limits and the digest join the new days once (a few more hours on the day's budget behind UTC, a second digest ahead of it).
+- A UK year counted in another zone than London's no longer shows the UK rule as chosen, so it can be picked. A tax year starting on a day whose midnight is skipped by a clock change (Santiago, Havana) starts when the clocks jump.
+- `DIGEST_HOUR` sends the daily digest at a local hour in `TIMEZONE`, one a local day; `DIGEST_HOUR_UTC` still works (set one, not both).
+- The automation page shows the digest's hour with its zone, the zone days are counted in and the tax year's first day. The overview's `settings.digestHourUtc` is now `digestHour` with `digestTimeZone`.
+- `T212_DEMO_BASE_URL` and `T212_LIVE_BASE_URL` send Trading 212 requests to another address, such as a proxy you run: HTTPS only (or http on a loopback host), without credentials, a query or a fragment, and never with the sample account. Trading 212 requests never follow a redirect: a read that gets one fails, and a write that gets one has an unknown outcome to verify.
+
 ## 2.61.0
 
 - Against the market, on the Allocation tab: how the holdings move with the benchmark (`BENCHMARK`, the S&P 500 through SPY by default). Each holding's beta and correlation to it from a year of weekly closes, the holdings' beta together (their weights times their betas), the benchmark's volatility and its worst week with what today's mix did that week, and what a 5%, 10% and 20% fall in it would take by that beta, in the account currency and as a share of the account. Each holding is a bar from 0 with a mark at 1, with a table view. `analyze_portfolio_allocation` returns it as `risk.market`, its text gives the falls, and the risk-check skill reports them as history, not a forecast.

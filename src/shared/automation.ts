@@ -10,9 +10,9 @@ export const BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If
 export interface TradingPolicy {
   /** Largest share of total account value one instrument may reach after a buy (0 to 1). */
   maxPositionWeight: number;
-  /** Orders submitted through TradePilot per environment per UTC day. */
+  /** Orders submitted through TradePilot per environment per day (in TIMEZONE, UTC without one). */
   dailyOrderLimit: number;
-  /** Estimated value submitted per UTC day, in the account currency (other currencies converted at the rate holdings imply). */
+  /** Estimated value submitted per day (in TIMEZONE, UTC without one), in the account currency (other currencies converted at the rate holdings imply). */
   dailyNotionalLimit: number;
   /** When non-empty, only these tickers (exact Trading 212 tickers) may be traded. */
   allowedTickers: string[];
@@ -336,7 +336,13 @@ export interface AutomationOverview {
     /** Open orders are watched and how each ended is reported. */
     orderWatch: boolean;
     webhook: boolean;
-    digestHourUtc: number | null;
+    /** The daily digest's hour in `digestTimeZone`; null when it is off. Before 2.62, `digestHourUtc`. */
+    digestHour: number | null;
+    digestTimeZone?: string;
+    /** TIMEZONE, when set: the day the daily limits reset. */
+    timeZone?: string;
+    /** TAX_YEAR_START, the tax year's first day as MM-DD: from 2.62. */
+    taxYearStart?: string;
     quoteProvider: string;
   };
   timestamp: string;

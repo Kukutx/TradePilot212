@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Instrument, OrderDraft, Position } from "../shared/contracts.js";
 import type { TradingPolicy } from "../shared/automation.js";
 import { createConfig } from "./config.js";
-import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy } from "./policy.js";
+import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey } from "./policy.js";
 
 const instrument: Instrument = { ticker: "VUSA_EQ", name: "Vanguard S&P 500", shortName: "VUSA", currencyCode: "EUR", type: "ETF" };
 const draft: OrderDraft = { environment: "live", ticker: "VUSA_EQ", side: "buy", type: "market", quantity: 1, referencePrice: 100, referencePriceAt: new Date().toISOString() };
@@ -59,5 +59,14 @@ describe("policy engine", () => {
     const old = new Date(Date.now() - 600_000).toISOString();
     expect(rules({ maxReferenceAgeSeconds: 120 }, { draft: { ...draft, referencePriceAt: old } })[0]?.status).toBe("block");
     expect(rules({ maxReferenceAgeSeconds: 120 })[0]?.status).toBe("pass");
+  });
+});
+
+describe("the day the daily limits count", () => {
+  it("is the day in TIMEZONE, so they reset at local midnight", () => {
+    const late = new Date("2026-10-30T23:30:00Z");
+    expect(usageKey("live", late)).toBe("usage:live:2026-10-30");
+    expect(usageKey("live", late, "Europe/Berlin")).toBe("usage:live:2026-10-31");
+    expect(usageKey("live", new Date("2026-10-31T02:00:00Z"), "America/Los_Angeles")).toBe("usage:live:2026-10-30");
   });
 });

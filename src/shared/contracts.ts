@@ -191,6 +191,14 @@ export interface ActivityEvent {
   valueCurrency?: string;
 }
 
+/** The server's TIMEZONE and TAX_YEAR_START, for the widget's defaults: from 2.62. */
+export interface Preferences {
+  /** TIMEZONE, when set. */
+  timeZone?: string;
+  /** The tax year's first day as MM-DD. */
+  taxYearStart: string;
+}
+
 export interface PortfolioSnapshot {
   kind: "portfolio";
   environment: TradingEnvironment;
@@ -204,6 +212,7 @@ export interface PortfolioSnapshot {
   valueTrend?: ValuePoint[];
   /** Each holding's move on the day, when the read asked for it (get_portfolio_today). */
   today?: PortfolioToday;
+  preferences?: Preferences;
   timestamp: string;
   warning?: string;
 }
