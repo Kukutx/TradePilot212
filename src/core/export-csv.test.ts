@@ -63,43 +63,66 @@ describe("CSV export reports", () => {
       live: { baseUrl: "https://live.test/api/v0", apiKey: "", apiSecret: "" },
     },
   } as RuntimeConfig;
+  const all = { includeDividends: true, includeInterest: true, includeOrders: true, includeTransactions: true };
   const reports = [
-    { reportId: 11, status: "Finished", timeFrom: "2026-01-01T00:00:00Z", timeTo: "2026-04-01T00:00:00Z", downloadLink: "https://files.test/11.csv?sig=abc" },
-    { reportId: 12, status: "Processing", timeFrom: "2026-01-01T00:00:00Z", timeTo: "2026-10-30T09:00:00Z" },
+    { reportId: 11, status: "Finished", timeFrom: "2026-01-01T00:00:00Z", timeTo: "2026-04-01T00:00:00Z", dataIncluded: all, downloadLink: "https://files.test/11.csv?sig=abc" },
+    { reportId: 12, status: "Processing", timeFrom: "2026-01-01T00:00:00Z", timeTo: "2026-10-30T09:00:00Z", dataIncluded: all },
+    // Made in the app with orders alone: not a report of every kind of record.
+    { reportId: 10, status: "Finished", timeFrom: "2025-01-01T00:00:00Z", timeTo: "2026-10-30T12:00:00Z", dataIncluded: { ...all, includeDividends: false }, downloadLink: "https://files.test/10.csv" },
   ];
-  function broker() {
+  function broker(file = CSV) {
     const calls: Array<{ url: string; method: string; auth: boolean }> = [];
+    let listing: number | undefined;
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url = String(input);
       calls.push({ url, method: init?.method ?? "GET", auth: Boolean(new Headers(init?.headers).get("authorization")) });
-      if (url.startsWith("https://files.test/")) return new Response(CSV, { status: 200 });
+      if (url.startsWith("https://files.test/")) return new Response(file, { status: 200 });
       if (url.endsWith("/equity/history/exports") && init?.method === "POST") return Response.json({ reportId: 13 });
-      return Response.json(reports);
+      return listing ? new Response("{}", { status: listing }) : Response.json(reports);
     }) as typeof fetch;
-    return { calls, service: new InsightsService({ config, instruments: async () => [], fetcher }) };
+    return { calls, fail: (status: number) => { listing = status; }, service: new InsightsService({ config, instruments: async () => [], fetcher }) };
   }
 
-  it("reads the newest finished report from its link, without the API key, once", async () => {
+  it("reads a finished report from its link, without the API key, once", async () => {
     const { calls, service } = broker();
-    const read = await service.readExport("demo");
-    expect(read.report.reportId).toBe(11);
+    const read = await service.readExport("demo", 11);
     expect(read.summary!.charges.find((charge) => charge.name === "Stamp duty reserve tax")!.totals).toEqual({ GBP: 1.25 });
-    const download = calls.find((call) => call.url.startsWith("https://files.test/"))!;
-    expect(download.auth).toBe(false);
+    // The newest rows first.
+    expect(read.records![0]!.Time).toBe("2026-03-31 23:00:00");
+    expect(read.recordCount).toBe(8);
+    expect(calls.find((call) => call.url.startsWith("https://files.test/"))!.auth).toBe(false);
+    // Read again: neither listed nor downloaded.
+    const before = calls.length;
     await service.readExport("demo", 11);
-    expect(calls.filter((call) => call.url.startsWith("https://files.test/"))).toHaveLength(1);
-    // Not finished: its status, nothing downloaded.
-    expect(await service.readExport("demo", 12)).toEqual({ report: reports[1] });
+    expect(calls.length).toBe(before);
+    // The newest report is still being built: its status, not an older report of another period.
+    expect(await service.readExport("demo")).toEqual({ report: reports[1] });
     await expect(service.readExport("demo", 99)).rejects.toThrow(/no report 99/);
   });
 
-  it("gives the report of the same period already asked for rather than request a second", async () => {
-    const { calls, service } = broker();
-    const again = await service.requestExport("demo", { from: new Date("2026-01-01T00:00:00Z"), to: new Date("2026-10-30T15:00:00Z") });
-    expect(again).toMatchObject({ reportId: 12, reused: { status: "Processing" } });
+  it("does not read a file larger than it reads", async () => {
+    const { service } = broker("x".repeat(26_000_000));
+    await expect(service.readExport("demo", 11)).rejects.toThrow(/larger than TradePilot reads/);
+  });
+
+  it("gives a report that holds the period rather than request a second, and requests none when it cannot tell", async () => {
+    const { calls, service, fail } = broker();
+    const within = await service.requestExport("demo", { from: new Date("2026-02-01T00:00:00Z"), to: new Date("2026-10-30T08:30:00Z") });
+    expect(within).toMatchObject({ reportId: 12, reused: { status: "Processing" } });
     expect(calls.some((call) => call.method === "POST")).toBe(false);
-    const other = await service.requestExport("demo", { from: new Date("2025-01-01T00:00:00Z"), to: new Date("2026-10-30T15:00:00Z") });
-    expect(other).toEqual({ reportId: 13 });
+    // Ending later than any report (by more than an hour), or starting earlier: a new one. The orders-only report
+    // is never given.
+    expect(await service.requestExport("demo", { from: new Date("2026-02-01T00:00:00Z"), to: new Date("2026-10-30T11:00:00Z") })).toEqual({ reportId: 13 });
+    expect(await service.requestExport("demo", { from: new Date("2025-06-01T00:00:00Z"), to: new Date("2026-04-01T00:00:00Z") })).toEqual({ reportId: 13 });
+    fail(429);
+    const posts = calls.filter((call) => call.method === "POST").length;
+    await expect(service.requestExport("demo", { from: new Date("2024-01-01T00:00:00Z"), to: new Date("2026-10-30T11:00:00Z") })).rejects.toThrow();
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(posts);
+  });
+
+  it("does not count a card payment's charge amount as a charge", () => {
+    const { summary } = summarizeExport("Action,Time,Total,Currency (Total),Charge amount,Currency (Charge amount),Exchange rate,Deposit fee,Currency (Deposit fee)\nCard debit,2026-01-01 10:00:00,-45,EUR,45,GBP,1.17,,\nDeposit,2026-01-02 10:00:00,100,EUR,,,,0.7,EUR\n");
+    expect(summary.charges).toEqual([{ name: "Deposit fee", totals: { EUR: 0.7 } }]);
   });
 
   it("reads the sample account's report", async () => {

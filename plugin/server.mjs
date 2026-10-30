@@ -38072,7 +38072,8 @@ function parseCsv(text) {
   if (row.some((value) => value !== "")) rows2.push(row);
   return rows2;
 }
-var CHARGE = /fee|tax|duty|charge/i;
+var CHARGE = /fee|tax|duty|levy/i;
+var NOT_CHARGE = /amount|rate/i;
 function summarizeExport(text) {
   const [header = [], ...body] = parseCsv(text);
   const columns = header.map((name) => name.trim());
@@ -38086,7 +38087,7 @@ function summarizeExport(text) {
     const coded = columns.findIndex((column) => new RegExp(`^${escape2(name)} \\(([A-Z]{3})\\)$`, "i").test(column));
     return coded >= 0 ? { name, index: coded, code: columns[coded].slice(-4, -1).toUpperCase() } : void 0;
   };
-  const chargeNames = [...new Set(columns.filter((column) => CHARGE.test(column) && !/^currency \(/i.test(column)).map((column) => column.replace(/ \([A-Z]{3}\)$/i, "")))];
+  const chargeNames = [...new Set(columns.filter((column) => CHARGE.test(column) && !NOT_CHARGE.test(column) && !/^currency \(/i.test(column)).map((column) => column.replace(/ \([A-Z]{3}\)$/i, "")))];
   const charges = chargeNames.map(money4).filter((item) => item !== void 0);
   const total = money4("Total");
   const result2 = money4("Result");
@@ -38771,16 +38772,18 @@ var InsightsService = class {
     return this.client(environment).listExports();
   }
   /**
-   * Asks Trading 212 for a CSV report of the window, unless one of the same period (its start on the same day, its
-   * end within a day) is queued, being built or finished: that one is given instead, as `reused`, rather than a
-   * second report of the same records (Trading 212 allows one request in 30 seconds).
+   * Asks Trading 212 for a CSV report of the window, unless one that holds it is queued, being built or finished:
+   * from the same start or before, to the same end or after (less REUSE_SLACK_MS), with orders, dividends, interest
+   * and transactions. That one is given instead, as `reused`, rather than a second report of the same records. When
+   * the reports cannot be listed nothing is requested: the failure is given, so asking again does not build two.
    */
   async requestExport(environment, window) {
     const timeFrom = (window.from ?? new Date(window.to.getTime() - 365 * 864e5)).toISOString();
     const timeTo = window.to.toISOString();
     const client = this.client(environment);
-    const reports = await client.listExports().catch(() => []);
-    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && report.timeFrom && report.timeTo && report.timeFrom.slice(0, 10) === timeFrom.slice(0, 10) && Math.abs(Date.parse(report.timeTo) - Date.parse(timeTo)) <= 864e5);
+    const reports = await client.listExports();
+    const whole = (report) => ["includeDividends", "includeInterest", "includeOrders", "includeTransactions"].every((flag2) => report.dataIncluded?.[flag2] === true);
+    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && whole(report) && report.timeFrom && report.timeTo && Date.parse(report.timeFrom) <= Date.parse(timeFrom) && Date.parse(report.timeTo) >= Date.parse(timeTo) - REUSE_SLACK_MS);
     if (same) return { reportId: same.reportId, reused: same };
     return client.requestExport({
       timeFrom,
@@ -38789,40 +38792,64 @@ var InsightsService = class {
     });
   }
   /**
-   * Downloads a finished report (the newest, or `reportId`) and reads it: what each kind of row adds up to, and the
-   * charges, interest and dividends it holds. A report not finished yet gives its status. Read files are kept for the
-   * process's life: a finished report does not change.
+   * Reads a finished report (`reportId`, or the newest one) and adds it up: what each kind of row adds up to, and the
+   * charges, interest and dividends it holds, with its newest MAX_EXPORT_RECORDS rows. A report not finished yet
+   * gives its status. What is read is kept for the process's life, by report: a finished report does not change.
    */
   async readExport(environment, reportId) {
+    const kept = reportId !== void 0 ? this.exportReads.get(`${environment}:${reportId}`) : void 0;
+    if (kept) return kept;
     const reports = await this.client(environment).listExports();
-    const finished = (report2) => /finish|complete|ready/i.test(report2.status ?? "") && Boolean(report2.downloadLink);
-    const report = reportId !== void 0 ? reports.find((item) => item.reportId === reportId) : [...reports].filter(finished).sort((a, b) => b.reportId - a.reportId)[0];
-    if (!report) fail("INVALID_INPUT", reportId !== void 0 ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no finished report yet: request one, then read it once it is finished.");
-    if (!finished(report)) return { report };
+    const report = reportId !== void 0 ? reports.find((item) => item.reportId === reportId) : [...reports].sort((a, b) => b.reportId - a.reportId)[0];
+    if (!report) fail("INVALID_INPUT", reportId !== void 0 ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no report yet: request one, then read it once it is finished.");
+    if (!/finish|complete|ready/i.test(report.status ?? "") || !report.downloadLink) return { report };
     const key = `${environment}:${report.reportId}`;
     let read = this.exportReads.get(key);
     if (!read) {
-      read = this.download(report.downloadLink).then(summarizeExport);
+      read = this.download(report.downloadLink).then((text) => {
+        const { summary, records } = summarizeExport(text);
+        return { report, summary, records: records.slice(-MAX_EXPORT_RECORDS).reverse(), recordCount: records.length };
+      });
       this.exportReads.set(key, read);
       read.catch(() => this.exportReads.delete(key));
       if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value);
     }
-    return { report, ...await read };
+    return read;
   }
   exportReads = /* @__PURE__ */ new Map();
-  /** The report's file, from Trading 212's storage: over https, no API key sent, MAX_EXPORT_BYTES at most. */
+  /**
+   * The report's file, from Trading 212's storage: over https, without the API key or redirects, MAX_EXPORT_BYTES at
+   * most (counted as it arrives), within EXPORT_TIMEOUT_MS.
+   */
   async download(link) {
     const url2 = new URL(link);
     if (url2.protocol !== "https:") fail("BROKER_REQUEST_FAILED", "The report's download link is not https, so it is not read.");
-    const response = await (this.deps.fetcher ?? globalThis.fetch)(url2.toString(), { redirect: "follow" });
+    const fetcher = this.deps.fetcher ?? ((input2, init) => globalThis.fetch(input2, init));
+    const response = await fetcher(url2.toString(), { redirect: "error", signal: AbortSignal.timeout(EXPORT_TIMEOUT_MS) });
     if (!response.ok) fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (HTTP ${response.status}); its link may have expired: list the reports again for a new one.`);
-    const size = Number(response.headers.get("content-length") ?? NaN);
-    if (size > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", `The report is ${Math.round(size / 1e6)} MB, more than TradePilot reads; request a shorter period.`);
-    const text = await response.text();
-    if (text.length > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads; request a shorter period.");
-    return text;
+    const tooLarge = () => fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads (25 MB); request a shorter period.");
+    if (Number(response.headers.get("content-length") ?? 0) > MAX_EXPORT_BYTES) tooLarge();
+    if (!response.body) return response.text();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let bytes = 0;
+    for (; ; ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_EXPORT_BYTES) {
+        await reader.cancel().catch(() => void 0);
+        tooLarge();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
   }
 };
+var MAX_EXPORT_RECORDS = 200;
+var REUSE_SLACK_MS = 36e5;
+var EXPORT_TIMEOUT_MS = 6e4;
 var MAX_EXPORT_BYTES = 25e6;
 
 // src/core/targets.ts
@@ -40786,7 +40813,10 @@ function policy(data) {
   ];
 }
 function exports(data) {
-  if (data.summary) return exportSummary(data.summary);
+  if (data.summary) return [
+    ...exportSummary(data.summary),
+    ...data.records?.length ? [`Newest ${data.records.length} of ${data.recordCount ?? data.records.length} rows:`, ...data.records.map((record2) => [record2.Time, record2.Action, record2.Ticker, record2["No. of shares"], record2.Total !== void 0 ? `${record2.Total} ${record2["Currency (Total)"] ?? ""}`.trim() : void 0].filter(Boolean).join(" \xB7 "))] : []
+  ];
   return rows(data.reports ?? [], (report) => {
     const record2 = report;
     return `#${record2.reportId ?? "?"} ${record2.status ?? ""} ${day(record2.timeFrom)} to ${day(record2.timeTo)}${record2.downloadLink ? `: ${record2.downloadLink}` : ""}`;
@@ -40799,7 +40829,7 @@ function exportSummary(summary) {
     ...summary.actions.map((action) => `${action.action}: ${action.count}${some(action.totals) ? `, total ${money4(action.totals)}` : ""}`),
     ...summary.charges.map((charge) => `${charge.name}: ${money4(charge.totals)}`),
     ...some(summary.interest) ? [`Interest: ${money4(summary.interest)}`] : [],
-    ...some(summary.dividends) ? [`Dividends: ${money4(summary.dividends)}`] : [],
+    ...some(summary.dividends) ? [`Dividends (net of withholding): ${money4(summary.dividends)}`] : [],
     ...some(summary.result) ? [`Realised result: ${money4(summary.result)}`] : []
   ];
 }
@@ -42694,15 +42724,15 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
     "manage_history_export",
     {
       title: "Trading 212 CSV Export",
-      description: "Trading 212's CSV history reports (orders, dividends, interest and transactions). `list` gives them with their download links. `request` asks for one of a period; it does not trade, and a report of the same period already queued or finished is given instead of a second one. The broker builds it in a minute or so. `read` downloads a finished report (the newest, or `reportId`) and adds it up: rows and Total per action, the charges the API history does not itemise (currency conversion fees, stamp duty, French transaction tax, withholding tax), interest, dividends and realised result, per currency; `rows` also returns up to that many of its rows.",
+      description: "Trading 212's CSV history reports (orders, dividends, interest and transactions). `list` gives them with their download links. `request` asks for one of a period; it does not trade, and a report already queued or finished that holds the period (same start or earlier, same end or later, every kind of record) is given instead of a second one. The broker builds it in a minute or so. `read` downloads a finished report (`reportId`, or the newest report) and adds it up: rows and Total per action, the charges the API history does not itemise (currency conversion fees, stamp duty, French transaction tax, withholding tax), interest, dividends (net of withholding) and realised result, per currency; `rows` also returns that many of its newest rows.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         action: external_exports.enum(["list", "request", "read"]).default("list"),
         ...windowSchema,
-        reportId: external_exports.number().int().optional().describe("read: the report to read; the newest finished one when left out."),
-        rows: external_exports.number().int().min(0).max(200).default(0).describe("read: how many of the report's rows to return as well, newest last as in the file.")
+        reportId: external_exports.number().int().optional().describe("read: the report to read; the newest report when left out."),
+        rows: external_exports.number().int().min(0).max(MAX_EXPORT_RECORDS).default(0).describe("read: how many of the report's newest rows to return as well, newest first.")
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       _meta: {}
     },
     async ({ environment, action, period, from, to, reportId, rows: rows2 }) => {
@@ -42713,16 +42743,18 @@ function createMcpServer({ trading, insights, automation: automation2, alerts, a
           const created = await insights.requestExport(environment, window);
           if (created.reused) {
             const status = created.reused.status ?? "queued";
-            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} of the same period is already ${status.toLowerCase()}, so no second one was requested.${/finish/i.test(status) ? " Read it with action read." : " List or read it in a minute."}`);
+            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
           }
           const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read in a minute or so.`);
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
         }
         if (action === "read") {
           const read = await insights.readExport(environment, reportId);
-          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${(read.report.status ?? "not ready").toLowerCase()}; read it again once it is finished.`);
-          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.records.length } : {} };
-          return result(payload, `Read report ${read.report.reportId}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
+          const status = (read.report.status ?? "not ready").toLowerCase();
+          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
+          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...rows2 ? { records: read.records.slice(0, rows2), recordCount: read.recordCount } : {} };
+          const period2 = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
+          return result(payload, `Read report ${read.report.reportId}${period2}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);

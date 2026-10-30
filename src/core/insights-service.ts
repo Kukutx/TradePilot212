@@ -591,17 +591,19 @@ export class InsightsService {
   listExports(environment: TradingEnvironment): Promise<ExportReport[]> { return this.client(environment).listExports(); }
 
   /**
-   * Asks Trading 212 for a CSV report of the window, unless one of the same period (its start on the same day, its
-   * end within a day) is queued, being built or finished: that one is given instead, as `reused`, rather than a
-   * second report of the same records (Trading 212 allows one request in 30 seconds).
+   * Asks Trading 212 for a CSV report of the window, unless one that holds it is queued, being built or finished:
+   * from the same start or before, to the same end or after (less REUSE_SLACK_MS), with orders, dividends, interest
+   * and transactions. That one is given instead, as `reused`, rather than a second report of the same records. When
+   * the reports cannot be listed nothing is requested: the failure is given, so asking again does not build two.
    */
   async requestExport(environment: TradingEnvironment, window: HistoryWindow): Promise<{ reportId: number; reused?: ExportReport }> {
     const timeFrom = (window.from ?? new Date(window.to.getTime() - 365 * 86_400_000)).toISOString();
     const timeTo = window.to.toISOString();
     const client = this.client(environment);
-    const reports = await client.listExports().catch(() => [] as ExportReport[]);
-    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && report.timeFrom && report.timeTo
-      && report.timeFrom.slice(0, 10) === timeFrom.slice(0, 10) && Math.abs(Date.parse(report.timeTo) - Date.parse(timeTo)) <= 86_400_000);
+    const reports = await client.listExports();
+    const whole = (report: ExportReport) => ["includeDividends", "includeInterest", "includeOrders", "includeTransactions"].every((flag) => report.dataIncluded?.[flag] === true);
+    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && whole(report) && report.timeFrom && report.timeTo
+      && Date.parse(report.timeFrom) <= Date.parse(timeFrom) && Date.parse(report.timeTo) >= Date.parse(timeTo) - REUSE_SLACK_MS);
     if (same) return { reportId: same.reportId, reused: same };
     return client.requestExport({
       timeFrom, timeTo,
@@ -610,42 +612,60 @@ export class InsightsService {
   }
 
   /**
-   * Downloads a finished report (the newest, or `reportId`) and reads it: what each kind of row adds up to, and the
-   * charges, interest and dividends it holds. A report not finished yet gives its status. Read files are kept for the
-   * process's life: a finished report does not change.
+   * Reads a finished report (`reportId`, or the newest one) and adds it up: what each kind of row adds up to, and the
+   * charges, interest and dividends it holds, with its newest MAX_EXPORT_RECORDS rows. A report not finished yet
+   * gives its status. What is read is kept for the process's life, by report: a finished report does not change.
    */
   async readExport(environment: TradingEnvironment, reportId?: number): Promise<ExportRead> {
+    const kept = reportId !== undefined ? this.exportReads.get(`${environment}:${reportId}`) : undefined;
+    if (kept) return kept;
     const reports = await this.client(environment).listExports();
-    const finished = (report: ExportReport) => /finish|complete|ready/i.test(report.status ?? "") && Boolean(report.downloadLink);
-    const report = reportId !== undefined
-      ? reports.find((item) => item.reportId === reportId)
-      : [...reports].filter(finished).sort((a, b) => b.reportId - a.reportId)[0];
-    if (!report) fail("INVALID_INPUT", reportId !== undefined ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no finished report yet: request one, then read it once it is finished.");
-    if (!finished(report)) return { report };
+    // The newest asked for, finished or not: an older report of another period is not read in its place.
+    const report = reportId !== undefined ? reports.find((item) => item.reportId === reportId) : [...reports].sort((a, b) => b.reportId - a.reportId)[0];
+    if (!report) fail("INVALID_INPUT", reportId !== undefined ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no report yet: request one, then read it once it is finished.");
+    if (!/finish|complete|ready/i.test(report.status ?? "") || !report.downloadLink) return { report };
     const key = `${environment}:${report.reportId}`;
     let read = this.exportReads.get(key);
     if (!read) {
-      read = this.download(report.downloadLink!).then(summarizeExport);
+      read = this.download(report.downloadLink).then((text) => {
+        const { summary, records } = summarizeExport(text);
+        // Kept small: the totals and the newest rows, not the file.
+        return { report, summary, records: records.slice(-MAX_EXPORT_RECORDS).reverse(), recordCount: records.length };
+      });
       this.exportReads.set(key, read);
       read.catch(() => this.exportReads.delete(key));
       if (this.exportReads.size > 20) this.exportReads.delete(this.exportReads.keys().next().value!);
     }
-    return { report, ...(await read) };
+    return read;
   }
 
-  private readonly exportReads = new Map<string, Promise<ReturnType<typeof summarizeExport>>>();
+  private readonly exportReads = new Map<string, Promise<ExportRead>>();
 
-  /** The report's file, from Trading 212's storage: over https, no API key sent, MAX_EXPORT_BYTES at most. */
+  /**
+   * The report's file, from Trading 212's storage: over https, without the API key or redirects, MAX_EXPORT_BYTES at
+   * most (counted as it arrives), within EXPORT_TIMEOUT_MS.
+   */
   private async download(link: string): Promise<string> {
     const url = new URL(link);
     if (url.protocol !== "https:") fail("BROKER_REQUEST_FAILED", "The report's download link is not https, so it is not read.");
-    const response = await (this.deps.fetcher ?? globalThis.fetch)(url.toString(), { redirect: "follow" });
+    const fetcher = this.deps.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
+    const response = await fetcher(url.toString(), { redirect: "error", signal: AbortSignal.timeout(EXPORT_TIMEOUT_MS) });
     if (!response.ok) fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (HTTP ${response.status}); its link may have expired: list the reports again for a new one.`);
-    const size = Number(response.headers.get("content-length") ?? NaN);
-    if (size > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", `The report is ${Math.round(size / 1_000_000)} MB, more than TradePilot reads; request a shorter period.`);
-    const text = await response.text();
-    if (text.length > MAX_EXPORT_BYTES) fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads; request a shorter period.");
-    return text;
+    const tooLarge = () => fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads (25 MB); request a shorter period.");
+    if (Number(response.headers.get("content-length") ?? 0) > MAX_EXPORT_BYTES) tooLarge();
+    if (!response.body) return response.text();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_EXPORT_BYTES) { await reader.cancel().catch(() => undefined); tooLarge(); }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
   }
 }
 
@@ -653,9 +673,16 @@ export class InsightsService {
 export interface ExportRead {
   report: ExportReport;
   summary?: ExportSummary;
+  /** Its newest rows, newest first, MAX_EXPORT_RECORDS at most. */
   records?: Array<Record<string, string>>;
+  recordCount?: number;
 }
 
+/** The rows of a report kept and returned at most. */
+export const MAX_EXPORT_RECORDS = 200;
+/** A report that ends this much before the end asked for is still taken as holding it (a request made an hour ago). */
+const REUSE_SLACK_MS = 3_600_000;
+const EXPORT_TIMEOUT_MS = 60_000;
 /** The largest report file read. */
 const MAX_EXPORT_BYTES = 25_000_000;
 

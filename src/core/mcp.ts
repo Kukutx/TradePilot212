@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js";
-import { DEFAULT_HISTORY_PAGES, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
+import { DEFAULT_HISTORY_PAGES, MAX_EXPORT_RECORDS, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
 import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
 import { MAX_PIE_INSTRUMENTS } from "./pies.js";
 import { MAX_ACCOUNT_ALERTS } from "./account-alerts.js";
@@ -535,15 +535,15 @@ export function createMcpServer(
     {
       title: "Trading 212 CSV Export",
       description:
-        "Trading 212's CSV history reports (orders, dividends, interest and transactions). `list` gives them with their download links. `request` asks for one of a period; it does not trade, and a report of the same period already queued or finished is given instead of a second one. The broker builds it in a minute or so. `read` downloads a finished report (the newest, or `reportId`) and adds it up: rows and Total per action, the charges the API history does not itemise (currency conversion fees, stamp duty, French transaction tax, withholding tax), interest, dividends and realised result, per currency; `rows` also returns up to that many of its rows.",
+        "Trading 212's CSV history reports (orders, dividends, interest and transactions). `list` gives them with their download links. `request` asks for one of a period; it does not trade, and a report already queued or finished that holds the period (same start or earlier, same end or later, every kind of record) is given instead of a second one. The broker builds it in a minute or so. `read` downloads a finished report (`reportId`, or the newest report) and adds it up: rows and Total per action, the charges the API history does not itemise (currency conversion fees, stamp duty, French transaction tax, withholding tax), interest, dividends (net of withholding) and realised result, per currency; `rows` also returns that many of its newest rows.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         action: z.enum(["list", "request", "read"]).default("list"),
         ...windowSchema,
-        reportId: z.number().int().optional().describe("read: the report to read; the newest finished one when left out."),
-        rows: z.number().int().min(0).max(200).default(0).describe("read: how many of the report's rows to return as well, newest last as in the file."),
+        reportId: z.number().int().optional().describe("read: the report to read; the newest report when left out."),
+        rows: z.number().int().min(0).max(MAX_EXPORT_RECORDS).default(0).describe("read: how many of the report's newest rows to return as well, newest first."),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       _meta: {},
     },
     async ({ environment, action, period, from, to, reportId, rows }) => {
@@ -555,16 +555,18 @@ export function createMcpServer(
           const created = await insights.requestExport(environment, window);
           if (created.reused) {
             const status = created.reused.status ?? "queued";
-            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} of the same period is already ${status.toLowerCase()}, so no second one was requested.${/finish/i.test(status) ? " Read it with action read." : " List or read it in a minute."}`);
+            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
           }
           const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read in a minute or so.`);
+          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
         }
         if (action === "read") {
           const read = await insights.readExport(environment, reportId);
-          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${(read.report.status ?? "not ready").toLowerCase()}; read it again once it is finished.`);
-          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...(rows ? { records: read.records!.slice(0, rows), recordCount: read.records!.length } : {}) };
-          return result(payload, `Read report ${read.report.reportId}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
+          const status = (read.report.status ?? "not ready").toLowerCase();
+          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
+          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...(rows ? { records: read.records!.slice(0, rows), recordCount: read.recordCount } : {}) };
+          const period = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
+          return result(payload, `Read report ${read.report.reportId}${period}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
         return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);

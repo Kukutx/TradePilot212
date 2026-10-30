@@ -867,8 +867,12 @@ function policy(data: { environment: TradingEnvironment; policy: TradingPolicy; 
   ];
 }
 
-function exports(data: { requested?: { reportId?: number | string }; reports?: ExportReport[]; summary?: ExportSummary }): string[] {
-  if (data.summary) return exportSummary(data.summary);
+function exports(data: { requested?: { reportId?: number | string }; reports?: ExportReport[]; summary?: ExportSummary; records?: Array<Record<string, string>>; recordCount?: number }): string[] {
+  if (data.summary) return [
+    ...exportSummary(data.summary),
+    ...(data.records?.length ? [`Newest ${data.records.length} of ${data.recordCount ?? data.records.length} rows:`, ...data.records.map((record) =>
+      [record.Time, record.Action, record.Ticker, record["No. of shares"], record.Total !== undefined ? `${record.Total} ${record["Currency (Total)"] ?? ""}`.trim() : undefined].filter(Boolean).join(" · "))] : []),
+  ];
   return rows(data.reports ?? [], (report) => {
     const record = report as unknown as Record<string, unknown>;
     return `#${record.reportId ?? "?"} ${record.status ?? ""} ${day(record.timeFrom as string | undefined)} to ${day(record.timeTo as string | undefined)}${record.downloadLink ? `: ${record.downloadLink}` : ""}`;
@@ -883,7 +887,7 @@ function exportSummary(summary: ExportSummary): string[] {
     ...summary.actions.map((action) => `${action.action}: ${action.count}${some(action.totals) ? `, total ${money(action.totals)}` : ""}`),
     ...summary.charges.map((charge) => `${charge.name}: ${money(charge.totals)}`),
     ...(some(summary.interest) ? [`Interest: ${money(summary.interest)}`] : []),
-    ...(some(summary.dividends) ? [`Dividends: ${money(summary.dividends)}`] : []),
+    ...(some(summary.dividends) ? [`Dividends (net of withholding): ${money(summary.dividends)}`] : []),
     ...(some(summary.result) ? [`Realised result: ${money(summary.result)}`] : []),
   ];
 }

@@ -41,11 +41,11 @@ export interface ExportSummary {
   last?: string;
   /** Each action (Market buy, Dividend (Ordinary), Interest on cash, Deposit …): how many rows, and their Total. */
   actions: Array<{ action: string; count: number; totals: Totals }>;
-  /** Each charge column (Currency conversion fee, Stamp duty reserve tax, Withholding tax …), summed. */
+  /** Each charge column (Currency conversion fee, Stamp duty reserve tax, Withholding tax …), summed, in its own currency. */
   charges: Array<{ name: string; totals: Totals }>;
   /** Interest paid: the Total of rows whose action names interest. */
   interest: Totals;
-  /** Dividends paid: the Total of rows whose action is a dividend. */
+  /** Dividends paid, net of withholding: the Total of rows whose action is a dividend, in the account currency. */
   dividends: Totals;
   /** Realised result of sales, from the Result column. */
   result: Totals;
@@ -55,7 +55,9 @@ export interface ExportSummary {
 /** A column of money and where its currency is: its "Currency (…)" column, or a code in its header. */
 interface Money { name: string; index: number; currency?: number; code?: string }
 
-const CHARGE = /fee|tax|duty|charge/i;
+/** Charges: fees, taxes, duties and levies, but not an amount ("Charge amount" is a card payment) or a rate. */
+const CHARGE = /fee|tax|duty|levy/i;
+const NOT_CHARGE = /amount|rate/i;
 
 export function summarizeExport(text: string): { summary: ExportSummary; records: Array<Record<string, string>> } {
   const [header = [], ...body] = parseCsv(text);
@@ -72,7 +74,7 @@ export function summarizeExport(text: string): { summary: ExportSummary; records
     return coded >= 0 ? { name, index: coded, code: columns[coded]!.slice(-4, -1).toUpperCase() } : undefined;
   };
   const chargeNames = [...new Set(columns
-    .filter((column) => CHARGE.test(column) && !/^currency \(/i.test(column))
+    .filter((column) => CHARGE.test(column) && !NOT_CHARGE.test(column) && !/^currency \(/i.test(column))
     .map((column) => column.replace(/ \([A-Z]{3}\)$/i, "")))];
   const charges = chargeNames.map(money).filter((item): item is Money => item !== undefined);
   const total = money("Total");
