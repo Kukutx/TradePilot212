@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.60.0
+
+- A History tab with three pages. **Trades** adds up the period's fills (realised result, money bought and sold, costs) and lists them a day at a time, each with its journal note, a filter by instrument and the orders that did not fill. **Cash** gives the net movement and net contributions, the totals of deposits, withdrawals, dividends, interest and fees, a filter by kind and every movement by day. **Tax year** shows a calendar or UK (6 April) year, stepped back and forward, with the net gain on sales, gains and losses apart, dividends, interest, costs, the result per instrument and a note that it is not a tax calculation. `get_trade_history`, `get_cash_history` and `get_tax_year_summary` now open in the widget, and their results say which period they cover (`period`).
+- Pies and Automation are tabs too, next to Holdings, Watchlist, Allocation, Performance, Income and Journal, and are read when opened. Changing an alert from the automation page reloads it.
+- Lists of records keep to the card's width: a long name is cut short and the amount stays beside it. On a phone each switch above a page (periods, history kinds, tax rules) takes the row, its choices sharing it evenly.
+
 ## 2.59.0
 
 - The skills are MCP prompts. Any MCP client, not only the Claude Code plugin, can run the daily brief, portfolio review, risk check, trade journal, order follow-up, tax year and rebalance. Each prompt takes the account (`environment`) and the request in the user's words; the trade journal and order follow-up also take an `instrument`. The prompts are generated from `skills/` (`pnpm build:prompts`), and a test keeps them the same.

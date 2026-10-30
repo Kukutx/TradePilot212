@@ -87,7 +87,7 @@ describe("native controls", () => {
   });
 
   it("keeps a loading view's tabs focusable", () => {
-    expect(app).toContain("aria-disabled={busy && tab !== key ? true : undefined}");
-    expect(app).not.toContain("disabled={busy && tab !== key}");
+    expect(app).toContain("aria-disabled={busy && !active ? true : undefined}");
+    expect(app).not.toContain("disabled={busy && !active}");
   });
 });

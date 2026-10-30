@@ -87,6 +87,9 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "journal", group: "portfolio", tool: "get_holding_detail", args: { instrument: "AAPL" }, prompt: { en: "Why did I buy Apple, and how did it go?", zh: "我当初为什么买苹果？后来怎么样了？" } },
     { id: "review", group: "portfolio", tool: "get_journal_review", args: { period: "all" }, prompt: { en: "Look back over my trade journal: which reasons worked?", zh: "复盘一下我的交易日志：哪些理由靠谱？" } },
     { id: "watchlist", group: "portfolio", tool: "get_watchlist", args: {}, prompt: { en: "Show my watchlist.", zh: "看看我的自选。" } },
+    { id: "trades", group: "portfolio", tool: "get_trade_history", args: { period: "all", limit: 200, includeUnfilled: true }, prompt: { en: "Show my trades.", zh: "看看我的成交记录。" } },
+    { id: "cash", group: "portfolio", tool: "get_cash_history", args: { period: "all", limit: 500 }, prompt: { en: "Show my deposits, withdrawals and dividends.", zh: "看看我的入金、出金和分红。" } },
+    { id: "taxyear", group: "portfolio", tool: "get_tax_year_summary", args: { yearStart: "04-06", timeZone: "Europe/London" }, prompt: { en: "What were my gains in the UK tax year?", zh: "我这个英国税年的收益是多少？" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",
       args: { candidates: [
