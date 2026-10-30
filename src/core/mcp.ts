@@ -1,10 +1,11 @@
 import {
   registerAppResource,
-  registerAppTool,
+  registerAppTool as registerAppToolBase,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { TOOL_OUTPUT } from "./tool-output.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js";
 import { DEFAULT_HISTORY_PAGES, MAX_EXPORT_RECORDS, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
@@ -153,6 +154,12 @@ const windowSchema = {
   maxPages: z.number().int().min(1).max(MAX_HISTORY_PAGES).default(DEFAULT_HISTORY_PAGES)
     .describe("History pages of 50 records to read per data set. Trading 212 limits history reads per minute; TradePilot paces them to the limit it reports, and a read cut short by it comes back truncated."),
 };
+
+/** Registers a tool with the shape of what it returns (tool-output.ts) as its outputSchema. */
+const registerAppTool = ((server: McpServer, name: string, config: Record<string, unknown>, handler: unknown) => {
+  const outputSchema = TOOL_OUTPUT[name];
+  return (registerAppToolBase as (...args: unknown[]) => unknown)(server, name, outputSchema ? { ...config, outputSchema } : config, handler);
+}) as unknown as typeof registerAppToolBase;
 
 export function createMcpServer(
   { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview }: Services,
@@ -918,7 +925,7 @@ export function createMcpServer(
         driftThreshold: z.number().gt(0).lt(1).optional().describe("Notify above this drift in weight points; 0.05 is 5 points"),
         sellUntargeted: z.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)"),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       _meta: {},
     },
     async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
@@ -1019,7 +1026,7 @@ export function createMcpServer(
         percent: z.number().positive().optional(),
         note: z.string().max(200).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       _meta: {},
     },
     async (input) => {
@@ -1064,7 +1071,7 @@ export function createMcpServer(
         percent: z.number().positive().lt(100).optional().describe("Either way, for day_move"),
         note: z.string().max(200).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       _meta: {},
     },
     async (input) => {
@@ -1281,7 +1288,7 @@ export function createMcpServer(
           autoExecute: z.boolean().optional().describe("Demo only: run unattended when due"),
           paused: z.boolean().optional(),
         }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: {},
       },
       async (input) => {
@@ -1610,7 +1617,7 @@ export function createMcpServer(
         title: "Prepare order confirmation",
         description: "App-only validation. Creates a short-lived one-time confirmation token; does not place an order.",
         inputSchema: orderDraftSchema,
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async (draft) => {
@@ -1631,7 +1638,7 @@ export function createMcpServer(
         description:
           "App-only destructive external write. Consumes a one-time token created by app_prepare_order. Never retry automatically.",
         inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ token, liveAcknowledged }) => {
@@ -1671,7 +1678,7 @@ export function createMcpServer(
         title: "Prepare order cancellation",
         description: "App-only cancellation validation; does not cancel yet.",
         inputSchema: z.object({ environment: environmentEnum, orderId: z.string().min(1) }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ environment, orderId }) => {
@@ -1691,7 +1698,7 @@ export function createMcpServer(
         title: "Execute confirmed cancellation",
         description: "App-only destructive write. Consumes a one-time cancellation token. Live cancellations need liveAcknowledged=true after the user confirmed that a cancelled stop-loss no longer protects the position.",
         inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional() }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ token, liveAcknowledged }) => {
@@ -1718,7 +1725,7 @@ export function createMcpServer(
           planId: z.string().optional(),
           notes: z.array(z.string().max(500)).max(20).optional(),
         }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ environment, purpose, title, drafts, planId, notes }) => {
@@ -1744,7 +1751,7 @@ export function createMcpServer(
         title: "Execute confirmed basket",
         description: "App-only destructive external write. Consumes a one-time basket token and sends the orders one by one. Never retry automatically.",
         inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ token, liveAcknowledged }) => {
@@ -1764,7 +1771,7 @@ export function createMcpServer(
         title: "Prepare pie change confirmation",
         description: "App-only validation of a pie change. Creates a short-lived one-time confirmation token; changes nothing.",
         inputSchema: pieDraftSchema.extend({ environment: environmentEnum }),
-        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async (draft) => {
@@ -1784,7 +1791,7 @@ export function createMcpServer(
         title: "Execute confirmed pie change",
         description: "App-only external write. Consumes a one-time pie token. Never retry automatically.",
         inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live pie will change") }),
-        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
       async ({ token, liveAcknowledged }) => {
