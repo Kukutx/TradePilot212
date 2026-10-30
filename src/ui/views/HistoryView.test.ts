@@ -61,6 +61,18 @@ describe("the trade history page", () => {
   });
 });
 
+describe("an empty history", () => {
+  const empty: TradeHistory = { ...trades, count: 0, fills: [], unfilled: [], totals: { ...trades.totals, buys: 0, sells: 0, bought: 0, sold: 0, realised: 0, costs: 0 } };
+  const render = (period: "ytd" | "all" | null) => renderToStaticMarkup(createElement(TradeHistoryView, { data: empty, locale: "en", t: createTranslator("en"), period, busy: false, onPeriod: noop, onKind: noop }));
+
+  it("offers all time where a shorter period has no fills, and nothing more once it is all time", () => {
+    expect(render("ytd")).toContain('No fills in this period.</span><button type="button" class="linkButton">Show all time</button>');
+    expect(render("all")).not.toContain("Show all time");
+    // A window the host chose (no preset) has its own way back, the note above the list.
+    expect(render(null)).not.toContain("Show all time");
+  });
+});
+
 describe("the cash history page", () => {
   const cash: CashHistory = {
     kind: "cash_history", environment: "demo", period: { to: "2026-10-30T12:00:00Z" }, count: 4, currency: "EUR", truncated: false, timestamp: "2026-10-30T12:00:00Z",

@@ -6,3 +6,6 @@ minimumReleaseAgeExclude:
   - miniflare@5.20260903.0-alpha
   - wrangler@4.129.0
 
+overrides:
+  # miniflare pins an undici with known advisories (GHSA-f72v-6w45-q472 and others); wrangler is a dev tool only.
+  'undici@>=7.0.0 <7.30.1': ^7.30.1

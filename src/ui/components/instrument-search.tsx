@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type Ref } from "react";
 import type { Instrument } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import { fill, instrumentTypeLabel, plural, type Translator } from "../lib/messages";
+import { SearchField } from "./common";
 
 /** Enter in the search adds nothing and, in a form, submits nothing: a match is added with its button. */
 export function holdEnter(event: { key: string; preventDefault: () => void }): void {
@@ -48,9 +49,8 @@ export function InstrumentSearch({ label, listed, listedText, addText, addLabel,
   return (
     <div className="instrumentSearch">
       <label htmlFor={`${id}-q`}>{label}</label>
-      <input ref={inputRef} id={`${id}-q`} type="search" autoComplete="off" spellCheck={false} placeholder={t("watchSearchPlaceholder")} value={query}
-        aria-describedby={`${id}-status`} onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={holdEnter} />
+      <SearchField inputRef={inputRef} id={`${id}-q`} autoComplete="off" spellCheck={false} placeholder={t("watchSearchPlaceholder")} value={query}
+        aria-describedby={`${id}-status`} onValue={setQuery} clearLabel={t("searchClear")} onKeyDown={holdEnter} />
       <span id={`${id}-status`} className="visuallyHidden" role="status">{status}</span>
       {results && results.length > 0 && (
         <ul className="instrumentResults">

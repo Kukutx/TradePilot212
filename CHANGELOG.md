@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.65.0
+
+- An empty panel says what it is and what to do next. Panels that would have a chart keep their title when there is nothing to chart, and say what is missing in their own words (no fees in this period, nothing sold to rank, no dividends or interest) rather than "No data". Where a shorter period is empty, the panel offers **Show all time**; an instrument filter that matches nothing offers to clear it; a journal tag with no trades offers all trades. Empty plans, alerts and linked pairs on the automation page say how to make one.
+- Search boxes (the history filter, the watchlist and target searches) draw their own clear button in every browser, Firefox included, and Escape clears them; a second Escape is left to whatever it closes.
+- Loading looks alive: a thin sweep runs along the top while anything loads, so refreshing a view already shown is seen, and the skeletons shimmer rather than blink. Both hold still for reduced motion and use the system colours in high contrast.
+- Development: wrangler's miniflare pinned an undici with eight advisories (four high); `pnpm-workspace.yaml` now overrides it to 7.30.1. This only affected local `wrangler dev` and deploys, not the server or the widget.
+
 ## 2.64.0
 
 - The order form's side, type and validity are rows of buttons rather than menus, so every choice is in view; buy and sell take their colours when chosen. Quantity and prices are typed as text with the decimal keypad, read with a point or a comma like the other forms, and a scroll wheel or an arrow key no longer changes them by one. A single comma before exactly three digits ("2,125") could be either mark, so the form asks for a point or no comma rather than guessing; full-width digits typed on a Chinese keyboard read as ordinary ones everywhere an amount is typed.
