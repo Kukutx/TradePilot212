@@ -135,7 +135,13 @@ export class HistoryLedgers {
     if (!meta && !chunks.length) return undefined;
     const items = union(kind, chunks.flatMap((chunk) => chunk.value), times.time);
     const known = meta ?? { version: 3 as const, segments: [], pending: [], updatedAt: new Date(0).toISOString() };
-    return { meta: { ...known, segments: within(known.segments, items, times.place) }, items, chunks: chunks.map((chunk) => chunk.key) };
+    return { meta: { ...known, segments: within(known.segments, items, times.place, await this.floor(prefix)) }, items, chunks: chunks.map((chunk) => chunk.key) };
+  }
+
+  /** Below this place, records went past MAX_RECORDS. */
+  private async floor(prefix: string): Promise<number | undefined> {
+    const floor = await this.store.get<number>(`${prefix}floor`);
+    return typeof floor === "number" && Number.isFinite(floor) ? floor : undefined;
   }
 
   /**
@@ -147,11 +153,18 @@ export class HistoryLedgers {
     meta: Pick<LedgerMeta, "segments" | "pending">, times: LedgerTimes<T>): Promise<{ items: T[]; meta: LedgerMeta }> {
     let items = union(kind, [...added, ...(ledger?.items ?? [])], times.time);
     const capped = items.length > MAX_RECORDS;
+    let floor = await this.floor(prefix);
     if (capped) {
-      // The lowest placed go, so every record above the lowest kept is still kept and the segments can stop there.
-      const at = (item: T) => { const value = times.place(item); return Number.isFinite(value) ? value : -Infinity; };
-      const top = new Set([...items].sort((a, b) => at(b) - at(a)).slice(0, TRIM_TO));
-      items = items.filter((item) => top.has(item));
+      // The lowest placed go, so every record placed above the lowest kept is still kept and the segments can stop
+      // there; one placed lower but in the history later (an old order filled since) stays too.
+      const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
+      const cut = placed[Math.min(TRIM_TO, placed.length) - 1];
+      if (cut !== undefined) {
+        items = items.filter((item) => !(times.place(item) < cut) || !(times.time(item) < cut));
+        floor = Math.max(floor ?? cut, cut);
+        // Kept apart from the meta, which another process may write from what it loaded before this.
+        await this.store.put(`${prefix}floor`, floor);
+      }
     }
     const chunks = ledger?.chunks ?? [];
     const still = new Set(items);
@@ -164,7 +177,7 @@ export class HistoryLedgers {
     }
     const kept: LedgerMeta = {
       version: 3,
-      segments: within(meta.segments, items, times.place).slice(0, MAX_SEGMENTS),
+      segments: fewest(within(meta.segments, items, times.place, floor)),
       pending: meta.pending,
       updatedAt: new Date().toISOString(),
     };
@@ -178,14 +191,23 @@ export class HistoryLedgers {
  * one whose bottom is below every record kept lost its lowest ones (the oldest went past MAX_RECORDS, here or in
  * another process): it stops at the lowest kept, with no way further back.
  */
-function within<T extends LedgerItem>(segments: LedgerSegment[], items: T[], place: (item: T) => number): LedgerSegment[] {
+function within<T extends LedgerItem>(segments: LedgerSegment[], items: T[], place: (item: T) => number, trimmed?: number): LedgerSegment[] {
   const placed = items.map(place).filter(Number.isFinite);
-  const floor = placed.length ? Math.min(...placed) : undefined;
+  const lowest = placed.length ? Math.min(...placed) : undefined;
+  const floor = trimmed === undefined ? lowest : Math.max(trimmed, lowest ?? trimmed);
   return segments.flatMap((segment) => {
     if (segment.bottom === undefined || floor === undefined || Date.parse(segment.bottom) >= floor) return [segment];
     if (Date.parse(segment.readAt) < floor) return [];
     return [{ readAt: segment.readAt, bottom: new Date(floor).toISOString(), next: null, complete: false }];
   });
+}
+
+/**
+ * At most MAX_SEGMENTS: the newest, which this read is on, and the oldest, which hold the most; the ones between
+ * (runs a busy account left without joining up) go first. Their records stay.
+ */
+function fewest(segments: LedgerSegment[]): LedgerSegment[] {
+  return segments.length <= MAX_SEGMENTS ? segments : [segments[0]!, ...segments.slice(segments.length - MAX_SEGMENTS + 1)];
 }
 
 /** Records in chunks of at most CHUNK_CHARS of JSON each. */

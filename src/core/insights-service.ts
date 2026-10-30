@@ -55,7 +55,7 @@ const reaches = (segment: LedgerSegment, start: Date | undefined) =>
 /** History over a shorter span than this is read as it always was: a page or two, with nothing to keep. */
 const LEDGER_SPAN_MS = 60 * 86_400_000;
 /** An order no longer open that its instrument's history does not list is looked for this long, then let go. */
-const MISSING_MS = 7 * 86_400_000;
+const MISSING_MS = 2 * 86_400_000;
 /** Trading 212 refuses a path it no longer knows with one of these. */
 const REFUSED = new Set([400, 404, 410]);
 
@@ -197,7 +197,8 @@ export class InsightsService {
       const value = await ledgers.exclusive(prefix, () => this.fromLedger(ledgers, prefix, client, kind, start, pages, ticker))
         .catch((error: unknown) => { if (error instanceof Trading212ApiError) throw error; return undefined; });
       if (value) {
-        if (!value.limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value: value.collected });
+        // Cut short, it is not kept either: asking again goes on further back.
+        if (!value.limited && !value.collected.truncated && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value: value.collected });
         return value.collected;
       }
     }
@@ -270,14 +271,16 @@ export class InsightsService {
       const segment = segments[0]!;
       const page = await read(segment.next ?? undefined);
       if (page === "refused") {
-        // The way back no longer works: the segment is forgotten (its records stay), and later reads reach past it.
-        segments.shift();
-        if (!segments.length) segments.push({ readAt, next: null, complete: false });
+        // The way back no longer works: the segment is forgotten (its records stay), and in its place is one that
+        // reaches nothing, so the runs below are not taken as joined to the newest records; later reads read past it.
+        segments.splice(0, 1, { readAt, next: null, complete: false });
         limited = true;
         return false;
       }
       if (!page) return false;
       const items = page.items as HistoryItemOf<K>[];
+      // An empty last page where records were read before is not the end of the history: a failed answer.
+      if (!items.length && !page.nextPagePath && (segment.bottom !== undefined || segments.length > 1)) { limited = true; return false; }
       keep(items);
       const lowest = Math.min(...items.map(times.place).filter(Number.isFinite));
       if (Number.isFinite(lowest) && (segment.bottom === undefined || lowest < Date.parse(segment.bottom))) segment.bottom = new Date(lowest).toISOString();
@@ -316,14 +319,16 @@ export class InsightsService {
         const items = page.items as HistoryItemOf<K>[];
         keep(items);
         const lowest = Math.min(...items.map(times.place).filter(Number.isFinite));
-        if (listed(order.id) || !page.nextPagePath || lowest < Date.parse(order.createdAt)) { searched = true; break; }
+        // On to below when it was made: an order's fills are placed together, and may run onto the next page.
+        if (!page.nextPagePath || lowest < Date.parse(order.createdAt)) { searched = true; break; }
         next = page.nextPagePath;
       }
+      const counts = !ticker || order.ticker === ticker;
       if (listed(order.id)) continue;
-      if (!searched) { unresolved = true; pending.push(order); continue; }
-      // Not listed yet: looked for again on later reads, for a while.
+      if (!searched) { unresolved ||= counts; pending.push(order); continue; }
+      // Not listed yet: looked for again on later reads, for a while, and until then the history may lack its fill.
       const since = order.missingSince ?? readAt;
-      if (Date.parse(readAt) - Date.parse(since) < MISSING_MS) pending.push({ ...order, missingSince: since });
+      if (Date.parse(readAt) - Date.parse(since) < MISSING_MS) { unresolved ||= counts; pending.push({ ...order, missingSince: since }); }
     }
     for (const order of open) {
       if (order.id === undefined || !order.ticker || !order.createdAt || pending.some((item) => item.id === String(order.id))) continue;

@@ -38068,7 +38068,12 @@ var HistoryLedgers = class {
     if (!meta3 && !chunks.length) return void 0;
     const items = union2(kind, chunks.flatMap((chunk) => chunk.value), times.time);
     const known = meta3 ?? { version: 3, segments: [], pending: [], updatedAt: (/* @__PURE__ */ new Date(0)).toISOString() };
-    return { meta: { ...known, segments: within(known.segments, items, times.place) }, items, chunks: chunks.map((chunk) => chunk.key) };
+    return { meta: { ...known, segments: within(known.segments, items, times.place, await this.floor(prefix)) }, items, chunks: chunks.map((chunk) => chunk.key) };
+  }
+  /** Below this place, records went past MAX_RECORDS. */
+  async floor(prefix) {
+    const floor = await this.store.get(`${prefix}floor`);
+    return typeof floor === "number" && Number.isFinite(floor) ? floor : void 0;
   }
   /**
    * Adds `added` to what `ledger` was loaded with, and sets what is known of it. Past MAX_CHUNKS the chunks loaded
@@ -38078,13 +38083,15 @@ var HistoryLedgers = class {
   async add(prefix, kind, ledger, added, meta3, times) {
     let items = union2(kind, [...added, ...ledger?.items ?? []], times.time);
     const capped = items.length > MAX_RECORDS;
+    let floor = await this.floor(prefix);
     if (capped) {
-      const at = (item) => {
-        const value = times.place(item);
-        return Number.isFinite(value) ? value : -Infinity;
-      };
-      const top = new Set([...items].sort((a, b) => at(b) - at(a)).slice(0, TRIM_TO));
-      items = items.filter((item) => top.has(item));
+      const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
+      const cut2 = placed[Math.min(TRIM_TO, placed.length) - 1];
+      if (cut2 !== void 0) {
+        items = items.filter((item) => !(times.place(item) < cut2) || !(times.time(item) < cut2));
+        floor = Math.max(floor ?? cut2, cut2);
+        await this.store.put(`${prefix}floor`, floor);
+      }
     }
     const chunks = ledger?.chunks ?? [];
     const still = new Set(items);
@@ -38097,7 +38104,7 @@ var HistoryLedgers = class {
     }
     const kept = {
       version: 3,
-      segments: within(meta3.segments, items, times.place).slice(0, MAX_SEGMENTS),
+      segments: fewest(within(meta3.segments, items, times.place, floor)),
       pending: meta3.pending,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -38105,14 +38112,18 @@ var HistoryLedgers = class {
     return { items, meta: kept };
   }
 };
-function within(segments, items, place) {
+function within(segments, items, place, trimmed) {
   const placed = items.map(place).filter(Number.isFinite);
-  const floor = placed.length ? Math.min(...placed) : void 0;
+  const lowest = placed.length ? Math.min(...placed) : void 0;
+  const floor = trimmed === void 0 ? lowest : Math.max(trimmed, lowest ?? trimmed);
   return segments.flatMap((segment) => {
     if (segment.bottom === void 0 || floor === void 0 || Date.parse(segment.bottom) >= floor) return [segment];
     if (Date.parse(segment.readAt) < floor) return [];
     return [{ readAt: segment.readAt, bottom: new Date(floor).toISOString(), next: null, complete: false }];
   });
+}
+function fewest(segments) {
+  return segments.length <= MAX_SEGMENTS ? segments : [segments[0], ...segments.slice(segments.length - MAX_SEGMENTS + 1)];
 }
 function split(items) {
   const chunks = [];
@@ -38157,7 +38168,7 @@ async function covers(ledgers, prefix, start) {
 }
 var reaches = (segment, start) => segment.complete || start !== void 0 && segment.bottom !== void 0 && Date.parse(segment.bottom) < start.getTime();
 var LEDGER_SPAN_MS = 60 * 864e5;
-var MISSING_MS = 7 * 864e5;
+var MISSING_MS = 2 * 864e5;
 var REFUSED = /* @__PURE__ */ new Set([400, 404, 410]);
 function positionTime(kind, item) {
   if (kind !== "orders") return itemTime(kind, item);
@@ -38259,7 +38270,7 @@ var InsightsService = class {
         return void 0;
       });
       if (value2) {
-        if (!value2.limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value: value2.collected });
+        if (!value2.limited && !value2.collected.truncated && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS2, value: value2.collected });
         return value2.collected;
       }
     }
@@ -38335,13 +38346,16 @@ var InsightsService = class {
       const segment = segments[0];
       const page = await read(segment.next ?? void 0);
       if (page === "refused") {
-        segments.shift();
-        if (!segments.length) segments.push({ readAt, next: null, complete: false });
+        segments.splice(0, 1, { readAt, next: null, complete: false });
         limited = true;
         return false;
       }
       if (!page) return false;
       const items2 = page.items;
+      if (!items2.length && !page.nextPagePath && (segment.bottom !== void 0 || segments.length > 1)) {
+        limited = true;
+        return false;
+      }
       keep(items2);
       const lowest = Math.min(...items2.map(times.place).filter(Number.isFinite));
       if (Number.isFinite(lowest) && (segment.bottom === void 0 || lowest < Date.parse(segment.bottom))) segment.bottom = new Date(lowest).toISOString();
@@ -38382,20 +38396,24 @@ var InsightsService = class {
         const items2 = page.items;
         keep(items2);
         const lowest = Math.min(...items2.map(times.place).filter(Number.isFinite));
-        if (listed(order.id) || !page.nextPagePath || lowest < Date.parse(order.createdAt)) {
+        if (!page.nextPagePath || lowest < Date.parse(order.createdAt)) {
           searched = true;
           break;
         }
         next = page.nextPagePath;
       }
+      const counts = !ticker || order.ticker === ticker;
       if (listed(order.id)) continue;
       if (!searched) {
-        unresolved = true;
+        unresolved ||= counts;
         pending.push(order);
         continue;
       }
       const since = order.missingSince ?? readAt;
-      if (Date.parse(readAt) - Date.parse(since) < MISSING_MS) pending.push({ ...order, missingSince: since });
+      if (Date.parse(readAt) - Date.parse(since) < MISSING_MS) {
+        unresolved ||= counts;
+        pending.push({ ...order, missingSince: since });
+      }
     }
     for (const order of open2) {
       if (order.id === void 0 || !order.ticker || !order.createdAt || pending.some((item) => item.id === String(order.id))) continue;
