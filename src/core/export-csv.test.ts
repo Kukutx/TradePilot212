@@ -100,6 +100,18 @@ describe("CSV export reports", () => {
     await expect(service.readExport("demo", 99)).rejects.toThrow(/no report 99/);
   });
 
+  it("follows a redirect only to https", async () => {
+    const hops = (location: string) => (async (input: URL | RequestInfo) => {
+      const url = String(input);
+      if (url.startsWith("https://files.test/11.csv")) return new Response(null, { status: 302, headers: { location } });
+      if (url.startsWith("https://mirror.test/")) return new Response(CSV);
+      return Response.json(reports);
+    }) as typeof fetch;
+    const moved = await new InsightsService({ config, instruments: async () => [], fetcher: hops("https://mirror.test/11.csv") }).readExport("demo", 11);
+    expect(moved.recordCount).toBe(8);
+    await expect(new InsightsService({ config, instruments: async () => [], fetcher: hops("http://169.254.169.254/latest") }).readExport("demo", 11)).rejects.toThrow(/not https/);
+  });
+
   it("does not read a file larger than it reads", async () => {
     const { service } = broker("x".repeat(26_000_000));
     await expect(service.readExport("demo", 11)).rejects.toThrow(/larger than TradePilot reads/);

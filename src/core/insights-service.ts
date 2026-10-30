@@ -630,7 +630,9 @@ export class InsightsService {
       read = this.download(report.downloadLink).then((text) => {
         const { summary, records } = summarizeExport(text);
         // Kept small: the totals and the newest rows, not the file.
-        return { report, summary, records: records.slice(-MAX_EXPORT_RECORDS).reverse(), recordCount: records.length };
+        // Newest first by their time, whatever order the file is in (Trading 212's is oldest first).
+        const newest = records.map((record, index) => ({ record, index })).sort((a, b) => (b.record.Time ?? "").localeCompare(a.record.Time ?? "") || b.index - a.index);
+        return { report, summary, records: newest.slice(0, MAX_EXPORT_RECORDS).map(({ record }) => record), recordCount: records.length };
       });
       this.exportReads.set(key, read);
       read.catch(() => this.exportReads.delete(key));
@@ -642,15 +644,38 @@ export class InsightsService {
   private readonly exportReads = new Map<string, Promise<ExportRead>>();
 
   /**
-   * The report's file, from Trading 212's storage: over https, without the API key or redirects, MAX_EXPORT_BYTES at
-   * most (counted as it arrives), within EXPORT_TIMEOUT_MS.
+   * The report's file, from Trading 212's storage: over https only (a redirect too), without the API key,
+   * MAX_EXPORT_BYTES at most (counted as it arrives), within EXPORT_TIMEOUT_MS.
    */
   private async download(link: string): Promise<string> {
-    const url = new URL(link);
-    if (url.protocol !== "https:") fail("BROKER_REQUEST_FAILED", "The report's download link is not https, so it is not read.");
+    try {
+      return await this.fetchExport(link);
+    } catch (error) {
+      if (error instanceof Error && /timeout|abort/i.test(error.name)) fail("BROKER_REQUEST_FAILED", "The report took longer than a minute to download; try again, or request a shorter period.");
+      if (error instanceof TypeError) fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (${error.message}); list the reports again for a fresh link.`);
+      throw error;
+    }
+  }
+
+  private async fetchExport(link: string): Promise<string> {
     const fetcher = this.deps.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
-    const response = await fetcher(url.toString(), { redirect: "error", signal: AbortSignal.timeout(EXPORT_TIMEOUT_MS) });
-    if (!response.ok) fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (HTTP ${response.status}); its link may have expired: list the reports again for a new one.`);
+    const signal = AbortSignal.timeout(EXPORT_TIMEOUT_MS);
+    let url = new URL(link);
+    let response: Response | undefined;
+    for (let hop = 0; hop < 4; hop += 1) {
+      if (url.protocol !== "https:") fail("BROKER_REQUEST_FAILED", "The report's download link is not https, so it is not read.");
+      response = await fetcher(url.toString(), { redirect: "manual", signal });
+      const location = response.status >= 300 && response.status < 400 ? response.headers.get("location") : null;
+      if (!location) break;
+      await response.body?.cancel().catch(() => undefined);
+      url = new URL(location, url);
+      response = undefined;
+    }
+    if (!response) fail("BROKER_REQUEST_FAILED", "The report's download link redirected too many times.");
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      fail("BROKER_REQUEST_FAILED", `The report could not be downloaded (HTTP ${response.status}); its link may have expired: list the reports again for a new one.`);
+    }
     const tooLarge = () => fail("BROKER_REQUEST_FAILED", "The report is larger than TradePilot reads (25 MB); request a shorter period.");
     if (Number(response.headers.get("content-length") ?? 0) > MAX_EXPORT_BYTES) tooLarge();
     if (!response.body) return response.text();
