@@ -1762,3 +1762,18 @@ strong.historyAmount { flex: none; font-size: 13px; }
   .resultSplitTrack { border: 1px solid CanvasText; }
   .resultSplitFill { background: CanvasText !important; }
 }
+
+/* The widget's own tooltip (components/tips.tsx), in place of the browser's: a small dark bubble in either theme. */
+.tipBubble {
+  position: fixed; z-index: 60; top: 0; left: 0; max-width: min(280px, calc(100vw - 16px)); padding: 6px 10px;
+  border-radius: 8px; background: #1c1d20; color: #f4f4f5; box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+  font-size: 12.5px; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; pointer-events: none;
+  opacity: 0; transform: translateY(2px); transition: opacity .12s ease, transform .12s ease;
+}
+.tipBubble[hidden] { display: none; }
+.tipBubble.shown { opacity: 1; transform: none; }
+.tipBubble.below { transform: translateY(-2px); }
+.tipBubble.below.shown { transform: none; }
+:root[data-theme="dark"] .tipBubble { background: #f4f4f5; color: #1c1d20; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
+@media (prefers-reduced-motion: reduce) { .tipBubble { transition: none; } }
+@media (forced-colors: active) { .tipBubble { border: 1px solid CanvasText; } }
