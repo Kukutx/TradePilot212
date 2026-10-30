@@ -602,7 +602,7 @@ export function createMcpServer(
     async ({ environment, limit }) => {
       try {
         const activity = await trading.getActivity(environment, limit);
-        return result({ kind: "activity", environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+        return result({ kind: "activity", environment, activity, timestamp: new Date().toISOString() }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error) {
         return toolError(error);
       }
@@ -732,7 +732,7 @@ export function createMcpServer(
     async ({ environment }) => {
       try {
         const usage = await trading.usageToday(environment);
-        const data = { kind: "trading_policy", environment, policy: config.policy[environment], maxOrderNotional: config.maxOrderNotional, maxOrderQuantity: config.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config.demoAutomationEnabled };
+        const data = { kind: "trading_policy", environment, policy: config.policy[environment], maxOrderNotional: config.maxOrderNotional, maxOrderQuantity: config.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config.demoAutomationEnabled, timestamp: new Date().toISOString() };
         return result(data, `${environment.toUpperCase()} policy loaded; ${usage.orders} order(s) sent through TradePilot today.`);
       } catch (error) {
         return toolError(error);
@@ -804,7 +804,9 @@ export function createMcpServer(
     async ({ environment }) => {
       try {
         const plans = await automation.listPlans(environment);
-        return result({ kind: "investment_plans", plans, demoAutomationEnabled: config.demoAutomationEnabled }, `${plans.length} plan(s).`);
+        return result({
+          kind: "investment_plans", ...(environment ? { environment } : {}), defaultEnvironment: config.defaultTradingEnvironment, plans, demoAutomationEnabled: config.demoAutomationEnabled, timestamp: new Date().toISOString(),
+        }, `${plans.length} plan(s).`);
       } catch (error) {
         return toolError(error);
       }
@@ -935,7 +937,7 @@ export function createMcpServer(
       try {
         if (action === "clear") {
           const existed = await targetAllocations.clear(environment);
-          return result({ kind: "target_allocation", environment, cleared: existed }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
+          return result({ kind: "target_allocation", environment, cleared: existed, timestamp: new Date().toISOString() }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
         }
         if (action === "set") {
           if (!targets) return toolError(new Error("targets are required to save a target allocation"));
@@ -944,7 +946,7 @@ export function createMcpServer(
           });
         }
         const saved = await targetAllocations.get(environment);
-        if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
+        if (!saved) return result({ kind: "target_allocation", environment, timestamp: new Date().toISOString() }, `No ${environment.toUpperCase()} targets are saved.`);
         const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
         const webhookHint = config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         // The targets are saved by now; a failed account read only leaves out today's drift.
@@ -956,9 +958,9 @@ export function createMcpServer(
           analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
-          return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
+          return result({ kind: "target_allocation", environment, targets: saved, timestamp: new Date().toISOString() }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
         }
-        const data = { kind: "target_allocation", environment, targets: saved, ...(analysis.drift ? { drift: analysis.drift } : {}), accountCurrency: analysis.accountCurrency };
+        const data = { kind: "target_allocation", environment, targets: saved, ...(analysis.drift ? { drift: analysis.drift } : {}), accountCurrency: analysis.accountCurrency, timestamp: new Date().toISOString() };
         return result(data, `${lead}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${webhookHint}`);
       } catch (error) {
         return toolError(error);
@@ -980,7 +982,9 @@ export function createMcpServer(
       try {
         const list = await alerts.list(environment);
         const onAccount = await accountAlerts.list(environment);
-        return result({ kind: "price_alerts", alerts: list, accountAlerts: onAccount, webhook: !!config.notifyWebhookUrl },
+        return result({
+          kind: "price_alerts", ...(environment ? { environment } : {}), defaultEnvironment: config.defaultTradingEnvironment, alerts: list, accountAlerts: onAccount, webhook: !!config.notifyWebhookUrl, timestamp: new Date().toISOString(),
+        },
           `${list.length} price alert(s), ${list.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`);
       } catch (error) {
         return toolError(error);

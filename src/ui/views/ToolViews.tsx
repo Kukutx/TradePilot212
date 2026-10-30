@@ -26,22 +26,33 @@ function PageNav({ t, busy, onBack }: { t: Translator; busy: boolean; onBack?: (
 }
 
 /** One order: where it stands, how much of it filled and at what prices, with a way to its holding and to cancel it while open. */
-export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, onOpen, onCancel, onBack, onRefresh }: {
-  data: OrderStatusReport; book?: InstrumentBook; locale: SupportedLocale; t: Translator; busy: boolean; writeEnabled: boolean;
+/** `justCancelled`: a cancellation of this order was just sent, which Trading 212 may not show yet. */
+export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, justCancelled = false, onOpen, onCancel, onBack, onRefresh }: {
+  data: OrderStatusReport; book?: InstrumentBook; locale: SupportedLocale; t: Translator; busy: boolean; writeEnabled: boolean; justCancelled?: boolean;
   onOpen?: (ticker: string) => void; onCancel?: (orderId: string) => void; onBack?: () => void; onRefresh?: () => void;
 }) {
   const order = data.order;
   const ticker = order?.ticker;
   const label = ticker ? instrumentLabel(ticker, book) : undefined;
-  const sell = String(order?.side ?? "").toUpperCase() === "SELL" || Number(order?.quantity ?? 0) < 0;
+  // A sell by amount in the Trading 212 app has a negative value and may have no side.
+  const sell = String(order?.side ?? "").toUpperCase() === "SELL" || Number(order?.quantity ?? 0) < 0 || Number(order?.value ?? 0) < 0;
   const ordered = Math.abs(Number(order?.quantity ?? 0));
   const filled = Math.max(Math.abs(Number(order?.filledQuantity ?? 0)), data.fills.reduce((sum, item) => sum + (item.quantity ?? 0), 0));
-  const share = ordered > 0 ? Math.min(1, filled / ordered) : data.state === "filled" ? 1 : 0;
-  const average = filled > 0 && data.fills.length ? data.fills.reduce((sum, item) => sum + (item.price ?? 0) * (item.quantity ?? 0), 0) / filled : undefined;
-  const value = data.fills.reduce((sum, item) => sum + Math.abs(item.netValue ?? 0), 0);
-  const accountCurrency = data.fills.find((item) => item.currency)?.currency;
   const priceCurrency = typeof order?.currency === "string" ? order.currency : ticker ? instrumentCurrency(ticker, book) : undefined;
-  const open = data.state === "open" || data.state === "partly_filled";
+  // An order by amount fills toward its value; how far is known when Trading 212 says what has filled of it.
+  const byValue = ordered === 0 && typeof order?.value === "number" && order.value !== 0;
+  const valueFilled = byValue && typeof order?.filledValue === "number" ? Math.abs(order.filledValue) : undefined;
+  const share = ordered > 0 ? Math.min(1, filled / ordered) : valueFilled !== undefined ? Math.min(1, valueFilled / Math.abs(order!.value!)) : data.state === "filled" ? 1 : undefined;
+  const progress = ordered > 0 ? `${qty(filled, locale)} / ${qty(ordered, locale)}`
+    : valueFilled !== undefined ? `${amount(valueFilled, priceCurrency, locale)} / ${amount(Math.abs(order!.value!), priceCurrency, locale)}` : qty(filled, locale);
+  // Averaged over the fills that have a price, so a fill read without one does not pull it down.
+  const priced = data.fills.filter((item) => item.price !== undefined && (item.quantity ?? 0) > 0);
+  const pricedQuantity = priced.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+  const average = pricedQuantity > 0 ? priced.reduce((sum, item) => sum + item.price! * item.quantity!, 0) / pricedQuantity : undefined;
+  const valued = data.fills.filter((item) => item.netValue !== undefined);
+  const value = valued.length ? valued.reduce((sum, item) => sum + Math.abs(item.netValue!), 0) : undefined;
+  const accountCurrency = data.fills.find((item) => item.currency)?.currency;
+  const open = (data.state === "open" || data.state === "partly_filled") && !justCancelled;
   return (
     <main className="contentStack">
       <PageNav t={t} busy={busy} onBack={onBack} />
@@ -62,19 +73,20 @@ export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, onO
               </div>
             </div>
           ) : <strong className="heroValue">{t(STATE_KEYS[data.state])}</strong>}
-          {data.state === "not_found" && <span className="overviewSubline">{t("orderNotFoundHint")}</span>}
+          {justCancelled && data.state !== "cancelled" ? <span className="overviewSubline">{t("orderJustCancelled")}</span>
+            : data.state === "not_found" && <span className="overviewSubline">{t("orderNotFoundHint")}</span>}
           {order?.createdAt && <span className="overviewSubline">{fill(t("orderPlacedAt"), { when: dateTime(order.createdAt, locale) })}</span>}
         </div>
-        {(ordered > 0 || filled > 0) && (
+        {(ordered > 0 || filled > 0 || valueFilled !== undefined) && (
           <div className="usageMeter orderFillMeter">
-            <div className="usageMeterHead"><span>{t("orderFilledShare")}</span><strong>{ordered > 0 ? `${qty(filled, locale)} / ${qty(ordered, locale)}` : qty(filled, locale)}</strong></div>
-            <div className="usageMeterTrack" role="meter" aria-label={t("orderFilledShare")} aria-valuemin={0} aria-valuemax={1} aria-valuenow={share}><i style={{ width: `${share * 100}%` }} /></div>
+            <div className="usageMeterHead"><span>{t("orderFilledShare")}</span><strong>{progress}</strong></div>
+            {share !== undefined && <div className="usageMeterTrack" role="meter" aria-label={t("orderFilledShare")} aria-valuemin={0} aria-valuemax={1} aria-valuenow={share} aria-valuetext={progress}><i style={{ width: `${share * 100}%` }} /></div>}
           </div>
         )}
         {data.fills.length > 0 && (
           <div className="metricGrid">
             <Metric label={t("orderAverageFill")} value={amount(average, priceCurrency, locale, { digits: 4 })} />
-            <Metric label={t("orderFillValue")} value={money(value, accountCurrency ?? "EUR", locale)} />
+            <Metric label={t("orderFillValue")} value={value === undefined ? "—" : accountCurrency ? money(value, accountCurrency, locale) : amount(value, undefined, locale)} />
           </div>
         )}
       </section>
@@ -84,8 +96,8 @@ export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, onO
           <ul className="historyList">
             {data.fills.map((item, index) => (
               <li key={`${item.filledAt ?? ""}-${index}`} className="historyRow">
-                <div className="historyWho"><div><strong>{item.filledAt ? dateTime(item.filledAt, locale) : "—"}</strong><small>{`${qty(item.quantity ?? 0, locale)} × ${amount(item.price, priceCurrency, locale, { digits: 4 })}`}</small></div></div>
-                <strong className="historyAmount">{item.netValue === undefined ? "—" : money(Math.abs(item.netValue), item.currency ?? accountCurrency ?? "EUR", locale)}</strong>
+                <div className="historyWho"><div><strong>{item.filledAt ? dateTime(item.filledAt, locale) : "—"}</strong><small>{`${item.quantity === undefined ? "—" : qty(item.quantity, locale)} × ${amount(item.price, priceCurrency, locale, { digits: 4 })}`}</small></div></div>
+                <strong className="historyAmount">{item.netValue === undefined ? "—" : amount(Math.abs(item.netValue), item.currency ?? accountCurrency, locale)}</strong>
               </li>
             ))}
           </ul>

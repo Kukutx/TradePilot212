@@ -35358,19 +35358,19 @@ var TOOL_OUTPUT = {
   get_portfolio_performance: payload("performance", "environment:s accountCurrency:s period:o coverage:o contributions:o income:o costs:o realizedProfitLoss:n unrealizedProfitLoss:n currentValue:n simpleReturn:n annualizedReturn:n timeWeighted:o benchmark:o valueHistory:a trades:o byTicker:a notes:a timestamp:s credentials:o writeEnabled:b"),
   get_portfolio_today: payload("portfolio", `${dashboard} today:o`),
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
-  get_recent_trading_activity: payload("activity", "environment:s activity:a"),
+  get_recent_trading_activity: payload("activity", "environment:s activity:a timestamp:s"),
   get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o truncated:b notes:a timestamp:s"),
   get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
-  get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b"),
+  get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b timestamp:s"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
-  list_investment_plans: payload("investment_plans", "plans:a demoAutomationEnabled:b"),
+  list_investment_plans: payload("investment_plans", "environment:s defaultEnvironment:s plans:a demoAutomationEnabled:b timestamp:s"),
   list_pies: payload("pies", pies),
-  list_price_alerts: payload("price_alerts", "alerts:a accountAlerts:a webhook:b"),
+  list_price_alerts: payload("price_alerts", "environment:s defaultEnvironment:s alerts:a accountAlerts:a webhook:b timestamp:s"),
   manage_account_alerts: payload("account_alert", "alert:o deleted:u"),
   manage_history_export: payload("history_export", "environment:s reports:a requested:o report:o summary:o records:a recordCount:n"),
   manage_investment_plans: payload("investment_plan", "plan:o deleted:u"),
   manage_price_alerts: payload("price_alert", "alert:o deleted:u"),
-  manage_target_allocation: payload("target_allocation", "environment:s"),
+  manage_target_allocation: payload("target_allocation", "environment:s timestamp:s"),
   manage_trade_journal: payload("trade_journal|journal_entry", "environment:s entries:a total:n entry:o deleted:u"),
   manage_watchlist: payload("watchlist_change", "environment:s action:s item:o added:b"),
   plan_portfolio_rebalance: payload("basket_draft", `${drafted} rebalance:o`),
@@ -43083,7 +43083,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     async ({ environment, limit }) => {
       try {
         const activity = await trading.getActivity(environment, limit);
-        return result({ kind: "activity", environment, activity }, `Returned ${activity.length} recent TradePilot activity events.`);
+        return result({ kind: "activity", environment, activity, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `Returned ${activity.length} recent TradePilot activity events.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -43206,7 +43206,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     async ({ environment }) => {
       try {
         const usage = await trading.usageToday(environment);
-        const data = { kind: "trading_policy", environment, policy: config3.policy[environment], maxOrderNotional: config3.maxOrderNotional, maxOrderQuantity: config3.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config3.demoAutomationEnabled };
+        const data = { kind: "trading_policy", environment, policy: config3.policy[environment], maxOrderNotional: config3.maxOrderNotional, maxOrderQuantity: config3.maxOrderQuantity, usageToday: usage, demoAutomationEnabled: config3.demoAutomationEnabled, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${environment.toUpperCase()} policy loaded; ${usage.orders} order(s) sent through TradePilot today.`);
       } catch (error62) {
         return toolError(error62);
@@ -43278,7 +43278,14 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     async ({ environment }) => {
       try {
         const plans = await automation3.listPlans(environment);
-        return result({ kind: "investment_plans", plans, demoAutomationEnabled: config3.demoAutomationEnabled }, `${plans.length} plan(s).`);
+        return result({
+          kind: "investment_plans",
+          ...environment ? { environment } : {},
+          defaultEnvironment: config3.defaultTradingEnvironment,
+          plans,
+          demoAutomationEnabled: config3.demoAutomationEnabled,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }, `${plans.length} plan(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -43398,7 +43405,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       try {
         if (action === "clear") {
           const existed = await targetAllocations.clear(environment);
-          return result({ kind: "target_allocation", environment, cleared: existed }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
+          return result({ kind: "target_allocation", environment, cleared: existed, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, existed ? `Cleared the ${environment.toUpperCase()} targets.` : `No ${environment.toUpperCase()} targets were saved.`);
         }
         if (action === "set") {
           if (!targets) return toolError(new Error("targets are required to save a target allocation"));
@@ -43410,7 +43417,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           });
         }
         const saved = await targetAllocations.get(environment);
-        if (!saved) return result({ kind: "target_allocation", environment }, `No ${environment.toUpperCase()} targets are saved.`);
+        if (!saved) return result({ kind: "target_allocation", environment, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `No ${environment.toUpperCase()} targets are saved.`);
         const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
         const webhookHint = config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         let analysis;
@@ -43422,9 +43429,9 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           analysis = withTargetVolatility(await targetAllocations.withDrift(read), covariance);
         } catch (error62) {
           const reason = error62 instanceof Error ? error62.message : String(error62);
-          return result({ kind: "target_allocation", environment, targets: saved }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
+          return result({ kind: "target_allocation", environment, targets: saved, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `${lead}. Today's drift could not be read (${reason}); the targets are in effect.${webhookHint}`);
         }
-        const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency };
+        const data = { kind: "target_allocation", environment, targets: saved, ...analysis.drift ? { drift: analysis.drift } : {}, accountCurrency: analysis.accountCurrency, timestamp: (/* @__PURE__ */ new Date()).toISOString() };
         return result(data, `${lead}; largest drift ${((analysis.drift?.maxDrift ?? 0) * 100).toFixed(1)} points.${webhookHint}`);
       } catch (error62) {
         return toolError(error62);
@@ -43446,7 +43453,15 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         const list2 = await alerts.list(environment);
         const onAccount = await accountAlerts.list(environment);
         return result(
-          { kind: "price_alerts", alerts: list2, accountAlerts: onAccount, webhook: !!config3.notifyWebhookUrl },
+          {
+            kind: "price_alerts",
+            ...environment ? { environment } : {},
+            defaultEnvironment: config3.defaultTradingEnvironment,
+            alerts: list2,
+            accountAlerts: onAccount,
+            webhook: !!config3.notifyWebhookUrl,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          },
           `${list2.length} price alert(s), ${list2.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`
         );
       } catch (error62) {

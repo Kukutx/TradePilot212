@@ -38,6 +38,30 @@ describe("the order status page", () => {
     expect(html).not.toContain("Review cancel");
   });
 
+  it("averages over the fills that have a price, and shows a dash for what is not known", () => {
+    const html = render({ ...base, state: "filled", order: { id: 42, ticker: "AAPL_US_EQ", side: "BUY", quantity: 3, filledQuantity: 3, currency: "USD" }, fills: [{ quantity: 2, price: 100 }] });
+    expect(html).toContain("$100.00");
+    expect(html).toMatch(/Value filled<\/span><strong[^>]*>—/);
+  });
+
+  it("reads an order by amount: a negative value is a sell, and it fills toward its value", () => {
+    const html = render({ ...base, state: "partly_filled", order: { id: 42, ticker: "AAPL_US_EQ", strategy: "VALUE", value: -500, filledValue: -125, filledQuantity: 0.5, currency: "USD" }, fills: [] });
+    expect(html).toContain(">Sell</b>");
+    expect(html).toContain("$125.00 / $500.00");
+    expect(html).toContain('aria-valuenow="0.25"');
+  });
+
+  it("does not offer to cancel again, or send the user to the history, right after a cancellation", () => {
+    const sent = (data: OrderStatusReport) => renderToStaticMarkup(createElement(OrderStatusView, { data, locale: "en", t: en, busy: false, writeEnabled: true, justCancelled: true, onCancel: noop }));
+    const stillOpen = sent({ ...base, state: "open", order: { id: 42, ticker: "AAPL_US_EQ", quantity: 1 }, fills: [] });
+    expect(stillOpen).not.toContain("Review cancel");
+    expect(stillOpen).toContain("can take a moment");
+    const between = sent({ ...base, state: "not_found", fills: [] });
+    expect(between).toContain("can take a moment");
+    expect(between).not.toContain("an older order is in Trade history");
+    expect(sent({ ...base, state: "cancelled", order: { id: 42, ticker: "AAPL_US_EQ", quantity: 1 }, fills: [] })).not.toContain("can take a moment");
+  });
+
   it("says where to look for an order it cannot find", () => {
     expect(render({ ...base, state: "not_found", fills: [] })).toContain("an older order is in Trade history");
   });
