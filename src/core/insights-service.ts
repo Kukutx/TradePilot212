@@ -266,11 +266,14 @@ export class InsightsService {
     // The segment this read begins, newest first, then those kept. `next` undefined: not read yet, from the newest.
     const segments: Array<Omit<LedgerSegment, "next"> & { next: string | null | undefined }> = [{ readAt, next: undefined, complete: false }, ...(kept?.meta.segments ?? [])];
     let begun = true;
+    /** Where the run read before its way back was refused reached: what this read returns stops there. */
+    let refusedAt: string | undefined;
     /** Reads the next page of the newest segment, and joins it to the one below once it is past where that began. */
     const step = async (): Promise<boolean> => {
       const segment = segments[0]!;
       const page = await read(segment.next ?? undefined);
       if (page === "refused") {
+        refusedAt = segment.bottom;
         // The way back no longer works: the segment is forgotten (its records stay), and in its place is one that
         // reaches nothing, so the runs below are not taken as joined to the newest records; later reads read past it.
         segments.splice(0, 1, { readAt, next: null, complete: false });
@@ -279,8 +282,9 @@ export class InsightsService {
       }
       if (!page) return false;
       const items = page.items as HistoryItemOf<K>[];
-      // An empty last page where records were read before is not the end of the history: a failed answer.
-      if (!items.length && !page.nextPagePath && (segment.bottom !== undefined || segments.length > 1)) { limited = true; return false; }
+      // The newest page empty while records are kept is not an account with no history: a failed answer. (Empty
+      // through a path further back, it is the end: Trading 212 may give a path after a full last page.)
+      if (!items.length && !page.nextPagePath && segment.next === undefined && known.size) { limited = true; return false; }
       keep(items);
       const lowest = Math.min(...items.map(times.place).filter(Number.isFinite));
       if (Number.isFinite(lowest) && (segment.bottom === undefined || lowest < Date.parse(segment.bottom))) segment.bottom = new Date(lowest).toISOString();
@@ -344,7 +348,8 @@ export class InsightsService {
     const whole = newest !== undefined && reaches(newest, start);
     // Cut short of the window's start, the records below the newest run are left out, as there may be a gap above
     // them: what is returned is the newest records without a hole, as a read straight from Trading 212 gives.
-    const floor = newest?.bottom !== undefined ? Date.parse(newest.bottom) : undefined;
+    const bottom = newest?.bottom ?? refusedAt;
+    const floor = bottom !== undefined ? Date.parse(bottom) : undefined;
     const items = whole || floor === undefined ? saved.items : saved.items.filter((item) => !(times.place(item) < floor) || !(times.time(item) < floor));
     return { collected: { items: inWindow(kind, items, start, ticker), truncated: unresolved || !whole }, limited };
   }

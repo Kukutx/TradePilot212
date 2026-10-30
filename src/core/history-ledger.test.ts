@@ -83,6 +83,9 @@ describe("history ledger runs", () => {
     const window = { from: new Date(T0 - 59 * DAY), to };
     const refused = await service(broker.fetcher, store).collect("demo", "transactions", window, 5);
     expect(refused.truncated).toBe(true);
+    // What it returns is the newest records without a hole: none from the older run below what was not read.
+    const newest = [...broker.items].sort((a, b) => Date.parse(b.dateTime) - Date.parse(a.dateTime)).map((item) => item.reference);
+    expect(refused.items.map((item) => item.reference)).toEqual(newest.slice(0, refused.items.length));
     // Later reads read down past it.
     let result = refused;
     for (let tries = 0; tries < 4 && result.truncated; tries += 1) result = await service(broker.fetcher, store).collect("demo", "transactions", window, 5);
@@ -109,6 +112,28 @@ describe("history ledger runs", () => {
     for (let tries = 0; tries < 4 && result.truncated; tries += 1) result = await service(broker.fetcher, store).collect("demo", "orders", all, 10);
     expect(result.truncated).toBe(false);
     expect(result.items).toHaveLength(500);
+  });
+
+  it("takes an empty history as whole, and an empty page after a full last one as its end", async () => {
+    const store = new MemoryStateStore();
+    let pages = 0;
+    const empty = (async () => { pages += 1; return Response.json({ items: [], nextPagePath: null }); }) as typeof fetch;
+    const all = { to: new Date(Date.now() + 400 * DAY) };
+    for (let read = 0; read < 3; read += 1) expect((await service(empty, store).collect("demo", "dividends", all, 10)).truncated).toBe(false);
+    expect(pages).toBe(3);
+    expect((await metaOf(store)).segments).toHaveLength(1);
+    // A path after a full last page that leads to nothing.
+    const full = (async (input: URL | RequestInfo) => {
+      const after = new URL(String(input)).searchParams.get("cursor");
+      const items = after ? [] : Array.from({ length: 50 }, (_, index) => ({ reference: `d${index}`, ticker: "X", amount: 1, paidOn: iso(Date.now() - (index + 10) * DAY) }));
+      return Response.json({ items, nextPagePath: after ? null : "/api/v0/equity/history/dividends?limit=50&cursor=50" });
+    }) as typeof fetch;
+    const other = new MemoryStateStore();
+    for (let read = 0; read < 3; read += 1) {
+      const result = await service(full, other).collect("demo", "dividends", all, 10);
+      expect(result.truncated).toBe(false);
+      expect(result.items).toHaveLength(50);
+    }
   });
 
   it("finds every fill of an order that closed since, though they run onto its instrument's next page", async () => {

@@ -38342,17 +38342,19 @@ var InsightsService = class {
     };
     const segments = [{ readAt, next: void 0, complete: false }, ...kept?.meta.segments ?? []];
     let begun = true;
+    let refusedAt;
     const step = async () => {
       const segment = segments[0];
       const page = await read(segment.next ?? void 0);
       if (page === "refused") {
+        refusedAt = segment.bottom;
         segments.splice(0, 1, { readAt, next: null, complete: false });
         limited = true;
         return false;
       }
       if (!page) return false;
       const items2 = page.items;
-      if (!items2.length && !page.nextPagePath && (segment.bottom !== void 0 || segments.length > 1)) {
+      if (!items2.length && !page.nextPagePath && segment.next === void 0 && known.size) {
         limited = true;
         return false;
       }
@@ -38425,7 +38427,8 @@ var InsightsService = class {
     const saved = await ledgers.add(prefix, kind, kept, added, { segments: stored, pending }, times);
     const newest = saved.meta.segments[0];
     const whole = newest !== void 0 && reaches(newest, start);
-    const floor = newest?.bottom !== void 0 ? Date.parse(newest.bottom) : void 0;
+    const bottom = newest?.bottom ?? refusedAt;
+    const floor = bottom !== void 0 ? Date.parse(bottom) : void 0;
     const items = whole || floor === void 0 ? saved.items : saved.items.filter((item) => !(times.place(item) < floor) || !(times.time(item) < floor));
     return { collected: { items: inWindow2(kind, items, start, ticker), truncated: unresolved || !whole }, limited };
   }
