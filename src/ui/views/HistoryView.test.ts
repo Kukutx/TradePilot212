@@ -139,6 +139,28 @@ describe("the tax year page", () => {
     expect(running).toMatch(/aria-label="Next tax year" disabled/);
   });
 
+  it("sets the UK matching beside Trading 212's figures, with how each instrument's shares were matched", () => {
+    const ukMatching = {
+      rule: "uk" as const, currency: "GBP", complete: false, gains: 180, losses: -150, net: 30, realizedProfitLoss: 250,
+      byTicker: [{ ticker: "AAPL_US_EQ", disposals: 2, quantity: 60, proceeds: 900, cost: 720, gain: 180, sameDay: 10, thirtyDay: 20, pool: 30, unmatched: 0, realizedProfitLoss: 400 },
+        { ticker: "TSLA_US_EQ", disposals: 1, quantity: 5, proceeds: 2000, cost: 2150, gain: -150, sameDay: 0, thirtyDay: 0, pool: 4, unmatched: 1, realizedProfitLoss: -150, reconciliation: { held: 10, fills: 4 } }],
+      notes: [],
+    };
+    const html = renderToStaticMarkup(createElement(TaxYearView, { data: { ...year, ukMatching }, locale: "en", t: createTranslator("en"), busy: false, onKind: noop, onYear: noop, onRule: noop }));
+    expect(html).toContain("UK matching (estimate)");
+    expect(html).toContain("<small>10 same day · 20 within 30 days · 30 from the pool</small>");
+    expect(html).toContain("<small>4 from the pool · 1 not matched</small>");
+    expect(html).toContain('<small class="ukProblem">fills add up to 4, 10 held</small>');
+    expect(html).toContain("Not every sale could be matched, valued and checked against the shares held");
+    // Incomplete, Trading 212's figure covers sales the UK side leaves out: the two are not compared.
+    expect(html).not.toContain("than Trading 212");
+    const whole = renderToStaticMarkup(createElement(TaxYearView, { data: { ...year, ukMatching: { ...ukMatching, complete: true, provisional: true as const } }, locale: "en", t: createTranslator("en"), busy: false, onKind: noop, onYear: noop, onRule: noop }));
+    expect(whole).toContain("The UK rules give £220.00 less gain than Trading 212");
+    expect(whole).toContain("these figures can change");
+    // Without it (a calendar year), nothing is added.
+    expect(renderToStaticMarkup(createElement(TaxYearView, { data: year, locale: "en", t: createTranslator("en"), busy: false, onKind: noop, onYear: noop, onRule: noop }))).not.toContain("UK matching");
+  });
+
   it("reads the rule back from the year's first day, and keeps a year that starts on another day as it is", () => {
     expect(taxRuleOf("04-06")).toBe("uk");
     expect(taxRuleOf("01-01")).toBe("calendar");

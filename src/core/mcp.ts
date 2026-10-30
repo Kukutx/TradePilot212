@@ -404,7 +404,7 @@ export function createMcpServer(
     {
       title: "Tax Year Summary",
       description:
-        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else Europe/London for a year from 04-06 and UTC for any other). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. Read-only.",
+        "Summarize one tax year for preparing a tax return: sales with Trading 212's realised gains and losses kept apart, proceeds, per-instrument results, dividends, interest and costs. The year starts on the server's TAX_YEAR_START (01-01 unless set) unless yearStart says otherwise (UK: 04-06), with days counted in timeZone (UK: Europe/London; default the server's TIMEZONE, else Europe/London for a year from 04-06 and UTC for any other). Figures are Trading 212's average-cost results in the account currency, not a tax calculation. For a UK year (04-06) it also returns ukMatching: the same sales matched by HMRC's same-day, 30-day and section 104 pool rules on UK days from all history, gains and losses per disposal, per instrument beside Trading 212's figure and checked against the shares held now (complete false when any sale could not be matched, valued or reconciled), an estimate. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         year: z.number().int().min(2000).max(2100).optional().describe("Calendar year the tax year starts in; defaults to the latest tax year that has started"),
@@ -419,7 +419,7 @@ export function createMcpServer(
       try {
         const zone = timeZone ?? config.timeZone ?? taxYearZone(yearStart) ?? "UTC";
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, preferences, ...await insights.taxYear(environment, { ...(year === undefined ? {} : { year }), yearStart, timeZone: zone, maxPages }) };
-        return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Tax year ${data.firstDay} to ${data.lastDay} (${data.timeZone})${data.ended ? "" : " (still running)"}: ${data.disposals.count} sale(s), gains ${num(data.disposals.gains)}, losses ${num(data.disposals.losses)}, net ${num(data.disposals.net)} ${data.accountCurrency}; dividends ${num(data.income.dividends)}, interest ${num(data.income.interest)}${data.truncated ? " (history truncated)" : ""}.${data.ukMatching ? ` UK matching (estimate): net ${num(data.ukMatching.net)} ${data.ukMatching.currency} against Trading 212's ${num(data.ukMatching.realizedProfitLoss)}${data.ukMatching.complete ? "" : ", incomplete: see its notes"}.` : ""}`);
       } catch (error) {
         return toolError(error);
       }

@@ -289,6 +289,22 @@ describe("tax year summary", () => {
     expect(result.notes.join(" ")).toMatch(/1 fill\(s\) had no fill date/);
   });
 
+  it("matches a UK year on UK days whatever zone the summary counts in, so no sale falls in two years", () => {
+    const orders: HistoryOrderItem[] = [
+      { order: { ticker: "A", side: "BUY" }, fill: { filledAt: "2025-01-10T10:00:00Z", quantity: 10, walletImpact: { netValue: -100 } } },
+      // 01:00 on 6 April 2025 in London (2025/26); 20:00 on 5 April in New York.
+      { order: { ticker: "A", side: "SELL" }, fill: { filledAt: "2025-04-06T00:00:00Z", quantity: -5, walletImpact: { netValue: 80, realisedProfitLoss: 30 } } },
+    ];
+    const ukHistory = { orders, complete: true };
+    const base = { environment: "demo" as const, accountCurrency: "GBP", orders, dividends: [], transactions: [], yearStart: parseYearStart("04-06"), timeZone: "America/New_York", truncated: false, ukHistory, now: new Date("2026-10-01T00:00:00Z") };
+    const earlier = summarizeTaxYear({ ...base, year: 2024 });
+    const later = summarizeTaxYear({ ...base, year: 2025 });
+    expect(earlier.disposals.count).toBe(1);
+    expect(earlier.ukMatching?.byTicker).toEqual([]);
+    expect(later.ukMatching?.byTicker[0]).toMatchObject({ ticker: "A", pool: 5, gain: 30, realizedProfitLoss: 30 });
+    expect(later.ukMatching?.notes.join(" ")).toMatch(/count days in America\/New_York.*UK time/);
+  });
+
   it("reads the year start and picks the latest started tax year", () => {
     expect(parseYearStart("04-06")).toEqual({ month: 4, day: 6, text: "04-06" });
     expect(parseYearStart("02-30").text).toBe("01-01");

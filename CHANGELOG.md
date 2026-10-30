@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.67.0
+
+- UK share matching (an estimate). A UK tax year (from 6 April) now also shows its sales matched as HMRC matches them: with shares of the same instrument bought the same UK day, then in the 30 days after, then from the section 104 pool at its average cost. Gains and losses are kept apart per disposal, days and the year are UK time whatever zone the rest of the summary counts in, and one company under two tickers is one pool by its ISIN. The tax year page sets the net gain by those rules beside Trading 212's average-price figure, per instrument with how many shares each rule matched, and says why they differ; `get_tax_year_summary` returns it as `ukMatching`. A UK year reads all history once through the ledger, takes the year's sales from it, and sets each instrument's fills against the shares held now: an instrument whose fills do not add up to what is held (a transfer, a split), with fills that were not trades, or with shares it cannot match or value is marked on its row, and the result is marked incomplete and not compared with Trading 212's figure. A year whose last 30-day buys can still come in says its figures can change, and an account not in GBP is said to need converting.
+
 ## 2.66.0
 
 - Fewer waits on Trading 212's limits. Reads of one account are shared by the widget, the model's tools and the scheduler in a process: a read already on its way is joined rather than sent again, and when the account summary, positions or orders are read again with their limit used up (the summary allows one in five seconds), the answer from the last five seconds is returned instead of waiting. The income page reads the summary and the positions at once.

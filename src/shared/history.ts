@@ -704,9 +704,54 @@ export interface TaxYearSummary {
   byTicker: Array<{ ticker: string; disposals: number; proceeds: number; realizedProfitLoss: number }>;
   income: { dividends: number; interest: number };
   costs: { total: number; byType: MoneyBucket[] };
+  /** The same sales matched by the UK rules (same day, 30 days, section 104 pool), for a UK tax year: from 2.67. */
+  ukMatching?: UkMatching;
   truncated: boolean;
   notes: string[];
   timestamp: string;
+}
+
+/** One instrument's sales in the tax year matched by the UK rules: shares matched by each rule, and the gain. */
+export interface UkMatchingTicker {
+  /** The instrument's ticker; fills of one ISIN under two tickers are one instrument. */
+  ticker: string;
+  /** Sale fills in the year (HMRC counts one instrument's sales on one day as one disposal). */
+  disposals: number;
+  quantity: number;
+  /** Proceeds and cost of the shares matched; shares no purchase was found for are left out of both. */
+  proceeds: number;
+  cost: number;
+  gain: number;
+  sameDay: number;
+  thirtyDay: number;
+  pool: number;
+  unmatched: number;
+  /** Trading 212's realised P/L for the same sales, against its average price. */
+  realizedProfitLoss: number;
+  /** A sale, or a purchase matched with it, had no account-currency value: its gain is left out. */
+  unvalued?: true;
+  /** The fills read add up to other than the shares held now: shares came or went another way. */
+  reconciliation?: { held: number; fills: number };
+  /** Fills that were not trades (a split, a corporate action), matched as purchases and sales. */
+  notTrades?: number;
+}
+
+/** A tax year's sales matched as HMRC matches them, beside Trading 212's figures. An estimate. */
+export interface UkMatching {
+  rule: "uk";
+  currency: string;
+  /** Every sale was matched and valued, from history read back to its start that adds up to the shares held. */
+  complete: boolean;
+  /** The year's last sales can still be matched with buys in the 30 days after them, not all past yet. */
+  provisional?: true;
+  /** Per disposal (one instrument's sales on one UK day), gains and losses kept apart. */
+  gains: number;
+  losses: number;
+  net: number;
+  /** Trading 212's realised P/L for the same sales. */
+  realizedProfitLoss: number;
+  byTicker: UkMatchingTicker[];
+  notes: string[];
 }
 
 export interface IncomeSummary {
