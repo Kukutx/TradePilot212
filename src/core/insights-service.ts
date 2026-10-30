@@ -24,7 +24,7 @@ import { requireCredentials } from "./config.js";
 import { scheduleStart } from "./dividends.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
-import { Trading212Client, type HistoryKind } from "./trading212-client.js";
+import { Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
 
 export interface InsightsDeps {
   config: RuntimeConfig;
@@ -140,8 +140,14 @@ export class InsightsService {
     const items: HistoryItemOf<K>[] = [];
     let next: string | undefined;
     let truncated = false;
+    let limited = false;
     for (let page = 0; page < pages; page++) {
-      const result = await client.getHistoryPage(kind, next, ticker);
+      // Past the first page, a limit that resets later than a read waits gives what was read, cut short, not nothing.
+      const result = await client.getHistoryPage(kind, next, ticker).catch((error: unknown) => {
+        if (page > 0 && error instanceof Trading212ApiError && error.status === 429) return undefined;
+        throw error;
+      });
+      if (!result) { truncated = true; limited = true; break; }
       items.push(...(result.items as HistoryItemOf<K>[]));
       const oldest = result.items.length ? itemTime(kind, result.items[result.items.length - 1]!) : NaN;
       const reachedStart = start !== undefined && Number.isFinite(oldest) && oldest < start.getTime();
@@ -150,7 +156,8 @@ export class InsightsService {
       if (page === pages - 1) truncated = true;
     }
     const value = { items, truncated };
-    if ((this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
+    // A read cut short by the limit is not kept: the next one reads it whole.
+    if (!limited && (this.historyGeneration.get(environment) ?? 0) === generation) this.historyCache.set(key, { expiresAt: Date.now() + HISTORY_CACHE_MS, value });
     return value;
   }
 

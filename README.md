@@ -365,6 +365,10 @@ Do not publish a personal deployed Worker as a shared endpoint for unrelated use
 
 See [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 
+## Rate limits
+
+Trading 212 limits each endpoint per account (history reads a few a minute, the account summary one in five seconds, and so on) and reports with every response how many requests are left and when the limit resets. The widget, the model's tools, the scheduled runs and background reads all share one record of that, per account and endpoint: a request to an endpoint with nothing left waits for its reset (a read up to a minute, an order up to 15 seconds) or is refused before it is sent, so it never spends a 429 that every other caller would then back off from. A history read the limit would hold longer comes back with the pages it read, marked truncated. The record is kept in memory, per process; a 429 is still retried as before.
+
 ## Security notes
 
 - `.env.local`, `.dev.vars`, `.data`, build output, and Wrangler state are excluded from Git.

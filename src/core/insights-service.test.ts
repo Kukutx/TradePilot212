@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
+import { resetLimits } from "./rate-limit.js";
 
 const config = {
   trading212: {
@@ -33,6 +34,28 @@ describe("history collection", () => {
     expect(result.items).toHaveLength(2);
     expect(result.truncated).toBe(false);
     expect(calls).toHaveLength(2);
+  });
+
+  it("gives the pages read, truncated and not kept, when the limit resets later than a read waits", async () => {
+    resetLimits();
+    const calls: string[] = [];
+    // Trading 212 says the second page used the last request until an hour from now.
+    const limited = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.ceil(Date.now() / 1000) + 3600) };
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = String(input);
+      calls.push(url);
+      const n = Number(new URL(url).searchParams.get("cursor") ?? 1);
+      return Response.json({ items: [{ dateTime: "2026-09-01T00:00:00Z", amount: n }], nextPagePath: `/api/v0/equity/history/transactions?cursor=${n + 1}` }, { headers: n === 2 ? limited : {} });
+    }) as typeof fetch;
+    const service = new InsightsService({ config, instruments: async () => [], fetcher });
+    const result = await service.collect("demo", "transactions", { to: new Date() }, 5);
+    expect(result.items).toHaveLength(2);
+    expect(result.truncated).toBe(true);
+    expect(calls).toHaveLength(2);
+    // Not kept: the next read asks again (and, the limit still used up, is refused on its first page).
+    await expect(service.collect("demo", "transactions", { to: new Date() }, 5)).rejects.toThrow(/used up until/);
+    expect(calls).toHaveLength(2);
+    resetLimits();
   });
 
   it("marks results truncated when the page budget runs out", async () => {
