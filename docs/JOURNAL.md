@@ -1,5 +1,7 @@
 # Trade journal
 
+English · [简体中文](./zh-CN/JOURNAL.md)
+
 TradePilot keeps a note per trade: why you made it, and later, looking back, what came of it. Notes live in TradePilot's own store (the same one that keeps price alerts and plans) and are never sent to Trading 212.
 
 ## Writing a note

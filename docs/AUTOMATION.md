@@ -1,5 +1,7 @@
 # Automation, policy and baskets
 
+English · [简体中文](./zh-CN/AUTOMATION.md)
+
 TradePilot automates in levels. Each level adds capability without weakening the one below it.
 
 | Level | What happens | Who confirms | Environments |

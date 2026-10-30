@@ -1,5 +1,7 @@
 # Pies
 
+English · [简体中文](./zh-CN/PIES.md)
+
 Trading 212 pies are target-weight baskets that the broker keeps invested. Trading 212 marks the pies endpoints of its Public API as deprecated, but still serves them, and TradePilot covers all six of them.
 
 The API key needs the pies read permission for the read tools and the pies write permission for changes. Without it, Trading 212 answers 403 and TradePilot says which permission is missing.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The twelve guides in docs/ are in Simplified Chinese too, in docs/zh-CN, each linked to and from its English version; the Chinese README links to them. Their headings keep the English anchors, so links into a section work in both.
+
 ## 2.63.0
 
 - Price and exchange rate: a holding in another currency than the account's shows how much of its unrealized P/L came from the price and how much from the exchange rate since it was bought, from Trading 212's `fxImpact`. The overview and a holding's page split the P/L into the two as bars from zero, the holdings list gives each holding's rate part under its P/L, the dashboard's text names both, and `analyze_portfolio_allocation` returns each holding's `fxImpact`. A foreign holding without the figure is not split rather than guessed.

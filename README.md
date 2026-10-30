@@ -15,7 +15,7 @@ Each deployment belongs to one user. Your Trading 212 credentials stay in your o
 - **Recoverable failures** — ambiguous write outcomes are never retried automatically and can be checked against current broker state.
 - **Portable UI** — responsive inline/fullscreen layouts, an in-flow order workspace that does not depend on fixed iframe overlays, English and Simplified Chinese, with an extensible locale registry.
 
-**Try it first:** turn on sample data to explore every feature on a simulated account with no Trading 212 key, then move to your Demo account. See [docs/TRY_IT.md](./docs/TRY_IT.md).
+**Try it first:** turn on sample data to explore every feature on a simulated account with no Trading 212 key, then move to your Demo account. See [docs/TRY_IT.md](./docs/TRY_IT.md). Every guide in docs/ is also in Simplified Chinese, in [docs/zh-CN](./docs/zh-CN/).
 
 ## What is included
 

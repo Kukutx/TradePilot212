@@ -1,5 +1,7 @@
 # Order review and flexible sizing
 
+English · [简体中文](./zh-CN/ORDERING.md)
+
 TradePilot accepts flexible order intent but always converts it to an explicit Trading 212 quantity before execution.
 
 ## Supported inputs

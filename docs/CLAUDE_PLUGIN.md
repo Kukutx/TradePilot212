@@ -1,5 +1,7 @@
 # Claude plugin and local stdio mode
 
+English · [简体中文](./zh-CN/CLAUDE_PLUGIN.md)
+
 TradePilot can run as a local process instead of a public Worker. This mode suits Claude Code and other MCP clients that launch a server process. It needs no OAuth, no public URL, and no Cloudflare account.
 
 ## Install as a Claude Code plugin

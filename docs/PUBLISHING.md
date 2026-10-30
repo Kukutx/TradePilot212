@@ -1,5 +1,7 @@
 # Publishing model
 
+English · [简体中文](./zh-CN/PUBLISHING.md)
+
 TradePilot 212 is intentionally distributed as **open-source self-hosted software**.
 
 ## Recommended model

@@ -1,5 +1,7 @@
 # Troubleshooting
 
+English · [简体中文](./zh-CN/TROUBLESHOOTING.md)
+
 ## `pnpm doctor` says Trading 212 Demo/Live is missing
 
 Open `.env.local` and make sure each configured environment has both values:

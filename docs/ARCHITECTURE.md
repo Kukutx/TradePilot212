@@ -1,5 +1,7 @@
 # Architecture
 
+English · [简体中文](./zh-CN/ARCHITECTURE.md)
+
 TradePilot 212 is intentionally split into a runtime-neutral core and small platform adapters. The same trading rules and MCP surface run on Node.js and Cloudflare Workers.
 
 ## Request path
