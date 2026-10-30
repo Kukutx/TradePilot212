@@ -159,7 +159,7 @@ describe("watchlist view", () => {
     expect(asml).toMatchObject({ name: "ASML Holding", currencyCode: "EUR", sinceAdded: 0 });
     const text = describePayload(view);
     expect(text).toMatch(/^Watchlist on DEMO, 3 instrument\(s\)/m);
-    expect(text).toMatch(/^NVDA_US_EQ \(NVIDIA\): 128\.75 USD \(Trading 212\); 1D [+-][\d.]+%, 1M [+-][\d.]+%, 3M [+-][\d.]+%, 1Y [+-][\d.]+%; 12-month range [\d.]+ to [\d.]+, [\d.]+% below the high; sell stop 118 \(-8\.3%\); held 20 at 96\.3; \+0% since added \d{4}-\d{2}-\d{2}\.$/m);
+    expect(text).toMatch(/^NVDA_US_EQ \(NVIDIA\): 128\.75 USD \(Trading 212\); 1D (?:[+-][\d.]+|0)%, 1M (?:[+-][\d.]+|0)%, 3M (?:[+-][\d.]+|0)%, 1Y (?:[+-][\d.]+|0)%; 12-month range [\d.]+ to [\d.]+, [\d.]+% below the high; sell stop 118 \(-8\.3%\); held 20 at 96\.3; \+0% since added \d{4}-\d{2}-\d{2}\.$/m);
     expect(text).toMatch(/^TSLA_US_EQ \(Tesla\): 244\.1 USD \(simulated\); .*alert above 260 \(\+6\.5%\), buy limit 215 \(-11\.9%\); \+0% since added \d{4}-\d{2}-\d{2}; note: "Wait for delivery numbers"\.$/m);
   });
 

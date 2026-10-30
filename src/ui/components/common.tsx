@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import type { Position } from "../../shared/contracts";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 
@@ -76,9 +76,21 @@ export function InstrumentName({ ticker, book, instrument, className }: { ticker
   );
 }
 
+/** A stable hue for a ticker, so the same instrument wears the same tint in every view. */
+export function avatarHue(ticker: string): number {
+  let hash = 0;
+  for (const char of ticker) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % 360;
+}
+
+/** Two letters on the instrument's own tint. */
+export function AssetAvatar({ ticker, label }: { ticker: string; label: { name: string; detail?: string } }) {
+  return <span className="assetAvatar" aria-hidden="true" style={{ "--tp-hue": avatarHue(ticker) } as CSSProperties}>{(label.detail || label.name).slice(0, 2).toUpperCase()}</span>;
+}
+
 export function AssetIdentity({ position, book }: { position: Position; book?: InstrumentBook }) {
   const label = instrumentLabel(position.instrument.ticker, book, position.instrument);
-  return <div className="assetIdentity" title={label.ticker}><span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span><div><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div></div>;
+  return <div className="assetIdentity" title={label.ticker}><AssetAvatar ticker={position.instrument.ticker} label={label} /><div><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div></div>;
 }
 
 /** Grey blocks in the shape of the view that is loading. */

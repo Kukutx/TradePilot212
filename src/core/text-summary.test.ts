@@ -81,8 +81,9 @@ describe("text summaries for hosts that only show text", () => {
     expect(performance.timeWeighted?.netFlows).toBe(-500);
     expect(performance.timeWeighted?.return).toBeCloseTo((1 + 100 / (10_500 - 500 * (10 / 20))) * 1.05 - 1, 3);
     expect(describePayload(performance)).toMatch(/Time-weighted return from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}: \+6%, with 500 of net withdrawals in between taken out/);
-    // Three readings: the month of the first is only partly recorded, as is this one.
-    expect(describePayload(performance)).toMatch(/Time-weighted return by month: \d{4}-\d{2} [+-][\d.]+% \(\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2} only\)/);
+    // Three readings, days apart from today: a month is only partly recorded, or reaches back to the last reading
+    // before it when the first two fall in different months.
+    expect(describePayload(performance)).toMatch(/Time-weighted return by month: \d{4}-\d{2} [+-][\d.]+% \((?:\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2} only|from \d{4}-\d{2}-\d{2}, the last recorded day before it, to \d{4}-\d{2}-\d{2})\)/);
     expect(describePayload(performance)).toMatch(/By year: \d{4} [+-][\d.]+%/);
     // It only rose; a fall not made up yet is told with its days.
     expect(describePayload(performance)).toContain("Over these days it never fell below an earlier high.");

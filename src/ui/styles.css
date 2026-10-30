@@ -1,5 +1,8 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Figures line up in columns everywhere; Inter's open digits and single-storey a read cleaner at small sizes. */
+  font-feature-settings: "tnum" 1, "cv11" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
   color: var(--color-text-primary, #171717);
   background: transparent;
   --tp-bg: var(--color-background-primary, #ffffff);
@@ -10,6 +13,12 @@
   --tp-border: var(--color-border-light, #e1e3e6);
   --tp-border-strong: color-mix(in srgb, var(--color-text-secondary, #777) 22%, transparent);
   --tp-shadow: 0 18px 48px rgba(0, 0, 0, .08);
+  /* Raised surfaces: a hairline and a soft, short shadow, as cards sit just above the page. */
+  --tp-elevation: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px -2px rgba(16, 24, 40, .06);
+  --tp-elevation-hover: 0 2px 4px rgba(16, 24, 40, .05), 0 8px 20px -6px rgba(16, 24, 40, .12);
+  --tp-accent: #2f6fed;
+  --tp-accent-soft: color-mix(in srgb, #2f6fed 10%, var(--tp-bg));
+  --tp-brand: linear-gradient(140deg, #0e9f6e 0%, #1d6fd8 62%, #4f46e5 100%);
   --tp-green: #127f4c;
   --tp-green-soft: #e9f7ef;
   --tp-red: #b82f35;
@@ -18,7 +27,7 @@
   --tp-amber-soft: #fff4db;
   --tp-blue: #2e65d1;
   --tp-blue-soft: #edf3ff;
-  --tp-radius: 18px;
+  --tp-radius: 20px;
   --tp-amber-text: #79500e;
   --tp-primary-bg: #191a1c;
   --tp-primary-text: #ffffff;
@@ -49,6 +58,10 @@
   --tp-primary-text: #141517;
   --tp-buy-bg: #1f6b45;
   --tp-danger-bg: #c4343b;
+  --tp-elevation: 0 1px 0 rgba(255, 255, 255, .03) inset;
+  --tp-elevation-hover: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 8px 24px -8px rgba(0, 0, 0, .5);
+  --tp-accent: #6f9cff;
+  --tp-accent-soft: color-mix(in srgb, #6f9cff 16%, var(--tp-bg));
 }
 
 * { box-sizing: border-box; }
@@ -85,12 +98,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-radius: 13px;
   display: grid;
   place-items: center;
-  background: #18191b;
+  background: var(--tp-brand);
   color: #fff;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -.02em;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 4px 12px -4px rgba(29, 111, 216, .55);
 }
 .brandCopy { min-width: 0; }
 .brandCopy h1 { margin: 2px 0 0; font-size: 20px; line-height: 1.05; letter-spacing: -.035em; font-weight: 760; white-space: nowrap; }
@@ -162,7 +175,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-weight: 650;
   flex: 0 0 auto;
 }
-.iconAction:hover { background: var(--tp-bg-soft); }
+.iconAction:hover { background: var(--tp-bg-soft); border-color: var(--tp-border-strong); }
 .icon { width: 16px; height: 16px; flex: 0 0 auto; }
 
 .environmentBar {
@@ -189,17 +202,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border: 1px solid var(--tp-border);
   background: var(--tp-bg);
   border-radius: var(--tp-radius);
+  box-shadow: var(--tp-elevation);
 }
 .overviewPanel {
   display: grid;
   grid-template-columns: minmax(210px, .9fr) minmax(0, 1.6fr);
   gap: 24px;
-  padding: 22px;
-  box-shadow: 0 1px 0 rgba(0,0,0,.015);
+  padding: 24px;
+  /* A faint wash of the brand from the top corner: the account's headline card. */
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--tp-accent) 7%, transparent) 0%, transparent 55%), var(--tp-bg);
 }
 .overviewLead { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .sectionEyebrow { display: block; margin-bottom: 7px; color: var(--tp-muted); font-size: 12px; font-weight: 720; letter-spacing: .07em; text-transform: uppercase; }
-.heroValue { display: block; font-size: clamp(28px, 4.3cqw, 42px); line-height: 1; letter-spacing: -.055em; font-weight: 760; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heroValue { display: block; font-size: clamp(30px, 4.6cqw, 46px); line-height: 1; letter-spacing: -.045em; font-weight: 720; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .heroValue.small { font-size: clamp(24px, 3.4cqw, 34px); }
 .pnlBadge {
   width: fit-content;
@@ -238,9 +253,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sparkEnd { fill: var(--tp-chart); stroke: var(--tp-bg); stroke-width: 2; }
 .noWrap { white-space: nowrap; }
 .metricGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.metric { min-width: 0; padding: 13px 14px; border-radius: 13px; background: var(--tp-bg-soft); border: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); }
-.metric span { display: block; margin-bottom: 7px; color: var(--tp-muted); font-size: 12px; }
-.metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 720; letter-spacing: -.02em; }
+.metric { min-width: 0; padding: 14px 15px; border-radius: 14px; background: color-mix(in srgb, var(--tp-bg-soft) 70%, transparent); border: 1px solid color-mix(in srgb, var(--tp-border) 80%, transparent); }
+.metric span { display: block; margin-bottom: 8px; color: var(--tp-muted); font-size: 12px; font-weight: 560; }
+.metric strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 700; letter-spacing: -.025em; }
 .metric.compact strong { font-size: 13px; }
 
 .dataPanel { padding: 18px; }
@@ -256,8 +271,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .positionsTable td:not(:first-child) { white-space: nowrap; }
 .positionsTable th:last-child, .positionsTable td:last-child { padding-right: 2px; }
 .positionsTable tbody tr:last-child td { border-bottom: 0; }
+.positionsTable tbody tr { transition: background .14s ease; }
+.positionsTable tbody tr:hover td { background: color-mix(in srgb, var(--tp-bg-soft) 75%, transparent); }
+.positionsTable tbody tr td:first-child { border-radius: 10px 0 0 10px; }
+.positionsTable tbody tr td:last-child { border-radius: 0 10px 10px 0; }
 .assetIdentity { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.assetAvatar { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; background: var(--tp-bg-soft); border: 1px solid var(--tp-border); color: var(--tp-text); font-size: 12px; font-weight: 800; letter-spacing: -.02em; }
+/* Each instrument keeps its own tint (--tp-hue, from its symbol), so a row is found again by colour at a glance. */
+.assetAvatar { --tp-hue: 220; width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; background: hsl(var(--tp-hue) 75% 95%); border: 1px solid hsl(var(--tp-hue) 60% 88%); color: hsl(var(--tp-hue) 60% 30%); font-size: 12px; font-weight: 800; letter-spacing: -.02em; }
+:root[data-theme="dark"] .assetAvatar { background: hsl(var(--tp-hue) 35% 20%); border-color: hsl(var(--tp-hue) 30% 28%); color: hsl(var(--tp-hue) 80% 80%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .assetAvatar { background: hsl(var(--tp-hue) 35% 20%); border-color: hsl(var(--tp-hue) 30% 28%); color: hsl(var(--tp-hue) 80% 80%); } }
 .assetIdentity > div { min-width: 0; }
 .assetIdentity strong, .assetIdentity small { display: block; }
 .assetIdentity strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -494,10 +516,11 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   font-size: 14px;
   font-weight: 720;
 }
-.secondaryButton { border: 1px solid var(--tp-border); background: var(--tp-bg); color: var(--tp-text); }
-.secondaryButton:hover { background: var(--tp-bg-soft); }
+.secondaryButton { border: 1px solid var(--tp-border); background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .05); }
+.secondaryButton:hover { background: var(--tp-bg-soft); border-color: var(--tp-border-strong); }
 .secondaryButton.danger { min-height: 40px; padding: 0 12px; border-color: color-mix(in srgb, var(--tp-red) 25%, var(--tp-border)); color: var(--tp-red); background: transparent; }
-.primaryButton { background: var(--tp-primary-bg); color: var(--tp-primary-text); }
+.primaryButton { background: var(--tp-primary-bg); color: var(--tp-primary-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .1), inset 0 1px 0 rgba(255, 255, 255, .08); }
+.primaryButton:hover:not(:disabled) { background: color-mix(in srgb, var(--tp-primary-bg) 88%, var(--tp-accent)); }
 .dangerButton { background: var(--tp-danger-bg); color: #fff; }
 
 .transactionStage {
@@ -663,6 +686,14 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .headerActions { flex-wrap: wrap; justify-content: flex-start; }
 }
 
+/* Panels rise in as a view opens, a few frames apart; nothing moves once they are there. */
+@keyframes tp-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.contentStack > * { animation: tp-rise .32s cubic-bezier(.2, .7, .2, 1) both; }
+.contentStack > :nth-child(2) { animation-delay: .04s; }
+.contentStack > :nth-child(3) { animation-delay: .08s; }
+.contentStack > :nth-child(4) { animation-delay: .12s; }
+.contentStack > :nth-child(n + 5) { animation-delay: .16s; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
@@ -672,14 +703,18 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appShell { --tp-chart: #3987e5; } }
 :root[data-theme="dark"] .appShell { --tp-chart: #3987e5; }
 
-.viewTabs { display: flex; gap: 4px; margin: 0 0 12px; padding: 3px; scroll-padding-inline: 32px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg-soft); overflow-x: auto; scrollbar-width: none; }
-.viewTabs button { flex: 1 0 auto; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 700; white-space: nowrap; }
-.viewTabs button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+/* Pills on a quiet rail; the strip around it fades whichever edge has more tabs past it. */
+.viewTabs { display: flex; gap: 4px; margin: 0 0 12px; padding: 4px; scroll-padding-inline: 32px; border: 1px solid var(--tp-border); border-radius: 14px; background: var(--tp-bg-soft); overflow-x: auto; scrollbar-width: none; }
+.viewTabs::-webkit-scrollbar { display: none; }
+.viewTabs button { flex: 1 0 auto; min-height: 38px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 680; white-space: nowrap; transition: background .16s ease, color .16s ease, box-shadow .16s ease; }
+.viewTabs button:hover:not(.active) { color: var(--tp-text); background: color-mix(in srgb, var(--tp-bg) 55%, transparent); }
+.viewTabs button.active { background: var(--tp-bg); color: var(--tp-text); font-weight: 740; box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
 
 .viewToolbar { display: flex; justify-content: flex-end; }
 .segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); }
 .segmented button { min-height: 36px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--tp-muted); font-size: 14px; font-weight: 700; }
-.segmented button.active { background: var(--tp-bg); color: var(--tp-text); }
+.segmented button { transition: background .16s ease, color .16s ease; }
+.segmented button.active { background: var(--tp-bg); color: var(--tp-text); box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 0 0 1px var(--tp-border); }
 
 .twoColumn { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .twoColumn > .dataPanel { margin: 0; }
@@ -970,8 +1005,8 @@ h2[tabindex="-1"]:focus { outline: none; }
 .tabStrip { position: relative; margin: 0 0 12px; }
 .tabStrip .viewTabs { margin: 0; }
 .tabStrip::before, .tabStrip::after { content: ""; position: absolute; top: 1px; bottom: 1px; z-index: 1; width: 32px; opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-.tabStrip::before { left: 1px; border-radius: 11px 0 0 11px; background: linear-gradient(to right, var(--tp-bg-soft) 30%, transparent); }
-.tabStrip::after { right: 1px; border-radius: 0 11px 11px 0; background: linear-gradient(to left, var(--tp-bg-soft) 30%, transparent); }
+.tabStrip::before { left: 1px; border-radius: 13px 0 0 13px; background: linear-gradient(to right, var(--tp-bg-soft) 30%, transparent); }
+.tabStrip::after { right: 1px; border-radius: 0 13px 13px 0; background: linear-gradient(to left, var(--tp-bg-soft) 30%, transparent); }
 .tabStrip.fadeStart::before, .tabStrip.fadeEnd::after { opacity: 1; }
 
 /* ---- Loading, error and setup states ---- */

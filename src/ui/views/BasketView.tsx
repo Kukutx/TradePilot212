@@ -11,7 +11,7 @@ import type {
 import type { ExecutionVerificationResult, OrderNotice } from "../../shared/contracts";
 import { tradeTotals, type TradeTotals } from "../../shared/trade-cost";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { DetailRow, Icon, InstrumentName, useDialog } from "../components/common";
+import { AssetAvatar, DetailRow, Icon, InstrumentName, useDialog } from "../components/common";
 import { amount, dateTime, money, notional, pct, qty, time } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import {
@@ -66,7 +66,7 @@ function LegRow({ leg, trade, accountCurrency, book, t, locale, children }: {
   const sum = legAmount(leg, trade, accountCurrency, book, locale);
   return (
     <div className="legRow">
-      <span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span>
+      <AssetAvatar ticker={draft.ticker} label={label} />
       <InstrumentName ticker={draft.ticker} book={book} instrument={leg.instrument} className="legName" />
       <span className={`sideBadge ${draft.side}`}>{draft.side === "buy" ? t("buy") : t("sell")} · {qty(draft.quantity, locale)}</span>
       {sum && <span className="legAmount">{sum}</span>}
@@ -390,7 +390,7 @@ function BasketResultView({
             return (
               <li className={`basketLeg resultLeg ${outcome}`} key={`${leg.draft.ticker}-${index}`}>
                 <div className="legRow">
-                  <span className="assetAvatar" aria-hidden="true">{(name.detail || name.name).slice(0, 2).toUpperCase()}</span>
+                  <AssetAvatar ticker={leg.draft.ticker} label={name} />
                   <span className="instrumentName legName" title={name.ticker}>
                     <strong>{name.name}</strong>
                     <small>{leg.draft.side === "buy" ? t("buy") : t("sell")} · {orderTypeLabel(leg.draft.type, t)} · {qty(leg.draft.quantity, locale)}</small>

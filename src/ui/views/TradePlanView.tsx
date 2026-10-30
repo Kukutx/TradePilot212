@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { EnrichedTradeCandidate, Horizon, TradePlanPayload } from "../../shared/contracts";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { DetailList, DetailSection, Icon, Metric } from "../components/common";
+import { AssetAvatar, DetailList, DetailSection, Icon, Metric } from "../components/common";
 import { dateTime, money, qty, signedClass, time } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { countText, envLabel, type Translator } from "../lib/messages";
@@ -107,7 +107,7 @@ export function CandidateCard({
     <article className="candidateCard">
       <div className="candidateTopline">
         <div className="candidateIdentity">
-          <span className="assetAvatar" aria-hidden="true">{(label.detail || label.name).slice(0, 2).toUpperCase()}</span>
+          <AssetAvatar ticker={ticker || label.name} label={label} />
           <div title={label.ticker || undefined}><strong>{label.name}</strong>{label.detail && <small>{label.detail}</small>}</div>
         </div>
         <div className={`scoreRing ${candidate.score >= 80 ? "high" : candidate.score >= 65 ? "medium" : "low"}`}><strong>{candidate.score}</strong><span>{t("score")}</span></div>

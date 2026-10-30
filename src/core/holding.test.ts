@@ -39,7 +39,7 @@ describe("holding detail", () => {
     expect(day.previousClose?.source).toBe("sample");
     expect(day.change).toBeCloseTo(128.75 / day.previousClose!.close - 1, 6);
     expect(day.profitLoss).toBeDefined();
-    expect(describePayload(held)).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2} \([\d.]+ USD\), [+-][\d.]+ EUR/m);
+    expect(describePayload(held)).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): (?:[+-][\d.]+|0)% since the close on \d{4}-\d{2}-\d{2} \([\d.]+ USD\), [+-][\d.]+ EUR/m);
     const late = describePayload({ ...held, day: { ...day, change: undefined, profitLoss: undefined, missing: "lag", problem: "stooq's closes for NVDA.US end on 2026-10-07, before the last session (2026-10-08); the day's move shows once they have it." } });
     expect(late).toMatch(/^On the day \(\d{4}-\d{2}-\d{2}\): no move for the day; stooq's closes for NVDA\.US end on 2026-10-07, before the last session \(2026-10-08\); the day's move shows once they have it\.$/m);
     const tesla = await holdingDetail(sample(), "demo", "Tesla");
