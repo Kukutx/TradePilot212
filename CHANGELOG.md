@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.63.0
+
+- Price and exchange rate: a holding in another currency than the account's shows how much of its unrealized P/L came from the price and how much from the exchange rate since it was bought, from Trading 212's `fxImpact`. The overview and a holding's page split the P/L into the two as bars from zero, the holdings list gives each holding's rate part under its P/L, the dashboard's text names both, and `analyze_portfolio_allocation` returns each holding's `fxImpact`. A foreign holding without the figure is not split rather than guessed.
+- The sample account's US and UK holdings were bought at other exchange rates than today's, so it shows the split.
+
 ## 2.62.0
 
 - Your own time zone and tax year. `TIMEZONE` (an IANA zone such as Europe/London) sets the day TradePilot counts in: the daily order and value limits reset at local midnight rather than UTC, the digest's dividend week follows it, and the tax year's days are counted in it. `TAX_YEAR_START` (MM-DD, `04-06` for the UK) is the tax year `get_tax_year_summary` and the History tab use unless another is chosen. Without `TIMEZONE`, a year from 6 April is counted in London and any other in UTC on the server, and in the viewer's own zone in the widget, as before; the History tab reads its year again in the server's zone once it learns it. On the day the zone first changes, the limits and the digest join the new days once (a few more hours on the day's budget behind UTC, a second digest ahead of it).

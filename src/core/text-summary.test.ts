@@ -20,6 +20,15 @@ describe("text summaries for hosts that only show text", () => {
     // The sample stop-loss on NVIDIA sits below its last price; the Tesla buy limit has no last price.
     expect(text).toMatch(/#81235 SELL 5 NVDA_US_EQ \(NVIDIA\) stop 118, [\d.]+% below the last price [\d.]+/);
     expect(text).toMatch(/#81234 BUY 3 TSLA_US_EQ limit 215 GOOD_TILL_CANCEL \(NEW\)$/m);
+    // The sample's dollar has fallen since its US shares were bought and its pound risen: each holding's rate part,
+    // and the account's result by source, which add up to it.
+    expect(text).toContain("AAPL_US_EQ Apple: 12 @ 231.55 USD (avg 168.4), value 2556.31 EUR, P/L +636.55 (exchange rate -60.62)");
+    expect(text).toMatch(/P\/L \+491\.08 \(exchange rate \+134\.72\)/);
+    expect(text).toContain("Of the unrealized P/L, prices made +1989.44 and exchange rates -95.73 (5 holdings in another currency).");
+    for (const position of dashboard.positions) {
+      const wallet = position.walletImpact as { currentValue: number; totalCost: number; unrealizedProfitLoss: number; fxImpact: number };
+      expect(wallet.unrealizedProfitLoss).toBeCloseTo(wallet.currentValue - wallet.totalCost, 2);
+    }
   });
 
   it("gives an order preview's amount in the account currency and says when the token may be used", async () => {

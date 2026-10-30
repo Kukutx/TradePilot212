@@ -15,6 +15,7 @@ import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
+import { resultSplit, resultSplitOf } from "../shared/result-split.js";
 import { WATCH_PERIODS, type WatchLevel, type WatchlistView, type WatchRow } from "../shared/watchlist.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -165,12 +166,13 @@ function positionLine(position: Position): string {
   const wallet = position.walletImpact as { currentValue?: unknown; unrealizedProfitLoss?: unknown; currency?: unknown } | undefined;
   const value = typeof wallet?.currentValue === "number" ? wallet.currentValue : undefined;
   const pnl = typeof wallet?.unrealizedProfitLoss === "number" ? wallet.unrealizedProfitLoss : undefined;
+  const fx = resultSplit(position)?.fx;
   const walletCurrency = typeof wallet?.currency === "string" ? ` ${wallet.currency}` : "";
   const name = position.instrument.name && position.instrument.name !== position.instrument.ticker ? ` ${position.instrument.name}` : "";
   const available = position.quantityAvailableForTrading !== position.quantity ? `, ${num(position.quantityAvailableForTrading, 8)} available` : "";
   const pies = position.quantityInPies ? `, ${num(position.quantityInPies, 8)} in pies` : "";
   return `${position.instrument.ticker}${name}: ${num(position.quantity, 8)} @ ${num(position.currentPrice, 6)} ${position.instrument.currencyCode ?? ""} (avg ${num(position.averagePricePaid, 6)})`
-    + `${value === undefined ? "" : `, value ${num(value)}${walletCurrency}`}${pnl === undefined ? "" : `, P/L ${signed(pnl)}`}${available}${pies}`;
+    + `${value === undefined ? "" : `, value ${num(value)}${walletCurrency}`}${pnl === undefined ? "" : `, P/L ${signed(pnl)}`}${fx ? ` (exchange rate ${signed(fx)})` : ""}${available}${pies}`;
 }
 
 function accountLine(environment: TradingEnvironment, account: AccountSummary): string {
@@ -181,6 +183,14 @@ function accountLine(environment: TradingEnvironment, account: AccountSummary): 
     + `${account.investments?.currentValue === undefined ? "" : `, invested ${num(account.investments.currentValue)}`}`
     + `${account.investments?.unrealizedProfitLoss === undefined ? "" : `, unrealized P/L ${signed(account.investments.unrealizedProfitLoss)}`}`
     + `${account.investments?.realizedProfitLoss === undefined ? "" : `, realized P/L ${signed(account.investments.realizedProfitLoss)}`}.`;
+}
+
+/** The unrealized P/L in what the prices did and what the exchange rates did, when a rate moved one. */
+function resultSplitLines(data: PortfolioSnapshot): string[] {
+  const split = resultSplitOf(data.positions);
+  if (!split?.fx) return [];
+  const total = data.account?.investments?.unrealizedProfitLoss ?? split.total;
+  return [`Of the unrealized P/L, prices made ${signed(total - split.fx)} and exchange rates ${signed(split.fx)} (${split.foreign} holding${split.foreign === 1 ? "" : "s"} in another currency).`];
 }
 
 function activityLine(event: ActivityEvent): string {
@@ -237,6 +247,7 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...credentialsLine(data.environment, data.credentials),
     ...(data.warning ? [data.warning] : []),
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
+    ...resultSplitLines(data),
     ...valueHistoryLines(data.valueTrend),
     ...(data.today ? todayLines(data.today) : []),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),

@@ -19,7 +19,8 @@ interface SampleInstrument {
   extendedHours?: boolean;
   workingScheduleId: number;
 }
-interface Holding { ticker: string; quantity: number; average: number; inPies: number; createdAt: string }
+/** `rate`: EUR per unit of the instrument's currency the shares cost, weighted by cost; today's rate when absent. */
+interface Holding { ticker: string; quantity: number; average: number; inPies: number; createdAt: string; rate?: number }
 
 const INSTRUMENTS: SampleInstrument[] = [
   { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD", isin: "US0378331005", type: "STOCK", price: 231.55, extendedHours: true, workingScheduleId: 1 },
@@ -35,6 +36,8 @@ const INSTRUMENTS: SampleInstrument[] = [
 ];
 /** Account (EUR) value of one unit of each quote currency. */
 const EUR_PER_UNIT: Record<string, number> = { EUR: 1, USD: 0.92, GBX: 0.0118 };
+/** The rates the sample holdings were bought at: the dollar has fallen since and the pound risen, so each has an exchange-rate part. */
+const EUR_PER_UNIT_BOUGHT: Record<string, number> = { USD: 0.95, GBX: 0.0114 };
 
 /**
  * Prices for the sample account's quote provider: each sample instrument at its sample price, and rates between the
@@ -94,7 +97,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     { ticker: "NVDA_US_EQ", quantity: 20, average: 96.3, inPies: 4, createdAt: daysAgo(300) },
     { ticker: "VUSAl_EQ", quantity: 40, average: 8420, inPies: 3, createdAt: daysAgo(350) },
     { ticker: "KO_US_EQ", quantity: 25, average: 64.9, inPies: 7, createdAt: daysAgo(330) },
-  ];
+  ].map((holding) => ({ ...holding, rate: EUR_PER_UNIT_BOUGHT[instrumentOf(holding.ticker)?.currencyCode ?? "EUR"] }));
   let nextId = 90_000;
   const pending: Json[] = [
     { id: 81234, ticker: "TSLA_US_EQ", quantity: 3, filledQuantity: 0, status: "NEW", type: "LIMIT", limitPrice: 215, timeValidity: "GOOD_TILL_CANCEL", strategy: "QUANTITY", createdAt: daysAgo(1) },
@@ -144,8 +147,12 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
 
   const position = (holding: Holding) => {
     const instrument = instrumentOf(holding.ticker)!;
-    const currentValue = round(eur(holding.ticker, holding.quantity * instrument.price));
-    const totalCost = round(eur(holding.ticker, holding.quantity * holding.average));
+    const now = EUR_PER_UNIT[instrument.currencyCode] ?? 1;
+    const rate = holding.rate ?? now;
+    const currentValue = round(holding.quantity * instrument.price * now);
+    const totalCost = round(holding.quantity * holding.average * rate);
+    // Trading 212's exchange-rate part: what the cost is worth at today's rate less what it cost.
+    const fxImpact = round(holding.quantity * holding.average * (now - rate));
     const { price, ...meta } = instrument;
     return {
       instrument: meta,
@@ -155,7 +162,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       averagePricePaid: holding.average,
       currentPrice: price,
       createdAt: holding.createdAt,
-      walletImpact: { currency: "EUR", totalCost, currentValue, unrealizedProfitLoss: round(currentValue - totalCost), fxImpact: 0 },
+      walletImpact: { currency: "EUR", totalCost, currentValue, unrealizedProfitLoss: round(currentValue - totalCost), fxImpact },
     };
   };
   const pieSummary = (id: number) => {
@@ -194,6 +201,10 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       if (value > cash) return { error: json({ code: "InsufficientFreeForStocksException", clarification: "Not enough free cash" }, 400) };
       cash -= value;
       if (!holding) holdings.push(holding = { ticker, quantity: 0, average: instrument.price, inPies: 0, createdAt: new Date().toISOString() });
+      // The rate the shares cost, weighted by what each buy cost in the instrument's currency.
+      const now = EUR_PER_UNIT[instrument.currencyCode] ?? 1;
+      const held = holding.average * holding.quantity, bought = instrument.price * quantity;
+      holding.rate = ((holding.rate ?? now) * held + now * bought) / (held + bought);
       holding.average = (holding.average * holding.quantity + instrument.price * quantity) / (holding.quantity + quantity);
       holding.quantity = round(holding.quantity + quantity, 6);
     } else {

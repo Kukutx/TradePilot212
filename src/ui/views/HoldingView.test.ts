@@ -120,6 +120,23 @@ describe("holding price levels", () => {
     expect(noRate).toContain('<div class="dayTotal dayLine" title="No exchange rate from USD to EUR."><b><span class="positive">+3.93%</span></b>');
   });
 
+  it("splits a foreign holding's result into what the price did and what the exchange rate did", () => {
+    const base = {
+      kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "AAPL_US_EQ", instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" },
+      accountCurrency: "EUR", orders: [], alerts: [], journal: [], timestamp: "2026-10-10T09:00:00Z",
+    } as unknown as HoldingDetail;
+    const render = (data: HoldingDetail) => renderToStaticMarkup(createElement(HoldingView, {
+      data, locale: "zh-CN", t: createTranslator("zh-CN"), writeEnabled: false, busy: false,
+      onBack: () => {}, onTrade: () => {}, onCancel: () => {}, onSaveAlert: async () => true, onDeleteAlert: () => {}, onRearmAlert: () => {}, onSaveNote: async () => true, onDeleteNote: () => {},
+    }));
+    const position = { instrument: { ticker: "AAPL_US_EQ", name: "Apple", currencyCode: "USD" }, quantity: 12, quantityAvailableForTrading: 12, quantityInPies: 0, averagePricePaid: 168.4, currentPrice: 231.55, walletImpact: { currency: "EUR", currentValue: 2556.31, unrealizedProfitLoss: 636.55, fxImpact: -60.62 } };
+    const html = render({ ...base, position } as unknown as HoldingDetail);
+    expect(html).toContain('<dl class="resultSplit" aria-label="未实现盈亏的来源">');
+    expect(html).toMatch(/<dt>价格<\/dt>.*?\+€697\.17/);
+    expect(html).toMatch(/<dt>汇率<\/dt>.*?-€60\.62/);
+    expect(render({ ...base, position: { ...position, walletImpact: { ...position.walletImpact, fxImpact: undefined } } } as unknown as HoldingDetail)).not.toContain("resultSplit");
+  });
+
   it("lists the holding's next expected dividends above the ones it paid, a payment due this month and not paid yet as due", () => {
     const data = {
       kind: "holding", environment: "demo", credentials: { demo: true, live: false }, ticker: "KO_US_EQ", instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", currencyCode: "USD" },

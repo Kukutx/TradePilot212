@@ -7,6 +7,8 @@ import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Sparkline } from "../components/charts";
 import { DayCell, DayTotal, type TodayState } from "../components/day";
 import { HoldingsMap, mapDayKnown } from "../components/holdings-map";
+import { FxPart, fxShown, ResultSplitBars } from "../components/result-split";
+import { resultSplit, resultSplitOf } from "../../shared/result-split";
 import type { DayMove } from "../../shared/today";
 import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
 import { nextSort, readHoldingsPrefs, saveHoldingsPrefs, SORT_CHOICES, sortFromId, sortHoldings, sortId, type HoldingsPrefs, type HoldingsSortKey } from "../lib/holdings";
@@ -50,6 +52,8 @@ export function PortfolioView({
 }) {
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
+  // The exchange rates' part of it, over every holding; the price part is the rest, so the two add up to the badge.
+  const fx = resultSplitOf(payload.positions)?.fx;
   const moves = new Map((today?.data?.moves ?? []).map((move) => [move.ticker, move]));
   const soldOut = (today?.data?.moves ?? []).filter((move) => move.quantity === 0 && move.profitLoss !== undefined);
   /** The holdings' day, unless its read failed. */
@@ -85,6 +89,7 @@ export function PortfolioView({
           <span className="sectionEyebrow">{t("accountOverview")}</span>
           <strong className="heroValue">{money(payload.account?.totalValue, currency, locale)}</strong>
           <div className={`pnlBadge ${signedClass(pnl)}`}>{t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}</div>
+          {pnl !== undefined && fxShown(fx) && <ResultSplitBars price={pnl - fx} fx={fx} currency={currency} locale={locale} t={t} />}
           {today && <DayTotal today={today} currency={currency} locale={locale} t={t} />}
           {payload.valueTrend && payload.valueTrend.length >= 2 && <ValueTrend points={payload.valueTrend} currency={currency} locale={locale} t={t} />}
         </div>
@@ -157,7 +162,7 @@ export function PortfolioView({
                         {day && <td className="dayColumn"><DayCell move={moves.get(position.instrument.ticker)} loading={day.loading} currency={currency} locale={locale} t={t} /></td>}
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
                         <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
-                        <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}</td>
+                        <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}<FxPart fx={resultSplit(position)?.fx} currency={currency} locale={locale} t={t} /></td>
                         <td className="optionalColumn stopColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
                       </tr>
                     );
@@ -342,7 +347,7 @@ export function PositionCard({
   const guard = stopProtection(position, orders);
   return (
     <article className="positionCard">
-      <div className="positionCardHeader">{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}<span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span></div>
+      <div className="positionCardHeader">{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}<span className="compactPnlStack"><span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span><FxPart fx={resultSplit(position)?.fx} currency={accountCurrency} locale={locale} t={t} /></span></div>
       <div className="positionFacts">
         <div><span>{t("positionValue")}</span><strong>{money(positionValue, accountCurrency, locale)}</strong></div>
         <div><span>{t("currentPrice")}</span><strong>{money(position.currentPrice, position.instrument.currencyCode, locale)}</strong></div>

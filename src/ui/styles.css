@@ -607,6 +607,9 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .optionalColumn, .dayColumn { display: none; }
   .dayUnderPrice { display: block; }
   .positionsTable { min-width: 0; }
+  /* Narrower gaps so the result's exchange-rate line fits beside the rest without a sideways scroll. */
+  .positionsTable th:not(:first-child), .positionsTable td:not(:first-child) { padding-left: 6px; padding-right: 6px; }
+  .positionsTable th:last-child, .positionsTable td:last-child { padding-right: 2px; }
   .actionText { display: none; }
   .iconAction { width: 38px; justify-content: center; padding: 0; }
   .overviewPanel { grid-template-columns: 1fr; gap: 16px; }
@@ -1598,3 +1601,20 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .exportRowEnd { display: flex; flex: none; align-items: center; gap: 8px; }
 .exportList .historyWho strong { white-space: normal; }
 .heroValue.exportSpan { white-space: normal; overflow-wrap: anywhere; line-height: 1.1; }
+
+/* The unrealized result by source: price and exchange rate, each a bar from zero scaled to the larger part. */
+.resultSplit { display: grid; gap: 5px; width: min(100%, 320px); margin: 10px 0 0; }
+.resultSplitRow { display: grid; grid-template-columns: minmax(64px, auto) minmax(48px, 1fr) auto; align-items: center; gap: 10px; }
+.resultSplitRow dt { color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
+.resultSplitRow dd { margin: 0; }
+.resultSplitTrack { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--tp-border) 45%, transparent); overflow: hidden; }
+.resultSplitFill { display: block; height: 100%; border-radius: 3px; background: var(--tp-muted); }
+.resultSplitFill.positive { background: var(--tp-green); }
+.resultSplitFill.negative { background: var(--tp-red); }
+.resultSplitValue { font-size: 12px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.pnlFx { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.compactPnlStack { display: flex; flex-direction: column; align-items: flex-end; }
+@media (forced-colors: active) {
+  .resultSplitTrack { border: 1px solid CanvasText; }
+  .resultSplitFill { background: CanvasText !important; }
+}
