@@ -80,6 +80,17 @@ describe("reading risk by holding", () => {
     asked.length = 0;
     expect((await readHoldingRisk({ priceHistory, benchmark: "A" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW)).risk!.market!.beta).toBeGreaterThan(0);
     expect(asked).toEqual(["A", "B"]);
+    // A benchmark that is also a target not held is read once, for both.
+    asked.length = 0;
+    let covariance: HoldingCovariance | undefined;
+    const both = await readHoldingRisk({ priceHistory, benchmark: "SPY_US_EQ", alongside: ["SPY_US_EQ"], onCovariance: (found) => { covariance = found; } }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW);
+    expect(asked).toEqual(["A", "B", "SPY_US_EQ"]);
+    expect(both.risk!.market!.ticker).toBe("SPY_US_EQ");
+    expect(covariance!.tickers).toEqual(["A", "B", "SPY_US_EQ"]);
+    // Without Trading 212's list, a symbol is not taken for a US fund: VUSA is a London fund, not VUSA_US_EQ.
+    asked.length = 0;
+    expect((await readHoldingRisk({ priceHistory, benchmark: "VUSA" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [] }, NOW)).risk!.market).toBeUndefined();
+    expect(asked).toEqual(["A", "B"]);
     const failing = async (request: PriceHistoryRequest): Promise<PriceHistoryResult> => (request.instrument.ticker === "SPY_US_EQ" ? { missing: "data", problem: "none" } : priceHistory(request));
     const without = await readHoldingRisk({ priceHistory: failing, benchmark: "SPY" }, "demo", [holding("A", 2000), holding("B", 1000)], { positions: ["A", "B"].map(position), instruments: [instrument("A"), instrument("B")] }, NOW);
     expect(without.risk).toBeDefined();

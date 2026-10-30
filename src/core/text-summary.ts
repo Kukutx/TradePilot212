@@ -354,8 +354,8 @@ function marketLines(market: MarketSensitivity, value: number | undefined, data:
     ...section(`Against the market (${market.ticker}, weekly closes ${market.from} to ${market.to}, ${market.weeks} weeks; its volatility ${pct(market.volatility)} a year): together a beta of ${num(market.beta, 2)}, correlation ${num(market.correlation, 2)}`,
       rows(market.rows.slice(0, MAX_BETA_NAMED), (row) => `${row.ticker}: beta ${num(row.beta, 2)}, correlation ${num(row.correlation, 2)}, ${pct(row.weight, 0)} of the value measured`)),
     ...(market.rows.length > MAX_BETA_NAMED ? [`And ${market.rows.length - MAX_BETA_NAMED} more.`] : []),
-    ...(scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} → ${signedPct(scenario.move)}, about ${money(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== undefined ? ` (${signedPct(scenario.account)} of the account, cash not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : []),
-    ...(worst ? [`${market.ticker}'s worst week, to ${worst.date}: ${signedPct(worst.market)}; today's mix ${signedPct(worst.mix)} that week.`] : []),
+    ...(scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} → ${signedPct(scenario.move)}, about ${money(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== undefined ? ` (${signedPct(scenario.account)} of the account, cash and holdings not measured not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : []),
+    ...(worst ? [`${market.ticker}'s worst week over those weeks, to ${worst.date}: ${signedPct(worst.market)}${worst.mix === undefined ? "" : `; today's mix ${signedPct(worst.mix)} that week`}.`] : []),
   ];
 }
 

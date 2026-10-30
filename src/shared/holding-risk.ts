@@ -209,16 +209,19 @@ function marketOf(measured: WeeklyInput[], weights: number[], common: number[], 
   const correlationWith = (series: number[]) => { const own = Math.sqrt(covarianceOf(series, series)); return own > 0 ? Math.max(-1, Math.min(1, covarianceOf(series, benchmark) / (own * sd))) : 0; };
   const rows = measured.map((input, i) => ({ ticker: input.ticker, weight: round(weights[i]!), beta: round(covarianceOf(holdings[i]!, benchmark) / variance, 4), correlation: round(correlationWith(holdings[i]!), 4) }))
     .sort((a, b) => b.beta - a.beta || b.weight - a.weight);
-  // The benchmark's worst single week, and the holdings' simple return, at today's weights, that week.
-  let worst: MarketSensitivity["worstWeek"];
-  weeks.slice(1).forEach((week, index) => {
-    const before = weeks[index]!;
-    if (week - before !== 7) return;
-    const move = closes.get(week)!.close / closes.get(before)!.close - 1;
-    if (worst && move >= worst.market) return;
-    const together = measured.reduce((sum, input, i) => sum + weights[i]! * (input.weeks.get(week)!.close / input.weeks.get(before)!.close - 1), 0);
-    worst = { date: closes.get(week)!.date, market: round(move), mix: round(together) };
-  });
+  // The benchmark's worst single week over the weeks read, from its own closes, and the holdings' simple return, at
+  // today's weights, that week when they all have a close in it and the week before.
+  let worst: { week: number; move: number } | undefined;
+  for (const [week, close] of closes) {
+    const before = closes.get(week - 7);
+    if (week <= weeks[0]! || week > weeks.at(-1)! || !before) continue;
+    const move = close.close / before.close - 1;
+    if (!worst || move < worst.move) worst = { week, move };
+  }
+  const mixIn = (week: number) => (measured.every((input) => input.weeks.has(week) && input.weeks.has(week - 7))
+    ? measured.reduce((sum, input, i) => sum + weights[i]! * (input.weeks.get(week)!.close / input.weeks.get(week - 7)!.close - 1), 0)
+    : undefined);
+  const worstMix = worst && mixIn(worst.week);
   return {
     ticker: market.ticker,
     from: closes.get(weeks[0]!)!.date,
@@ -228,7 +231,7 @@ function marketOf(measured: WeeklyInput[], weights: number[], common: number[], 
     beta: round(weights.reduce((sum, weight, i) => sum + weight * covarianceOf(holdings[i]!, benchmark) / variance, 0), 4),
     correlation: round(correlationWith(mix), 4),
     rows,
-    ...(worst ? { worstWeek: worst } : {}),
+    ...(worst ? { worstWeek: { date: closes.get(worst.week)!.date, market: round(worst.move), ...(worstMix === undefined ? {} : { mix: round(worstMix) }) } } : {}),
   };
 }
 

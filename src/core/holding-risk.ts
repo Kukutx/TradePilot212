@@ -49,7 +49,8 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
   const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
   // The benchmark, a US fund Trading 212 does not list included (its closes come from the quote provider alone).
-  const found = deps.benchmark ? benchmarkInstrument(read.instruments, deps.benchmark) : undefined;
+  // An empty list is one that could not be read: only an explicit US ticker (SPY_US_EQ) is then taken for a US fund.
+  const found = deps.benchmark ? benchmarkInstrument(read.instruments.length ? read.instruments : undefined, deps.benchmark) : undefined;
   const market = found && "instrument" in found ? found.instrument : undefined;
   if (market && !listed.has(market.ticker)) listed.set(market.ticker, market);
   const positions = new Map(read.positions.flatMap((position) => (position.instrument?.ticker ? [[position.instrument.ticker, position] as const] : [])));
@@ -78,9 +79,11 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   };
   // Instruments not held, for the covariance alone: after the holdings, which the risk on screen needs first.
   const held = new Set([...holdings.map((holding) => holding.ticker), ...positions.keys()]);
-  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
-  // The benchmark after the holdings, unless it is one of them; before the instruments for the covariance alone.
+  // The benchmark after the holdings, unless it is one of them; before the instruments for the covariance alone, and
+  // read once when it is one of those too.
   const marketRead = market && !valued.some((holding) => holding.ticker === market.ticker) ? [market.ticker] : [];
+  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker) && !marketRead.includes(ticker)) : [];
+  const marketBeside = !!deps.onCovariance && marketRead.length > 0 && (deps.alongside ?? []).includes(marketRead[0]!) && !held.has(marketRead[0]!);
   const tickers = [...valued.map((holding) => holding.ticker), ...marketRead, ...besides];
   const results = await eachLimited(tickers, CONCURRENCY, deadline, readOne, later);
   // The instruments not reached are read now, a few at a time, without waiting: the next read finds them cached.
@@ -97,6 +100,10 @@ export async function readHoldingRisk(deps: HoldingRiskDeps, _environment: Tradi
   const unmeasured: NonNullable<HoldingCovariance["unmeasured"]> = [];
   const marketResult = marketRead.length ? results[valued.length] : undefined;
   const marketPoints = market && (marketResult ? ("points" in marketResult ? marketResult.points : undefined) : inputs.find((input) => input.ticker === market.ticker)?.points);
+  if (marketBeside && marketResult) {
+    if ("points" in marketResult) alongside.push({ ticker: market!.ticker, points: marketResult.points });
+    else unmeasured.push({ ticker: market!.ticker, reason: marketResult.reason });
+  }
   besides.forEach((ticker, index) => {
     const result = results[valued.length + marketRead.length + index]!;
     if ("points" in result) alongside.push({ ticker, points: result.points });

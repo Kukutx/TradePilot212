@@ -18,7 +18,7 @@ describe("the market panel", () => {
     const html = renderToStaticMarkup(createElement(MarketSensitivityPanel, { market, data, book, locale: "en", t: createTranslator("en") }));
     expect(html).toContain("Beta to SPY");
     expect(html).toContain(">1.20<");
-    expect(html).toContain("about 1.2× as much");
+    expect(html).toContain("On average 1.20% for each 1% it moved");
     expect(html).toContain("-6.5%");
     expect(html).toContain("today&#x27;s mix -8.0% that week");
     // −10% in the market: −12% of the holdings, €1,200, 9.6% of the account.
@@ -34,10 +34,14 @@ describe("the market panel", () => {
   it("draws a negative beta below 0, and says so in Chinese", () => {
     const against = { ...market, beta: -0.3, rows: [{ ticker: "GLD_US_EQ", weight: 1, beta: -0.3, correlation: -0.2 }] };
     const html = renderToStaticMarkup(createElement(MarketSensitivityPanel, { market: against, data, locale: "zh-CN", t: createTranslator("zh-CN") }));
-    expect(html).toContain("平均与它反向波动");
+    expect(html).toContain("平均与它反向：它每涨跌 1%，持仓约反向 0.30%");
     expect(html).toContain("betaFill against");
     expect(html).toContain('class="betaZero"');
     expect(betaScale(against.rows)).toEqual({ low: -0.5, high: 1.5 });
+    // Near 0 it neither follows nor goes against the market; a worst week some holding has no close in has no mix.
+    const flat = renderToStaticMarkup(createElement(MarketSensitivityPanel, { market: { ...market, beta: 0.02, worstWeek: { date: "2026-04-03", market: -0.065 } }, data, locale: "en", t: createTranslator("en") }));
+    expect(flat).toContain("Did not follow it on average");
+    expect(flat).toContain("To Apr 3, 2026, of the weeks read");
     expect(betaScale(market.rows)).toEqual({ low: 0, high: 2 });
   });
 });

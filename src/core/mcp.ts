@@ -190,16 +190,17 @@ export function createMcpServer(
    * The allocation with risk by holding: a year of each holding's closes, read for a few seconds at most; the
    * allocation stands without it. `onCovariance` is handed the holdings' covariance, which the result leaves out, with
    * the instruments not held in `alongside` that can be measured beside them; `only` measures those holdings alone;
-   * `budgetMs` waits longer for the closes than a tool call's few seconds.
+   * `budgetMs` waits longer for the closes than a tool call's few seconds; `market` also reads the benchmark (BENCHMARK)
+   * for each holding's beta to it.
    */
   const allocationWithRisk = async (environment: TradingEnvironment, limits: Parameters<typeof insights.allocation>[1] = {},
-    { onCovariance, only, budgetMs, alongside }: { onCovariance?: (covariance: HoldingCovariance) => void; only?: ReadonlySet<string>; budgetMs?: number; alongside?: readonly string[] } = {}): Promise<AllocationAnalysis> => {
+    { onCovariance, only, budgetMs, alongside, market }: { onCovariance?: (covariance: HoldingCovariance) => void; only?: ReadonlySet<string>; budgetMs?: number; alongside?: readonly string[]; market?: boolean } = {}): Promise<AllocationAnalysis> => {
     let read: { positions: Position[]; instruments: Instrument[] } | undefined;
     const analysis = await insights.allocation(environment, limits, (positions) => { read = positions; });
     const holdings = only ? analysis.holdings.filter((holding) => only.has(holding.ticker)) : analysis.holdings;
     // The sample account's closes of an instrument not held end at its sample quote; a quote provider's need none.
     const quoteOf = config.sampleData ? (instrument: Instrument) => trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => undefined) : undefined;
-    const deps = { priceHistory, ...(onCovariance ? { onCovariance } : {}), ...(budgetMs ? { budgetMs } : {}), ...(alongside?.length ? { alongside } : {}), ...(quoteOf ? { quoteOf } : {}), ...(config.benchmark ? { benchmark: config.benchmark } : {}) };
+    const deps = { priceHistory, ...(onCovariance ? { onCovariance } : {}), ...(budgetMs ? { budgetMs } : {}), ...(alongside?.length ? { alongside } : {}), ...(quoteOf ? { quoteOf } : {}), ...(market && config.benchmark ? { benchmark: config.benchmark } : {}) };
     const risk = read
       ? await readHoldingRisk(deps, environment, holdings, read).catch((error: unknown) => ({ riskProblem: asStructuredError(error).message }))
       : {};
@@ -328,7 +329,7 @@ export function createMcpServer(
     async ({ environment, ...limits }) => {
       try {
         let covariance: HoldingCovariance | undefined;
-        const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => { covariance = found; }, alongside: await targetTickers(environment) });
+        const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => { covariance = found; }, alongside: await targetTickers(environment), market: true });
         // With targets saved, also the holdings' volatility at them.
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points${driftTradeText(data.drift)}` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0]!.ticker} the largest share of it (${(data.risk.rows[0]!.risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}${data.risk.market ? `, a beta of ${data.risk.market.beta.toFixed(2)} to ${data.risk.market.ticker}` : ""}` : ""}.`);

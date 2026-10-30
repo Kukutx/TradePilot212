@@ -14,6 +14,8 @@ import { Tile } from "./risk";
 
 /** At most this many rows of bars: the highest betas. */
 const MAX_ROWS = 12;
+/** A beta this close to 0 says the holdings did not follow the market, either way. */
+const FLAT_BETA = 0.05;
 
 /** Where the bars' scale runs: from 0, or below it for a negative beta, to 1.5 at least, in halves. */
 export function betaScale(rows: MarketSensitivity["rows"]): { low: number; high: number } {
@@ -51,11 +53,11 @@ export function MarketSensitivityPanel({ market, data, book, locale, t }: {
         <figcaption><span>{t("marketTitle")}</span><ViewSwitch asTable={asTable} labels={{ table: t("tableView"), chart: t("chartView") }} onToggle={() => setAsTable(!asTable)} /></figcaption>
         <div className="riskGrid">
           <Tile label={fill(t("marketBeta"), { benchmark })} value={beta(market.beta)}
-            sub={fill(t(market.beta > 0 ? "marketBetaSub" : "marketBetaAgainstSub"), { times: fixed(market.beta, 1), correlation: fixed(market.correlation) })} />
+            sub={fill(t(market.beta > FLAT_BETA ? "marketBetaSub" : market.beta < -FLAT_BETA ? "marketBetaAgainstSub" : "marketBetaFlatSub"), { times: fixed(Math.abs(market.beta)), correlation: fixed(market.correlation) })} />
           <Tile label={fill(t("marketVolatility"), { benchmark })} value={pct(market.volatility, locale, 1)}
             sub={fill(t("marketVolatilitySub"), { weeks: String(market.weeks), date: dayLabel(market.to, locale) })} />
           {worst && <Tile label={fill(t("marketWorst"), { benchmark })} value={signed(worst.market)} tone={worst.market < 0 ? "negative" : undefined}
-            sub={fill(t("marketWorstSub"), { date: dayLabel(worst.date, locale), mix: signed(worst.mix) })} />}
+            sub={worst.mix === undefined ? fill(t("marketWorstDateSub"), { date: dayLabel(worst.date, locale) }) : fill(t("marketWorstSub"), { date: dayLabel(worst.date, locale), mix: signed(worst.mix) })} />}
         </div>
         {scenarios.length > 0 && (
           <div className="marketFalls">

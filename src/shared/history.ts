@@ -227,8 +227,11 @@ export interface MarketSensitivity {
   correlation: number;
   /** Each holding measured, largest beta first. */
   rows: Array<{ ticker: string; weight: number; beta: number; correlation: number }>;
-  /** The benchmark's worst single week, dated by its last close, and what the holdings together did that week. */
-  worstWeek?: { date: string; market: number; mix: number };
+  /**
+   * The benchmark's worst single week over the weeks read, dated by its last close, and what the holdings together did
+   * that week, when every one has a close in it and the week before.
+   */
+  worstWeek?: { date: string; market: number; mix?: number };
 }
 
 /**

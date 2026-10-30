@@ -455,6 +455,17 @@ describe("against the market", () => {
     expect(holdingRiskOf(holdings, TODAY, undefined, undefined, [], { ticker: "M", points: gapped })!.market).toMatchObject({ weeks: 48 });
   });
 
+  it("finds the market's worst week on its own closes, and the mix's that week only when every holding has it", () => {
+    // The market's worst week, its 30th (−8%), falls in a gap in B's closes.
+    const moves = market.map((move, index) => (index === 29 ? -0.08 : move));
+    const a = moves.map((move) => 1.5 * move);
+    const b = fridays(moves).filter((_, index) => index !== 30);
+    const risk = holdingRiskOf([holding("A", 3000, a), { ticker: "B", value: 1000, points: b }], TODAY, undefined, undefined, [], { ticker: "M", points: fridays(moves) })!;
+    expect(risk.market!.worstWeek).toEqual({ date: fridays(moves)[30]!.date, market: Math.round((Math.exp(-0.08) - 1) * 1e6) / 1e6 });
+    const whole = holdingRiskOf([holding("A", 3000, a), holding("B", 1000, moves)], TODAY, undefined, undefined, [], { ticker: "M", points: fridays(moves) })!;
+    expect(whole.market!.worstWeek!.mix).toBeCloseTo(0.75 * (Math.exp(-0.12) - 1) + 0.25 * (Math.exp(-0.08) - 1), 6);
+  });
+
   it("turns the beta into what a 5%, 10% and 20% fall would take, of the holdings and of the account", () => {
     expect(marketScenarios(1.2, 10_000, 12_500)).toEqual([
       { market: -0.05, move: -0.06, amount: -600, account: -0.048 },

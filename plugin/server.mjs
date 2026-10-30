@@ -40179,14 +40179,14 @@ function marketOf(measured, weights, common, market, today) {
   };
   const rows2 = measured.map((input2, i) => ({ ticker: input2.ticker, weight: round11(weights[i]), beta: round11(covarianceOf(holdings[i], benchmark2) / variance, 4), correlation: round11(correlationWith(holdings[i]), 4) })).sort((a, b) => b.beta - a.beta || b.weight - a.weight);
   let worst;
-  weeks.slice(1).forEach((week, index) => {
-    const before = weeks[index];
-    if (week - before !== 7) return;
-    const move = closes2.get(week).close / closes2.get(before).close - 1;
-    if (worst && move >= worst.market) return;
-    const together = measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(before).close - 1), 0);
-    worst = { date: closes2.get(week).date, market: round11(move), mix: round11(together) };
-  });
+  for (const [week, close] of closes2) {
+    const before = closes2.get(week - 7);
+    if (week <= weeks[0] || week > weeks.at(-1) || !before) continue;
+    const move = close.close / before.close - 1;
+    if (!worst || move < worst.move) worst = { week, move };
+  }
+  const mixIn = (week) => measured.every((input2) => input2.weeks.has(week) && input2.weeks.has(week - 7)) ? measured.reduce((sum, input2, i) => sum + weights[i] * (input2.weeks.get(week).close / input2.weeks.get(week - 7).close - 1), 0) : void 0;
+  const worstMix = worst && mixIn(worst.week);
   return {
     ticker: market.ticker,
     from: closes2.get(weeks[0]).date,
@@ -40196,7 +40196,7 @@ function marketOf(measured, weights, common, market, today) {
     beta: round11(weights.reduce((sum, weight2, i) => sum + weight2 * covarianceOf(holdings[i], benchmark2) / variance, 0), 4),
     correlation: round11(correlationWith(mix), 4),
     rows: rows2,
-    ...worst ? { worstWeek: worst } : {}
+    ...worst ? { worstWeek: { date: closes2.get(worst.week).date, market: round11(worst.move), ...worstMix === void 0 ? {} : { mix: round11(worstMix) } } } : {}
   };
 }
 function shrunkCovariance(returns, means) {
@@ -40759,8 +40759,8 @@ function marketLines(market, value, data) {
       rows(market.rows.slice(0, MAX_BETA_NAMED), (row) => `${row.ticker}: beta ${num2(row.beta, 2)}, correlation ${num2(row.correlation, 2)}, ${pct(row.weight, 0)} of the value measured`)
     ),
     ...market.rows.length > MAX_BETA_NAMED ? [`And ${market.rows.length - MAX_BETA_NAMED} more.`] : [],
-    ...scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} \u2192 ${signedPct(scenario.move)}, about ${money3(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== void 0 ? ` (${signedPct(scenario.account)} of the account, cash not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : [],
-    ...worst ? [`${market.ticker}'s worst week, to ${worst.date}: ${signedPct(worst.market)}; today's mix ${signedPct(worst.mix)} that week.`] : []
+    ...scenarios.length ? [`If ${market.ticker} fell, by that beta alone: ${scenarios.map((scenario) => `${pct(-scenario.market, 0)} \u2192 ${signedPct(scenario.move)}, about ${money3(Math.round(scenario.amount), data.accountCurrency)}${scenario.account !== void 0 ? ` (${signedPct(scenario.account)} of the account, cash and holdings not measured not moving)` : ""}`).join("; ")}. A beta is how the holdings moved with it on average over those weeks, not a forecast; each also moves on its own.`] : [],
+    ...worst ? [`${market.ticker}'s worst week over those weeks, to ${worst.date}: ${signedPct(worst.market)}${worst.mix === void 0 ? "" : `; today's mix ${signedPct(worst.mix)} that week`}.`] : []
   ];
 }
 var MAX_PARITY_NAMED = 12;
@@ -42595,7 +42595,7 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   const priceHistory = deps.priceHistory;
   if (!priceHistory) return { riskProblem: "No quote provider is configured (QUOTE_PROVIDER), so there are no closes to measure the holdings' risk from." };
   const listed = new Map(read.instruments.map((instrument) => [instrument.ticker, instrument]));
-  const found = deps.benchmark ? benchmarkInstrument(read.instruments, deps.benchmark) : void 0;
+  const found = deps.benchmark ? benchmarkInstrument(read.instruments.length ? read.instruments : void 0, deps.benchmark) : void 0;
   const market = found && "instrument" in found ? found.instrument : void 0;
   if (market && !listed.has(market.ticker)) listed.set(market.ticker, market);
   const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
@@ -42619,8 +42619,9 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
     return "prices" in result2 ? { points: result2.prices.points } : { reason: result2.missing, problem: result2.problem };
   };
   const held = /* @__PURE__ */ new Set([...holdings.map((holding3) => holding3.ticker), ...positions.keys()]);
-  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker)) : [];
   const marketRead = market && !valued.some((holding3) => holding3.ticker === market.ticker) ? [market.ticker] : [];
+  const besides = deps.onCovariance ? [...new Set(deps.alongside ?? [])].filter((ticker) => !held.has(ticker) && !marketRead.includes(ticker)) : [];
+  const marketBeside = !!deps.onCovariance && marketRead.length > 0 && (deps.alongside ?? []).includes(marketRead[0]) && !held.has(marketRead[0]);
   const tickers = [...valued.map((holding3) => holding3.ticker), ...marketRead, ...besides];
   const results = await eachLimited(tickers, CONCURRENCY4, deadline, readOne, later);
   const unread = tickers.filter((ticker) => !started.has(ticker)).flatMap((ticker) => requestFor(ticker) ?? []);
@@ -42636,6 +42637,10 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   const unmeasured = [];
   const marketResult = marketRead.length ? results[valued.length] : void 0;
   const marketPoints = market && (marketResult ? "points" in marketResult ? marketResult.points : void 0 : inputs.find((input2) => input2.ticker === market.ticker)?.points);
+  if (marketBeside && marketResult) {
+    if ("points" in marketResult) alongside.push({ ticker: market.ticker, points: marketResult.points });
+    else unmeasured.push({ ticker: market.ticker, reason: marketResult.reason });
+  }
   besides.forEach((ticker, index) => {
     const result2 = results[valued.length + marketRead.length + index];
     if ("points" in result2) alongside.push({ ticker, points: result2.points });
@@ -42787,14 +42792,14 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
     return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {} };
   };
-  const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs, alongside } = {}) => {
+  const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs, alongside, market } = {}) => {
     let read;
     const analysis = await insights.allocation(environment, limits, (positions) => {
       read = positions;
     });
     const holdings = only ? analysis.holdings.filter((holding3) => only.has(holding3.ticker)) : analysis.holdings;
     const quoteOf = config3.sampleData ? (instrument) => trading.externalQuote(instrument).then((quote) => quote?.price).catch(() => void 0) : void 0;
-    const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {}, ...config3.benchmark ? { benchmark: config3.benchmark } : {} };
+    const deps = { priceHistory, ...onCovariance ? { onCovariance } : {}, ...budgetMs ? { budgetMs } : {}, ...alongside?.length ? { alongside } : {}, ...quoteOf ? { quoteOf } : {}, ...market && config3.benchmark ? { benchmark: config3.benchmark } : {} };
     const risk = read ? await readHoldingRisk(deps, environment, holdings, read).catch((error62) => ({ riskProblem: asStructuredError(error62).message })) : {};
     return { ...analysis, ...risk, fxFeeRate: config3.fxFeeRate };
   };
@@ -42906,7 +42911,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         let covariance;
         const analysis = await allocationWithRisk(environment, limits, { onCovariance: (found) => {
           covariance = found;
-        }, alongside: await targetTickers(environment) });
+        }, alongside: await targetTickers(environment), market: true });
         const data = { ...withTargetVolatility(await targetAllocations.withDrift(analysis), covariance), credentials: credentialStatus(config3), writeEnabled: canWrite };
         return result(data, `Allocation: ${data.holdings.length} holdings, cash ${(data.cashWeight * 100).toFixed(1)}%, largest ${(data.concentration.largestWeight * 100).toFixed(1)}% of invested value, ${data.flags.length} flag(s)${data.drift ? `; largest drift from targets ${(data.drift.maxDrift * 100).toFixed(1)} points${driftTradeText(data.drift)}` : ""}${data.risk ? `; the holdings' volatility together ${(data.risk.volatility * 100).toFixed(1)}% a year, ${data.risk.rows[0].ticker} the largest share of it (${(data.risk.rows[0].risk * 100).toFixed(0)}%)${badWeekText(data.risk.mix)}${data.risk.market ? `, a beta of ${data.risk.market.beta.toFixed(2)} to ${data.risk.market.ticker}` : ""}` : ""}.`);
       } catch (error62) {
