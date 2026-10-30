@@ -486,11 +486,11 @@ export function createMcpServer(
       description: "Look up one Trading 212 order by id: still open (and how much filled), or how it ended (filled, partly filled, cancelled, rejected) with its fills and prices. Reads open orders, then recent history. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault, orderId: z.string().min(1).max(24) }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, orderId }) => {
       try {
-        const data = await trading.orderStatus(environment, orderId);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await trading.orderStatus(environment, orderId) };
         return result(data, `Order ${data.orderId}: ${data.state.replace("_", " ")}.`);
       } catch (error) {
         return toolError(error);
@@ -554,7 +554,7 @@ export function createMcpServer(
         rows: z.number().int().min(0).max(MAX_EXPORT_RECORDS).default(0).describe("read: how many of the report's newest rows to return as well, newest first."),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, action, period, from, to, reportId, rows }) => {
       try {
@@ -565,21 +565,21 @@ export function createMcpServer(
           const created = await insights.requestExport(environment, window);
           if (created.reused) {
             const status = created.reused.status ?? "queued";
-            return result({ kind: "history_export", environment, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
+            return result({ kind: "history_export", environment, credentials: credentialStatus(config), writeEnabled: canWrite, requested: created }, `Report ${created.reportId} (${created.reused.timeFrom?.slice(0, 10)} to ${created.reused.timeTo?.slice(0, 10)}) holds this period and is already ${status.toLowerCase()}, so no second one was requested. Read it with action read and reportId ${created.reportId}${/finish/i.test(status) ? "" : " in a minute"}.`);
           }
           const covered = window.from ? "" : " Without a start date the report covers the last 365 days.";
-          return result({ kind: "history_export", environment, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
+          return result({ kind: "history_export", environment, credentials: credentialStatus(config), writeEnabled: canWrite, requested: created }, `Requested report ${created.reportId}.${covered} Read it with action read and reportId ${created.reportId} in a minute or so.`);
         }
         if (action === "read") {
           const read = await insights.readExport(environment, reportId);
           const status = (read.report.status ?? "not ready").toLowerCase();
-          if (!read.summary) return result({ kind: "history_export", environment, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
-          const payload = { kind: "history_export", environment, report: read.report, summary: read.summary, ...(rows ? { records: read.records!.slice(0, rows), recordCount: read.recordCount } : {}) };
+          if (!read.summary) return result({ kind: "history_export", environment, credentials: credentialStatus(config), writeEnabled: canWrite, report: read.report }, `Report ${read.report.reportId} is ${status}; ${/fail|cancel/.test(status) ? "request a new one" : "read it again once it is finished"}.`);
+          const payload = { kind: "history_export", environment, credentials: credentialStatus(config), writeEnabled: canWrite, report: read.report, summary: read.summary, ...(rows ? { records: read.records!.slice(0, rows), recordCount: read.recordCount } : {}) };
           const period = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
           return result(payload, `Read report ${read.report.reportId}${period}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
         const reports = await insights.listExports(environment);
-        return result({ kind: "history_export", environment, reports }, `Found ${reports.length} report(s).`);
+        return result({ kind: "history_export", environment, credentials: credentialStatus(config), writeEnabled: canWrite, reports }, `Found ${reports.length} report(s).`);
       } catch (error) {
         return toolError(error);
       }
@@ -597,7 +597,7 @@ export function createMcpServer(
         limit: z.number().int().min(1).max(50).default(12),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment, limit }) => {
       try {
@@ -727,7 +727,7 @@ export function createMcpServer(
       description: "Show the trading rules this TradePilot instance enforces for an environment (position-weight cap, daily order and value budgets, ticker and type lists, closed-market Market orders, reference-price age, per-order caps) and how much of today's budget is used. Read-only.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: readOnly,
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment }) => {
       try {
@@ -799,7 +799,7 @@ export function createMcpServer(
       description: "List standing dollar-cost-averaging plans with their schedule, legs, next due time, last outcome and whether Demo plans run unattended. Read-only.",
       inputSchema: z.object({ environment: environmentEnum.optional() }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment }) => {
       try {
@@ -929,7 +929,7 @@ export function createMcpServer(
         sellUntargeted: z.boolean().optional().describe("A rebalance to these targets sells holdings without a target (default false: they are kept and do not count as drift)"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ action, environment, targets, cashWeight, driftThreshold, sellUntargeted }) => {
       try {
@@ -974,7 +974,7 @@ export function createMcpServer(
       description: "List price alerts on instruments (the condition, the last price seen, and whether and when each one triggered) and account alerts on the account's value, cash and day's move (the last value read). Read-only.",
       inputSchema: z.object({ environment: environmentEnum.optional() }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-      _meta: {},
+      _meta: { ui: { resourceUri: WIDGET_URI } },
     },
     async ({ environment }) => {
       try {

@@ -1534,3 +1534,28 @@ strong.historyAmount { flex: none; font-size: 13px; }
   .reviewToolbar > .segmented button, .taxControls > .segmented button { flex: 1 1 0; padding: 0 8px; }
   .taxControls > .yearStepper { margin-inline: auto; }
 }
+
+/* Today's budget on the automation page: a thin bar per limit, amber near it and red at it. */
+.usageMeters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.usageMeter { padding: 12px 14px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg-soft); }
+.usageMeterHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--tp-muted); }
+.usageMeterHead strong { color: var(--tp-text); font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
+.usageMeterTrack { height: 6px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: var(--tp-border); }
+.usageMeterTrack i { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--tp-green); transition: width .3s ease; }
+.usageMeterTrack i.near { background: var(--tp-amber); }
+.usageMeterTrack i.full { background: var(--tp-red); }
+@media (forced-colors: active) {
+  .usageMeterTrack { border: 1px solid CanvasText; }
+  .usageMeterTrack i { background: Highlight; }
+}
+
+/* Pages for one order and for the CSV reports. */
+.statusPill.ended { background: var(--tp-red-soft); color: var(--tp-red); }
+.orderStatusWho { margin-top: 6px; }
+.orderStatusWho strong, .orderStatusWho .reviewName { font-size: 18px; }
+.orderFillMeter { margin-top: 14px; background: var(--tp-bg); }
+.toolActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.exportNotice { align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0; }
+.exportRowEnd { display: flex; flex: none; align-items: center; gap: 8px; }
+.exportList .historyWho strong { white-space: normal; }
+.heroValue.exportSpan { white-space: normal; overflow-wrap: anywhere; line-height: 1.1; }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.60.1
+
+- An order looked up by id opens on a page of its own (`get_order_status`): where it stands, how much of it filled as a bar, the average fill price and value, each fill, **Check again**, and **Review cancel** while it is open (with order tools); a cancellation made there comes back to the order, showing how it ended.
+- Trading 212's CSV reports open on a page too (`manage_history_export`): the reports, newest first, with whether each is ready, being built or failed and **Read** for the ready ones, and a report read: its period and rows, realised result, net dividends and interest, each charge by currency, and each action's rows and total.
+- The automation page has the trading rules: today's orders and value against their daily limits as bars (amber near the limit, red at it), the position cap, the largest order and the most shares in one, the allowed and blocked tickers and types, whether Market orders wait for the open and how fresh a reference price must be. `get_trading_policy`, `list_price_alerts` and `list_investment_plans` open on it, `manage_target_allocation` on Allocation and `get_recent_trading_activity` on the account with its activity. `get_quote` and `get_market_hours`, which the model uses on the way to an order, stay text.
+
 ## 2.60.0
 
 - A History tab with three pages. **Trades** adds up the period's fills (realised result, money bought and sold, costs) and lists them a day at a time, each with its journal note, a filter by instrument and the orders that did not fill. **Cash** gives the net movement and net contributions, the totals of deposits, withdrawals, dividends, interest and fees, a filter by kind and every movement by day. **Tax year** shows a calendar or UK (6 April) year, stepped back and forward, with the net gain on sales, gains and losses apart, dividends, interest, costs, the result per instrument and a note that it is not a tax calculation. `get_trade_history`, `get_cash_history` and `get_tax_year_summary` now open in the widget, and their results say which period they cover (`period`).

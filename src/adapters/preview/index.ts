@@ -90,6 +90,9 @@ async function scenarios(): Promise<Scenario[]> {
     { id: "trades", group: "portfolio", tool: "get_trade_history", args: { period: "all", limit: 200, includeUnfilled: true }, prompt: { en: "Show my trades.", zh: "看看我的成交记录。" } },
     { id: "tradesnvda", group: "portfolio", tool: "get_trade_history", args: { ticker: "NVDA", from: "2026-01-01", to: "2026-06-30", limit: 50 }, prompt: { en: "How did my NVIDIA trades go in the first half of the year?", zh: "上半年我的英伟达交易做得怎么样？" } },
     { id: "cash", group: "portfolio", tool: "get_cash_history", args: { period: "all", limit: 500 }, prompt: { en: "Show my deposits, withdrawals and dividends.", zh: "看看我的入金、出金和分红。" } },
+    { id: "orderstatus", group: "portfolio", tool: "get_order_status", args: { orderId: "81234" }, prompt: { en: "Did my Apple limit order fill yet?", zh: "我的苹果限价单成交了吗？" } },
+    { id: "exports", group: "portfolio", tool: "manage_history_export", args: { action: "list" }, prompt: { en: "Which Trading 212 reports do I have?", zh: "我有哪些 Trading 212 报表？" } },
+    { id: "rules", group: "portfolio", tool: "get_trading_policy", args: {}, prompt: { en: "What limits does TradePilot put on my orders?", zh: "TradePilot 对我的下单有哪些限制？" } },
     { id: "taxyear", group: "portfolio", tool: "get_tax_year_summary", args: { yearStart: "04-06", timeZone: "Europe/London" }, prompt: { en: "What were my gains in the UK tax year?", zh: "我这个英国税年的收益是多少？" } },
     {
       id: "tradeplan", group: "orders", tool: "show_daily_trade_plan",

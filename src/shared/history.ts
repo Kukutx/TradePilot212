@@ -86,6 +86,27 @@ export interface TimeEvent { date: string; type: TimeEventType | string }
 export interface WorkingSchedule { id: number; timeEvents: TimeEvent[] }
 export interface Exchange { id: number; name: string; workingSchedules: WorkingSchedule[] }
 
+/** Amounts by currency; "?" where the file does not say which. */
+export type ExportTotals = Record<string, number>;
+
+export interface ExportSummary {
+  rows: number;
+  /** The first and last row's time, as the file gives it. */
+  first?: string;
+  last?: string;
+  /** Each action (Market buy, Dividend (Ordinary), Interest on cash, Deposit …): how many rows, and their Total. */
+  actions: Array<{ action: string; count: number; totals: ExportTotals }>;
+  /** Each charge column (Currency conversion fee, Stamp duty reserve tax, Withholding tax …), summed, in its own currency. */
+  charges: Array<{ name: string; totals: ExportTotals }>;
+  /** Interest paid: the Total of rows whose action names interest. */
+  interest: ExportTotals;
+  /** Dividends paid, net of withholding: the Total of rows whose action is a dividend, in the account currency. */
+  dividends: ExportTotals;
+  /** Realised result of sales, from the Result column. */
+  result: ExportTotals;
+  columns: string[];
+}
+
 export interface ExportReport {
   reportId: number;
   status?: string;

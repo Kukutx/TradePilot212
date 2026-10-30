@@ -172,6 +172,7 @@ export function createServices(input: ServiceDependencies) {
           ? { ...(summary.currency ? { currency: summary.currency } : {}), account: { ...(summary.totalValue !== undefined ? { value: summary.totalValue } : {}), ...(summary.cash?.availableToTrade !== undefined ? { cash: summary.cash.availableToTrade } : {}) } }
           : trading.accountCurrency(environment).then((currency) => (currency ? { currency } : {}), () => ({})))),
       policy: deps.config.policy[environment],
+      orderLimits: { notional: deps.config.maxOrderNotional, quantity: deps.config.maxOrderQuantity },
       settings: {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,
