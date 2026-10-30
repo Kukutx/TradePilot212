@@ -123,7 +123,7 @@ function journalReview(data: JournalReview): string[] {
     ...(data.withoutOrder ? [`${data.withoutOrder} note(s) are on an instrument rather than a filled order.`] : []),
     ...(data.unpriced.length ? [`No usable price now for ${data.unpriced.join(", ")}.`] : []),
     ...(data.notQuoted.length ? [`Not priced this time, since one review asks the quote provider about ${MAX_REVIEW_QUOTES} instruments at most: ${data.notQuoted.join(", ")}.`] : []),
-    ...(data.truncated ? ["History was cut at the page limit; older fills are not counted."] : []),
+    ...(data.truncated ? ["History was truncated at the page limit; older fills are not counted yet. TradePilot keeps what it has read, so asking again reads further back (as does a higher maxPages)."] : []),
     ...section("By tag", rows(data.tags, (row) => tagStatsLine(row, currency))),
     ...section(`Trades with a note${data.tradesTotal > data.trades.length ? ` (newest ${data.trades.length} of ${data.tradesTotal})` : ""}`, rows(data.trades, journalTradeLine)),
   ];
@@ -438,7 +438,7 @@ function performance(data: PerformanceSummary): string[] {
     ...riskLines(data),
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
-    ...(data.coverage.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
+    ...(data.coverage.truncated ? ["History was truncated at the page limit; older records are not counted yet. TradePilot keeps what it has read, so asking again reads further back (as does a higher maxPages)."] : []),
     ...data.notes,
   ];
 }
@@ -624,7 +624,7 @@ function income(data: IncomeSummary): string[] {
     )) : []),
     ...section("By instrument", rows(data.byTicker.slice(0, 12), (item) => `${item.key}: ${num(item.amount)}`)),
     ...section("By month", rows(data.byMonth.slice(-12), (item) => `${item.key}: ${num(item.amount)}`)),
-    ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older records."] : []),
+    ...(data.truncated ? ["History was truncated at the page limit; older records are not counted yet. TradePilot keeps what it has read, so asking again reads further back (as does a higher maxPages)."] : []),
   ];
 }
 
@@ -662,7 +662,7 @@ function tradeHistory(data: { fills: TradeFill[]; unfilled?: UnfilledOrder[]; jo
     ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`
       + `${order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`}${order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== undefined || order.stopPrice !== undefined) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : []),
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
-    ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older fills."] : []),
+    ...(data.truncated ? ["History was truncated at the page limit; older fills are not counted yet. TradePilot keeps what it has read, so asking again reads further back (as does a higher maxPages)."] : []),
   ];
 }
 
@@ -684,7 +684,7 @@ function cashHistory(data: { items: Array<{ date: string; type: string; amount: 
     ...rows(data.items, (item) => `${day(item.date)} ${item.type}${item.ticker ? ` ${item.ticker}` : ""}${item.name ? ` (${item.name})` : ""} ${signed(item.amount)} ${item.currency}`.trimEnd()
       + `${item.quantity === undefined ? "" : `, ${num(item.quantity, 8)} shares`}${item.grossPerShare === undefined ? "" : ` × ${num(item.grossPerShare, 6)} ${item.perShareCurrency ?? ""} gross`.trimEnd()}`, 60),
     ...(data.count > data.items.length ? [`${data.count - data.items.length} more not shown; raise limit or narrow the window.`] : []),
-    ...(data.truncated ? ["History was truncated at the page limit; raise maxPages for older entries."] : []),
+    ...(data.truncated ? ["History was truncated at the page limit; older entries are not counted yet. TradePilot keeps what it has read, so asking again reads further back (as does a higher maxPages)."] : []),
   ];
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.56.0
+
+- History is read once and kept. Trading 212's history records are final, so TradePilot now keeps what it reads in its state store, per account and kind (orders, dividends, cash movements), up to 40,000 of each. A read asks only for the records newer than the newest kept, and spends the rest of its `maxPages` going further back from where the last one stopped. Performance, tax-year, income, journal and trade-history reads therefore reach further back with every call instead of stopping at the same 2,000 records, and once the whole history is kept a read costs one page. A truncated result now says that asking again reads further back.
+- One instrument's history uses the ledger once it reaches back far enough, and Trading 212's own filter until then. Reads of the same history are made one at a time, so two tools at once do not spend the rate limit on the same pages. The account is named in storage by a one-way digest of its API key. More in docs/ANALYTICS.md, **The history ledger**.
+
 ## 2.55.0
 
 - Requests keep to Trading 212's limits before they are sent. Every response says how many requests its endpoint has left for the account and when that resets; the widget, the model's tools, the scheduled runs and background reads now share one record of it, per account and endpoint. A request to an endpoint with nothing left waits for the reset (a read up to a minute, an order up to 15 seconds), and when it resets one request goes first while the rest wait a moment for what its response says, so callers at once no longer all spend a 429 and back off together. A reset more than five minutes off is taken as five minutes. One whose limit resets later than that is refused before it is sent, with when it resets; an order refused this way was never sent, so its status is known.

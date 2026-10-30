@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
+import { HistoryLedgers } from "./history-ledger.js";
+import { MemoryStateStore } from "./state-store.js";
 
 const config = {
   trading212: {
@@ -171,5 +173,121 @@ describe("tax year summary", () => {
     await expect(service([]).taxYear("demo", { yearStart: "02-30" })).rejects.toThrow(/yearStart must be a real month and day/);
     await expect(service([]).taxYear("demo", { year: 2027 }, new Date("2026-10-01T00:00:00Z"))).rejects.toThrow(/has not started yet/);
     await expect(service([]).taxYear("demo", { timeZone: "Mars/Olympus" })).rejects.toThrow(/IANA time zone/);
+  });
+});
+
+describe("history ledger", () => {
+  /** A Trading 212 fake with `count` cash movements a day apart, newest first, 50 a page; `add` puts newer ones on top. */
+  function broker(count: number) {
+    const day = 86_400_000;
+    const base = Date.parse("2026-10-01T00:00:00Z");
+    let items = Array.from({ length: count }, (_, index) => ({ reference: `t${count - index}`, type: "DEPOSIT", amount: count - index, currency: "EUR", dateTime: new Date(base - index * day).toISOString() }));
+    const calls: string[] = [];
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname + url.search);
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      const page = items.slice(offset, offset + 50);
+      return Response.json({ items: page, nextPagePath: offset + 50 < items.length ? `/api/v0/equity/history/transactions?limit=50&cursor=${offset + 50}` : null });
+    }) as typeof fetch;
+    const add = (n: number) => {
+      const top = Number(items[0]!.reference.slice(1));
+      items = [...Array.from({ length: n }, (_, index) => ({ reference: `t${top + n - index}`, type: "DEPOSIT", amount: top + n - index, currency: "EUR", dateTime: new Date(base + (n - index) * day).toISOString() })), ...items];
+    };
+    return { fetcher, calls, add };
+  }
+  const withLedger = (fetcher: typeof fetch, store = new MemoryStateStore()) => ({ store, service: new InsightsService({ config, instruments: async () => [], fetcher, ledgers: new HistoryLedgers(store) }) });
+  const all = { to: new Date("2027-01-01T00:00:00Z") };
+
+  it("keeps what each read reads, so reads go on further back until the whole history is kept", async () => {
+    const { fetcher, calls } = broker(230);
+    const { store } = withLedger(fetcher);
+    // A fresh service each time, as each call reads afresh after the minute's cache.
+    const read = () => withLedger(fetcher, store).service.collect("demo", "transactions", all, 2);
+    const first = await read();
+    expect(first.items).toHaveLength(100);
+    expect(first.truncated).toBe(true);
+    // The newest page reaches a record kept at once; the budget left goes on from where the last read stopped.
+    const second = await read();
+    expect(second.items).toHaveLength(150);
+    expect(calls.slice(2)).toEqual(["/api/v0/equity/history/transactions?limit=50", "/api/v0/equity/history/transactions?limit=50&cursor=100"]);
+    await read();
+    const whole = await read();
+    expect(whole.items).toHaveLength(230);
+    expect(whole.truncated).toBe(false);
+    expect(whole.kept).toBe(230);
+    expect(new Set(whole.items.map((item) => item.reference)).size).toBe(230);
+    // Whole: one page, the newest, is all a read asks for now.
+    const before = calls.length;
+    await read();
+    expect(calls.length - before).toBe(1);
+  });
+
+  it("adds the records newer than the newest kept, and starts again when more came in than a read reaches", async () => {
+    const { fetcher, add } = broker(60);
+    const { store } = withLedger(fetcher);
+    const read = (pages = 5) => withLedger(fetcher, store).service.collect("demo", "transactions", all, pages);
+    expect((await read()).items).toHaveLength(60);
+    add(3);
+    const updated = await read();
+    expect(updated.items.map((item) => item.reference).slice(0, 4)).toEqual(["t63", "t62", "t61", "t60"]);
+    expect(updated.items).toHaveLength(63);
+    expect(updated.truncated).toBe(false);
+    // 120 new ones and a budget of two pages: the hole between them and what was kept is never filled in.
+    add(120);
+    const reset = await read(2);
+    expect(reset.items).toHaveLength(100);
+    expect(reset.truncated).toBe(true);
+    expect(reset.items[0]!.reference).toBe("t183");
+  });
+
+  it("returns the window's records, and reads no further back than its start", async () => {
+    const { fetcher, calls } = broker(400);
+    const { service } = withLedger(fetcher);
+    const result = await service.collect("demo", "transactions", { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-10-02T00:00:00Z") }, 10);
+    expect(result.items).toHaveLength(31);
+    expect(result.truncated).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps the records in chunks, writes only the ones that changed, and starts again over a chunk gone missing", async () => {
+    const { fetcher, add } = broker(450);
+    const { store } = withLedger(fetcher);
+    const read = () => withLedger(fetcher, store).service.collect("demo", "transactions", all, 10);
+    await read();
+    const chunks = await store.list<unknown[]>("ledger:demo:");
+    expect(chunks.map((chunk) => chunk.key.replace(/^ledger:demo:[0-9a-f]+:/, ""))).toEqual(["transactions:c:00000", "transactions:c:00001", "transactions:meta"]);
+    // The account is named by a digest, never by its key.
+    expect(chunks.some((chunk) => chunk.key.includes("key"))).toBe(false);
+    const writes: string[] = [];
+    const put = store.put.bind(store);
+    store.put = async (key, value, expiresAt) => { writes.push(key.replace(/^ledger:demo:[0-9a-f]+:/, "")); return put(key, value, expiresAt); };
+    add(1);
+    expect((await read()).items).toHaveLength(451);
+    expect(writes).toEqual(["transactions:c:00001", "transactions:meta"]);
+    await store.delete(chunks[1]!.key);
+    const again = await read();
+    expect(again.items).toHaveLength(451);
+  });
+
+  it("reads one instrument's from Trading 212's own filter until the ledger reaches back far enough", async () => {
+    const calls: string[] = [];
+    const order = (id: number, ticker: string, filledAt: string) => ({ order: { id, ticker }, fill: { id: id * 10, filledAt } });
+    const items = [order(3, "AAPL_US_EQ", "2026-09-03T00:00:00Z"), order(2, "MSFT_US_EQ", "2026-09-02T00:00:00Z"), order(1, "AAPL_US_EQ", "2026-09-01T00:00:00Z")];
+    const fetcher = (async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      calls.push(url.search);
+      const ticker = url.searchParams.get("ticker");
+      return Response.json({ items: ticker ? items.filter((item) => item.order.ticker === ticker) : items, nextPagePath: null });
+    }) as typeof fetch;
+    const store = new MemoryStateStore();
+    const read = () => new InsightsService({ config, instruments: async () => [], fetcher, ledgers: new HistoryLedgers(store) }).collect("demo", "orders", all, 5, "AAPL_US_EQ");
+    expect((await read()).items).toHaveLength(2);
+    expect(calls).toEqual(["?limit=50&ticker=AAPL_US_EQ"]);
+    // A read of all of them keeps the whole history; one instrument's then comes from it.
+    await new InsightsService({ config, instruments: async () => [], fetcher, ledgers: new HistoryLedgers(store) }).collect("demo", "orders", all, 5);
+    const fromLedger = await read();
+    expect(fromLedger.items.map((item) => item.order?.id)).toEqual([3, 1]);
+    expect(calls.at(-1)).toBe("?limit=50");
   });
 });

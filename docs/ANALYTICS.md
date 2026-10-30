@@ -147,6 +147,12 @@ They read history newest first, in pages of 50 records. Trading 212 limits histo
 
 When the budget runs out before the requested period is covered, the result is marked `truncated`. The simple and annualized returns are then omitted, because they would be wrong.
 
+### The history ledger
+
+Records in Trading 212's history are final (a filled or cancelled order, a paid dividend, a settled cash movement), so TradePilot keeps what it reads, per account (named by a one-way digest of the API key, never the key) and per kind, in its state store, in chunks of 400 records. A read asks only for the pages newer than the newest record kept, until it reaches one, and spends the rest of its `maxPages` going further back from where the last read stopped, no further than the period's start. So a `truncated` result is not the end: asking again reads on, and once the account's first record is reached a read asks for one page, the newest. Up to 40,000 records of each kind are kept. The sample account keeps none: its history is drawn relative to today.
+
+When more new records came in than one read reaches, the gap between them and what was kept is never filled in, so the kept records are dropped and the ledger starts again from the newest. A read cut short by the rate limit before it reaches what is kept keeps nothing of that read. One instrument's history (the holding page) comes from the ledger once it reaches back to the period's start; until then it uses Trading 212's own `ticker` filter, which reaches further back in as many pages. Reads of one account's kind are made one at a time in a process, so two at once do not read the same pages twice.
+
 ## How the figures are defined
 
 - **Amounts** are in the account currency, as Trading 212 reports them.
