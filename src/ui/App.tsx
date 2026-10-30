@@ -234,7 +234,7 @@ function ViewTabs({ tab, busy, t, onSelect }: { tab: PortfolioTab; busy: boolean
     <div className={`tabStrip${edges.start ? " fadeStart" : ""}${edges.end ? " fadeEnd" : ""}`}>
       <nav className="viewTabs" aria-label={t("viewsLabel")} ref={nav}>
         {(["holdings", "watchlist", "allocation", "performance", "income", "journal_review"] as const).map((key) => (
-          <button key={key} type="button" aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : ""} disabled={busy && tab !== key} onClick={() => onSelect(key)}>
+          <button key={key} type="button" aria-current={tab === key ? "page" : undefined} className={tab === key ? "active" : ""} aria-disabled={busy && tab !== key ? true : undefined} onClick={() => { if (!(busy && tab !== key)) onSelect(key); }}>
             {t(TAB_KEYS[key])}
           </button>
         ))}

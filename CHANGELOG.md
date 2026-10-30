@@ -5,6 +5,8 @@
 - A more modern look. Cards sit just above the page on a soft shadow, the account overview carries a faint wash of colour, and its value and the tiles' figures are larger. The tabs are pills on a quiet rail, buttons and rows answer the pointer, and a view's panels rise in a few frames apart (not at all with reduced motion). The brand mark has a gradient.
 - Each instrument has its own tint. Its two letters sit on a colour taken from its symbol, the same in the holdings, the watchlist, the trade plan and baskets, in light and dark, so a row is found again at a glance.
 - Figures use Inter's tabular digits everywhere, so columns of numbers line up.
+- No browser-default controls left. Scrollbars are a thin rounded thumb in the theme's colours, with no arrows; selects have the widget's own chevron and their lists follow the theme; checkboxes are rounded boxes with a tick; the search box's clear button is a muted cross; number fields have no spinners anywhere; disclosures turn a chevron instead of the system triangle; and notes grow with what is typed instead of showing a resize grip.
+- Blind spots fixed on the way: a field beside one with a hint (the order form's **Validity**) no longer drops below its label; a switch that is on is green, visible in the dark theme too, and shows the keyboard focus; while a view loads, the other tabs wait without dropping the keyboard focus.
 - A change that rounds to 0% now reads "+0%" in the text a host shows, whichever way it moved, rather than "0%" for a tiny fall and "+0%" for a tiny rise. Tests that read the sample account's prices for today no longer fail on such days, or when its readings fall in different months.
 - `zod` is lifted to 4.6.7 (GHSA-mrhx-c7xc-m3w5).
 
