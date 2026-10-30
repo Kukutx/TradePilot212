@@ -357,6 +357,7 @@ export const en = {
   alertPercent: "Percent",
   alertNote: "Note",
   amountReadAs: "Read as {value}",
+  amountAmbiguous: "Is this {decimal} or {whole}? Write decimals with a point, or the number without the comma.",
   alertNoteHint: "Optional, sent with the alert.",
   alertValueRequired: "Enter a number above 0.",
   alertPercentRange: "Enter a percent below {limit}.",

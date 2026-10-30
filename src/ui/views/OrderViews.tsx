@@ -4,10 +4,12 @@ import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResoluti
 import { MAX_JOURNAL_TEXT } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
 import { DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
-import { amount, dateTime, money, notional, qty, time } from "../lib/format";
+import { ambiguousComma, amount, dateTime, money, notional, parseAmount, qty, time } from "../lib/format";
 import { instrumentCurrency, type InstrumentBook } from "../lib/instruments";
 import { countText, envLabel, fill, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
 import { riskAtStop, summarizeOrder } from "../lib/orders";
+import { radioKeys, radioTab } from "../lib/radio";
+import { readAsHint } from "../components/alerts";
 
 const POLICY_GLYPH: Record<PolicyCheck["status"], string> = { pass: "✓", warn: "!", skip: "–", block: "✕" };
 
@@ -40,16 +42,40 @@ export function PolicyList({ checks, t, locale }: { checks?: PolicyCheck[]; t: T
   );
 }
 
+/** What was typed stays as typed ("1,5", "1 234") while it reads as the value; only a value set from elsewhere replaces it. */
+export const syncedText = (current: string, value: number | undefined) =>
+  current.trim() !== "" && parseAmount(current) === value ? current : value === undefined ? "" : String(value);
+
 /** The editable text of a number input; an empty or partial entry stays as typed instead of turning into 0. */
 function useNumberText(value: number | undefined): [string, (text: string) => void] {
   const [text, setText] = useState(value === undefined ? "" : String(value));
   useEffect(() => {
-    setText((current) => (current.trim() !== "" && Number(current) === value ? current : value === undefined ? "" : String(value)));
+    setText((current) => syncedText(current, value));
   }, [value]);
   return [text, setText];
 }
 
-const positive = (text: string) => text.trim() !== "" && Number.isFinite(Number(text)) && Number(text) > 0;
+/**
+ * A typed amount above zero, read as the other forms read it ("1,5" or "1.5"; "1 234"). A comma before exactly three
+ * digits could be either mark, so it is not taken: the field asks for a point or no comma (ambiguousText).
+ */
+const positive = (text: string) => { const value = parseAmount(text); return !ambiguousComma(text) && Number.isFinite(value) && value > 0; };
+
+/**
+ * A form field's few choices as one row of buttons (a radio group named by the field's label), rather than a select
+ * that hides them: the side and the order type. `id` is the field's, so the group can take the label's name.
+ */
+function Choices<T extends string>({ id, value, options, onChange, ...described }: {
+  id: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void; "aria-describedby"?: string; "aria-invalid"?: boolean;
+}) {
+  return (
+    <div className="segmented formChoices" role="radiogroup" aria-labelledby={`${id}-label`} id={id} onKeyDown={radioKeys} {...described}>
+      {options.map(([key, label]) => (
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} className={`${value === key ? "active" : ""} choice-${key}`} onClick={() => onChange(key)}>{label}</button>
+      ))}
+    </div>
+  );
+}
 
 export function OrderEditor({
   draft,
@@ -84,9 +110,11 @@ export function OrderEditor({
   const [touched, setTouched] = useState(false);
   const needsLimit = draft.type === "limit" || draft.type === "stop_limit";
   const needsStop = draft.type === "stop" || draft.type === "stop_limit";
-  const quantityError = positive(quantityText) ? undefined : t("quantityRequired");
-  const limitError = needsLimit && !positive(limitText) ? t("priceRequired") : undefined;
-  const stopError = needsStop && !positive(stopText) ? t("priceRequired") : undefined;
+  const ambiguousText = (text: string) => { const typed = text.normalize("NFKC").trim(); return fill(t("amountAmbiguous"), { decimal: typed.replace(",", "."), whole: typed.replace(",", "") }); };
+  const amountError = (text: string, required: string) => (ambiguousComma(text) ? ambiguousText(text) : positive(text) ? undefined : required);
+  const quantityError = amountError(quantityText, t("quantityRequired"));
+  const limitError = needsLimit ? amountError(limitText, t("priceRequired")) : undefined;
+  const stopError = needsStop ? amountError(stopText, t("priceRequired")) : undefined;
   const invalid = Boolean(quantityError || limitError || stopError);
   const show = (error: string | undefined, text: string) => (touched || text !== "" ? error : undefined);
   const currency = instrumentCurrency(draft.ticker, book, resolvedInstrument);
@@ -94,13 +122,19 @@ export function OrderEditor({
   const risk = riskAtStop(draft, resolution);
   const orderEdited = originalDraft ? (["side", "type", "quantity", "extendedHours", "timeValidity", "limitPrice", "stopPrice", "referencePrice"] as const).some((key) => originalDraft[key] !== draft[key]) : quantityEdited;
 
+  // An amount typed other than as a plain number ("1,5", "1 234") says how it was read, as the alert form does.
+  const hintFor = (text: string, display: (value: number) => string) => {
+    // An ambiguous comma has its own error naming both readings, so no hint picks one.
+    const hint = ambiguousComma(text) || String(parseAmount(text)) === text.trim() ? undefined : readAsHint(text, display, t);
+    return hint ? { hint } : {};
+  };
   const priceInput = (text: string, setText: (text: string) => void, key: "limitPrice" | "stopPrice" | "referencePrice") =>
     (props: { id: string }) => (
-      <input {...props} type="number" inputMode="decimal" min="0" step="any" value={text} placeholder={key === "referencePrice" ? "—" : undefined}
+      <input {...props} inputMode="decimal" autoComplete="off" value={text} placeholder={key === "referencePrice" ? "—" : undefined}
         onChange={(event) => {
           const next = event.target.value;
           setText(next);
-          const value = positive(next) ? Number(next) : undefined;
+          const value = positive(next) ? parseAmount(next) : undefined;
           if (key === "referencePrice") onChange({ ...draft, referencePrice: value, referencePriceAt: undefined });
           else set(key, value);
         }} />
@@ -131,16 +165,16 @@ export function OrderEditor({
           </div>
         )}
         <form className="formGrid" noValidate onSubmit={(event) => { event.preventDefault(); setTouched(true); if (!invalid && !busy) onReview(); }}>
-          <Field label={t("side")}>{(props) => <select {...props} value={draft.side} onChange={(event) => set("side", event.target.value as OrderDraft["side"])}><option value="buy">{t("buy")}</option><option value="sell">{t("sell")}</option></select>}</Field>
-          <Field label={t("type")}>{(props) => <select {...props} value={draft.type} onChange={(event) => set("type", event.target.value as OrderDraft["type"])}><option value="market">{t("market")}</option><option value="limit">{t("limit")}</option><option value="stop">{t("stop")}</option><option value="stop_limit">{t("stopLimit")}</option></select>}</Field>
-          <Field label={t("quantity")} error={show(quantityError, quantityText)}>
-            {(props) => <input {...props} type="number" inputMode="decimal" min="0" step="any" required value={quantityText}
-              onChange={(event) => { setQuantityText(event.target.value); if (positive(event.target.value)) set("quantity", Number(event.target.value)); }} />}
+          <Field label={t("side")} group>{(props) => <Choices {...props} value={draft.side} options={[["buy", t("buy")], ["sell", t("sell")]]} onChange={(side) => set("side", side)} />}</Field>
+          <Field label={t("type")} group>{(props) => <Choices {...props} value={draft.type} options={[["market", t("market")], ["limit", t("limit")], ["stop", t("stop")], ["stop_limit", t("stopLimit")]]} onChange={(type) => set("type", type)} />}</Field>
+          <Field label={t("quantity")} error={show(quantityError, quantityText)} {...hintFor(quantityText, (value) => qty(value, locale))}>
+            {(props) => <input {...props} inputMode="decimal" autoComplete="off" required value={quantityText}
+              onChange={(event) => { setQuantityText(event.target.value); if (positive(event.target.value)) set("quantity", parseAmount(event.target.value)); }} />}
           </Field>
-          {needsLimit && <Field label={t("limitPrice")} unit={currency} error={show(limitError, limitText)}>{priceInput(limitText, setLimitText, "limitPrice")}</Field>}
-          {needsStop && <Field label={t("stopPrice")} unit={currency} error={show(stopError, stopText)}>{priceInput(stopText, setStopText, "stopPrice")}</Field>}
+          {needsLimit && <Field label={t("limitPrice")} unit={currency} error={show(limitError, limitText)} {...hintFor(limitText, (value) => amount(value, currency, locale))}>{priceInput(limitText, setLimitText, "limitPrice")}</Field>}
+          {needsStop && <Field label={t("stopPrice")} unit={currency} error={show(stopError, stopText)} {...hintFor(stopText, (value) => amount(value, currency, locale))}>{priceInput(stopText, setStopText, "stopPrice")}</Field>}
           <Field label={t("referencePrice")} unit={currency} hint={t("referencePriceHint")}>{priceInput(referenceText, setReferenceText, "referencePrice")}</Field>
-          {draft.type !== "market" && <Field label={t("validity")}>{(props) => <select {...props} value={draft.timeValidity ?? "DAY"} onChange={(event) => set("timeValidity", event.target.value as OrderDraft["timeValidity"])}><option value="DAY">{t("day")}</option><option value="GOOD_TILL_CANCEL">{t("gtc")}</option></select>}</Field>}
+          {draft.type !== "market" && <Field label={t("validity")} group>{(props) => <Choices {...props} value={draft.timeValidity ?? "DAY"} options={[["DAY", t("day")], ["GOOD_TILL_CANCEL", t("gtc")]]} onChange={(validity) => set("timeValidity", validity)} />}</Field>}
           {draft.type === "market" && <label className="toggleField"><input type="checkbox" checked={draft.extendedHours ?? false} onChange={(event) => set("extendedHours", event.target.checked)} /><span className="toggleTrack"><span /></span><span>{t("extendedHours")}</span></label>}
           <div className="wideField">
             <Field label={t("orderThesis")} hint={t("orderThesisHint")}>

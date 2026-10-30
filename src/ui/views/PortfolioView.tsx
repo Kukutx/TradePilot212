@@ -16,6 +16,7 @@ import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import type { MessageKey } from "../i18n";
 import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
 import { stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
+import { radioKeys, radioTab } from "../lib/radio";
 
 export type { TodayState };
 
@@ -109,15 +110,15 @@ export function PortfolioView({
         ) : (
           <>
             <div className="holdingsToolbar">
-              <div className="segmented" role="radiogroup" aria-label={t("holdingsShow")}>
+              <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("holdingsShow")}>
                 {(["table", "map"] as const).map((view) => (
-                  <button key={view} type="button" role="radio" aria-checked={prefs.view === view} className={prefs.view === view ? "active" : ""} onClick={() => choose({ view })}>{t(view === "table" ? "viewTable" : "viewMap")}</button>
+                  <button key={view} type="button" role="radio" aria-checked={prefs.view === view} tabIndex={radioTab(prefs.view === view)} className={prefs.view === view ? "active" : ""} onClick={() => choose({ view })}>{t(view === "table" ? "viewTable" : "viewMap")}</button>
                 ))}
               </div>
               {prefs.view === "map" ? (
-                <div className="segmented" role="radiogroup" aria-label={t("mapColour")}>
+                <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("mapColour")}>
                   {(["day", "total"] as const).map((key) => (
-                    <button key={key} type="button" role="radio" aria-checked={measure === key} className={measure === key ? "active" : ""} disabled={key === "day" && !dayKnown}
+                    <button key={key} type="button" role="radio" aria-checked={measure === key} tabIndex={radioTab(measure === key)} className={measure === key ? "active" : ""} disabled={key === "day" && !dayKnown}
                       onClick={() => choose({ measure: key })}>{t(key === "day" ? "mapDay" : "mapTotal")}</button>
                   ))}
                 </div>

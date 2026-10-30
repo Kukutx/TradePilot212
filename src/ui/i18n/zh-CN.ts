@@ -359,6 +359,7 @@ export const zhCN: Record<MessageKey, string> = {
   alertPercent: "百分比",
   alertNote: "备注",
   amountReadAs: "识别为 {value}",
+  amountAmbiguous: "这是 {decimal} 还是 {whole}？小数请用点号，整数请去掉逗号。",
   alertNoteHint: "选填，会随提醒一起发出。",
   alertValueRequired: "请输入大于 0 的数。",
   alertPercentRange: "请输入小于 {limit} 的百分比。",

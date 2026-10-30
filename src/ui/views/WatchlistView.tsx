@@ -9,6 +9,7 @@ import { amount, dayLabel, pct, qty, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, plural, quoteProviderLabel, type Translator } from "../lib/messages";
 import { MISSING_KEYS } from "./HoldingView";
+import { radioKeys, radioTab } from "../lib/radio";
 
 export type WatchSort = "added" | "move" | "level";
 
@@ -169,9 +170,9 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
           <h2>{t("watchTitle")}{data.items.length > 0 && <span className="watchCount">{data.items.length}</span>}</h2>
           {data.items.length > 0 && (
             <div className="watchControls">
-              <div className="segmented" role="radiogroup" aria-label={t("watchChangeLabel")}>
+              <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("watchChangeLabel")}>
                 {WATCH_PERIODS.map((key) => (
-                  <button key={key} type="button" role="radio" aria-checked={period === key} aria-label={t(PERIOD_KEYS[key][1])} title={t(PERIOD_KEYS[key][1])}
+                  <button key={key} type="button" role="radio" aria-checked={period === key} tabIndex={radioTab(period === key)} aria-label={t(PERIOD_KEYS[key][1])} title={t(PERIOD_KEYS[key][1])}
                     className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{t(PERIOD_KEYS[key][0])}</button>
                 ))}
               </div>

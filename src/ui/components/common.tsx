@@ -37,12 +37,14 @@ export function SectionHeader({ title, count }: { title: string; count: number }
  * A labelled form control. The hint and the error are tied to the control with aria-describedby, the
  * error sets aria-invalid, and a unit (a currency code) sits inside the input's right edge.
  */
-export function Field({ label, children, hint, error, unit }: {
+export function Field({ label, children, hint, error, unit, group }: {
   label: string;
   children: (props: { id: string; "aria-describedby"?: string; "aria-invalid"?: boolean }) => ReactNode;
   hint?: string;
   error?: string;
   unit?: string;
+  /** The control is a group of controls (a radio group) named by the label through `${id}-label`, not a form field. */
+  group?: boolean;
 }) {
   const id = useId();
   const hintId = hint ? `${id}-hint` : undefined;
@@ -50,7 +52,7 @@ export function Field({ label, children, hint, error, unit }: {
   const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={`field${error ? " invalid" : ""}`}>
-      <label htmlFor={id}>{label}</label>
+      {group ? <span className="fieldLabel" id={`${id}-label`}>{label}</span> : <label htmlFor={id}>{label}</label>}
       <div className={unit ? "fieldControl withUnit" : "fieldControl"}>
         {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
         {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}
@@ -133,7 +135,8 @@ if (typeof document !== "undefined") {
   }, true);
 }
 
-const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+// Options a radio group reaches with the arrow keys (tabindex -1) are not Tab stops, so not the trap's first or last.
+const FOCUSABLE = "a[href], button:not([disabled]):not([tabindex='-1']), input:not([disabled]):not([tabindex='-1']), select:not([disabled]):not([tabindex='-1']), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
 
 /**
  * Dialog behaviour for the in-flow confirmation panels: focus moves to the heading on open, Tab and

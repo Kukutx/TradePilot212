@@ -189,7 +189,9 @@ The UI is intentionally compact:
 - order conversion shown before confirmation;
 - stale/unknown data is surfaced rather than hidden;
 - uncertain writes expose a read-only verification action;
-- keyboard focus is contained within modal dialogs and Escape closes the active dialog.
+- keyboard focus is contained within modal dialogs and Escape closes the active dialog;
+- each switch of a few choices (a period, table or map, an order's side and type) is one Tab stop, with the arrow keys, Home and End moving between its choices;
+- the controls the browser would draw (scrollbars, selects, checkboxes, switches, disclosures) are drawn in the widget's style and keep the system's colours in high-contrast mode.
 
 ## Extending the project
 

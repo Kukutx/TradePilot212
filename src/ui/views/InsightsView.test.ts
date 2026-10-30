@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseWindow } from "../../core/insights-service";
 import type { AllocationAnalysis, AllocationDrift, PerformanceSummary } from "../../shared/history";
 import { createTranslator } from "../i18n";
-import { AllocationView, DrawdownChart, DrawdownNote, PerformanceView, periodOf } from "./InsightsView";
+import { AllocationView, DrawdownChart, DrawdownNote, PerformanceView, PeriodSwitch, periodOf } from "./InsightsView";
 
 describe("the period of a performance window", () => {
   const of = (period: "1m" | "3m" | "ytd" | "1y" | "all", now: string) => {
@@ -142,5 +142,21 @@ describe("the drift panel", () => {
     const full = render({ ...data, drift: { ...drift, rebalanceOver: undefined } } as unknown as AllocationAnalysis, () => {});
     expect(full).not.toContain("Rebalancing only");
     expect(full).not.toContain("Rebalance what drifted");
+  });
+});
+
+describe("the period switch", () => {
+  const render = (disabled: boolean, value: "1m" | null = "1m") => renderToStaticMarkup(createElement(PeriodSwitch, { value, onChange: () => {}, t: createTranslator("en"), disabled }));
+
+  it("stays reachable while a period loads, marked unavailable rather than taken out of the focus order", () => {
+    const html = render(true);
+    expect(html).not.toContain("disabled=\"\"");
+    expect(html.match(/aria-disabled="true"/g)?.length).toBe(5);
+    expect(html).toContain('aria-checked="true" tabindex="0"');
+  });
+
+  it("keeps a Tab stop on the first period when none is chosen", () => {
+    expect(render(false, null)).toMatch(/^<div[^>]*><button[^>]*tabindex="0"/);
+    expect(render(false)).not.toContain("aria-disabled");
   });
 });

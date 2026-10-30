@@ -19,6 +19,9 @@ describe("typed amounts", () => {
     expect(parseAmount("1,250.5")).toBe(1_250.5);
     expect(parseAmount("1.250,5")).toBe(1_250.5);
     expect(parseAmount("1.000.000")).toBe(1_000_000);
+    // A Chinese keyboard's full-width digits and marks read as the ASCII ones.
+    expect(parseAmount("１，５")).toBe(1.5);
+    expect(parseAmount("１２３．４")).toBe(123.4);
     expect(parseAmount(" 10 000 ")).toBe(10_000);
     expect(parseAmount("12\u00a0500,75")).toBe(12_500.75);
     expect(parseAmount("250,5")).toBe(250.5);

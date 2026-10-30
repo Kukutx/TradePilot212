@@ -65,8 +65,8 @@ html, body, #root { margin: 0; width: 100%; min-width: 0; }
 body { background: transparent; overflow-x: hidden; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: not-allowed; opacity: .48; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
+button:disabled, .segmented button[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
 
 .appShell {
   width: 100%;
@@ -557,7 +557,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 /* Rows from the top: a field beside a taller one (one with a hint) keeps its control under its label. */
 .field { display: grid; align-content: start; gap: 6px; min-width: 0; }
-.field > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.field > label, .field > .fieldLabel { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
 .field input, .field select { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
 .field textarea { display: block; width: 100%; min-width: 0; min-height: 66px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font: inherit; font-size: 14px; line-height: 1.45; resize: none; field-sizing: content; max-height: 220px; }
 .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--tp-border-strong); }
@@ -1064,6 +1064,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 
 @container (max-width: 640px) {
   .viewTabs button, .segmented button, .linkButton { min-height: 40px; }
+  .formChoices button { min-height: 0; }
   .chartControls .segmented button { min-height: 40px; }
   .resolutionEdited button { min-height: 40px; }
   .pieTotals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1524,6 +1525,45 @@ summary::-webkit-details-marker { display: none; }
   transform: translateY(-2px) rotate(45deg); transition: transform .16s ease;
 }
 .candidateDetails[open] > summary::after, .policyPassed[open] > summary::after { transform: translateY(1px) rotate(-135deg); }
+/* The activity and order lists' disclosures: the chevron after the count, turning as they open. */
+.activityPanel details > summary::after {
+  content: ""; flex: 0 0 auto; width: 7px; height: 7px; margin: 0 4px 0 -4px; color: var(--tp-muted);
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg); transition: transform .16s ease;
+}
+.activityPanel details[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+.activityPanel details > summary > :first-child { margin-inline-end: auto; }
+
+/* Placeholders in the muted text colour, and anything the browser still draws itself in the primary colour. */
+::placeholder { color: var(--tp-muted); opacity: .75; }
+:root { accent-color: var(--tp-primary-bg); }
+/* Without field-sizing (Firefox, older Safari) a note does not grow as it is typed: it starts taller and scrolls. */
+@supports not (field-sizing: content) {
+  .field textarea { min-height: 120px; overflow-y: auto; }
+}
+
+/* A form field's few choices as one row of buttons: the order's side and type. */
+.formChoices { display: flex; width: 100%; min-height: 44px; }
+/* A long label ("Stop Limit") breaks onto a second line in its button rather than being cut short. */
+.formChoices button { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 13px; line-height: 1.15; overflow-wrap: anywhere; }
+.formChoices .choice-buy.active { color: var(--tp-green); }
+.formChoices .choice-sell.active { color: var(--tp-red); }
+
+/* High contrast: the drawn controls take the system's colours, so a ticked box, an on switch and a chosen option
+   still differ from the rest; selects go back to the system's own arrow. */
+@media (forced-colors: active) {
+  input[type="checkbox"] { forced-color-adjust: none; border-color: CanvasText; background: Canvas; }
+  input[type="checkbox"]:checked { border-color: Highlight; background: Highlight; }
+  input[type="checkbox"]::before { background: HighlightText; }
+  .toggleTrack { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
+  .toggleTrack > span { background: CanvasText; box-shadow: none; }
+  .toggleField input:checked + .toggleTrack { border-color: Highlight; background: Highlight; }
+  .toggleField input:checked + .toggleTrack > span { background: HighlightText; }
+  select:not([multiple]) { -webkit-appearance: auto; appearance: auto; background-image: none; padding-inline-end: 12px; }
+  .segmented button.active, .filterChips button.active, .formChoices .choice-buy.active, .formChoices .choice-sell.active { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  /* The controls above keep their own colours, so their focus ring is set to the system's too. */
+  .segmented button:focus-visible, .filterChips button:focus-visible, input[type="checkbox"]:focus-visible, .toggleField input:focus-visible + .toggleTrack { outline-color: CanvasText; }
+}
 .liveAck input[type="checkbox"] { margin-top: 1px; }
 
 /* History: the records of a period, a day at a time. */
