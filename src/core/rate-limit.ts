@@ -70,6 +70,12 @@ export function waitFor(key: string, now = Date.now()): number {
   return window.reset - now;
 }
 
+/** How long a request to this endpoint would wait if it were sent now, without counting it. */
+export function waitIfSent(key: string, now = Date.now()): number {
+  const window = windows.get(key);
+  return window && window.reset > now && window.remaining <= 0 ? window.reset - now : 0;
+}
+
 /** For tests: forget every window. */
 export function resetLimits(): void {
   windows.clear();

@@ -4,6 +4,7 @@ import { createServices, type Services } from "../../app/services.js";
 import { createConfig, type RuntimeEnv } from "../../core/config.js";
 import type { StateStore } from "../../core/state-store.js";
 import type { InstrumentCache } from "../../core/trading-service.js";
+import { shareReadsOnTheirWay } from "../../core/trading212-client.js";
 
 type Row = { key: string; value: string; expires_at: number | null };
 type WorkerEnv = RuntimeEnv & {
@@ -11,6 +12,8 @@ type WorkerEnv = RuntimeEnv & {
   TRADEPILOT_STATE: DurableObjectNamespace<TradePilotState>;
 };
 const instrumentCache: InstrumentCache = new Map();
+// A request's fetch is cancelled once it has answered, so another request must not wait on it: share answers only.
+shareReadsOnTheirWay(false);
 export class TradePilotState extends DurableObject<WorkerEnv> {
   constructor(ctx: DurableObjectState, env: WorkerEnv) { super(ctx,env); ctx.blockConcurrencyWhile(async () => { this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at INTEGER); CREATE INDEX IF NOT EXISTS state_expiry ON state(expires_at)"); }); }
   put(key: string, value: unknown, expiresAt?: number): void { this.ctx.storage.sql.exec("INSERT INTO state(key,value,expires_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, expires_at=excluded.expires_at",key,JSON.stringify(value),expiresAt ?? null); }

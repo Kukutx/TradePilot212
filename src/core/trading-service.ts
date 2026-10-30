@@ -32,7 +32,7 @@ import { planRebalance, type RebalanceOptions } from "./rebalance.js";
 import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type DailyUsage } from "./policy.js";
 import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
-import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
+import { ExecutionStatusUnknownError, readsOnTheirWayShared, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
 import type { ExternalFxRate, ExternalQuote, QuoteOptions, QuoteProvider } from "./quotes.js";
 
@@ -447,7 +447,8 @@ export class TradingService {
         .filter((read): read is { at: number; account: AccountSummary } => read !== undefined && Date.now() - read.at <= maxAgeMs)
         .sort((a, b) => b.at - a.at);
       if (reads[0]) return reads[0].account;
-      const pending = this.summaryReading.get(environment);
+      // Not on Cloudflare, where a read another request started can be cancelled under it.
+      const pending = readsOnTheirWayShared() ? this.summaryReading.get(environment) : undefined;
       if (pending) return pending;
     }
     const generation = this.writes;
@@ -475,12 +476,12 @@ export class TradingService {
   async instruments(environment: TradingEnvironment) {
     const cached = this.cache.get(environment);
     if (cached && cached.expiresAt > Date.now()) return cached.instruments;
-    const pending = this.instrumentReads.get(environment);
+    const pending = readsOnTheirWayShared() ? this.instrumentReads.get(environment) : undefined;
     if (pending) return pending;
-    const read = this.client(environment).getInstruments().then((instruments) => {
+    const read: Promise<Instrument[]> = this.client(environment).getInstruments().then((instruments) => {
       this.cache.set(environment, { instruments, expiresAt: Date.now() + 600_000 });
       return instruments;
-    }).finally(() => this.instrumentReads.delete(environment));
+    }).finally(() => { if (this.instrumentReads.get(environment) === read) this.instrumentReads.delete(environment); });
     this.instrumentReads.set(environment, read);
     return read;
   }
@@ -948,12 +949,16 @@ export class TradingService {
     };
   }
 
-  /** `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache. */
+  /**
+   * `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache, and
+   * the holdings and cash the order is checked against from Trading 212 now, not an answer of the last seconds.
+   */
   private async current(draft: OrderDraft, options: { fresh?: boolean } = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
-    const [positions, account] = await Promise.all([client.getPositions(), client.getAccountSummary()]);
+    const now = { fresh: options.fresh === true };
+    const [positions, account] = await Promise.all([client.getPositions(now), client.getAccountSummary(now)]);
     const position = this.positionFor(positions, instrument.ticker);
     // A risk-sized buy reads the market price of the moment: the holding's, or for an instrument you do not hold,
     // the quote source's. It is the last price a Stop's trigger and the unit-slip check are compared with, and the
@@ -1007,9 +1012,10 @@ export class TradingService {
     return { instrument, position, account, ...(marketPrice ? { marketPrice } : {}), ...checked };
   }
 
-  private async snapshot(environment: TradingEnvironment): Promise<Snapshot> {
+  /** `fresh` (a basket at its send) reads the holdings and cash from Trading 212 now. */
+  private async snapshot(environment: TradingEnvironment, fresh = false): Promise<Snapshot> {
     const client = this.client(environment);
-    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions(), client.getAccountSummary()]);
+    const [instruments, positions, account] = await Promise.all([this.instruments(environment), client.getPositions({ fresh }), client.getAccountSummary({ fresh })]);
     if (account.currency) this.currencies.set(environment, account.currency);
     return { instruments, positions, account };
   }
@@ -1528,7 +1534,7 @@ export class TradingService {
 
     let assessed: ReturnType<TradingService["assessBasket"]> | undefined;
     try {
-      const snapshot = await this.snapshot(pending.environment);
+      const snapshot = await this.snapshot(pending.environment, true);
       const markets = await this.marketsFor(pending.environment, snapshot, pending.drafts);
       assessed = this.assessBasket(pending, snapshot, await this.usageToday(pending.environment), markets, await this.basketRates(snapshot, pending.drafts));
     } catch (error) {
@@ -1611,7 +1617,8 @@ export class TradingService {
 
   /** Ids of the orders currently pending at the broker. */
   async pendingOrderIds(environment: TradingEnvironment): Promise<Set<string>> {
-    const orders = await this.client(environment).getOrders();
+    // Read now: an order book of a few seconds ago, from before a pair was placed elsewhere, would drop its link.
+    const orders = await this.client(environment).getOrders({ fresh: true });
     return new Set(orders.map((order) => order.id).filter((id) => id !== undefined && id !== null).map(String));
   }
 
@@ -1783,7 +1790,7 @@ export class TradingService {
     let result: ExecutionVerificationResult;
 
     if (record.kind === "order") {
-      const [orders, positions] = await Promise.all([client.getOrders(), client.getPositions()]);
+      const [orders, positions] = await Promise.all([client.getOrders({ fresh: true }), client.getPositions({ fresh: true })]);
       const recordTime = Date.parse(record.createdAt);
       const pendingMatch = orders.find((order) => {
         if ((order.ticker ?? "").toUpperCase() !== record.draft.ticker.toUpperCase()) return false;

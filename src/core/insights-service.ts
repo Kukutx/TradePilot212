@@ -380,7 +380,7 @@ export class InsightsService {
 
   async income(environment: TradingEnvironment, window: HistoryWindow, maxPages?: number): Promise<IncomeSummary> {
     const client = this.client(environment);
-    const [account, positions] = [await client.getAccountSummary(), await client.getPositions()];
+    const [account, positions] = await Promise.all([client.getAccountSummary(), client.getPositions()]);
     // Trailing-12-month income needs a year of history even for shorter windows, and the expected dividends their
     // paydays since the first day of this month a year ago.
     const yearAgo = new Date(Math.min(window.to.getTime() - 365 * 86_400_000, scheduleStart(window.to.getTime())));

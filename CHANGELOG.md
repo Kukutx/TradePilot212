@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.66.0
+
+- Fewer waits on Trading 212's limits. Reads of one account are shared by the widget, the model's tools and the scheduler in a process: a read already on its way is joined rather than sent again, and when the account summary, positions or orders are read again with their limit used up (the summary allows one in five seconds), the answer from the last five seconds is returned instead of waiting. The income page reads the summary and the positions at once.
+- What must be current is read from Trading 212 then: the holdings and cash an order or a basket is sent against, the order book linked stop-loss and take-profit pairs are settled from, and the check of an order whose outcome was unknown. An order or a cancel forgets what was kept for its account.
+- On Cloudflare a read another request started is never waited on, the instrument list and the account summary included: Workers cancels a request's fetch once it has answered, which could leave the others waiting. A read on its way for longer than any read can take is not joined anywhere.
+
 ## 2.65.0
 
 - An empty panel says what it is and what to do next. Panels that would have a chart keep their title when there is nothing to chart, and say what is missing in their own words (no fees in this period, nothing sold to rank, no dividends or interest) rather than "No data". Where a shorter period is empty, the panel offers **Show all time**; an instrument filter that matches nothing offers to clear it; a journal tag with no trades offers all trades. Empty plans, alerts and linked pairs on the automation page say how to make one.
