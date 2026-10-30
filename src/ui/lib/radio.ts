@@ -19,5 +19,13 @@ export function radioKeys(event: KeyboardEvent<HTMLElement>): void {
   if (target.getAttribute("aria-checked") !== "true") target.click();
 }
 
-/** An option's place in the Tab order: only the chosen one is a stop, the rest are reached with the arrow keys. */
-export const radioTab = (checked: boolean): 0 | -1 => (checked ? 0 : -1);
+/**
+ * An option's place in the Tab order: only the chosen one is a stop, the rest are reached with the arrow keys. When
+ * none is chosen (a custom period, a tax year of its own), `first` makes the first option the stop, so the group can
+ * still be reached.
+ */
+export const radioTab = (checked: boolean, first = false): 0 | -1 => (checked || first ? 0 : -1);
+
+/** radioTab for `key` among `keys` when `value` may be none of them. */
+export const radioTabOf = <T,>(keys: readonly T[], value: T | null | undefined, key: T): 0 | -1 =>
+  radioTab(value === key, key === keys[0] && !keys.includes(value as T));

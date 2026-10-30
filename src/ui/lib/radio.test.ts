@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KeyboardEvent } from "react";
-import { radioKeys, radioTab } from "./radio";
+import { radioKeys, radioTab, radioTabOf } from "./radio";
 
 /** A radio group of buttons as the handler sees them: focus and click recorded, the disabled ones left out. */
 function group(checked: number, disabled: number[] = []) {
@@ -42,5 +42,9 @@ describe("radio groups by keyboard", () => {
 
   it("makes only the chosen option a Tab stop", () => {
     expect([radioTab(true), radioTab(false)]).toEqual([0, -1]);
+    // With none chosen (a custom period), the first option is the stop, so the group can still be reached.
+    const keys = ["1m", "3m", "all"];
+    expect(keys.map((key) => radioTabOf(keys, null, key))).toEqual([0, -1, -1]);
+    expect(keys.map((key) => radioTabOf(keys, "3m", key))).toEqual([-1, 0, -1]);
   });
 });

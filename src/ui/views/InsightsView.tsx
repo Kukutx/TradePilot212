@@ -19,7 +19,7 @@ import { RiskPanel } from "../components/risk";
 import { dayLabel, money, pct, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { bandPoints, fill, instrumentTypeLabel, tradeEstimateText, type Translator } from "../lib/messages";
-import { radioKeys, radioTab } from "../lib/radio";
+import { radioKeys, radioTab, radioTabOf } from "../lib/radio";
 
 export type InsightPeriod = "1m" | "3m" | "ytd" | "1y" | "all";
 
@@ -76,7 +76,7 @@ export function PeriodSwitch({ value, onChange, t, disabled }: { value: InsightP
   return (
     <div className="segmented" role="radiogroup" onKeyDown={radioKeys} aria-label={t("period")}>
       {options.map(([key, short, full]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTabOf(options.map(([option]) => option), value, key)} aria-label={t(full)} title={t(full)} className={value === key ? "active" : ""} disabled={disabled} onClick={() => onChange(key)}>{t(short)}</button>
       ))}
     </div>
   );

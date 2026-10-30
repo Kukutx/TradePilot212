@@ -1559,7 +1559,7 @@ summary::-webkit-details-marker { display: none; }
   .toggleField input:checked + .toggleTrack { border-color: Highlight; background: Highlight; }
   .toggleField input:checked + .toggleTrack > span { background: HighlightText; }
   select:not([multiple]) { -webkit-appearance: auto; appearance: auto; background-image: none; padding-inline-end: 12px; }
-  .segmented button.active, .filterChips button.active { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .segmented button.active, .filterChips button.active, .formChoices .choice-buy.active, .formChoices .choice-sell.active { forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }
 .liveAck input[type="checkbox"] { margin-top: 1px; }
 
