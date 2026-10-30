@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.73.0
+
+- The widget draws its own select lists. The five drop-downs (the holdings' sort, the watchlist's, the benchmark to compare with, and the price and account alerts' condition) opened the system's menu, or a wheel on a phone, in the system's colours and type whatever the theme. They are now the widget's own: the box looks as before, and the list opens as a card in the theme, below the box or above it when the frame has more room there, moved left to stay inside the frame, never wider than it, scrolling past 280px. The chosen option has a tick. Keyboard use is the select-only combobox of the ARIA practices: Down, Up, Enter or Space opens it on the choice, Home and End on the first or last; open, the arrows, Home, End, Page Up and Page Down move, Enter or Space chooses, Tab chooses and moves on, Escape closes without choosing (and without closing the host's full view); typing jumps to the option starting with it, a repeated letter cycling through them. Focus stays on the box, so screen readers announce the options as they are reached. On a touch screen the options are 44px tall.
+- The view tabs, when they do not fit (Phone width), show an arrow on the faded edge that scrolls them along a page, for a mouse that cannot swipe.
+
 ## 2.72.0
 
 - The UI audit checks contrast and the keyboard. Each text is measured against what is actually behind it, its own and its boxes' backgrounds and the host page's laid over each other, faded by any opacity: 4.5:1, or 3:1 for large text (WCAG 1.4.3). Then it moves through the view with Tab, from the first control to the last, and fails when one shows no focus ring (an outline, or a shadow or border it does not have unfocused; a switch's ring on the track drawn after it counts) or is focused out of view in a box that scrolls. A view that fades in is measured once it has.

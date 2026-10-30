@@ -322,6 +322,14 @@ function ViewTabs({ tab, history, busy, t, onSelect }: { tab: PortfolioTab; hist
           );
         })}
       </nav>
+      {/* For a mouse, which cannot swipe: a press on a faded edge scrolls the tabs along. A finger swipes and the
+          keyboard moves through the tabs, so these are neither announced nor a Tab stop. */}
+      {(["start", "end"] as const).filter((edge) => edges[edge]).map((edge) => (
+        <button key={edge} type="button" className={`tabScroll ${edge}`} tabIndex={-1} aria-hidden="true"
+          onClick={() => nav.current?.scrollBy({ left: (edge === "end" ? 1 : -1) * nav.current.clientWidth * 0.7, behavior: "smooth" })}>
+          <Icon name="arrow" />
+        </button>
+      ))}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { amount, dateTime, dayLabel, num, parseAmount, pct } from "../lib/format
 import { fill, type Translator } from "../lib/messages";
 import { AlertActions, readAsHint } from "./alerts";
 import { Field } from "./common";
+import { fieldSelect, Select } from "./select";
 
 export interface AccountAlertRequest {
   condition: AccountAlertCondition;
@@ -79,14 +80,11 @@ export function AccountAlertForm({ currency, now, locale, t, busy, onSave, onCan
       <div className="formGrid">
         <Field label={t("alertCondition")}>
           {(props) => (
-            <select {...props} value={condition} onChange={(event) => {
-              const next = event.target.value as AccountAlertCondition;
+            <Select {...fieldSelect(props)} value={condition} options={CONDITIONS.map((item) => ({ value: item, label: accountAlertLabel(item, t) }))} onChange={(next) => {
               setCondition(next);
               setValueText(defaultAccountAlertValue(next, now));
               setTouched(false);
-            }}>
-              {CONDITIONS.map((item) => <option key={item} value={item}>{accountAlertLabel(item, t)}</option>)}
-            </select>
+            }} />
           )}
         </Field>
         <Field label={byPercent ? t("alertPercent") : t("accountAlertAmount")} unit={byPercent ? "%" : currency} error={touched ? error : undefined}

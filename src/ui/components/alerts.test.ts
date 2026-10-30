@@ -17,7 +17,7 @@ describe("alert form", () => {
 
   it("offers the day's move for any instrument, and the cost-based conditions only for a holding", () => {
     const options = (held: boolean) => [...renderToStaticMarkup(createElement(AlertForm, { held, last: 100, currency: "USD", t: createTranslator("en"), busy: false, onSave: () => {}, onCancel: () => {} }))
-      .matchAll(/<option value="([a-z_]+)"/g)].map((match) => match[1]);
+      .matchAll(/data-value="([a-z_]+)"/g)].map((match) => match[1]);
     expect(options(false)).toEqual(["below", "above", "day_move"]);
     expect(options(true)).toEqual(["below", "above", "day_move", "trailing_drop", "loss_percent", "gain_percent"]);
   });

@@ -4,6 +4,7 @@ import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
 import { portfolioProtection, stopProtection } from "../../shared/protection";
 import { AssetIdentity, Metric, SectionHeader } from "../components/common";
+import { Select } from "../components/select";
 import { Sparkline } from "../components/charts";
 import { DayCell, DayTotal, type TodayState } from "../components/day";
 import { HoldingsMap, mapDayKnown } from "../components/holdings-map";
@@ -123,14 +124,11 @@ export function PortfolioView({
                   ))}
                 </div>
               ) : (
-                <label className="sortSelect">
-                  <span>{t("sortLabel")}</span>
-                  <select value={sortId(sort)} onChange={(event) => choose({ sort: sortFromId(event.target.value) })}>
-                    {[undefined, ...SORT_CHOICES].filter((choice) => dayKnown || choice?.key !== "day").map((choice) => (
-                      <option key={sortId(choice)} value={sortId(choice)}>{t(SORT_NAMES[sortId(choice)]!)}</option>
-                    ))}
-                  </select>
-                </label>
+                <div className="sortSelect">
+                  <span aria-hidden="true">{t("sortLabel")}</span>
+                  <Select value={sortId(sort)} label={t("sortLabel")} onChange={(id) => choose({ sort: sortFromId(id) })}
+                    options={[undefined, ...SORT_CHOICES].filter((choice) => dayKnown || choice?.key !== "day").map((choice) => ({ value: sortId(choice), label: t(SORT_NAMES[sortId(choice)]!) }))} />
+                </div>
               )}
             </div>
             {prefs.view === "map" ? (

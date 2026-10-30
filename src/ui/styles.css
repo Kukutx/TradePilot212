@@ -560,9 +560,9 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 /* Rows from the top: a field beside a taller one (one with a hint) keeps its control under its label. */
 .field { display: grid; align-content: start; gap: 6px; min-width: 0; }
 .field > label, .field > .fieldLabel { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
-.field input, .field select { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
+.field input, .field select, .field .selectBox { width: 100%; height: 44px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background-color: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
 .field textarea { display: block; width: 100%; min-width: 0; min-height: 66px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font: inherit; font-size: 14px; line-height: 1.45; resize: none; field-sizing: content; max-height: 220px; }
-.field input:hover, .field select:hover, .field textarea:hover { border-color: var(--tp-border-strong); }
+.field input:hover, .field select:hover, .field .selectBox:hover, .field textarea:hover { border-color: var(--tp-border-strong); }
 .wideField { grid-column: 1 / -1; min-width: 0; }
 .toggleField { display: flex; align-items: center; gap: 9px; align-self: end; min-height: 44px; color: var(--tp-muted); font-size: 12px; cursor: pointer; }
 .toggleField input { position: absolute; opacity: 0; pointer-events: none; }
@@ -654,7 +654,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .activityRow time { grid-column: 2; }
   .resolutionCard { grid-template-columns: 1fr; align-items: start; }
   .formGrid { grid-template-columns: 1fr; }
-  .field input, .field select, .field textarea { font-size: 16px; }
+  .field input, .field select, .field .selectBox, .field textarea { font-size: 16px; }
   .transactionStage { padding: 0; }
   .transactionPanel { width: 100%; min-height: 0; padding: 18px 16px; border-radius: 16px; box-shadow: none; }
   .transactionHeader { margin-bottom: 16px; }
@@ -834,7 +834,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .benchmarkRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; }
 .benchmarkRow .panelNote { flex: 1 1 260px; margin: 0; }
 .benchmarkPicker { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; }
-.benchmarkPicker select { max-width: 220px; min-height: 34px; padding: 4px 8px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); color: var(--tp-text); font: inherit; }
+.benchmarkPicker .selectBox { max-width: 220px; min-height: 34px; padding: 4px 8px; border: 1px solid var(--tp-border); border-radius: 9px; background-color: var(--tp-bg); color: var(--tp-text); font: inherit; }
 .chartControls { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 10px; }
 .chartControls .segmented button { min-height: 32px; padding: 0 10px; }
 .lineFocus line { stroke: var(--tp-border-strong); stroke-width: 1; }
@@ -1043,7 +1043,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .fieldControl input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .fieldControl input[type="number"]::-webkit-inner-spin-button, .fieldControl input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .fieldUnit { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--tp-muted); font-size: 13px; font-weight: 700; pointer-events: none; }
-.field.invalid input, .field.invalid select, .field.invalid textarea { border-color: var(--tp-red); }
+.field.invalid input, .field.invalid select, .field.invalid .selectBox, .field.invalid textarea { border-color: var(--tp-red); }
 .fieldError { display: flex; align-items: center; gap: 5px; color: var(--tp-red); font-size: 12px; font-weight: 650; }
 .fieldError .icon { width: 14px; height: 14px; }
 .fieldHint { color: var(--tp-muted); font-size: 12px; line-height: 1.4; }
@@ -1060,6 +1060,12 @@ h2[tabindex="-1"]:focus { outline: none; }
 .tabStrip::before { left: 1px; border-radius: 13px 0 0 13px; background: linear-gradient(to right, var(--tp-bg-soft) 30%, transparent); }
 .tabStrip::after { right: 1px; border-radius: 0 13px 13px 0; background: linear-gradient(to left, var(--tp-bg-soft) 30%, transparent); }
 .tabStrip.fadeStart::before, .tabStrip.fadeEnd::after { opacity: 1; }
+.tabScroll { position: absolute; top: 1px; bottom: 1px; z-index: 2; width: 30px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--tp-muted); cursor: pointer; }
+.tabScroll.start { left: 1px; }
+.tabScroll.end { right: 1px; }
+.tabScroll.start .icon { transform: scaleX(-1); }
+.tabScroll .icon { width: 16px; height: 16px; }
+.tabScroll:hover { color: var(--tp-text); }
 
 /* ---- Loading, error and setup states ---- */
 .icon.spinning { animation: spin .9s linear infinite; }
@@ -1152,7 +1158,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .watchControls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .watchControls .segmented button { min-height: 32px; padding: 0 10px; }
 .watchSort { display: inline-flex; align-items: center; gap: 6px; color: var(--tp-muted); font-size: 12px; font-weight: 650; }
-.watchSort select { height: 34px; max-width: 170px; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 9px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
+.watchSort .selectBox { height: 34px; max-width: 210px; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 9px; background-color: var(--tp-bg); color: var(--tp-text); font-size: 13px; }
 .instrumentSearch { display: grid; gap: 6px; margin-bottom: 10px; }
 .instrumentSearch > label { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
 .instrumentSearch input { width: 100%; height: 42px; min-width: 0; padding: 0 12px; border: 1px solid var(--tp-border); border-radius: 11px; background: var(--tp-bg); color: var(--tp-text); font-size: 14px; }
@@ -1215,7 +1221,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .holdingsToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .holdingsToolbar .segmented button { min-height: 32px; padding: 0 12px; }
 .sortSelect { display: inline-flex; align-items: center; gap: 8px; color: var(--tp-muted); font-size: 13px; font-weight: 650; }
-.sortSelect select { min-height: 36px; max-width: 100%; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 600; }
+.sortSelect .selectBox { min-height: 36px; max-width: 100%; padding: 0 8px; border: 1px solid var(--tp-border); border-radius: 10px; background-color: var(--tp-bg); color: var(--tp-text); font-size: 13px; font-weight: 600; }
 .sortHeader { position: relative; display: inline-flex; align-items: center; min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
 .sortHeader:hover, .sortHeader.active { color: var(--tp-text); }
 .sortHeader:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -1249,7 +1255,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .mapTile.small .mapName { font-size: 12px; }
 .mapTile.tiny { padding: 0; }
 @container (max-width: 640px) {
-  .holdingsToolbar .segmented button, .sortSelect select { min-height: 40px; }
+  .holdingsToolbar .segmented button, .sortSelect .selectBox { min-height: 40px; }
 }
 @media (forced-colors: active) {
   .mapTile { border: 1px solid CanvasText; }
@@ -1522,7 +1528,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* Selects: the system arrow gives way to a chevron in the muted text colour, with room for it. */
-select:not([multiple]) {
+/* (.selectWrap > .selectBox outranks each place's own size rule, which would otherwise take the chevron's room.) */
+select:not([multiple]), .selectWrap > .selectBox {
   -webkit-appearance: none; appearance: none; cursor: pointer;
   padding-inline-end: 32px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%2363686f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -1530,12 +1537,39 @@ select:not([multiple]) {
   background-size: 12px 12px;
   background-repeat: no-repeat;
 }
-:root[data-theme="dark"] select:not([multiple]) {
+:root[data-theme="dark"] :is(select:not([multiple]), .selectBox) {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23a3a7ae' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
-select:not([multiple]):hover { border-color: var(--tp-border-strong); }
-select:disabled { cursor: not-allowed; opacity: .6; }
+select:not([multiple]):hover, .selectBox:hover { border-color: var(--tp-border-strong); }
+select:disabled, .selectBox:disabled { cursor: not-allowed; opacity: .6; }
 select option { background: var(--tp-bg); color: var(--tp-text); }
+
+/* The widget's own select (components/select.tsx): the box above, and its list drawn as a raised card in the theme,
+   not the system's menu or a phone's wheel. */
+.selectWrap { position: relative; display: inline-block; min-width: 0; max-width: 100%; }
+.field .selectWrap { display: block; }
+.selectBox { display: flex; align-items: center; width: 100%; text-align: start; font: inherit; }
+.selectValue { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selectList {
+  position: absolute; z-index: 30; top: calc(100% + 4px); inset-inline-start: 0;
+  min-width: 100%; width: max-content; max-width: min(340px, calc(100vw - 16px)); margin: 0; padding: 4px;
+  overflow-y: auto; overscroll-behavior: contain; list-style: none;
+  border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg); color: var(--tp-text);
+  box-shadow: var(--tp-shadow); animation: selectOpen .12s ease-out;
+}
+.selectList[hidden] { display: none; }
+.selectList.above { top: auto; bottom: calc(100% + 4px); }
+.selectOption { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 10px; border-radius: 8px; font-size: 14px; font-weight: 500; line-height: 1.3; cursor: pointer; }
+.selectOption > span { flex: 1 1 auto; }
+.selectOption.active { background: var(--tp-bg-soft); }
+.selectOption[aria-selected="true"] { font-weight: 700; }
+.selectCheck { width: 16px; height: 16px; flex: 0 0 auto; color: var(--tp-accent); }
+@media (pointer: coarse) { .selectOption { min-height: 44px; } }
+@keyframes selectOpen { from { opacity: 0; transform: translateY(-4px); } }
+.selectList.above { animation-name: selectOpenUp; }
+@keyframes selectOpenUp { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .selectList { animation: none; } }
+@media (forced-colors: active) { .selectList { border-color: CanvasText; } .selectOption.active { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
 
 /* Checkboxes: a rounded box that fills with the primary colour and a tick. */
 input[type="checkbox"] {

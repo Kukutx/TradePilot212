@@ -4,6 +4,7 @@ import type { SupportedLocale } from "../i18n";
 import { num, parseAmount } from "../lib/format";
 import { alertConditionLabel, fill, type Translator } from "../lib/messages";
 import { Field } from "./common";
+import { fieldSelect, Select } from "./select";
 
 /** What the alert form sends: a price for above/below, a percent otherwise. */
 export interface AlertRequest {
@@ -79,14 +80,11 @@ export function AlertForm({ held, last, currency, locale, t, busy, onSave, onCan
       <div className="formGrid">
         <Field label={t("alertCondition")}>
           {(props) => (
-            <select {...props} value={condition} onChange={(event) => {
-              const next = event.target.value as AlertCondition;
+            <Select {...fieldSelect(props)} value={condition} options={conditions.map((item) => ({ value: item, label: alertConditionLabel(item, t) }))} onChange={(next) => {
               setCondition(next);
               setValueText(defaultAlertValue(next, last));
               setTouched(false);
-            }}>
-              {conditions.map((item) => <option key={item} value={item}>{alertConditionLabel(item, t)}</option>)}
-            </select>
+            }} />
           )}
         </Field>
         <Field label={byPrice ? t("alertPrice") : t("alertPercent")} unit={byPrice ? currency : "%"} error={touched ? error : undefined}
