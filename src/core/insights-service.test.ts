@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
-import { HistoryLedgers, MAX_CHUNKS } from "./history-ledger.js";
+import { HistoryLedgers, MAX_CHUNKS, MAX_RECORDS } from "./history-ledger.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const config = {
@@ -177,10 +177,14 @@ describe("tax year summary", () => {
 });
 
 describe("history ledger", () => {
-  /** A Trading 212 fake with `count` cash movements a day apart, newest first, 50 a page; `add` puts newer ones on top. */
+  const day = 86_400_000;
+  /** Midnight five days ago: the newest record of a fake account, settled. */
+  const base = Math.floor(Date.now() / day) * day - 5 * day;
+  /**
+   * A Trading 212 fake with `count` cash movements a day apart, newest first, 50 a page; `add` puts newer ones on
+   * top, as they come in: placed now.
+   */
   function broker(count: number) {
-    const day = 86_400_000;
-    const base = Date.parse("2026-10-01T00:00:00Z");
     let items = Array.from({ length: count }, (_, index) => ({ reference: `t${count - index}`, type: "DEPOSIT", amount: count - index, currency: "EUR", dateTime: new Date(base - index * day).toISOString() }));
     const calls: string[] = [];
     const fetcher = (async (input: URL | RequestInfo) => {
@@ -192,7 +196,8 @@ describe("history ledger", () => {
     }) as typeof fetch;
     const add = (n: number) => {
       const top = Number(items[0]!.reference.slice(1));
-      items = [...Array.from({ length: n }, (_, index) => ({ reference: `t${top + n - index}`, type: "DEPOSIT", amount: top + n - index, currency: "EUR", dateTime: new Date(base + (n - index) * day).toISOString() })), ...items];
+      const now = Date.now();
+      items = [...Array.from({ length: n }, (_, index) => ({ reference: `t${top + n - index}`, type: "DEPOSIT", amount: top + n - index, currency: "EUR", dateTime: new Date(now + n - index).toISOString() })), ...items];
     };
     return { fetcher, calls, add };
   }
@@ -222,7 +227,7 @@ describe("history ledger", () => {
     expect(calls.length - before).toBe(1);
   });
 
-  it("adds the records newer than the newest kept, and starts again when more came in than a read reaches", async () => {
+  it("adds the records newer than the newest kept, and goes on from a read that did not reach them", async () => {
     const { fetcher, add } = broker(60);
     const { store } = withLedger(fetcher);
     const read = (pages = 5) => withLedger(fetcher, store).service.collect("demo", "transactions", all, pages);
@@ -232,22 +237,23 @@ describe("history ledger", () => {
     expect(updated.items.map((item) => item.reference).slice(0, 4)).toEqual(["t63", "t62", "t61", "t60"]);
     expect(updated.items).toHaveLength(63);
     expect(updated.truncated).toBe(false);
-    // 120 new ones and a budget of two pages: whether records were missed between them and what is kept is not
-    // known, so nothing is added, and both are returned as cut short; a read that reaches far enough adds them.
+    // 120 new ones and a budget of two pages: the newest 100 are kept as a run of their own, and returned alone, as
+    // cut short, since what lies between them and the records kept is not read yet.
     add(120);
     const short = await read(2);
-    expect(short.items).toHaveLength(163);
+    expect(short.items.map((item) => item.reference)).toEqual(Array.from({ length: 100 }, (_, index) => `t${183 - index}`));
     expect(short.truncated).toBe(true);
-    expect(short.items[0]!.reference).toBe("t183");
+    // The next read joins them up.
     const reached = await read(5);
     expect(reached.items).toHaveLength(183);
+    expect(new Set(reached.items.map((item) => item.reference)).size).toBe(183);
     expect(reached.truncated).toBe(false);
   });
 
   it("returns the window's records, and reads no further back than its start", async () => {
     const { fetcher, calls } = broker(400);
     const { service } = withLedger(fetcher);
-    const result = await service.collect("demo", "transactions", { from: new Date("2026-06-01T00:00:00Z"), to: new Date("2026-10-02T00:00:00Z") }, 10);
+    const result = await service.collect("demo", "transactions", { from: new Date(base - 122 * day), to: new Date(base + day) }, 10);
     expect(result.items).toHaveLength(123);
     expect(result.truncated).toBe(false);
     expect(calls).toHaveLength(3);
@@ -281,18 +287,22 @@ describe("history ledger", () => {
     expect((await read()).items).toHaveLength(453 + MAX_CHUNKS);
   });
 
-  it("picks up an order made before the newest kept that filled since, by reading down to the oldest one open", async () => {
+  it("picks up an order made long before the newest kept that filled since, in its instrument's history", async () => {
     const day = 86_400_000;
     const at = (days: number) => new Date(Date.parse("2026-10-01T00:00:00Z") - days * day).toISOString();
-    // A limit order made 40 days ago, open until it fills; the others filled the day they were made.
+    // A limit order made 110 days ago, open until it fills; the others filled the day they were made.
     let open = true;
+    const tickers: string[] = [];
     const filled = (id: number, days: number) => ({ order: { id, ticker: "X", createdAt: at(days) }, fill: { id: id * 10, filledAt: at(days) } });
     const others = Array.from({ length: 120 }, (_, index) => filled(1000 - index, index));
     const fetcher = (async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
-      if (url.pathname.endsWith("/equity/orders")) return Response.json(open ? [{ id: 7, ticker: "X", createdAt: at(40) }] : []);
+      if (url.pathname.endsWith("/equity/orders")) return Response.json(open ? [{ id: 7, ticker: "Y", createdAt: at(110) }] : []);
       // Trading 212 places an order by when it was made.
-      const items = [...others, ...(open ? [] : [{ order: { id: 7, ticker: "X", createdAt: at(40) }, fill: { id: 70, filledAt: at(0) } }])]
+      const ticker = url.searchParams.get("ticker");
+      if (ticker) tickers.push(ticker);
+      const items = [...others, ...(open ? [] : [{ order: { id: 7, ticker: "Y", createdAt: at(110) }, fill: { id: 70, filledAt: at(0) } }])]
+        .filter((item) => !ticker || item.order.ticker === ticker)
         .sort((a, b) => Date.parse(b.order.createdAt) - Date.parse(a.order.createdAt));
       const offset = Number(url.searchParams.get("cursor") ?? 0);
       return Response.json({ items: items.slice(offset, offset + 50), nextPagePath: offset + 50 < items.length ? `/api/v0/equity/history/orders?limit=50&cursor=${offset + 50}` : null });
@@ -304,25 +314,74 @@ describe("history ledger", () => {
     const after = await read();
     expect(after.items).toHaveLength(121);
     expect(after.items.some((item) => item.order?.id === 7)).toBe(true);
+    expect(after.truncated).toBe(false);
+    // Found by its instrument, not by reading the account's history down to it.
+    expect(tickers).toEqual(["Y"]);
   });
 
-  it("starts the ledger again when Trading 212 refuses the way back, rather than fail every read", async () => {
+  it("reads past a way back Trading 212 refuses, and stops at a failure without losing what it has", async () => {
     const { fetcher: base } = broker(200);
-    let refuse = false;
+    let refuse: number | undefined;
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      if (refuse && String(input).includes("cursor=")) return new Response(JSON.stringify({ code: "BadCursor" }), { status: 400 });
+      if (refuse && String(input).includes("cursor=")) return new Response(JSON.stringify({ code: "Refused" }), { status: refuse });
       return base(input, init);
     }) as typeof fetch;
     const { store } = withLedger(fetcher);
     const read = () => withLedger(fetcher, store).service.collect("demo", "transactions", all, 2);
     await read();
-    refuse = true;
+    // A server failure on the way back stops the read: what is kept stays, and the next read goes on from there.
+    refuse = 503;
+    const failed = await read();
+    expect(failed.truncated).toBe(true);
+    expect(failed.items).toHaveLength(100);
+    refuse = undefined;
+    expect((await read()).items).toHaveLength(150);
+    // A path Trading 212 no longer knows: the run is forgotten (its records stay) and later reads read down past it.
+    refuse = 400;
     const refused = await read();
     expect(refused.truncated).toBe(true);
-    expect(refused.items).toHaveLength(100);
-    expect(await store.get(`${(await store.list("ledger:"))[0]?.key ?? "none"}`)).toBeUndefined();
-    refuse = false;
-    expect((await read()).items).toHaveLength(100);
+    refuse = undefined;
+    let result = await read();
+    for (let tries = 0; tries < 4 && result.truncated; tries += 1) result = await read();
+    expect(result.truncated).toBe(false);
+    expect(result.items).toHaveLength(200);
+  });
+
+  it("reads straight from Trading 212 when the store fails or the open orders cannot be read", async () => {
+    const { fetcher } = broker(120);
+    const store = new MemoryStateStore();
+    store.put = async () => { throw new Error("store full"); };
+    const result = await withLedger(fetcher, store).service.collect("demo", "transactions", all, 10);
+    expect(result.items).toHaveLength(120);
+    expect(result.truncated).toBe(false);
+    // Orders: without the open ones, an old one that fills later could be missed, so nothing is kept.
+    const orders = (async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/equity/orders")) return new Response("{}", { status: 403 });
+      return Response.json({ items: [{ order: { id: 1, ticker: "X", createdAt: new Date(base).toISOString() }, fill: { id: 10, filledAt: new Date(base).toISOString() } }], nextPagePath: null });
+    }) as typeof fetch;
+    const { store: kept, service } = withLedger(orders);
+    expect((await service.collect("demo", "orders", all, 10)).items).toHaveLength(1);
+    expect(await kept.list("ledger:")).toEqual([]);
+  });
+
+  it("keeps chunks under a Durable Object's value size, and past the most records keeps the newest and says so", async () => {
+    const store = new MemoryStateStore();
+    const ledgers = new HistoryLedgers(store);
+    const times = { time: (item: { dateTime?: string }) => Date.parse(item.dateTime ?? ""), place: (item: { dateTime?: string }) => Date.parse(item.dateTime ?? "") };
+    const record = (index: number) => ({ reference: `r${index}`, type: "DEPOSIT", amount: 1, currency: "EUR", dateTime: new Date(base - index * 60_000).toISOString(), note: "x".repeat(600) });
+    const segment = { readAt: new Date().toISOString(), next: null, complete: true };
+    const { meta } = await ledgers.add("p:", "transactions", undefined, Array.from({ length: 4000 }, (_, index) => record(index)), { segments: [segment], pending: [] }, times);
+    const chunks = await store.list<unknown[]>("p:c:");
+    expect(chunks.length).toBeGreaterThan(2);
+    for (const chunk of chunks) expect(JSON.stringify(chunk.value).length).toBeLessThan(1_000_000);
+    expect(meta.segments[0]!.complete).toBe(true);
+    // Past MAX_RECORDS the oldest go: the history no longer reaches its start, and nothing further back is read.
+    const loaded = await ledgers.load("p:", "transactions", times);
+    const capped = await ledgers.add("p:", "transactions", loaded, Array.from({ length: MAX_RECORDS }, (_, index) => record(4000 + index)), { segments: [{ ...segment, bottom: new Date(base - 14_000 * 60_000).toISOString() }], pending: [] }, times);
+    expect(capped.items.length).toBeLessThan(MAX_RECORDS);
+    expect(capped.meta.segments[0]).toMatchObject({ complete: false, next: null, bottom: new Date(Math.min(...capped.items.map(times.place))).toISOString() });
+    expect((capped.items[0] as { reference?: string }).reference).toBe("r0");
   });
 
   it("reads one instrument's from Trading 212's own filter until the ledger reaches back far enough", async () => {

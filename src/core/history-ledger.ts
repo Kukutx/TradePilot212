@@ -1,15 +1,21 @@
 // The account's history as TradePilot has read it, kept between reads. Trading 212 gives history newest first, 50
 // records a page, a few pages a minute: years of an active account are more pages than one read can wait for, and
 // every read used to start again from the newest. Records in the history are final (a filled or cancelled order, a
-// paid dividend, a settled cash movement), so what was read once is kept, per account and kind, and a read asks for
-// the newest pages, down to the records that could still have changed since the last read, and then goes on further
-// back from where the last read stopped. Each read adds to it, so an account's history is read once, over as many
-// reads as it takes.
+// paid dividend, a settled cash movement), so what was read once is kept, per account and kind, and each read goes
+// on from where the last one stopped. An account's history is read once, over as many reads as it takes.
 //
-// Kept as a set: each read adds the records it found new as a chunk of its own, and loading takes the union of the
-// chunks by each record's key. Nothing is ever rewritten in place, so two processes adding at once (a scheduled run
-// and a request, two local hosts on one state file) cannot lose each other's records; at worst a record is in two
-// chunks and is counted once. Once there are many chunks they are merged into one, the merged ones deleted after.
+// What is known of it is kept as segments: runs of the history read without a gap, each from the newest record when
+// its read began down to its `bottom`, with Trading 212's path to the page below. A read begins a segment at the
+// newest record and reads down until it joins the segment below (past the records that could have come in above that
+// one since it was read), so a read that runs out of pages leaves a segment of its own rather than a hole, and the
+// next read goes on from it. Orders open at a read are not in the history yet, and Trading 212 places an order by
+// when it was made, so one made weeks ago that fills later lands among old records: their ids are kept as pending,
+// and once one is no longer open it is looked for in its instrument's history.
+//
+// The records are kept as a set: each read adds the ones it found new as chunks of their own, and loading takes the
+// union of the chunks by each record's key. Nothing is rewritten in place, so two processes adding at once (a
+// scheduled run and a request, two local hosts on one state file) cannot lose each other's records; at worst a record
+// is in two chunks and is counted once. Once there are many chunks they are merged, the merged ones deleted after.
 
 import type { HistoryDividendItem, HistoryOrderItem, HistoryTransactionItem } from "../shared/history.js";
 import type { StateStore } from "./state-store.js";
@@ -17,24 +23,49 @@ import type { HistoryKind } from "./trading212-client.js";
 
 export type LedgerItem = HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem;
 
-/** Records kept of one kind at most (a few MB); past this the oldest go, and the history is no longer whole. */
+/** Records kept of one kind at most (a few MB); past this the oldest go, down to TRIM_TO, and with them the way back. */
 export const MAX_RECORDS = 10_000;
-/** Past this many chunks, the next read merges them into one. */
+const TRIM_TO = 9_000;
+/** Past this many chunks, the next read merges them. */
 export const MAX_CHUNKS = 24;
+/** A chunk is kept under this much JSON: a Durable Object holds 2 MB in one value at most. */
+const CHUNK_CHARS = 1_000_000;
+/** Segments kept at most; past this the oldest are forgotten (their records stay). */
+const MAX_SEGMENTS = 8;
+/**
+ * Records placed this long before a read may still come into the history after it (a movement settled late, an
+ * order made just before the read and filled just after), so a later read goes this far below a segment's start
+ * before it joins it.
+ */
+export const SETTLE_MS = 3 * 86_400_000;
+
+export interface LedgerSegment {
+  /** When the read that began it started: it holds every record placed in the history before then, down to `bottom`. */
+  readAt: string;
+  /** Where the lowest record read in it is placed; none while it has read none. */
+  bottom?: string;
+  /** Trading 212's path to the page below `bottom`; null when there is none to read. */
+  next: string | null;
+  /** It reaches the account's first record. */
+  complete: boolean;
+}
+
+/** An order open at a read: it comes into the history, at when it was made, once it fills or is cancelled. */
+export interface LedgerPending {
+  id: string;
+  ticker: string;
+  createdAt: string;
+  /** Its records kept when it was last open: one partly filled may have a fill listed already. */
+  seen?: number;
+  /** When it was first looked for and not found, no longer open: Trading 212 may list it a little later. */
+  missingSince?: string;
+}
 
 export interface LedgerMeta {
-  version: 2;
-  /** Trading 212's path to the page after the oldest record read going back; null when there is none to read. */
-  next: string | null;
-  /** The account's first record is kept: there is nothing further back. */
-  complete: boolean;
-  /**
-   * Records from before this were final at the last read: none can come into the history above them later. A read
-   * goes down to it before it trusts the rest of what is kept.
-   */
-  horizon?: string;
-  /** When the oldest record kept is from. */
-  oldestAt?: string;
+  version: 3;
+  /** Newest first. */
+  segments: LedgerSegment[];
+  pending: LedgerPending[];
   updatedAt: string;
 }
 
@@ -69,6 +100,12 @@ export async function accountName(apiKey: string): Promise<string> {
 
 const chunkKey = (prefix: string) => `${prefix}c:${Date.now().toString(36).padStart(9, "0")}-${crypto.randomUUID().slice(0, 8)}`;
 
+/** Times of records: `time` orders them (a fill by when it filled), `place` is where the history places them. */
+export interface LedgerTimes<T extends LedgerItem> {
+  time: (item: T) => number;
+  place: (item: T) => number;
+}
+
 export class HistoryLedgers {
   /** One read of a ledger at a time in this process: two at once would read the same pages twice. */
   private readonly queues = new Map<string, Promise<unknown>>();
@@ -88,55 +125,86 @@ export class HistoryLedgers {
   /** What is kept, without the records. */
   async meta(prefix: string): Promise<LedgerMeta | undefined> {
     const meta = await this.store.get<LedgerMeta>(`${prefix}meta`);
-    return meta?.version === 2 ? meta : undefined;
+    return meta?.version === 3 && Array.isArray(meta.segments) ? meta : undefined;
   }
 
-  /** The records kept, each once, newest first by `time` (those without one last). */
-  async load<T extends LedgerItem>(prefix: string, kind: HistoryKind, time: (item: T) => number): Promise<Ledger<T> | undefined> {
+  /** The records kept, each once, newest first by `time` (those without one last), and what is known of them. */
+  async load<T extends LedgerItem>(prefix: string, kind: HistoryKind, times: LedgerTimes<T>): Promise<Ledger<T> | undefined> {
     const meta = await this.meta(prefix);
-    if (!meta) return undefined;
     const chunks = await this.store.list<T[]>(`${prefix}c:`);
-    return { meta, items: union(kind, chunks.flatMap((chunk) => chunk.value), time), chunks: chunks.map((chunk) => chunk.key) };
+    if (!meta && !chunks.length) return undefined;
+    const items = union(kind, chunks.flatMap((chunk) => chunk.value), times.time);
+    const known = meta ?? { version: 3 as const, segments: [], pending: [], updatedAt: new Date(0).toISOString() };
+    return { meta: { ...known, segments: within(known.segments, items, times.place) }, items, chunks: chunks.map((chunk) => chunk.key) };
   }
 
   /**
-   * Adds `added` to what `ledger` was loaded with, and sets the meta. Past MAX_CHUNKS the chunks loaded are merged
-   * into one (written before they are deleted); past MAX_RECORDS the oldest go, and with them the way further back.
-   * Returns the records now kept.
+   * Adds `added` to what `ledger` was loaded with, and sets what is known of it. Past MAX_CHUNKS the chunks loaded
+   * are merged (written before they are deleted); past MAX_RECORDS the oldest go, and the segments that reached them
+   * stop there. Returns the records now kept and what is known of them.
    */
   async add<T extends LedgerItem>(prefix: string, kind: HistoryKind, ledger: Ledger<T> | undefined, added: T[],
-    meta: Pick<LedgerMeta, "next" | "complete" | "horizon">, time: (item: T) => number): Promise<T[]> {
-    const all = union(kind, [...added, ...(ledger?.items ?? [])], time);
-    const capped = all.length > MAX_RECORDS;
-    const kept = capped ? all.slice(0, MAX_RECORDS) : all;
-    const chunks = ledger?.chunks ?? [];
-    if (capped || chunks.length + 1 > MAX_CHUNKS) {
-      if (kept.length) await this.store.put(chunkKey(prefix), kept);
-      for (const key of chunks) await this.store.delete(key);
-    } else if (added.length) {
-      await this.store.put(chunkKey(prefix), added);
+    meta: Pick<LedgerMeta, "segments" | "pending">, times: LedgerTimes<T>): Promise<{ items: T[]; meta: LedgerMeta }> {
+    let items = union(kind, [...added, ...(ledger?.items ?? [])], times.time);
+    const capped = items.length > MAX_RECORDS;
+    if (capped) {
+      // The lowest placed go, so every record above the lowest kept is still kept and the segments can stop there.
+      const at = (item: T) => { const value = times.place(item); return Number.isFinite(value) ? value : -Infinity; };
+      const top = new Set([...items].sort((a, b) => at(b) - at(a)).slice(0, TRIM_TO));
+      items = items.filter((item) => top.has(item));
     }
-    const oldest = kept.map(time).filter(Number.isFinite).at(-1);
-    await this.store.put<LedgerMeta>(`${prefix}meta`, {
-      version: 2,
-      // Capped: the oldest records went, so the page after them would leave a hole; it is read no further.
-      next: capped ? null : meta.next,
-      complete: capped ? false : meta.complete,
-      ...(meta.horizon ? { horizon: meta.horizon } : {}),
-      ...(oldest !== undefined ? { oldestAt: new Date(oldest).toISOString() } : {}),
+    const chunks = ledger?.chunks ?? [];
+    const still = new Set(items);
+    const fresh = added.filter((item) => still.has(item));
+    if (capped || chunks.length + split(fresh).length > MAX_CHUNKS) {
+      for (const chunk of split(items)) await this.store.put(chunkKey(prefix), chunk);
+      for (const key of chunks) await this.store.delete(key);
+    } else {
+      for (const chunk of split(fresh)) await this.store.put(chunkKey(prefix), chunk);
+    }
+    const kept: LedgerMeta = {
+      version: 3,
+      segments: within(meta.segments, items, times.place).slice(0, MAX_SEGMENTS),
+      pending: meta.pending,
       updatedAt: new Date().toISOString(),
-    });
-    return kept;
-  }
-
-  /** Forgets an account's ledger of one kind. */
-  async clear(prefix: string): Promise<void> {
-    for (const { key } of await this.store.list<unknown>(prefix)) await this.store.delete(key);
+    };
+    await this.store.put<LedgerMeta>(`${prefix}meta`, kept);
+    return { items, meta: kept };
   }
 }
 
+/**
+ * The segments as far as the records kept bear them out. A segment reaches down to the lowest record read in it, so
+ * one whose bottom is below every record kept lost its lowest ones (the oldest went past MAX_RECORDS, here or in
+ * another process): it stops at the lowest kept, with no way further back.
+ */
+function within<T extends LedgerItem>(segments: LedgerSegment[], items: T[], place: (item: T) => number): LedgerSegment[] {
+  const placed = items.map(place).filter(Number.isFinite);
+  const floor = placed.length ? Math.min(...placed) : undefined;
+  return segments.flatMap((segment) => {
+    if (segment.bottom === undefined || floor === undefined || Date.parse(segment.bottom) >= floor) return [segment];
+    if (Date.parse(segment.readAt) < floor) return [];
+    return [{ readAt: segment.readAt, bottom: new Date(floor).toISOString(), next: null, complete: false }];
+  });
+}
+
+/** Records in chunks of at most CHUNK_CHARS of JSON each. */
+function split<T>(items: T[]): T[][] {
+  const chunks: T[][] = [];
+  let chunk: T[] = [];
+  let size = 0;
+  for (const item of items) {
+    const length = JSON.stringify(item).length + 1;
+    if (chunk.length && size + length > CHUNK_CHARS) { chunks.push(chunk); chunk = []; size = 0; }
+    chunk.push(item);
+    size += length;
+  }
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
+
 /** Each record once (the first seen of a key), newest first by `time`, those without one last in the order seen. */
-function union<T extends LedgerItem>(kind: HistoryKind, items: T[], time: (item: T) => number): T[] {
+export function union<T extends LedgerItem>(kind: HistoryKind, items: T[], time: (item: T) => number): T[] {
   const seen = new Set<string>();
   const once = items.filter((item) => { const key = recordKey(kind, item); if (seen.has(key)) return false; seen.add(key); return true; });
   const at = (item: T) => { const value = time(item); return Number.isFinite(value) ? value : -Infinity; };

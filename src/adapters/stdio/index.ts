@@ -32,6 +32,7 @@ for (const [key, value] of Object.entries(process.env)) if (value?.startsWith("$
 // Unattended Demo runs are order writes, so they also require writes to be enabled here.
 const config = { ...createConfig(process.env), ...(allowWrites ? {} : { demoAutomationEnabled: false }) };
 const store = await FileStateStore.open(path.join(dataDir, "state.json"));
+const ledgerStore = await FileStateStore.open(path.join(dataDir, "ledger.json"));
 const audit = async (event: string, details: Record<string, unknown>) => {
   try {
     await fs.mkdir(dataDir, { recursive: true });
@@ -54,7 +55,7 @@ async function widgetHtml(): Promise<string> {
   return "<!doctype html><meta charset=utf-8><p>TradePilot 212 UI is not built. Run <code>pnpm build</code>.</p>";
 }
 
-const services = createServices({ config, store, audit });
+const services = createServices({ config, store, ledgerStore, audit });
 const scopes = new Set(allowWrites ? ["trade:read", "trade:write"] : ["trade:read"]);
 const server = createMcpServer(services, config, widgetHtml, scopes);
 await server.connect(new StdioServerTransport());
