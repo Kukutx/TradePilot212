@@ -112,18 +112,25 @@ async function audit(context, run) {
   page.setViewportSize({ width: Number(run.width) + 140, height: 1400 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(`script error: ${error.message}`));
-  page.on("console", (message) => { if (message.type() === "error") errors.push(`console error: ${message.text().slice(0, 160)}`); });
+  // A failed request is named by its address (the console only says that something failed).
+  page.on("response", (response) => { if (response.status() >= 400) errors.push(`request failed: ${response.status()} ${new URL(response.url()).pathname}`); });
+  page.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource")) errors.push(`console error: ${message.text().slice(0, 160)}`);
+  });
   await page.goto(`${base}/#view=${run.view}&lang=${run.lang}&width=${run.width}&theme=${run.theme}`);
   let frame;
-  // Ready once the widget shows something and has stopped loading for a moment.
-  for (let attempt = 0, quiet = 0; attempt < 60 && quiet < 3; attempt++) {
+  let quiet = 0;
+  // Ready once the widget shows something and has stopped loading for a moment; an empty or still loading widget
+  // has nothing wrong to find, so it is a problem of its own.
+  for (let attempt = 0; attempt < 80 && quiet < 3; attempt++) {
     await page.waitForTimeout(250);
     frame = page.frames().find((item) => item !== page.mainFrame());
     const busy = frame ? await frame.evaluate(() => document.body?.innerText.trim().length > 0 && !document.querySelector(".skeleton, [aria-busy=true]") ? 0 : 1).catch(() => 1) : 1;
     quiet = busy ? 0 : quiet + 1;
   }
-  const problems = frame ? await frame.evaluate(inspect) : ["the widget did not load"];
-  if (frame) {
+  const loaded = Boolean(frame) && quiet >= 3;
+  const problems = loaded ? await frame.evaluate(inspect) : [frame ? "the widget did not finish loading (empty, or still loading after 20s)" : "the widget did not load"];
+  if (loaded) {
     // Everything folded, opened: the date-range panel last, as a click elsewhere closes it.
     await frame.evaluate(() => {
       for (const element of document.querySelectorAll("figcaption button.linkButton, details:not([open]) > summary, button[aria-expanded=false]:not(.rangeButton)")) element.click();
@@ -133,7 +140,7 @@ async function audit(context, run) {
     await page.waitForTimeout(400);
     for (const problem of await frame.evaluate(inspect)) if (!problems.includes(problem)) problems.push(`opened: ${problem}`);
   }
-  if (shots && frame) {
+  if (shots && loaded) {
     const file = path.join(shots, `${run.view}-${run.lang}-${run.theme}-${run.width}-opened.png`);
     await (await frame.frameElement()).screenshot({ path: file }).catch(() => page.screenshot({ path: file, fullPage: true }));
   }
@@ -172,5 +179,8 @@ for (const item of found) {
   grouped.set(key, [...(grouped.get(key) ?? []), `${item.lang}/${item.theme}`]);
 }
 for (const [key, where] of grouped) console.log(`✗ ${key}  [${where.join(", ")}]`);
+// Why the preview turned a request down, from its own terminal.
+const failures = previewLog.split("\n").filter((line, index, lines) => line.startsWith("Preview request failed") || lines[index - 1]?.startsWith("Preview request failed"));
+if (failures.length) console.log(`The preview said:\n${failures.slice(0, 10).join("\n")}`);
 console.log(`${grouped.size === 0 ? "✓" : "✗"} UI audit: ${views.length} views × ${widths.length} widths × ${themes.length} themes × ${langs.length} languages, ${grouped.size} problem${grouped.size === 1 ? "" : "s"}${shots ? `; pictures in ${shots}` : ""}`);
 process.exit(grouped.size === 0 ? 0 : 1);
