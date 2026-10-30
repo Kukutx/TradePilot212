@@ -118,7 +118,7 @@ export const zhCN: Record<MessageKey, string> = {
   limit: "限价",
   stop: "止损",
   stopLimit: "止损限价",
-  day: "当日",
+  day: "当日有效",
   gtc: "撤单前有效",
   demoDescription: "安全模拟环境",
   liveDescription: "确认后将使用真实资金",

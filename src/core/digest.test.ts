@@ -89,7 +89,8 @@ describe("daily digest", () => {
 
   it("names the dividends paid since the last digest and those expected in the coming week", () => {
     const position = (ticker: string, shortName: string, quantity: number) => ({ instrument: { ticker, name: shortName, shortName, currencyCode: "USD" }, quantity, quantityAvailableForTrading: quantity, quantityInPies: 0, averagePricePaid: 1, currentPrice: 1 });
-    const positions = [position("KO_US_EQ", "KO", 20), position("AAPL_US_EQ", "AAPL", 10), position("MSFT_US_EQ", "MSFT", 5)];
+    // As Trading 212 gives it, a holding without a short name: named by its ticker's symbol.
+    const positions = [{ ...position("KO_US_EQ", "KO", 20), instrument: { ticker: "KO_US_EQ", name: "Coca-Cola", currencyCode: "USD" } as Instrument }, position("AAPL_US_EQ", "AAPL", 10), position("MSFT_US_EQ", "MSFT", 5)];
     const quarterly = (ticker: string, amount: number, quantity: number, days: string[]) => days.map((day) => ({ ticker, amount, quantity, paidOn: `${day}T12:00:00Z` }));
     const history = [
       ...quarterly("KO_US_EQ", 9.7, 20, ["2025-10-01", "2026-01-02", "2026-04-01", "2026-07-01", "2026-10-09"]),

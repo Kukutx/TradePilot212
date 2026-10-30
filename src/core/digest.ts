@@ -5,6 +5,7 @@
 import type { Position, TradingEnvironment } from "../shared/contracts.js";
 import type { HistoryDividendItem } from "../shared/history.js";
 import { stopProtection } from "../shared/protection.js";
+import { symbolFromTicker } from "../shared/ticker.js";
 import { localDay, localHour } from "../shared/time-zone.js";
 import type { AccountAlert, DcaPlan, PriceAlert, TargetAllocation } from "../shared/automation.js";
 import type { PortfolioToday } from "../shared/today.js";
@@ -106,7 +107,8 @@ export function dividendMark(dividends: HistoryDividendItem[], now: Date): Divid
  * last seven days and not paid yet; none when the history read stopped short of the year they are read from.
  */
 export function digestDividends(dividends: HistoryDividendItem[], positions: Position[], window: { since: number; seen?: string[]; truncated?: boolean }, now: Date, timeZone = "UTC"): DigestDividends {
-  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || position.instrument.ticker]));
+  // A Trading 212 position has no short name; the symbol is read from its ticker.
+  const names = new Map(positions.map((position) => [position.instrument.ticker, position.instrument.shortName || symbolFromTicker(position.instrument.ticker)]));
   const seen = new Set(window.seen ?? []);
   const received = new Map<string, number>();
   for (const item of dividends) {

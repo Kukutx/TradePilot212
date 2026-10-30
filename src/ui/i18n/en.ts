@@ -116,7 +116,7 @@ export const en = {
   limit: "Limit",
   stop: "Stop",
   stopLimit: "Stop Limit",
-  day: "Day",
+  day: "Day only",
   gtc: "Good till cancelled",
   demoDescription: "Safe simulation environment",
   liveDescription: "Trades use real funds after confirmation",

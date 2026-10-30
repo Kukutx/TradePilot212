@@ -3,7 +3,7 @@ import type { StopProtection } from "../../shared/protection";
 import type { SupportedLocale } from "../i18n";
 import { amount, money, pct, qty } from "./format";
 import { instrumentLabel, orderCurrency, type InstrumentBook } from "./instruments";
-import { fill, orderStatusLabel, orderTypeLabel, type Translator } from "./messages";
+import { fill, orderStatusLabel, orderTypeLabel, validityLabel, type Translator } from "./messages";
 
 export interface PendingOrderSummary {
   ticker: string;
@@ -14,6 +14,8 @@ export interface PendingOrderSummary {
   /** "Limit $215.00", or "Stop Limit" with both prices in `prices`. */
   type: string;
   prices: string[];
+  /** How long it stays open ("Good till cancelled"), as Trading 212 gives it (`timeInForce`). */
+  validity?: string;
   status?: string;
   quantity?: number;
   /** How far the trigger (stop) or limit price is from the holding's last price, e.g. "2.7% below the last price ($185.20)". */
@@ -37,6 +39,8 @@ export function summarizeOrder(order: PendingOrder, t: Translator, locale: Suppo
   // A plain Limit or Stop order reads "Limit $215.00"; a Stop-Limit names both prices.
   const type = stop && limit ? typeName : [typeName, stop ?? limit].filter(Boolean).join(" ");
   const prices = stop && limit ? [`${t("stopPrice")} ${stop}`, `${t("limitPrice")} ${limit}`] : [];
+  // Trading 212 answers with `timeInForce`; an order echoed back as it was sent has the request's `timeValidity`.
+  const validity = order.timeInForce ?? order.timeValidity;
   // Only held instruments have a last price: Trading 212 has no quote endpoint.
   const last = holding?.currentPrice;
   const trigger = typeof order.stopPrice === "number" ? order.stopPrice : typeof order.limitPrice === "number" ? order.limitPrice : undefined;
@@ -50,6 +54,7 @@ export function summarizeOrder(order: PendingOrder, t: Translator, locale: Suppo
     side,
     type,
     prices,
+    ...(typeof validity === "string" && validity ? { validity: validityLabel(validity, t) } : {}),
     ...(typeof order.status === "string" && order.status ? { status: orderStatusLabel(order.status, t) } : {}),
     ...(quantity === undefined ? {} : { quantity: Math.abs(quantity) }),
     ...(distance ? { distance } : {}),
