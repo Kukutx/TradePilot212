@@ -9,7 +9,7 @@
   --tp-bg-soft: var(--color-background-secondary, #f6f7f8);
   --tp-bg-muted: color-mix(in srgb, var(--color-background-secondary, #f6f7f8) 72%, transparent);
   --tp-text: var(--color-text-primary, #171717);
-  --tp-muted: var(--color-text-secondary, #6a6f76);
+  --tp-muted: var(--color-text-secondary, #63686f);
   --tp-border: var(--color-border-light, #e1e3e6);
   --tp-border-strong: color-mix(in srgb, var(--color-text-secondary, #777) 22%, transparent);
   --tp-shadow: 0 18px 48px rgba(0, 0, 0, .08);
@@ -906,7 +906,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 
 .flagList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .flagList li { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 13px; }
-.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: #1c1d20; font-size: 13px; font-weight: 800; }
+.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: var(--tp-bg); font-size: 13px; font-weight: 800; }
 
 .factList { display: grid; gap: 2px; }
 .factList > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); font-size: 13px; }
@@ -1525,7 +1525,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 select:not([multiple]) {
   -webkit-appearance: none; appearance: none; cursor: pointer;
   padding-inline-end: 32px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%236a6f76' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%2363686f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-position: right 11px center;
   background-size: 12px 12px;
   background-repeat: no-repeat;

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.72.0
+
+- The UI audit checks contrast and the keyboard. Each text is measured against what is actually behind it, its own and its boxes' backgrounds and the host page's laid over each other, faded by any opacity: 4.5:1, or 3:1 for large text (WCAG 1.4.3). Then it moves through the view with Tab, from the first control to the last, and fails when one shows no focus ring (an outline, or a shadow or border it does not have unfocused; a switch's ring on the track drawn after it counts) or is focused out of view in a box that scrolls. A view that fades in is measured once it has.
+- What it found, fixed: grey text on the light grey panels was 4.4:1, as the trade plan's "Score" and the "‹ Holdings" way back; the grey is now a shade darker (#63686f, 5.2:1 there), and the select boxes' arrow with it. The allocation warning's "!" is white on the light theme's dark amber and dark on the dark theme's light amber, 4.9:1 and 7.7:1.
+
 ## 2.71.0
 
 - A check of the widget as drawn. `pnpm audit:ui` opens every view of the preview (the sample account, 28 views) at the three host widths (375, 720 and 1040 px), in light and dark, in English and Chinese, in a headless browser. Each view is checked as it opens and again with everything folded opened: charts shown as tables, "show all" lists, collapsed sections and the date-range panel. It fails when the widget scrolls sideways, a box sticks out past the frame's edge, text is under 12px, a form control keeps the browser's own look, an image is broken or a script error is logged. With `--shots=<folder>` it also saves a picture of each, to look over by eye; `--views`, `--widths`, `--themes` and `--langs` narrow it. It needs Playwright with Chromium.

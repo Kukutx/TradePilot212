@@ -1,7 +1,8 @@
 // Opens every view of the preview (sample account) at each host width, theme and language in a headless browser and
 // checks what tests on the markup cannot see: the widget scrolling sideways, a box sticking out of the frame, text cut
-// off with nothing showing the rest, text under 12px, a control too small to tap, a form control left with the
-// browser's own look, a broken image, a failed request or a script error. Each view is checked as it opens, again with
+// off with nothing showing the rest, text under 12px, low contrast, a control too small to tap, a control with no
+// focus ring or focused out of view, a form control left with the browser's own look, a broken image, a failed
+// request or a script error. Each view is checked as it opens, again with
 // everything folded opened (charts shown as tables, "show all" lists, collapsed sections, the date-range panel), and
 // after each choice of every switch and tab list in it. With --shots it also saves pictures, to look over by eye.
 //
@@ -75,8 +76,9 @@ async function startPreview() {
   fail(`The preview did not start:\n${previewLog}`);
 }
 
-/** Run in the widget's frame: what is wrong with the page as drawn. */
-function inspect() {
+/** Run in the widget's frame: what is wrong with the page as drawn. `host` is what the host page paints behind the
+ * frame, from the frame up, as the frame itself may be transparent. */
+function inspect(host = []) {
   const problems = [];
   const describe = (element) => {
     const name = element.tagName.toLowerCase();
@@ -168,6 +170,48 @@ function inspect() {
   }
   for (const item of [...tiny].slice(0, 5)) problems.push(`too small to tap: ${item}`);
 
+  // Text against what is behind it: 4.5:1, or 3:1 for large text (WCAG 1.4.3). Disabled controls are exempt, and
+  // text over a picture or gradient is left alone, as what is behind it cannot be read off the styles.
+  const parse = (value) => {
+    const rgb = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+))?\)$/.exec(value);
+    if (rgb) return [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255, rgb[4] === undefined ? 1 : Number(rgb[4])];
+    const srgb = /^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/.exec(value);
+    return srgb ? [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])] : null;
+  };
+  const over = (top, bottom) => [0, 1, 2].map((index) => top[index] * top[3] + bottom[index] * (1 - top[3])).concat(1);
+  const luminance = (color) => {
+    const [r, g, b] = color.slice(0, 3).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const faint = new Set();
+  for (const element of all) {
+    if (!ownText(element) || element.closest("svg, :disabled, [aria-disabled=true]")) continue;
+    const style = getComputedStyle(element);
+    let text = parse(style.color);
+    if (!text) continue;
+    let fade = 1;
+    const layers = [];
+    let unknown = false;
+    for (let node = element; node; node = node.parentElement) {
+      const own = getComputedStyle(node);
+      if (own.backgroundImage !== "none") { unknown = true; break; }
+      const background = parse(own.backgroundColor);
+      if (background && background[3] > 0) layers.push(background);
+      if (background?.[3] === 1) break;
+      if (layers.length === 0) fade *= Number(own.opacity);
+    }
+    if (unknown) continue;
+    if (layers.at(-1)?.[3] !== 1) layers.push(...host.map(parse).filter((layer) => layer && layer[3] > 0));
+    const behind = layers.reverse().reduce((under, layer) => over(layer, under), [1, 1, 1, 1]);
+    text = over([text[0], text[1], text[2], text[3] * fade], behind);
+    const [light, dark] = [luminance(text), luminance(behind)].sort((a, b) => b - a);
+    const ratio = (light + 0.05) / (dark + 0.05);
+    const size = parseFloat(style.fontSize);
+    const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+    if (ratio < (large ? 3 : 4.5) - 0.05) faint.add(`${describe(element)} ${ratio.toFixed(2)}:1`);
+  }
+  for (const item of [...faint].slice(0, 5)) problems.push(`low contrast: ${item}`);
+
   // The browser's own controls: each is drawn by the project (appearance: none, or textfield for a number box without
   // its spinner) or hidden behind one that is.
   for (const control of document.querySelectorAll("select, input[type=checkbox], input[type=radio], input[type=range], input[type=date], input[type=search], input[type=number], input[type=file], input[type=color], progress, meter")) {
@@ -215,11 +259,60 @@ async function audit(context, base, run) {
     };
     const seen = new Set();
     const problems = [];
+    const host = await (await frame.frameElement()).evaluate((element) => {
+      const layers = [];
+      for (let node = element; node; node = node.parentElement) {
+        layers.push(getComputedStyle(node).backgroundColor);
+        if (/^rgb\(/.test(layers.at(-1))) break;
+      }
+      return layers;
+    });
     const note = async (prefix) => {
-      for (const problem of await frame.evaluate(inspect)) if (!seen.has(problem)) { seen.add(problem); problems.push(`${prefix}${problem}`); }
+      // A view fading in is measured once it has: half-way, its text is fainter than it will be.
+      await frame.evaluate(() => Promise.race([
+        Promise.all(document.getAnimations().filter((item) => item.effect?.getComputedTiming().iterations !== Infinity).map((item) => item.finished.catch(() => {}))),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]));
+      for (const problem of await frame.evaluate(inspect, host)) if (!seen.has(problem)) { seen.add(problem); problems.push(`${prefix}${problem}`); }
     };
     await note("");
     await picture("");
+    // With the keyboard, from the first control to the last: each shows a focus ring and is scrolled into view.
+    await frame.evaluate(() => { document.body.tabIndex = -1; document.body.focus(); document.body.removeAttribute("tabindex"); });
+    const visited = new Set();
+    for (let step = 0; step < 120; step++) {
+      await page.keyboard.press("Tab");
+      await page.waitForTimeout(60);
+      const stop = await frame.evaluate(() => {
+        const element = document.activeElement;
+        if (!element || element === document.body) return { done: true };
+        const key = [...document.querySelectorAll("*")].indexOf(element);
+        const name = `${element.tagName.toLowerCase()}${typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/)[0]}` : ""} "${(element.getAttribute("aria-label") || element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30)}"`;
+        // The ring is on the control, or, for a control drawn by what follows it (a switch), on that: an outline, or
+        // a shadow or border it does not have unfocused.
+        const parts = [element, element.nextElementSibling, element.closest("label")].filter(Boolean);
+        const look = () => parts.map((item) => {
+          const style = getComputedStyle(item);
+          return { outline: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0, rest: `${style.boxShadow}|${style.borderColor}` };
+        });
+        const focused = look();
+        element.blur();
+        const resting = look();
+        element.focus({ focusVisible: true });
+        const ringed = focused.some((item, index) => item.outline || item.rest !== resting[index].rest);
+        const box = element.getBoundingClientRect();
+        let hidden = false;
+        for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+          if (getComputedStyle(parent).overflowX === "visible") continue;
+          const edge = parent.getBoundingClientRect();
+          hidden ||= box.left < edge.left - 1 || box.right > edge.right + 1;
+        }
+        return { key, name, problems: [ringed ? "" : `no focus ring: ${name}`, hidden ? `focused out of view: ${name}` : ""].filter(Boolean) };
+      });
+      if (stop.done || visited.has(stop.key)) break;
+      visited.add(stop.key);
+      for (const problem of stop.problems) if (!seen.has(problem)) { seen.add(problem); problems.push(problem); }
+    }
     // Everything folded, opened, twice for what the first round shows; the date-range panel last, as a click
     // elsewhere closes it.
     for (let round = 0; round < 2; round++) {
