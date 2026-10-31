@@ -125,11 +125,11 @@ export class ListingWatches {
       }
       const recent = recentlyDated(instruments, now);
       const seen = new Set((await this.deps.store.get<string[]>(seenKey(environment))) ?? []);
-      const found = recent.filter((item) => !seen.has(item.ticker) && watchMatches(watch, item))
-        .sort((a, b) => Date.parse(b.addedOn!) - Date.parse(a.addedOn!) || a.ticker.localeCompare(b.ticker));
-      // Re-read: the watch may have been changed or removed while the list was read.
+      // Re-read: the watch may have been changed or removed while the list was read; what it matches now decides.
       const current = await this.get(environment);
       if (!current || current.createdAt !== watch.createdAt) continue;
+      const found = recent.filter((item) => !seen.has(item.ticker) && watchMatches(current, item))
+        .sort((a, b) => Date.parse(b.addedOn!) - Date.parse(a.addedOn!) || a.ticker.localeCompare(b.ticker));
       await this.deps.store.put(seenKey(environment), recent.map((item) => item.ticker));
       await this.deps.store.put(watchKey(environment), {
         ...current, lastCheckedAt: now.toISOString(), ...(found.length ? { lastFoundAt: now.toISOString(), lastFound: found.length } : {}),

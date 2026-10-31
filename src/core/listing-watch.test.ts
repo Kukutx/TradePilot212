@@ -18,9 +18,16 @@ function setup(environments: { demo?: boolean; live?: boolean } = { demo: true }
     ...(environments.live ? { T212_LIVE_API_KEY: "k", T212_LIVE_API_SECRET: "s" } : {}),
   });
   const events: ActivityEvent[] = [];
-  const state = { instruments: [item("OLD", 400), item("RECENT", 3)] as Instrument[] | Error, reads: 0 };
+  const state = { instruments: [item("OLD", 400), item("RECENT", 3)] as Instrument[] | Error, reads: 0, during: undefined as (() => Promise<unknown>) | undefined };
   const trading = {
-    instruments: async () => { state.reads++; if (state.instruments instanceof Error) throw state.instruments; return state.instruments; },
+    instruments: async () => {
+      state.reads++;
+      const during = state.during;
+      state.during = undefined;
+      await during?.();
+      if (state.instruments instanceof Error) throw state.instruments;
+      return state.instruments;
+    },
     recordActivity: async (type: ActivityEvent["type"], environment: ActivityEvent["environment"], details: Partial<ActivityEvent> = {}) => {
       const event = { id: String(events.length), timestamp: "", environment, type, ...details } as ActivityEvent;
       events.push(event);
@@ -70,6 +77,16 @@ describe("listing alerts", () => {
     const line = listingOutcome(many);
     expect(line.length).toBeLessThanOrEqual(200);
     expect(line).toMatch(/^T00 Inc \(T00\); .* \+\d+ more$/);
+  });
+
+  it("matches with the alert as it is after the read, when it was changed during it", async () => {
+    const { watches, events, state } = setup();
+    await watches.set({ environment: "demo", types: ["STOCK"] }, start);
+    state.instruments = [item("RECENT", 3), item("STOCK1", 0), item("ETF1", 0, "ETF")];
+    // The list arrives after the alert was changed to ETFs.
+    state.during = () => watches.set({ environment: "demo", types: ["ETF"] }, start);
+    expect(await watches.check(later(LISTING_CHECK_EVERY_MS))).toMatchObject([{ action: "found", tickers: ["ETF1"] }]);
+    expect(events.map((event) => event.ticker)).toEqual(["ETF1"]);
   });
 
   it("refuses bad filters and an account without keys, and turns off cleanly", async () => {

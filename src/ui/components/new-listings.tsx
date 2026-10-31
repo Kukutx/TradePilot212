@@ -121,7 +121,8 @@ export function NewListingsPanel({ initial, listed, busy, locale, t, onRead, onO
     setData(initial);
     setFailed(null);
     panel.current?.scrollIntoView?.({ block: "nearest" });
-  }, [initial]);
+    // A new read from the host, not the same one with its alert brought up to date.
+  }, [initial?.environment, initial?.timestamp]);
 
   const read = async (wanted: ListingRead) => {
     const request = ++latest.current;
