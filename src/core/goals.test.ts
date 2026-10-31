@@ -15,6 +15,8 @@ describe("goals", () => {
     const changed = await goals.set({ environment: "demo", target: 120_000, by: "2037-01-01", expectedReturn: 0.05 }, later);
     expect(changed).toMatchObject({ target: 120_000, monthly: 300, expectedReturn: 0.05, volatility: 0.15, name: "House", createdAt: now.toISOString(), updatedAt: later.toISOString() });
     expect(await goals.get("demo")).toEqual(changed);
+    // An empty name, as the form sends when it is cleared, removes it.
+    expect((await goals.set({ environment: "demo", target: 120_000, by: "2037-01-01", name: "" }, later)).name).toBeUndefined();
     expect(await goals.remove("demo")).toBe(true);
     expect(await goals.remove("demo")).toBe(false);
   });
