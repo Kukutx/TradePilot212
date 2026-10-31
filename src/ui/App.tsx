@@ -1422,6 +1422,7 @@ export default function App() {
                 {...(writeEnabled && credentials[insights.automation.environment] ? {
                   onSavePlan: (request: PlanRequest) => changePlan(insights.automation!.environment, { action: "create", ...request }, true),
                   onChangePlan: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => changePlan(insights.automation!.environment, { action: "update", planId, ...changes }, inForm),
+                  onSkipPlan: (planId: string) => void changePlan(insights.automation!.environment, { action: "skip", planId }),
                   onDeletePlan: (planId: string) => void changePlan(insights.automation!.environment, { action: "delete", planId }),
                   onReviewPlan: (planId: string) => void reviewPlan(planId),
                 } : {})} />

@@ -18,8 +18,35 @@ import { fieldSelect, Select } from "./select";
 /** As the server keeps them: up to ten buys a plan, names of up to 80 characters. */
 export const MAX_LEGS = 10;
 const MAX_LABEL = 80;
-/** The hour a new plan becomes due, as the server's default: inside the US and European sessions. */
+/** The hour a new plan becomes due, as the server's default: 15:00 UTC, inside the US and European sessions. */
 const DEFAULT_HOUR_UTC = 15;
+/** Every weekday, weekly, every two weeks, monthly. */
+const FREQUENCIES: PlanFrequency[] = ["daily", "weekly", "biweekly", "monthly"];
+const FREQUENCY_LABEL = { daily: "planEveryDay", weekly: "planEveryWeek", biweekly: "planEveryTwoWeeks", monthly: "planEveryMonth" } as const;
+
+/** The reader's own zone, as the browser knows it. */
+const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } };
+
+/** The hour in `timeZone` when it is 15:00 UTC today: a new plan's starting hour, inside the markets' sessions. */
+export function defaultHour(timeZone: string, now = new Date()): number {
+  const at = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), DEFAULT_HOUR_UTC);
+  try {
+    return Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hourCycle: "h23" }).format(at)) % 24;
+  } catch {
+    return DEFAULT_HOUR_UTC;
+  }
+}
+
+/** "Europe/London · GMT+1": the zone and its offset now. */
+function zoneLabel(timeZone: string): string {
+  if (timeZone === "UTC") return "UTC";
+  try {
+    const offset = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")?.value;
+    return offset ? `${timeZone.replace(/_/g, " ")} · ${offset}` : timeZone;
+  } catch {
+    return timeZone;
+  }
+}
 
 /** What a plan is saved as, from the form. */
 export interface PlanRequest {
@@ -29,7 +56,9 @@ export interface PlanRequest {
   frequency: PlanFrequency;
   dayOfMonth?: number;
   weekday?: number;
-  hourUtc: number;
+  /** The hour of the day in `timeZone`. */
+  hour: number;
+  timeZone: string;
   autoExecute?: boolean;
 }
 
@@ -39,14 +68,20 @@ export function weekdayName(weekday: number | undefined, locale: SupportedLocale
   return new Intl.DateTimeFormat(localeTag(locale), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, weekday)));
 }
 
-export function planSchedule(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "weekday" | "hourUtc">, t: Translator, locale: SupportedLocale): string {
-  const hour = `${String(plan.hourUtc).padStart(2, "0")}:00 UTC`;
-  return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
+/** "Every other Monday · 15:00 Europe/London". */
+export function planSchedule(plan: Pick<DcaPlan, "frequency" | "dayOfMonth" | "weekday" | "hour" | "timeZone">, t: Translator, locale: SupportedLocale): string {
+  const hour = `${String(plan.hour).padStart(2, "0")}:00 ${(plan.timeZone || "UTC").replace(/_/g, " ")}`;
+  const day = plan.dayOfMonth ?? 1;
+  const when = plan.frequency === "daily" ? t("planDaily")
+    : plan.frequency === "biweekly" ? fill(t("planBiweekly"), { weekday: weekdayName(plan.weekday, locale) })
+    : plan.frequency === "weekly" ? `${t("planWeekly")} ${weekdayName(plan.weekday, locale)}`
+    : day >= 31 ? t("planMonthlyLast") : `${t("planMonthly").replace("{day}", String(day))}${day > 28 ? ` ${t("planOrLastDay")}` : ""}`;
+  return `${when} · ${hour}`;
 }
 
 /** A buy as typed. `saved` is the saved leg's ticker and limit, which stay while the same instrument is named. */
 interface LegDraft { ticker: string; amount: string; saved?: { ticker: string; limitOffsetPercent?: number } }
-interface PlanDraft { label: string; mode: "legs" | "targets"; legs: LegDraft[]; targetAmount: string; frequency: PlanFrequency; dayOfMonth: number; weekday: number; hourUtc: number; autoExecute: boolean }
+interface PlanDraft { label: string; mode: "legs" | "targets"; legs: LegDraft[]; targetAmount: string; frequency: PlanFrequency; dayOfMonth: number; weekday: number; hour: number; timeZone: string; autoExecute: boolean }
 
 /** A typed amount above zero, as the other forms read it; a comma that could be either mark is not taken. */
 const positive = (text: string) => { const value = parseAmount(text); return !ambiguousComma(text) && Number.isFinite(value) && value > 0; };
@@ -68,8 +103,11 @@ export function planProblems(draft: PlanDraft): { legs: Array<{ ticker?: true; a
 
 const hasProblem = (problems: ReturnType<typeof planProblems>) => Boolean(problems.targetAmount) || problems.legs.some((leg) => leg.ticker || leg.amount);
 
-/** The form's starting values: the plan's own when changing one, a monthly plan on the 1st when adding one. */
-export function planDraft(plan: DcaPlan | undefined): PlanDraft {
+/**
+ * The form's starting values: the plan's own when changing one; when adding one, a monthly plan on the 1st in the
+ * server's zone (TIMEZONE), else the reader's, at the hour that is 15:00 UTC there.
+ */
+export function planDraft(plan: DcaPlan | undefined, defaultZone = browserZone()): PlanDraft {
   // Plain figures, as typed: "1,250" would be refused as either mark.
   const figure = (value: number) => String(Math.round(value * 100) / 100);
   return {
@@ -80,7 +118,8 @@ export function planDraft(plan: DcaPlan | undefined): PlanDraft {
     frequency: plan?.frequency ?? "monthly",
     dayOfMonth: plan?.dayOfMonth ?? 1,
     weekday: plan?.weekday ?? 1,
-    hourUtc: plan?.hourUtc ?? DEFAULT_HOUR_UTC,
+    hour: plan?.hour ?? defaultHour(defaultZone),
+    timeZone: plan?.timeZone ?? defaultZone,
     autoExecute: plan?.autoExecute ?? false,
   };
 }
@@ -100,8 +139,9 @@ export function planRequest(draft: PlanDraft, environment: TradingEnvironment, b
           return { ticker: saved ? saved.ticker : leg.ticker.trim(), amount: parseAmount(leg.amount), ...(saved?.limitOffsetPercent !== undefined ? { orderType: "limit" as const, limitOffsetPercent: saved.limitOffsetPercent } : {}) };
         }) }),
     frequency: draft.frequency,
-    ...(draft.frequency === "monthly" ? { dayOfMonth: draft.dayOfMonth } : { weekday: draft.weekday }),
-    hourUtc: draft.hourUtc,
+    ...(draft.frequency === "monthly" ? { dayOfMonth: draft.dayOfMonth } : draft.frequency === "daily" ? {} : { weekday: draft.weekday }),
+    hour: draft.hour,
+    timeZone: draft.timeZone,
     ...(environment === "demo" ? { autoExecute: draft.autoExecute } : {}),
   };
 }
@@ -115,8 +155,11 @@ export function planChanges(plan: DcaPlan, request: PlanRequest): Partial<PlanRe
   if (request.label && request.label !== plan.label) changes.label = request.label;
   if (request.targetAmount !== undefined && request.targetAmount !== plan.targetAmount) changes.targetAmount = request.targetAmount;
   if (request.legs && JSON.stringify(request.legs) !== JSON.stringify(plan.legs.map((leg) => ({ ticker: leg.ticker, amount: leg.amount, ...(leg.orderType === "limit" ? { orderType: leg.orderType, limitOffsetPercent: leg.limitOffsetPercent ?? 0.5 } : {}) })))) changes.legs = request.legs;
-  if (request.frequency !== plan.frequency || request.dayOfMonth !== plan.dayOfMonth || request.weekday !== plan.weekday || request.hourUtc !== plan.hourUtc) {
-    Object.assign(changes, { frequency: request.frequency, hourUtc: request.hourUtc, ...(request.frequency === "monthly" ? { dayOfMonth: request.dayOfMonth } : { weekday: request.weekday }) });
+  if (request.frequency !== plan.frequency || request.dayOfMonth !== plan.dayOfMonth || request.weekday !== plan.weekday || request.hour !== plan.hour || request.timeZone !== plan.timeZone) {
+    Object.assign(changes, {
+      frequency: request.frequency, hour: request.hour, timeZone: request.timeZone,
+      ...(request.dayOfMonth === undefined ? {} : { dayOfMonth: request.dayOfMonth }), ...(request.weekday === undefined ? {} : { weekday: request.weekday }),
+    });
   }
   if (request.autoExecute !== undefined && request.autoExecute !== plan.autoExecute) changes.autoExecute = request.autoExecute;
   return changes;
@@ -133,8 +176,10 @@ function useFocusAfter(scope: RefObject<HTMLElement | null>, deps: unknown[]) {
   return setTarget;
 }
 
-export function PlanForm({ plan, environment, currency, hasTargets, book, locale, t, busy, error, onSave, onCancel }: {
+export function PlanForm({ plan, environment, currency, hasTargets, defaultZone, book, locale, t, busy, error, onSave, onCancel }: {
   plan?: DcaPlan;
+  /** The server's zone (TIMEZONE), for a new plan's days and hour; the reader's own without one. */
+  defaultZone?: string;
   /** For the name of an instrument typed by its ticker. */
   book?: InstrumentBook;
   environment: TradingEnvironment;
@@ -149,7 +194,7 @@ export function PlanForm({ plan, environment, currency, hasTargets, book, locale
   onSave: (request: PlanRequest) => void;
   onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState(() => planDraft(plan));
+  const [draft, setDraft] = useState(() => planDraft(plan, defaultZone ?? browserZone()));
   const [touched, setTouched] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const focus = useFocusAfter(formRef, [draft.legs.length]);
@@ -185,9 +230,11 @@ export function PlanForm({ plan, environment, currency, hasTargets, book, locale
     focus(`plan-leg-${Math.min(index, draft.legs.length - 2)}`);
   };
   const addLeg = () => { set("legs", [...draft.legs, { ticker: "", amount: "" }]); focus(`plan-leg-${draft.legs.length}`); };
-  const days = Array.from({ length: 28 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }));
+  // 29 and 30 are the last day in a shorter month; 31 is always the last day.
+  const days = Array.from({ length: 31 }, (_, index) => ({ value: String(index + 1), label: index === 30 ? t("planLastDay") : index >= 28 ? `${index + 1} ${t("planOrLastDay")}` : String(index + 1) }));
   const weekdays = Array.from({ length: 7 }, (_, index) => ({ value: String(index + 1), label: weekdayName(index + 1, locale) }));
-  const hours = Array.from({ length: 24 }, (_, index) => ({ value: String(index), label: `${String(index).padStart(2, "0")}:00 UTC` }));
+  const hours = Array.from({ length: 24 }, (_, index) => ({ value: String(index), label: `${String(index).padStart(2, "0")}:00` }));
+  const zones = [...new Set([draft.timeZone, plan?.timeZone, defaultZone, browserZone(), "UTC"].filter((zone): zone is string => Boolean(zone)))].map((zone) => ({ value: zone, label: zoneLabel(zone) }));
   return (
     <form ref={formRef} className="alertForm planForm" noValidate aria-label={plan ? t("planEdit") : t("planNew")} onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <div className="formGrid">
@@ -234,20 +281,24 @@ export function PlanForm({ plan, environment, currency, hasTargets, book, locale
         </div>
       )}
       <div className="formGrid planSchedule">
-        <Field label={t("planFrequency")} group>
-          {(props) => <Choices {...props} value={draft.frequency} options={[["monthly", t("planEveryMonth")], ["weekly", t("planEveryWeek")]]} onChange={(next) => set("frequency", next)} />}
+        <Field label={t("planFrequency")}>
+          {(props) => <Select {...fieldSelect(props)} value={draft.frequency} options={FREQUENCIES.map((value) => ({ value, label: t(FREQUENCY_LABEL[value]) }))} onChange={(next) => set("frequency", next)} />}
         </Field>
-        {draft.frequency === "monthly" ? (
+        {draft.frequency === "monthly" && (
           <Field label={t("planDay")}>
             {(props) => <Select {...fieldSelect(props)} value={String(draft.dayOfMonth)} options={days} onChange={(next) => set("dayOfMonth", Number(next))} />}
           </Field>
-        ) : (
-          <Field label={t("planWeekday")}>
+        )}
+        {(draft.frequency === "weekly" || draft.frequency === "biweekly") && (
+          <Field label={t("planWeekday")} {...(draft.frequency === "biweekly" ? { hint: t("planBiweeklyHint") } : {})}>
             {(props) => <Select {...fieldSelect(props)} value={String(draft.weekday)} options={weekdays} onChange={(next) => set("weekday", Number(next))} />}
           </Field>
         )}
         <Field label={t("planHour")} hint={t("planHourHint")}>
-          {(props) => <Select {...fieldSelect(props)} value={String(draft.hourUtc)} options={hours} onChange={(next) => set("hourUtc", Number(next))} />}
+          {(props) => <Select {...fieldSelect(props)} value={String(draft.hour)} options={hours} onChange={(next) => set("hour", Number(next))} />}
+        </Field>
+        <Field label={t("planTimeZone")}>
+          {(props) => <Select {...fieldSelect(props)} value={draft.timeZone} options={zones} onChange={(next) => set("timeZone", next)} />}
         </Field>
       </div>
       {environment === "demo" && (
@@ -271,9 +322,9 @@ export function PlanForm({ plan, environment, currency, hasTargets, book, locale
 }
 
 /** A plan's buttons: open its orders now, pause or resume, change, delete (asked once more first). */
-function PlanActions({ plan, t, busy, onReview, onPause, onEdit, onDelete }: {
+function PlanActions({ plan, t, busy, onReview, onPause, onSkip, onEdit, onDelete }: {
   plan: DcaPlan; t: Translator; busy: boolean;
-  onReview: (id: string) => void; onPause: (id: string, paused: boolean) => void; onEdit: () => void; onDelete: (id: string) => void;
+  onReview: (id: string) => void; onPause: (id: string, paused: boolean) => void; onSkip: (id: string) => void; onEdit: () => void; onDelete: (id: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
@@ -292,6 +343,7 @@ function PlanActions({ plan, t, busy, onReview, onPause, onEdit, onDelete }: {
       ) : (
         <div className="alertActions">
           <button type="button" className="linkButton" title={t("planReviewHint")} {...props(() => onReview(plan.id))}>{t("planReview")}</button>
+          {!plan.paused && <button type="button" className="linkButton" title={t("planSkipHint")} {...props(() => onSkip(plan.id))}>{t("planSkip")}</button>}
           <button type="button" className="linkButton" {...props(() => onPause(plan.id, !plan.paused))}>{plan.paused ? t("planResume") : t("planPause")}</button>
           <button type="button" className="linkButton" data-focus-id={`plan-change-${plan.id}`} data-reveals="form" {...props(onEdit)}>{t("planChange")}</button>
           <button type="button" className="linkButton danger" data-focus-id="plan-delete" {...props(() => { setConfirming(true); focus("plan-keep"); })}>{t("planDelete")}</button>
@@ -304,11 +356,13 @@ function PlanActions({ plan, t, busy, onReview, onPause, onEdit, onDelete }: {
 /** What a save resolved to: true once saved, or why it was not. */
 export type PlanSaveResult = true | string;
 
-export function PlanList({ plans, environment, currency, hasTargets, book, locale, t, busy, onSave, onChange, onDelete, onReview }: {
+export function PlanList({ plans, environment, currency, hasTargets, defaultZone, book, locale, t, busy, onSave, onChange, onSkip, onDelete, onReview }: {
   plans: DcaPlan[];
   environment: TradingEnvironment;
   currency?: string;
   hasTargets: boolean;
+  /** The server's zone (TIMEZONE), for a new plan. */
+  defaultZone?: string;
   book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
@@ -316,6 +370,7 @@ export function PlanList({ plans, environment, currency, hasTargets, book, local
   /** These are given only where the account can be written to. A form's save resolves true once saved, to close it. */
   onSave?: (request: PlanRequest) => Promise<PlanSaveResult>;
   onChange?: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => Promise<PlanSaveResult>;
+  onSkip?: (planId: string) => void;
   onDelete?: (planId: string) => void;
   onReview?: (planId: string) => void;
 }) {
@@ -330,11 +385,11 @@ export function PlanList({ plans, environment, currency, hasTargets, book, local
   const open = (id: string | null) => { setEditing(id); setFailure(undefined); };
   const close = (id: string) => { open(null); focus(id === "new" ? "plan-add" : `plan-change-${id}`); };
   const sum = (value: number | undefined) => amount(value, currency, locale);
-  const manage = Boolean(onSave && onChange && onDelete && onReview);
+  const manage = Boolean(onSave && onChange && onSkip && onDelete && onReview);
   const form = (plan?: DcaPlan) => {
     const id = plan?.id ?? "new";
     return (
-      <PlanForm key={id} {...(plan ? { plan } : {})} {...(book ? { book } : {})} environment={environment} {...(currency ? { currency } : {})} hasTargets={hasTargets} locale={locale} t={t} busy={busy}
+      <PlanForm key={id} {...(plan ? { plan } : {})} {...(book ? { book } : {})} {...(defaultZone ? { defaultZone } : {})} environment={environment} {...(currency ? { currency } : {})} hasTargets={hasTargets} locale={locale} t={t} busy={busy}
         {...(failure ? { error: failure } : {})}
         onCancel={() => close(id)}
         onSave={(request) => {
@@ -370,7 +425,7 @@ export function PlanList({ plans, environment, currency, hasTargets, book, local
                 : plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
               <small>{planSchedule(plan, t, locale)}{plan.paused ? "" : ` · ${t("nextRun")} ${dateTime(plan.nextRunAt, locale)}`}</small>
               {plan.lastOutcome && <small className="mutedInline">{plan.lastRunAt ? `${dateTime(plan.lastRunAt, locale)} · ` : ""}{plan.lastOutcome}</small>}
-              {manage && <PlanActions plan={plan} t={t} busy={busy} onReview={onReview!} onPause={(id, paused) => void onChange!(id, { paused })} onEdit={() => open(plan.id)}
+              {manage && <PlanActions plan={plan} t={t} busy={busy} onReview={onReview!} onPause={(id, paused) => void onChange!(id, { paused })} onSkip={onSkip!} onEdit={() => open(plan.id)}
                 onDelete={(id) => { onDelete!(id); focus("plans-heading"); }} />}
             </li>
           ))}

@@ -808,11 +808,12 @@ function candidates(data: { environment: TradingEnvironment; credentials?: Crede
 const WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function planLine(plan: DcaPlan): string {
-  const schedule = plan.frequency === "monthly" ? `monthly on day ${plan.dayOfMonth}` : `weekly on ${WEEKDAYS[plan.weekday ?? 1]}`;
+  const schedule = plan.frequency === "monthly" ? ((plan.dayOfMonth ?? 1) >= 31 ? "monthly on the last day" : `monthly on day ${plan.dayOfMonth}${(plan.dayOfMonth ?? 1) > 28 ? " (or the month's last day)" : ""}`)
+    : plan.frequency === "daily" ? "every weekday" : `${plan.frequency === "biweekly" ? "every other" : "weekly on"} ${WEEKDAYS[plan.weekday ?? 1]}`;
   const legs = plan.targetAmount !== undefined
     ? `${num(plan.targetAmount)} across the saved targets, most to the furthest below`
     : plan.legs.map((leg) => `${num(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
-  return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${plan.hourUtc}:00 UTC; next ${minute(plan.nextRunAt)}`
+  return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${String(plan.hour).padStart(2, "0")}:00 ${plan.timeZone}; next ${minute(plan.nextRunAt)}`
     + `${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
 }
 

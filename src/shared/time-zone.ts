@@ -45,6 +45,21 @@ export function localMidnight(year: number, month: number, day: number, timeZone
   return midnight + zoneOffset(midnight + 6 * 3_600_000, timeZone) - zoneOffset(midnight, timeZone);
 }
 
+/**
+ * The instant a local day's `hour` o'clock starts in `timeZone` (`day` as YYYY-MM-DD). An hour the clocks skip in
+ * spring is the first instant after the jump, so a plan due then is due as soon as that hour's time exists.
+ */
+export function localHourStart(day: string, hour: number, timeZone: string): number {
+  const [year, month, date] = day.split("-").map(Number) as [number, number, number];
+  const guess = Date.UTC(year, month - 1, date, hour);
+  const first = guess - zoneOffset(guess, timeZone);
+  const instant = guess - zoneOffset(first, timeZone);
+  if (localDay(instant, timeZone) === day && localHour(instant, timeZone) === hour) return instant;
+  // In the gap: the offset after the jump, from an instant safely past it.
+  const later = zoneOffset(instant + 3 * 3_600_000, timeZone);
+  return Math.max(instant, guess - later);
+}
+
 /** The local hour (0 to 23) of an instant in `timeZone`. */
 export function localHour(instant: number, timeZone: string): number {
   return new Date(instant + zoneOffset(instant, timeZone)).getUTCHours();

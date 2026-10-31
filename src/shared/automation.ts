@@ -147,7 +147,8 @@ export interface RebalancePlan {
   noteDetails?: RebalanceNote[];
 }
 
-export type PlanFrequency = "weekly" | "monthly";
+/** daily = every weekday (Monday to Friday); biweekly = every other week on the same weekday. */
+export type PlanFrequency = "daily" | "weekly" | "biweekly" | "monthly";
 
 export interface DcaLeg {
   ticker: string;
@@ -171,12 +172,16 @@ export interface DcaPlan {
    */
   targetAmount?: number;
   frequency: PlanFrequency;
-  /** 1-28 for monthly plans. */
+  /** 1-31 for monthly plans; a day past the month's end is its last day (31 is always the last day). */
   dayOfMonth?: number;
-  /** 1 (Monday) to 7 (Sunday) for weekly plans. */
+  /** 1 (Monday) to 7 (Sunday) for weekly and biweekly plans. */
   weekday?: number;
-  /** UTC hour the plan becomes due; pick one inside the instruments' regular session. */
-  hourUtc: number;
+  /** The hour of the day the plan becomes due, in `timeZone`; pick one inside the instruments' regular session. */
+  hour: number;
+  /** The IANA zone the plan's days and hour are counted in, such as Europe/London; UTC for plans saved before 2.79. */
+  timeZone: string;
+  /** Biweekly plans: a day the plan runs (YYYY-MM-DD in its zone), so every other week is the right one. */
+  anchorDay?: string;
   /** Demo only: execute without a person when due and the policy allows. */
   autoExecute: boolean;
   paused: boolean;

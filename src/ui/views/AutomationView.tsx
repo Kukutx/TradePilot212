@@ -67,7 +67,7 @@ export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined,
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert, onSavePlan, onChangePlan, onDeletePlan, onReviewPlan }: {
+export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert, onSavePlan, onChangePlan, onSkipPlan, onDeletePlan, onReviewPlan }: {
   data: AutomationOverview;
   book?: InstrumentBook;
   locale: SupportedLocale;
@@ -81,6 +81,7 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
   /** Given where the account can be written to. */
   onSavePlan?: (request: PlanRequest) => Promise<PlanSaveResult>;
   onChangePlan?: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => Promise<PlanSaveResult>;
+  onSkipPlan?: (planId: string) => void;
   onDeletePlan?: (planId: string) => void;
   onReviewPlan?: (planId: string) => void;
 }) {
@@ -104,9 +105,9 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
       </section>
       <TradingRules data={data} book={book} locale={locale} t={t} />
 
-      <PlanList plans={data.plans} environment={data.environment} {...(data.currency ? { currency: data.currency } : {})} hasTargets={Boolean(data.targets)} {...(book ? { book } : {})}
+      <PlanList plans={data.plans} environment={data.environment} {...(data.currency ? { currency: data.currency } : {})} hasTargets={Boolean(data.targets)} {...(data.settings.timeZone ? { defaultZone: data.settings.timeZone } : {})} {...(book ? { book } : {})}
         locale={locale} t={t} busy={busy} {...(onSavePlan ? { onSave: onSavePlan } : {})} {...(onChangePlan ? { onChange: onChangePlan } : {})}
-        {...(onDeletePlan ? { onDelete: onDeletePlan } : {})} {...(onReviewPlan ? { onReview: onReviewPlan } : {})} />
+        {...(onSkipPlan ? { onSkip: onSkipPlan } : {})} {...(onDeletePlan ? { onDelete: onDeletePlan } : {})} {...(onReviewPlan ? { onReview: onReviewPlan } : {})} />
 
       <section className="dataPanel" aria-label={t("alertsTitle")}>
         <div className="pieHeader"><h2>{t("alertsTitle")}</h2></div>
