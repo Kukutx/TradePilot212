@@ -61,7 +61,7 @@ export function createServices(input: ServiceDependencies) {
     ...(notify ? { notify } : {}),
     ...(quotes ? { quotes } : {}),
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
-    afterBasket: (planId, result) => automation.recordRun(planId, result),
+    afterBasket: (planId, result, unattended) => automation.recordRun(planId, result, new Date(), unattended ? "scheduler" : "you"),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
     afterWrite: (environment) => insights.forgetHistory(environment),

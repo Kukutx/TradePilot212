@@ -451,7 +451,7 @@ export function PlanRuns({ runs, t, locale }: { runs: PlanRun[]; t: Translator; 
   const id = useId();
   return (
     <div className="planRuns">
-      <button type="button" className="linkButton" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <button type="button" className="linkButton" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>
         {fill(t(open ? "planRunsHide" : "planRunsShow"), { count: String(runs.length) })}
       </button>
       {open && (
