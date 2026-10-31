@@ -68,4 +68,23 @@ describe("goals", () => {
     const goal = { environment: "demo" as const, target: 10_000, by: "2036-10-31", monthly: 0, expectedReturn: 0.06, volatility: 0.15, createdAt: "", updatedAt: "" };
     expect(milestoneText(goal, 75, 7_600, "EUR")).toBe("The investment goal is 75% of the way: 7,600 EUR of 10,000 EUR by 2036-10-31.");
   });
+
+  it("never writes the goal while it measures it, so a save or a removal made meanwhile stands", async () => {
+    const store = new MemoryStateStore();
+    const written: string[] = [];
+    const put = store.put.bind(store);
+    store.put = (async (key: string, value: unknown, expiresAt?: number) => { written.push(key); return put(key, value, expiresAt); }) as typeof store.put;
+    const goals = new Goals({ config: createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s" }), store, trading: { recordActivity: async () => ({}) as ActivityEvent } });
+    const at = (totalValue: number) => [{ environment: "demo" as const, point: { date: "2026-11-01", totalValue, at: now.toISOString() } }];
+    await goals.set({ environment: "demo", target: 10_000, by: "2036-10-31" }, now);
+    written.length = 0;
+    await goals.check(at(3_000));
+    await goals.check(at(6_000));
+    expect(written).toEqual(["goal-milestone:demo", "goal-milestone:demo"]);
+    expect((await goals.get("demo"))?.milestone).toBe(50);
+    // A removal clears the milestone with it; a goal set again starts afresh.
+    await goals.remove("demo");
+    await goals.set({ environment: "demo", target: 10_000, by: "2036-10-31" }, new Date(now.getTime() + 1_000));
+    expect((await goals.get("demo"))?.milestone).toBeUndefined();
+  });
 });

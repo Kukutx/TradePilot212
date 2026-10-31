@@ -13,6 +13,13 @@ import type { StateStore } from "./state-store.js";
 import type { TradingService } from "./trading-service.js";
 
 const goalKey = (environment: TradingEnvironment) => `goal:${environment}`;
+/**
+ * The milestone reached, kept apart from the goal so the scheduler never writes the goal itself: a save or a removal
+ * made while it checks cannot be overwritten. It belongs to the goal created at `createdAt` with this `target`.
+ */
+const milestoneKey = (environment: TradingEnvironment) => `goal-milestone:${environment}`;
+interface MilestoneRecord { createdAt: string; target: number; mark: number }
+const belongs = (record: MilestoneRecord | undefined, goal: InvestmentGoal) => !!record && record.createdAt === goal.createdAt && record.target === goal.target;
 
 export interface GoalInput {
   environment: TradingEnvironment;
@@ -55,8 +62,12 @@ export function milestoneText(goal: InvestmentGoal, mark: number, value: number,
 export class Goals {
   constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading?: Pick<TradingService, "recordActivity"> }) {}
 
-  get(environment: TradingEnvironment): Promise<InvestmentGoal | undefined> {
-    return this.deps.store.get<InvestmentGoal>(goalKey(environment));
+  /** The goal with the milestone its target has reached, when the scheduler has measured it. */
+  async get(environment: TradingEnvironment): Promise<InvestmentGoal | undefined> {
+    const [goal, record] = await Promise.all([this.deps.store.get<InvestmentGoal>(goalKey(environment)), this.deps.store.get<MilestoneRecord>(milestoneKey(environment))]);
+    if (!goal) return undefined;
+    const { milestone: _stored, ...rest } = goal;
+    return belongs(record, goal) ? { ...rest, milestone: record!.mark } : rest;
   }
 
   async set(input: GoalInput, now = new Date()): Promise<InvestmentGoal> {
@@ -75,20 +86,20 @@ export class Goals {
     if (!(volatility >= 0 && volatility <= 1)) fail("INVALID_INPUT", "The yearly volatility is between 0 and 100%, as a fraction", { field: "volatility" });
     const name = input.name === undefined ? current?.name : input.name.trim().slice(0, 80) || undefined;
     const currency = input.currency ?? current?.currency;
-    // A new target is measured afresh: its progress so far is taken as known at the next check.
-    const milestone = current && current.target === input.target ? current.milestone : undefined;
     const goal: InvestmentGoal = {
       environment: input.environment, target: input.target, by: input.by, monthly, expectedReturn, volatility,
-      ...(currency ? { currency } : {}), ...(name ? { name } : {}), ...(milestone === undefined ? {} : { milestone }),
+      ...(currency ? { currency } : {}), ...(name ? { name } : {}),
       createdAt: current?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(),
     };
     await this.deps.store.put(goalKey(input.environment), goal);
-    return goal;
+    // The milestone of the same target carries over; a new target is measured afresh at the next check.
+    return current?.milestone !== undefined && current.target === goal.target ? { ...goal, milestone: current.milestone } : goal;
   }
 
   async remove(environment: TradingEnvironment): Promise<boolean> {
     const had = !!(await this.get(environment));
     await this.deps.store.delete(goalKey(environment));
+    await this.deps.store.delete(milestoneKey(environment));
     return had;
   }
 
@@ -108,15 +119,14 @@ export class Goals {
         reports.push({ environment, action: "none", milestone: known, message: "No new milestone." });
         continue;
       }
-      // Saved before the event, so a failed write cannot announce it twice; read again so a save in between wins.
-      const current = await this.get(environment);
-      if (!current || current.updatedAt !== goal.updatedAt) continue;
-      await this.deps.store.put(goalKey(environment), { ...current, milestone: mark });
+      // Saved before the event, so a failed write cannot announce it twice. Only the milestone's own record is written:
+      // a goal saved or removed meanwhile stays as it was saved, and a record left for a goal gone is never read.
+      await this.deps.store.put(milestoneKey(environment), { createdAt: goal.createdAt, target: goal.target, mark } satisfies MilestoneRecord);
       if (known === undefined || !this.deps.trading) {
         reports.push({ environment, action: "seeded", milestone: mark, message: `Seeded at ${mark}%.` });
         continue;
       }
-      const message = milestoneText(current, mark, point.totalValue, current.currency, this.deps.config.notifyLocale);
+      const message = milestoneText(goal, mark, point.totalValue, goal.currency, this.deps.config.notifyLocale);
       await this.deps.trading.recordActivity("goal_milestone", environment, { outcome: message });
       reports.push({ environment, action: "reached", milestone: mark, message });
     }

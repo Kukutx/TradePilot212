@@ -55,6 +55,8 @@ describe("weekly and monthly reports", () => {
     expect(reportText("weekly", period, summary(), "zh-CN", { ...goal, name: undefined }).split(" · ")).toContain("投资目标完成 21.5%（50,000.00 EUR，截止 2036-12-31）");
     // No value recorded in the period: nothing to measure it against.
     expect(reportText("weekly", period, summary({ valueHistory: [] }), "en", goal)).not.toContain("goal");
+    // One value recorded: no history to show, but enough for the goal.
+    expect(reportText("weekly", period, summary({ valueHistory: [] }), "en", goal, 5_000)).toContain('goal "House" 10% of 50,000.00 EUR');
   });
 
   it("sends each period's report once, from the digest's hour, and on later days while no endpoint has taken it", async () => {
