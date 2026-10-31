@@ -94,7 +94,7 @@ export interface TradingServiceDeps {
   /** Optional exchange-session lookup used to warn about orders placed while the market is closed. */
   marketStatus?: (environment: TradingEnvironment, instrument: Instrument) => Promise<MarketStatus | undefined>;
   /** Called after a basket created for a standing plan has been executed. */
-  afterBasket?: (planId: string, result: BasketExecutionResult) => Promise<void>;
+  afterBasket?: (planId: string, result: BasketExecutionResult, unattended: boolean) => Promise<void>;
   /**
    * Called for an order with a thesis once Trading 212 accepted it, or its result was unclear; saves the thesis
    * to the trade journal and returns the note's id. A failure here never changes the order's result.
@@ -1539,11 +1539,12 @@ export class TradingService {
   }
 
   /** Send a confirmed basket. An uncertain result stops the rest; only a rate-limited write is sent again. */
-  async executeBasket(confirmationId: string, options: { liveAcknowledged?: boolean } = {}): Promise<BasketExecutionResult> {
+  /** `unattended` is the scheduler sending a plan on its own, for the plan's run record. */
+  async executeBasket(confirmationId: string, options: { liveAcknowledged?: boolean; unattended?: boolean } = {}): Promise<BasketExecutionResult> {
     return this.exclusive(await this.pendingEnvironment(confirmationId), () => this.sendBasket(confirmationId, options));
   }
 
-  private async sendBasket(confirmationId: string, options: { liveAcknowledged?: boolean }): Promise<BasketExecutionResult> {
+  private async sendBasket(confirmationId: string, options: { liveAcknowledged?: boolean; unattended?: boolean }): Promise<BasketExecutionResult> {
     const pending = await this.takePending(confirmationId, "basket", !!options.liveAcknowledged);
     const results: BasketExecutionResult["legs"] = [];
     let stopReason: string | undefined;
@@ -1597,7 +1598,7 @@ export class TradingService {
     if (pending.purpose === "protective") await this.linkProtectiveOrders(pending.environment, results);
     if (pending.planId && this.deps.afterBasket) {
       try {
-        await this.deps.afterBasket(pending.planId, outcome);
+        await this.deps.afterBasket(pending.planId, outcome, !!options.unattended);
       } catch (error) {
         console.error(JSON.stringify({ message: "TradePilot plan update failed", error: error instanceof Error ? error.message : String(error) }));
       }

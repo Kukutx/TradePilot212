@@ -846,8 +846,13 @@ function planLine(plan: DcaPlan): string {
     ? `${num(plan.targetAmount)} across the saved targets, most to the furthest below`
     : plan.legs.map((leg) => `${num(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
   return `"${plan.label}" (${plan.id}, ${env(plan.environment)}): ${legs}; ${schedule} at ${String(plan.hour).padStart(2, "0")}:00 ${plan.timeZone}; next ${minute(plan.nextRunAt)}`
-    + `${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`;
+    + `${plan.paused ? "; paused" : ""}${plan.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan.lastOutcome ? `; last: ${plan.lastOutcome}` : ""}`
+    + (plan.runs?.length ? `; last runs: ${plan.runs.slice(0, 5).map((run) => `${minute(run.at)} ${RUN_TEXT[run.outcome] ?? run.outcome}${run.legs ? ` ${run.submitted ?? 0}/${run.legs}` : ""}${run.by === "scheduler" ? " unattended" : ""}`).join(", ")}` : "");
 }
+
+const RUN_TEXT: Record<NonNullable<DcaPlan["runs"]>[number]["outcome"], string> = {
+  submitted: "sent", partial: "partly sent", stopped: "stopped before sending", rejected: "refused", nothing: "nothing to buy", left_out: "skipped",
+};
 
 function alertLine(alert: PriceAlert, instrument?: { name?: string; currencyCode?: string }): string {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";

@@ -167,6 +167,19 @@ describe("text summaries for hosts that only show text", () => {
     expect(text).toMatch(/AAPL_US_EQ \(Apple[^)]*\) day's move of 3% either way \(alt_[\w-]+, DEMO\), last [\d.]+ USD(, triggered [^,]+ at [\d.]+ USD)?(, armed)?, [+-][\d.]+% since the close on \d{4}-\d{2}-\d{2}/);
   });
 
+  it("lists a plan's latest runs", () => {
+    const plan = {
+      id: "dca_1", environment: "demo", label: "Weekly", legs: [{ ticker: "VUSA_EQ", amount: 50 }], frequency: "weekly", weekday: 1, hour: 15, timeZone: "UTC",
+      autoExecute: true, paused: false, nextRunAt: "2026-10-26T15:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z",
+      runs: [
+        { dueAt: "2026-10-19T15:00:00.000Z", at: "2026-10-19T15:01:00.000Z", outcome: "partial", by: "scheduler", submitted: 1, legs: 2, message: "1 of 2" },
+        { dueAt: "2026-10-12T15:00:00.000Z", at: "2026-10-12T09:00:00.000Z", outcome: "left_out", by: "you", message: "Skipped" },
+      ],
+    };
+    const text = describePayload({ kind: "investment_plan", plan });
+    expect(text).toContain("last runs: 2026-10-19 15:01 UTC partly sent 1/2 unattended, 2026-10-12 09:00 UTC skipped");
+  });
+
   it("returns nothing for payloads the summary already covers", () => {
     expect(describePayload({ kind: "unknown" })).toBe("");
     expect(describePayload(null)).toBe("");

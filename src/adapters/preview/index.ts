@@ -22,6 +22,7 @@ import { MemoryStateStore } from "../../core/state-store.js";
 import { watchKey } from "../../core/watchlist.js";
 import { createServices } from "../../app/services.js";
 import type { Position } from "../../shared/contracts.js";
+import type { PlanRun } from "../../shared/automation.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -201,6 +202,14 @@ async function seedSample(): Promise<void> {
   }
   // Day's-move alerts set last week, and one alert check, so the alerts show their last prices and the day's move.
   const lastWeek = new Date(Date.now() - 7 * 86_400_000);
+  // The weekly plan's last runs, written onto the saved plan: two confirmed and sent, then one skipped. Nothing is sent.
+  const weekly = (await services.automation.listPlans("demo")).find((plan) => plan.label === "Weekly NVIDIA");
+  if (weekly) {
+    const due = (weeks: number) => new Date(Date.parse(weekly.nextRunAt) - weeks * 7 * 86_400_000);
+    const sent = (weeks: number): PlanRun => ({ dueAt: due(weeks).toISOString(), at: new Date(due(weeks).getTime() + 4 * 60_000).toISOString(), outcome: "submitted", by: "you", submitted: 1, legs: 1, message: "1 of 1 order(s) submitted to Trading 212 DEMO." });
+    const skipped: PlanRun = { dueAt: due(1).toISOString(), at: new Date(due(1).getTime() - 86_400_000).toISOString(), outcome: "left_out", by: "you", message: `Skipped the run due ${due(1).toISOString()}.` };
+    await store.put(`plan:${weekly.id}`, { ...weekly, runs: [skipped, sent(2), sent(3)], lastRunAt: sent(2).at, lastOutcome: skipped.message });
+  }
   await services.alerts.create({ environment: "demo", instrument: "AAPL", condition: "day_move", percent: 3, note: "Big day" }, lastWeek);
   await services.alerts.create({ environment: "demo", instrument: "NVDA", condition: "day_move", percent: 5 }, lastWeek);
   await services.alerts.check().catch((error: unknown) => console.warn("Could not check the alerts:", error));

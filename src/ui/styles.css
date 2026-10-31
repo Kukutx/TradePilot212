@@ -377,6 +377,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .planLeg { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; align-items: start; gap: 10px; }
 .planLegRemove { margin-top: 24px; }
 .planLegs > .linkButton { justify-self: start; min-height: 32px; font-size: 12px; }
+.planRuns { display: grid; gap: 6px; margin-top: 4px; }
+.planRuns > .linkButton { justify-self: start; min-height: 32px; font-size: 12px; }
+.planRunList { display: grid; gap: 6px; margin: 0; padding: 0 0 0 10px; list-style: none; border-left: 2px solid var(--tp-border); }
+.planRunList li { display: grid; gap: 2px; font-size: 12px; }
+.planRunList li > span:not(.runOutcome) { color: var(--tp-muted); }
+.planRunList small { color: var(--tp-muted); font-size: 12px; overflow-wrap: anywhere; }
+.runOutcome { font-weight: 700; }
+.runOutcome.positive { color: var(--tp-green); }
+.runOutcome.negative { color: var(--tp-red); }
+.runOutcome.warning { color: var(--tp-amber-text); }
+.runOutcome.muted { color: var(--tp-muted); }
 .planForm .toggleField { align-self: start; min-height: 36px; }
 @container (max-width: 420px) {
   .planLeg { grid-template-columns: minmax(0, 1fr) auto; }

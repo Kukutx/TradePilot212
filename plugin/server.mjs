@@ -35431,6 +35431,7 @@ function taxYearZone(yearStart) {
 
 // src/shared/automation.ts
 var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
+var MAX_PLAN_RUNS = 12;
 var REPORT_KINDS = ["weekly", "monthly"];
 
 // src/core/notify.ts
@@ -37974,6 +37975,7 @@ var TradingService = class {
     return { kind: "order_execution", environment: draft.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
   }
   /** Send a confirmed basket. An uncertain result stops the rest; only a rate-limited write is sent again. */
+  /** `unattended` is the scheduler sending a plan on its own, for the plan's run record. */
   async executeBasket(confirmationId, options = {}) {
     return this.exclusive(await this.pendingEnvironment(confirmationId), () => this.sendBasket(confirmationId, options));
   }
@@ -38030,7 +38032,7 @@ var TradingService = class {
     if (pending.purpose === "protective") await this.linkProtectiveOrders(pending.environment, results);
     if (pending.planId && this.deps.afterBasket) {
       try {
-        await this.deps.afterBasket(pending.planId, outcome);
+        await this.deps.afterBasket(pending.planId, outcome, !!options.unattended);
       } catch (error62) {
         console.error(JSON.stringify({ message: "TradePilot plan update failed", error: error62 instanceof Error ? error62.message : String(error62) }));
       }
@@ -40526,6 +40528,9 @@ function storedPlan(raw) {
     timeZone: raw.timeZone || "UTC"
   };
 }
+function withRun(plan2, run) {
+  return { ...plan2, runs: [run, ...plan2.runs ?? []].slice(0, MAX_PLAN_RUNS) };
+}
 function settled2(plan2) {
   const { inFlightDueAt: _due, inFlightSince: _since, ...rest } = plan2;
   return rest;
@@ -40677,7 +40682,8 @@ var AutomationService = class {
     if (plan2.inFlightDueAt === plan2.nextRunAt && Number.isFinite(since) && now.getTime() - since < RUN_LOCK_MS)
       fail("EXECUTION_BUSY", "This plan's run is being sent right now. Try again in a few minutes, once its result is in.");
     const from = new Date(Math.max(now.getTime(), Date.parse(plan2.nextRunAt) || 0));
-    const updated = { ...settled2(plan2), nextRunAt: nextRunAt(plan2, from).toISOString(), lastOutcome: `Skipped the run due ${plan2.nextRunAt}.` };
+    const run = { dueAt: plan2.nextRunAt, at: now.toISOString(), outcome: "left_out", by: "you", message: `Skipped the run due ${plan2.nextRunAt}.` };
+    const updated = { ...withRun(settled2(plan2), run), nextRunAt: nextRunAt(plan2, from).toISOString(), lastOutcome: run.message };
     await this.deps.store.put(planKey(id), updated);
     await this.deps.trading.recordActivity("plan_skipped", plan2.environment, { planId: id, outcome: `skipped the run due ${plan2.nextRunAt}` });
     return updated;
@@ -40780,14 +40786,26 @@ var AutomationService = class {
       planId: plan2.id
     };
   }
-  /** Called after a plan's basket was executed, whether by the user or by the scheduler. */
-  async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
+  /** Called after a plan's basket was executed, by the user or (`by` "scheduler") unattended. */
+  async recordRun(planId, result2, now = /* @__PURE__ */ new Date(), by = "you") {
     const plan2 = await this.read(planId);
     if (!plan2) return;
     const attempted = result2.legs.some((leg) => leg.result);
+    const run = {
+      dueAt: by === "scheduler" && plan2.inFlightDueAt || plan2.nextRunAt,
+      at: now.toISOString(),
+      // Nothing sent (stopped at its checks, or every leg blocked by a rule): stopped, not refused by the broker.
+      outcome: attempted ? result2.status : "stopped",
+      by,
+      submitted: result2.legs.filter((leg) => leg.result?.status === "submitted").length,
+      legs: result2.legs.length,
+      message: result2.message.slice(0, 200)
+    };
+    const latest = plan2.runs?.[0];
+    const runs = !attempted && latest?.outcome === "stopped" && latest.dueAt === run.dueAt ? { ...plan2, runs: plan2.runs.slice(1) } : plan2;
     const from = new Date(Math.max(now.getTime(), Date.parse(plan2.nextRunAt) || 0));
     await this.deps.store.put(planKey(planId), {
-      ...settled2(plan2),
+      ...withRun(settled2(runs), run),
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
       ...attempted ? { nextRunAt: nextRunAt(plan2, from).toISOString() } : {}
@@ -40838,7 +40856,7 @@ var AutomationService = class {
         if (current.targetAmount !== void 0 && (await this.deps.targets?.(plan2.environment))?.updatedAt !== basket.targetsSavedAt) continue;
         await this.deps.store.put(planKey(plan2.id), { ...current, inFlightDueAt: current.nextRunAt, inFlightSince: now.toISOString() });
         marked = true;
-        const result2 = await this.deps.trading.executeBasket(preview.token);
+        const result2 = await this.deps.trading.executeBasket(preview.token, { unattended: true });
         await this.deps.trading.recordActivity("plan_auto_executed", plan2.environment, { planId: plan2.id, legs: result2.legs.length, outcome: result2.status });
         reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "auto", message: result2.message, result: result2 });
       } catch (error62) {
@@ -40855,9 +40873,10 @@ var AutomationService = class {
   }
   async skip(plan2, now, message, advance) {
     const current = await this.read(plan2.id);
-    if (!current) return;
+    if (!current || advance && current.nextRunAt !== plan2.nextRunAt) return;
+    const run = { dueAt: current.nextRunAt, at: now.toISOString(), outcome: "nothing", by: "scheduler", message: message.slice(0, 200) };
     await this.deps.store.put(planKey(plan2.id), {
-      ...current,
+      ...advance ? withRun(current, run) : current,
       lastOutcome: message,
       ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
@@ -41286,7 +41305,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.86.0",
+  version: "2.87.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42398,8 +42417,16 @@ var WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Sat
 function planLine(plan2) {
   const schedule = plan2.frequency === "monthly" ? (plan2.dayOfMonth ?? 1) >= 31 ? "monthly on the last day" : `monthly on day ${plan2.dayOfMonth}${(plan2.dayOfMonth ?? 1) > 28 ? " (or the month's last day)" : ""}` : plan2.frequency === "daily" ? "every weekday" : `${plan2.frequency === "biweekly" ? "every other" : "weekly on"} ${WEEKDAYS[plan2.weekday ?? 1]}`;
   const legs = plan2.targetAmount !== void 0 ? `${num2(plan2.targetAmount)} across the saved targets, most to the furthest below` : plan2.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
-  return `"${plan2.label}" (${plan2.id}, ${env(plan2.environment)}): ${legs}; ${schedule} at ${String(plan2.hour).padStart(2, "0")}:00 ${plan2.timeZone}; next ${minute(plan2.nextRunAt)}${plan2.paused ? "; paused" : ""}${plan2.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan2.lastOutcome ? `; last: ${plan2.lastOutcome}` : ""}`;
+  return `"${plan2.label}" (${plan2.id}, ${env(plan2.environment)}): ${legs}; ${schedule} at ${String(plan2.hour).padStart(2, "0")}:00 ${plan2.timeZone}; next ${minute(plan2.nextRunAt)}${plan2.paused ? "; paused" : ""}${plan2.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan2.lastOutcome ? `; last: ${plan2.lastOutcome}` : ""}` + (plan2.runs?.length ? `; last runs: ${plan2.runs.slice(0, 5).map((run) => `${minute(run.at)} ${RUN_TEXT[run.outcome] ?? run.outcome}${run.legs ? ` ${run.submitted ?? 0}/${run.legs}` : ""}${run.by === "scheduler" ? " unattended" : ""}`).join(", ")}` : "");
 }
+var RUN_TEXT = {
+  submitted: "sent",
+  partial: "partly sent",
+  stopped: "stopped before sending",
+  rejected: "refused",
+  nothing: "nothing to buy",
+  left_out: "skipped"
+};
 function alertLine(alert, instrument) {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
   const condition = alert.condition === "above" || alert.condition === "below" ? `${alert.condition} ${num2(alert.price, 6)}${unit}` : alert.condition === "day_move" ? `day's move of ${num2(alert.percent)}% either way` : `${alert.condition.replace("_", " ")} ${num2(alert.percent)}%`;
@@ -46702,7 +46729,7 @@ function createServices(input2) {
     ...notify ? { notify } : {},
     ...quotes ? { quotes } : {},
     marketStatus: (environment, instrument) => insights.tryMarketStatus(environment, instrument),
-    afterBasket: (planId, result2) => automation3.recordRun(planId, result2),
+    afterBasket: (planId, result2, unattended) => automation3.recordRun(planId, result2, /* @__PURE__ */ new Date(), unattended ? "scheduler" : "you"),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
     afterWrite: (environment) => insights.forgetHistory(environment)
