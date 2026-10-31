@@ -273,7 +273,7 @@ function inspect(host = []) {
   // Something to press drawn under something else: a list under the next panel, a button under a sticky bar. What is
   // scrolled out of a box that clips it is not drawn at all, so it is left out.
   const covered = new Set();
-  for (const control of document.querySelectorAll("button, a[href], input:not([type=hidden]), [role=option], [role=tab], [role=radio], summary")) {
+  for (const control of document.querySelectorAll("button, a[href], input:not([type=hidden]), [role=option], [role=menuitem], [role=tab], [role=radio], summary")) {
     if (!visible(control) || hidden(control)) continue;
     const box = control.getBoundingClientRect();
     const x = box.left + box.width / 2;
@@ -287,7 +287,7 @@ function inspect(host = []) {
     if (!shown) continue;
     const top = document.elementFromPoint(x, y);
     // An open list is meant to lie over what is below it, and the tab strip's arrow over a tab half scrolled away.
-    if (top?.closest(".selectList:not([hidden]), .tabScroll") && !control.closest(".selectList")) continue;
+    if (top?.closest(".selectList:not([hidden]), .menuList:not([hidden]), .tabScroll") && !control.closest(".selectList, .menuList")) continue;
     // A label or the switch track drawn over its own input stands for it.
     if (top && top !== control && !control.contains(top) && !(control.matches("input") && (top.closest("label") === control.closest("label") || top === control.nextElementSibling))) covered.add(`${describe(control)} under ${describe(top)}`);
   }
@@ -432,7 +432,7 @@ async function audit(context, base, run) {
     for (let round = 0; round < 2; round++) {
       await frame.evaluate(() => {
         // (data-reveals marks a button that shows a form in its place, such as "Add alert".)
-        for (const element of document.querySelectorAll("figcaption button.linkButton, details:not([open]) > summary, button[aria-expanded=false]:not(.rangeButton, .selectBox), button[data-reveals]")) element.click();
+        for (const element of document.querySelectorAll("figcaption button.linkButton, details:not([open]) > summary, button[aria-expanded=false]:not(.rangeButton, .selectBox, [aria-haspopup=menu]), button[data-reveals]")) element.click();
       });
       await settle(page, 20);
     }
@@ -454,6 +454,24 @@ async function audit(context, base, run) {
       if (name === null) break;
       await settle(page, 8);
       await note(`with "${name}" open: `);
+      await frame.evaluate(() => { document.activeElement?.blur(); });
+    }
+    // Each menu open, one at a time, as a press opens it, then closed with Escape as a reader would.
+    const menus = await frame.evaluate(() => document.querySelectorAll("button[aria-haspopup=menu]:not(:disabled)").length);
+    for (let index = 0; index < menus; index++) {
+      const name = await frame.evaluate((index) => {
+        const button = document.querySelectorAll("button[aria-haspopup=menu]:not(:disabled)")[index];
+        if (!button) return null;
+        button.focus();
+        button.click();
+        return button.getAttribute("aria-label") || button.textContent.trim().slice(0, 30);
+      }, index);
+      if (name === null) break;
+      await settle(page, 8);
+      await note(`with "${name}" open: `);
+      await frame.evaluate(() => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await settle(page, 4);
+      // The focus is back on the button, with its tip: let go of it, as after a select.
       await frame.evaluate(() => { document.activeElement?.blur(); });
     }
     // Each choice of every switch and tab list, one at a time.
