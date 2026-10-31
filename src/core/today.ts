@@ -381,6 +381,8 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
     closings.set(day, before === null || ended === undefined ? null : Math.max(before ?? 0, ended));
   }
   const ended = Object.fromEntries([...closings].filter((entry): entry is [string, number] => entry[1] !== null));
+  // Whether a holding's exchange is in session now, by Trading 212's schedules; unknown when none of them is known.
+  const known = items.map(({ ticker }) => session(ticker)).filter((item) => !item.guessed);
   const invested = dashboard.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
@@ -391,6 +393,7 @@ export async function portfolioToday(deps: TodayDeps, environment: TradingEnviro
     ...(fillsProblem ? { fillsProblem } : {}),
     ...(invested !== undefined && Number.isFinite(invested) ? { invested } : {}),
     ...(Object.keys(ended).length ? { ended } : {}),
+    ...(known.length ? { open: known.some((item) => item.ended === undefined) } : {}),
     timestamp: now.toISOString(),
   };
 }

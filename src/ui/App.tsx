@@ -32,6 +32,7 @@ import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale 
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
 import { Menu, type MenuItem } from "./components/menu";
 import { TipLayer } from "./components/tips";
+import { MAX_FAILURES, readAutoRefresh, refreshDelay, saveAutoRefresh, useAutoRefresh } from "./lib/auto-refresh";
 import { joinPages } from "./lib/history-pages";
 import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bridge";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
@@ -403,6 +404,15 @@ export default function App() {
   const [piePreview, setPiePreview] = useState<PieChangePreview | null>(null);
   const [pieResult, setPieResult] = useState<PieChangeResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
+  /** The dashboard reading itself again: the reader's switch, whether a dashboard read for now has shown, and how its reads went. */
+  const [autoRefreshOn, setAutoRefreshOn] = useState(readAutoRefresh);
+  /** The dashboard that was read for now when it came (not an old chat's): only it reads itself again. */
+  const [liveFor, setLiveFor] = useState<BasePayload | null>(null);
+  /** Reads that failed in a row and why, when the last one started, and whether one is on its way. */
+  const [autoRefreshRun, setAutoRefreshRun] = useState<{ failures: number; tried: number; problem?: string; reading?: boolean }>({ failures: 0, tried: 0 });
+  const [shellElement, setShellElement] = useState<HTMLDivElement | null>(null);
+  /** The dashboard the last automatic read brought, told apart from one the reader asked for. */
+  const quietRead = useRef<BasePayload | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   /** What came of handing the host a file or a question, when the reader needs telling. */
   const [hostNote, setHostNote] = useState<{ tone: "info" | "warning" | "error"; text: string } | null>(null);
@@ -522,8 +532,16 @@ export default function App() {
     if (!app || today?.key === key) return;
     // A dashboard shown again long after it was read (the host's saved result) is not set against today's closes.
     if (Date.now() - Date.parse(base.timestamp) > TODAY_FRESH_MS) return;
-    setToday({ key, loading: true });
-    const settle = (data?: PortfolioToday) => setToday((current) => (current?.key === key ? { key, ...(data ? { data } : { failed: true }), loading: false } : current));
+    // The same account's figures stay while the new ones are read (a dashboard reading itself again does not blank
+    // them), and after a read that fails.
+    const sameAccount = (current: typeof today) => (current?.key.startsWith(`${base.environment}:`) && current.data ? current.data : undefined);
+    setToday((current) => { const kept = sameAccount(current); return { key, loading: true, ...(kept ? { data: kept } : {}) }; });
+    const settle = (data?: PortfolioToday) => setToday((current) => {
+      if (current?.key !== key) return current;
+      // Figures kept after a failed read say they are an earlier read's.
+      if (!data) return current.data ? { key, data: current.data, loading: false, stale: true } : { key, failed: true, loading: false };
+      return { key, data, loading: false };
+    });
     callTool<PortfolioToday>("app_get_today", { environment: base.environment }).then(settle, () => settle());
     // Only a new dashboard (or the connection) starts a read; the day's state itself does not.
   }, [app, base]);
@@ -589,7 +607,8 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [canTell, context, tell]);
   // A note about a file or a question belongs to the page it was asked from.
-  useEffect(() => { setHostNote(null); }, [tab, base]);
+  // A dashboard the widget read again by itself is the same page: its note stays.
+  useEffect(() => { if (base !== quietRead.current) setHostNote(null); }, [tab, base]);
 
   async function saveFile(format: ExportFormat): Promise<void> {
     if (!app || !canExport(shown)) return;
@@ -896,7 +915,10 @@ export default function App() {
           candidates: base.candidates.map(candidateForRefresh),
         }));
       } else {
-        setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment: env }));
+        const next = await callTool<DashboardPayload>("app_get_dashboard", { environment: env });
+        setBase(next);
+        // A dashboard the reader read is for now, even on a device whose clock is off.
+        setLiveFor(next);
         setTab("holdings");
       }
     }, () => void refresh(env, target, scopes));
@@ -1350,6 +1372,54 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKeyDown);
   });
 
+  // The dashboard reads itself again while it is looked at (lib/auto-refresh): only one read for the account as it is
+  // now (not an old chat's, until it is read again), on the holdings, with nothing under review or loading.
+  const dashboardShown = base?.kind === "portfolio" && tab === "holdings" ? base : null;
+  // Judged as each dashboard comes, whichever tab is open: a saved one the host hands over later is not live.
+  useEffect(() => {
+    if (base?.kind === "portfolio" && Date.now() - Date.parse(base.timestamp) <= TODAY_FRESH_MS) setLiveFor(base);
+  }, [base]);
+  const liveDashboard = Boolean(dashboardShown && liveFor === dashboardShown);
+  // Any other dashboard shown (one the reader read, or another account's) starts the count of failed reads again;
+  // a failed read shows none, so it never clears its own count.
+  useEffect(() => {
+    if (dashboardShown && dashboardShown !== quietRead.current) setAutoRefreshRun((run) => (run.failures ? { ...run, failures: 0, problem: undefined } : run));
+  }, [dashboardShown]);
+  const shownToday = dashboardShown && today?.key === `${dashboardShown.environment}:${dashboardShown.timestamp}` ? today.data : undefined;
+  useAutoRefresh(shellElement, {
+    active: Boolean(autoRefreshOn && liveDashboard && dashboardShown?.credentials[dashboardShown.environment] && app && !reviewing && status !== "loading" && !problem && !autoRefreshRun.reading && autoRefreshRun.failures < MAX_FAILURES),
+    delayMs: refreshDelay(shownToday, dashboardShown?.positions.length ?? 0),
+    since: Math.max(dashboardShown ? Date.parse(dashboardShown.timestamp) : NaN, autoRefreshRun.tried),
+    onTick: () => readDashboardAgain(),
+  });
+
+  /** Read the dashboard on screen again, quietly: no loading state or error card; a failure shows by the time it was read. */
+  async function readDashboardAgain(): Promise<void> {
+    const shown = dashboardShown;
+    if (!shown) return;
+    // One at a time: a slow read (Trading 212's client retries) holds the next until it settles.
+    setAutoRefreshRun((run) => ({ ...run, tried: Date.now(), reading: true }));
+    try {
+      const next = await callTool<DashboardPayload>("app_get_dashboard", { environment: shown.environment });
+      quietRead.current = next;
+      // Kept only if the reader is still on that dashboard: not after a switch of account, page or a manual read.
+      setBase((current) => (current === shown ? next : current));
+      // Read just now, whatever this device's clock says of its time.
+      setLiveFor((current) => (current === shown ? next : current));
+      setAutoRefreshRun({ failures: 0, tried: Date.now() });
+    } catch (readError) {
+      const { message } = problemFrom("errorTitleRefresh", readError);
+      setAutoRefreshRun((run) => ({ failures: run.failures + 1, tried: Date.now(), problem: message, reading: false }));
+    }
+  }
+
+  /** The reader's switch: turning it on again after reads that failed starts over. */
+  function chooseAutoRefresh(on: boolean): void {
+    saveAutoRefresh(on);
+    setAutoRefreshOn(on);
+    setAutoRefreshRun({ failures: 0, tried: Date.now() });
+  }
+
   if (!app && !error) {
     return <div className="centerState"><div className="spinner" />{t("connecting")}</div>;
   }
@@ -1378,7 +1448,7 @@ export default function App() {
   ];
 
   return (
-    <div className={`appShell mode-${displayMode}`}>
+    <div ref={setShellElement} className={`appShell mode-${displayMode}`}>
       {/* A thin sweep along the top while anything loads, so a refresh of a view already shown is seen, not only the spinning icon. */}
       {loading && <span className="loadingBar" aria-hidden="true" />}
       <TipLayer />
@@ -1495,7 +1565,8 @@ export default function App() {
               <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
                 {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
                 {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})}
-                {...(connected ? { onGoal: () => void selectTab("performance") } : {})} />
+                {...(connected ? { onGoal: () => void selectTab("performance") } : {})}
+                {...(liveFor === base && base.credentials[base.environment] ? { auto: { on: autoRefreshOn, onChange: chooseAutoRefresh, failures: autoRefreshRun.failures, ...(autoRefreshRun.problem ? { problem: autoRefreshRun.problem } : {}) } } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />

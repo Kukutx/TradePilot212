@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DashboardPayload } from "../../shared/contracts";
 import type { PortfolioToday } from "../../shared/today";
 import { createTranslator } from "../i18n";
-import { PortfolioView, type TodayState } from "./PortfolioView";
+import { dashboardFigures, figuresMoved, PortfolioView, type TodayState } from "./PortfolioView";
 
 const apple = {
   instrument: { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD" },
@@ -143,5 +143,62 @@ describe("the result by source", () => {
     const mixed = { ...payload, positions: [split.positions[0], coke] } as DashboardPayload;
     expect(view(mixed)).not.toContain("resultSplit");
     expect(view(mixed)).toContain('<small class="pnlFx">FX -€60.62</small>');
+  });
+});
+
+describe("the dashboard reading itself again", () => {
+  const withAuto = (auto: Partial<import("./PortfolioView").AutoRefreshState> | undefined, now: string, locale: "en" | "zh-CN" = "en") => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(now));
+    try {
+      return renderToStaticMarkup(createElement(PortfolioView, {
+        payload, locale, t: createTranslator(locale), writeEnabled: false, onCancel: () => {},
+        ...(auto ? { auto: { on: true, onChange: () => {}, failures: 0, ...auto } } : {}),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it("says how long ago it was read, with the time in its tooltip and the switch beside it", () => {
+    const html = withAuto({}, "2026-10-12T07:20:30Z");
+    expect(html).toContain('<div class="metric compact updatedMetric"><span>Updated</span><strong><time dateTime="2026-10-12T07:17:00Z" title="');
+    expect(html).toContain(">3 minutes ago</time>");
+    expect(html).toContain('<label class="toggleField autoRefreshToggle" title="Reads the account again by itself');
+    expect(html).toMatch(/<input type="checkbox" checked=""\/><span class="toggleTrack"><span><\/span><\/span><span>Auto-refresh<\/span>/);
+    expect(html).not.toContain("May be out of date");
+    // An old chat's dashboard, which does not read itself again, has no switch.
+    expect(withAuto(undefined, "2026-10-12T07:17:20Z")).not.toContain("autoRefreshToggle");
+    expect(withAuto(undefined, "2026-10-12T07:17:20Z", "zh-CN")).toContain(">刚刚</time>");
+  });
+
+  it("marks a dashboard read a while ago, and says when reads failed and when they stopped", () => {
+    const old = withAuto({ on: false }, "2026-10-12T07:40:00Z");
+    expect(old).toContain('class="metric compact updatedMetric stale"');
+    expect(old).toContain('<small class="staleNote">May be out of date</small>');
+    expect(old).not.toContain('checked=""');
+    const failed = withAuto({ failures: 1, problem: "Trading 212 is unavailable." }, "2026-10-12T07:19:00Z");
+    expect(failed).toContain('<i class="refreshWarn" role="img" aria-label="The last automatic refresh did not work; it tries again on the next one. Trading 212 is unavailable."');
+    const stopped = withAuto({ failures: 3, problem: "Trading 212 is unavailable." }, "2026-10-12T07:19:00Z", "zh-CN");
+    expect(stopped).toContain('<small class="refreshStopped" role="status">自动刷新连续 3 次失败，已停止：Trading 212 is unavailable.');
+    expect(stopped).not.toContain("refreshWarn");
+  });
+
+  it("says when the day's figures are an earlier read's, after a read of them failed", () => {
+    const html = render({ data: today, loading: false, stale: true });
+    expect(html).toContain('<small class="dayStale" role="status">Not updated: the last read of the day failed, so these are the figures from ');
+    expect(render({ data: today, loading: false })).not.toContain("dayStale");
+  });
+
+  it("lights each figure a read moved, in the colour of its move, and none on the first read or another account's", () => {
+    const before = dashboardFigures(payload);
+    expect(before.get("total")).toBe(7926);
+    expect(before.get("price:AAPL_US_EQ")).toBe(231.55);
+    expect(before.get("value:KO_US_EQ")).toBe(1407.6);
+    const after = dashboardFigures({ ...payload, account: { ...payload.account!, totalValue: 7900 }, positions: [{ ...apple, currentPrice: 233 }, coke] } as DashboardPayload);
+    expect([...figuresMoved(before, after)]).toEqual([["total", "down"], ["price:AAPL_US_EQ", "up"]]);
+    expect(figuresMoved(new Map(), after).size).toBe(0);
+    // The first render has nothing to compare with.
+    expect(render(undefined)).not.toContain("litFigure");
   });
 });

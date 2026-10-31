@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.98.0
+
+- The dashboard reads itself again while you look at it: every minute while a market of one of your holdings is open (by Trading 212's schedules, extended hours included for an instrument traded in them), every ten minutes otherwise. It waits while the widget is in a background tab or scrolled out of view, while an order, cancellation or basket is being reviewed and while anything else loads. A dashboard shown again in an old chat is not read until you refresh it. Each read is the dashboard's own, shared with any other read for five seconds, so it adds at most one request a minute to Trading 212's account summary, positions and orders.
+- "Updated" says how long ago the dashboard was read ("Just now", "3 minutes ago"), with the time in its tooltip, and marks it "May be out of date" after 15 minutes. A switch beside it turns the reading off, kept in this browser.
+- The account's total and each holding's price and value light up for a moment, green or red, when a read moves them (an outline in high contrast, nothing with reduced motion).
+- A read that fails shows no error card: a small mark by the time says so and the next read tries again. After three in a row it stops and says why; Refresh or the switch starts it again. The day's moves stay on screen while they are read again.
+- `app_get_today` (and `get_portfolio_today`) say whether a holding's market is open now (`open`).
+
 ## 2.97.0
 
 - On a phone, a tap no longer flashes the system's grey or blue box: buttons, links, tabs and rows show the project's own press instead.

@@ -57,5 +57,11 @@ export interface PortfolioToday {
   invested?: number;
   /** For each day whose sessions have all closed, when the last of them closed (ms). */
   ended?: Record<string, number>;
+  /**
+   * A holding's exchange is in session now (an instrument traded in extended hours counts its early and late
+   * sessions), by Trading 212's schedules: the widget reads the account every minute then, and every ten otherwise.
+   * Absent when no holding's schedule is known.
+   */
+  open?: boolean;
   timestamp: string;
 }
