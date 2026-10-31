@@ -35461,6 +35461,7 @@ var DEFAULT_NOTIFY_EVENTS = [
   "pie_status_unknown",
   "price_alert_triggered",
   "account_alert_triggered",
+  "new_listings",
   "allocation_drift",
   "daily_digest",
   "weekly_report",
@@ -35496,6 +35497,7 @@ var LABELS = {
     pie_status_unknown: "Pie change result unclear, check Trading 212",
     price_alert_triggered: "Price alert",
     account_alert_triggered: "Account alert",
+    new_listings: "New on Trading 212",
     allocation_drift: "Allocation has drifted from your targets",
     daily_digest: "Daily digest",
     weekly_report: "Weekly report",
@@ -35520,6 +35522,7 @@ var LABELS = {
     pie_status_unknown: "Pie \u4FEE\u6539\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
     price_alert_triggered: "\u4EF7\u683C\u63D0\u9192",
     account_alert_triggered: "\u8D26\u6237\u63D0\u9192",
+    new_listings: "Trading 212 \u65B0\u4E0A\u67B6",
     allocation_drift: "\u6301\u4ED3\u914D\u7F6E\u5DF2\u504F\u79BB\u76EE\u6807",
     daily_digest: "\u6BCF\u65E5\u6458\u8981",
     weekly_report: "\u5468\u62A5",
@@ -36119,6 +36122,7 @@ var TOOL_OUTPUT = {
   review_trading212_order_intent: payload("order_draft", "draft:o resolvedInstrument:o resolution:o note:s credentials:o writeEnabled:b"),
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
   list_new_instruments: payload("new_listings", "environment:s days:n from:s listings:a total:n types:o catalogue:n undated:n timestamp:s credentials:o"),
+  manage_listing_alert: payload("listing_alert", "environment:s watch:u webhook:b timestamp:s"),
   show_daily_trade_plan: payload("trade_plan", plan),
   test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s")
 };
@@ -41424,7 +41428,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.90.0",
+  version: "2.91.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42661,7 +42665,8 @@ function newListingLines(data) {
     `Window: added from ${data.from.slice(0, 10)} to ${data.timestamp.slice(0, 10)}${data.currency ? `, priced in ${data.currency}` : ""}${kinds.length ? `; by type: ${kinds.map(([kind, count]) => `${kind} ${count}`).join(", ")}` : ""}.`,
     ...data.listings.map((item) => `- ${item.addedOn.slice(0, 10)} ${item.name} (${item.ticker}${item.type ? `, ${item.type}` : ""}, ${item.currencyCode})`),
     ...data.total > data.listings.length ? [`${data.total - data.listings.length} more match; ask with a higher limit or a narrower type or currency.`] : [],
-    ...data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : []
+    ...data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : [],
+    ...data.watch ? [`Listing alert: on for ${[data.watch.types.join("/") || "any type", data.watch.currencies.join("/") || "any currency"].join(", ")}${data.watch.lastFoundAt ? `; last found ${data.watch.lastFound} on ${data.watch.lastFoundAt.slice(0, 10)}` : ""}${data.webhook ? "" : "; no NOTIFY_WEBHOOK_URL, so finds are only logged"}.`] : []
   ];
 }
 function describePayload(data) {
@@ -44149,6 +44154,8 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
 // src/shared/listings.ts
 var MAX_LISTING_DAYS = 365;
 var MAX_LISTINGS = 100;
+var LISTING_WATCH_DAYS = 14;
+var MAX_WATCH_FILTERS = 10;
 
 // src/core/new-listings.ts
 var DAY_MS17 = 864e5;
@@ -44309,7 +44316,7 @@ function listedRange(listed, offset, count) {
   if (!offset) return `${listed} of ${count}`;
   return listed ? `${offset + 1}\u2013${offset + listed} of ${count}` : `none past ${offset} of ${count}`;
 }
-function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, listings: listingWatches, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -44450,6 +44457,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         requireCredentials(config3, environment);
         const now = /* @__PURE__ */ new Date();
         const found = newListings(await trading.instruments(environment), { days, type, currency, limit }, now);
+        const watch = await listingWatches.get(environment);
         const data = {
           kind: "new_listings",
           environment,
@@ -44463,6 +44471,8 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           types: found.types,
           catalogue: found.catalogue,
           undated: found.undated,
+          ...watch ? { watch } : {},
+          webhook: config3.notifyTargets.length > 0,
           timestamp: now.toISOString()
         };
         return result(data, `${data.total ? `Found ${data.total}` : "Found no"} instrument(s) Trading 212 added on ${environment.toUpperCase()} in the last ${days} day(s)${data.type || data.currency ? ` (${[data.type, data.currency].filter(Boolean).join(", ")})` : ""}.`);
@@ -45286,6 +45296,42 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         }
         const alert = await accountAlerts.rearm(input2.alertId);
         return result({ kind: "account_alert", alert }, `Re-armed account alert ${alert.id}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  registerAppTool(
+    server2,
+    "manage_listing_alert",
+    {
+      title: "Listing Alert",
+      description: `Turn on, change or turn off the account's listing alert: the scheduler reads Trading 212's instrument list at most once an hour and notifies when Trading 212 has added instruments of the chosen \`types\` (as Trading 212 writes them, e.g. STOCK or ETF) and \`currencies\` (e.g. USD); any when left empty. An instrument counts as new when Trading 212 dates it (addedOn) in the last ${LISTING_WATCH_DAYS} days and the alert has not seen it before; what is listed when the alert is turned on counts as seen. Each find is logged once (list_new_instruments shows the alert too) and sent to the notification webhook when one is configured. One alert per account; set again to change it. It never places orders.`,
+      inputSchema: external_exports.object({
+        action: external_exports.enum(["set", "remove"]),
+        environment: environmentWithDefault,
+        types: external_exports.array(external_exports.string().trim().min(1).max(20)).max(MAX_WATCH_FILTERS).optional(),
+        currencies: external_exports.array(external_exports.string().trim().length(3)).max(MAX_WATCH_FILTERS).optional()
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      _meta: {}
+    },
+    async (input2) => {
+      try {
+        const webhook = config3.notifyTargets.length > 0;
+        if (input2.action === "remove") {
+          const had = await listingWatches.remove(input2.environment);
+          return result(
+            { kind: "listing_alert", environment: input2.environment, watch: null, webhook, timestamp: (/* @__PURE__ */ new Date()).toISOString() },
+            had ? `Turned off the ${input2.environment.toUpperCase()} listing alert.` : `There was no ${input2.environment.toUpperCase()} listing alert.`
+          );
+        }
+        const watch = await listingWatches.set({ environment: input2.environment, ...input2.types ? { types: input2.types } : {}, ...input2.currencies ? { currencies: input2.currencies } : {} });
+        const what = [watch.types.join("/"), watch.currencies.join("/")].filter(Boolean).join(", ");
+        return result(
+          { kind: "listing_alert", environment: input2.environment, watch, webhook, timestamp: (/* @__PURE__ */ new Date()).toISOString() },
+          `The ${input2.environment.toUpperCase()} listing alert is on${what ? ` for ${what}` : " for any instrument"}; it checks at most hourly.${webhook ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`
+        );
       } catch (error62) {
         return toolError(error62);
       }
@@ -46174,6 +46220,116 @@ var PriceAlerts = class {
   }
 };
 
+// src/core/listing-watch.ts
+var LISTING_CHECK_EVERY_MS = 60 * 6e4;
+var DAY_MS18 = 864e5;
+var watchKey2 = (environment) => `listing-watch:${environment}`;
+var seenKey = (environment) => `listing-seen:${environment}`;
+var codes = (values, field) => {
+  const unique = [...new Set((values ?? []).map((value) => value.trim().toUpperCase()).filter(Boolean))];
+  if (unique.length > MAX_WATCH_FILTERS) fail("INVALID_INPUT", `A listing alert narrows to at most ${MAX_WATCH_FILTERS} ${field}`, { field });
+  return unique.sort();
+};
+function recentlyDated(instruments, now, days = LISTING_WATCH_DAYS) {
+  const start = now.getTime() - days * DAY_MS18;
+  return instruments.filter((item) => {
+    const at = item.addedOn ? Date.parse(item.addedOn) : Number.NaN;
+    return Number.isFinite(at) && at >= start && at <= now.getTime() + DAY_MS18;
+  });
+}
+function watchMatches(watch, item) {
+  return (!watch.types.length || watch.types.includes(item.type?.toUpperCase() || "OTHER")) && (!watch.currencies.length || watch.currencies.includes(item.currencyCode?.toUpperCase() ?? ""));
+}
+function listingOutcome(found) {
+  const names = found.map((item) => `${item.name || item.shortName || item.ticker} (${item.shortName || item.ticker})`);
+  let line = "";
+  for (const [index, name] of names.entries()) {
+    const more = names.length - index - 1;
+    const next = line ? `${line}; ${name}` : name;
+    if (next.length + (more ? ` +${more} more`.length : 0) > 200) return `${line}${line ? " " : ""}+${names.length - index} more`;
+    line = next;
+  }
+  return line;
+}
+var ListingWatches = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  async get(environment) {
+    return this.deps.store.get(watchKey2(environment));
+  }
+  async list() {
+    return (await this.deps.store.list("listing-watch:")).map((entry) => entry.value);
+  }
+  /** Start or change the alert. What is listed now counts as seen, so the first notice is for what comes next. */
+  async set(input2, now = /* @__PURE__ */ new Date()) {
+    requireCredentials(this.deps.config, input2.environment);
+    const types = codes(input2.types, "types");
+    const currencies = codes(input2.currencies, "currencies");
+    if (currencies.some((code) => !/^[A-Z]{3}$/.test(code))) fail("INVALID_INPUT", "Currencies are three-letter codes, such as USD", { field: "currencies" });
+    const current = await this.get(input2.environment);
+    if (!current) {
+      const seen = recentlyDated(await this.deps.trading.instruments(input2.environment), now).map((item) => item.ticker);
+      await this.deps.store.put(seenKey(input2.environment), seen);
+    }
+    const watch = {
+      ...current ?? {},
+      environment: input2.environment,
+      types,
+      currencies,
+      createdAt: current?.createdAt ?? now.toISOString(),
+      ...current ? {} : { lastCheckedAt: now.toISOString() }
+    };
+    await this.deps.store.put(watchKey2(input2.environment), watch);
+    return watch;
+  }
+  async remove(environment) {
+    const had = !!await this.get(environment);
+    await this.deps.store.delete(watchKey2(environment));
+    await this.deps.store.delete(seenKey(environment));
+    return had;
+  }
+  /** One scheduler pass: each watch whose hour is up reads the list once and notifies about what it had not seen. */
+  async check(now = /* @__PURE__ */ new Date()) {
+    const reports2 = [];
+    for (const watch of await this.list()) {
+      const { environment } = watch;
+      if (!credentialStatus(this.deps.config)[environment]) continue;
+      if (watch.lastCheckedAt && now.getTime() - Date.parse(watch.lastCheckedAt) < LISTING_CHECK_EVERY_MS) continue;
+      let instruments;
+      try {
+        instruments = await this.deps.trading.instruments(environment);
+      } catch (error62) {
+        reports2.push({ environment, action: "skipped", tickers: [], message: error62 instanceof Error ? error62.message : String(error62) });
+        continue;
+      }
+      const recent = recentlyDated(instruments, now);
+      const seen = new Set(await this.deps.store.get(seenKey(environment)) ?? []);
+      const found = recent.filter((item) => !seen.has(item.ticker) && watchMatches(watch, item)).sort((a, b) => Date.parse(b.addedOn) - Date.parse(a.addedOn) || a.ticker.localeCompare(b.ticker));
+      const current = await this.get(environment);
+      if (!current || current.createdAt !== watch.createdAt) continue;
+      await this.deps.store.put(seenKey(environment), recent.map((item) => item.ticker));
+      await this.deps.store.put(watchKey2(environment), {
+        ...current,
+        lastCheckedAt: now.toISOString(),
+        ...found.length ? { lastFoundAt: now.toISOString(), lastFound: found.length } : {}
+      });
+      if (!found.length) {
+        reports2.push({ environment, action: "none", tickers: [], message: "Nothing new." });
+        continue;
+      }
+      const outcome = listingOutcome(found);
+      await this.deps.trading.recordActivity("new_listings", environment, {
+        ...found.length === 1 ? { ticker: found[0].ticker } : {},
+        outcome
+      });
+      reports2.push({ environment, action: "found", tickers: found.map((item) => item.ticker), message: outcome });
+    }
+    return reports2;
+  }
+};
+
 // src/core/journal.ts
 var MAX_JOURNAL_ENTRIES = 2e3;
 var entryKey = (id) => `journal:${id}`;
@@ -46318,13 +46474,13 @@ function symbolFromTicker(ticker) {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS18 = 864e5;
-var watchKey2 = (environment) => `order-watch:${environment}`;
+var DAY_MS19 = 864e5;
+var watchKey3 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS18).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS19).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -46384,7 +46540,7 @@ var OrderWatch = class {
       const slot = await this.deps.store.increment(`order-watch-slot:${environment}`, ORDER_WATCH_INTERVAL_MS, now.getTime());
       if (slot.count > 1) continue;
       const open2 = (await this.deps.trading.pendingOrders(environment)).flatMap((order) => watchedOrder(order) ?? []);
-      const previous = await this.deps.store.get(watchKey2(environment));
+      const previous = await this.deps.store.get(watchKey3(environment));
       const openIds = new Set(open2.map((order) => order.id));
       const gone = (previous?.orders ?? []).filter((order) => !openIds.has(order.id));
       const kept = [];
@@ -46409,7 +46565,7 @@ var OrderWatch = class {
           reports2.push(await this.report(environment, order, { result: "unclear", message: `Left the order book, but ${seen}. Check it in Trading 212.`, ...outcome ? { outcome } : {} }, now));
         }
       }
-      await this.deps.store.put(watchKey2(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
+      await this.deps.store.put(watchKey3(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
     }
     return reports2;
   }
@@ -46431,7 +46587,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS18);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS19);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -46439,16 +46595,16 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS19 = 864e5;
+var DAY_MS20 = 864e5;
 var round20 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round20(value)}`;
 var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round20(value * 100)}%`;
 var MOVERS = 3;
 var EXPECTED_DIVIDENDS = 3;
 var RECEIVED_DIVIDENDS = 5;
-var WEEK_MS = 7 * DAY_MS19;
-var LATE_DIVIDEND_MS = 3 * DAY_MS19;
-var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS19;
+var WEEK_MS = 7 * DAY_MS20;
+var LATE_DIVIDEND_MS = 3 * DAY_MS20;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS20;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -46457,7 +46613,7 @@ function dividendsSince(mark, now) {
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
   if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
-  return { since: now.getTime() - DAY_MS19, known: false };
+  return { since: now.getTime() - DAY_MS20, known: false };
 }
 function dividendMark(dividends, now) {
   const from = now.getTime() - LATE_DIVIDEND_MS;
@@ -46589,7 +46745,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS19, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS20, now.getTime());
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
@@ -46605,7 +46761,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan2) => plan2.environment === environment && !plan2.paused && Date.parse(plan2.nextRunAt) <= now.getTime());
-        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS19;
+        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS20;
         const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
@@ -46660,8 +46816,8 @@ var DailyDigest = class {
 };
 
 // src/core/reports.ts
-var DAY_MS20 = 864e5;
-var DONE_MS = 40 * DAY_MS20;
+var DAY_MS21 = 864e5;
+var DONE_MS = 40 * DAY_MS21;
 var RETRY_MS2 = 15 * 6e4;
 var addDays = (day2, days) => {
   const [year, month, date5] = day2.split("-").map(Number);
@@ -47012,6 +47168,7 @@ function createServices(input2) {
     fills: (env2, from) => insights.tradeHistory(env2, { from, to: /* @__PURE__ */ new Date() }, void 0, 200, DAY_ORDER_PAGES)
   }, environment, now);
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
+  const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
   const digest2 = new DailyDigest({
     config: deps.config,
     store: deps.store,
@@ -47044,6 +47201,7 @@ function createServices(input2) {
     plans: await stage("plans", () => automation3.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
+    listings: await stage("listing alerts", () => listings.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest2.run()),
     reports: await stage("reports", () => reports2.run()),
@@ -47111,7 +47269,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, listings, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts
