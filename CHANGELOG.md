@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.75.0
+
+- The custom range is chosen on the widget's own calendar. The two date boxes opened the browser's calendar: a system popup on a computer, a wheel or a full-screen sheet on a phone, in the system's look. The range panel now shows a month of days in the theme, weeks from Monday: the first press chooses the first day and the next the last, and until then the days up to the one under the pointer or focus show as the range. The ends are filled, the days between are a band, today is underlined, days after today cannot be chosen, and the arrows beside the month's name go back and forward a month. With the keyboard it is the ARIA date grid: one Tab stop, the arrows move by a day or a week, Home and End to the week's ends, Page Up and Page Down by a month (with Shift, a year), Enter or Space chooses. The days can still be typed, as year-month-day, in plain boxes below it; a day not on the calendar (2026-02-31) is refused as no day at all, where before it passed the check.
+
 ## 2.74.0
 
 - The widget's own tooltips. About a hundred controls and figures carry a title: what a period button means, a ticker's full name, a figure cut short. The browser showed it late, in the system's look whatever the theme, never for the keyboard and never on a touch screen. It now shows as a small bubble in the theme: after a moment's hover, at once for a control reached with the keyboard, and on a long press with a finger, which shows the text without pressing the button and goes by itself after three seconds. It sits above the element, or below it when there is no room, and stays inside the frame. Escape, a scroll or a press elsewhere takes it away. While it shows, the element's title is set aside, so the browser's tooltip never shows over it, and the bubble describes the element instead (aria-describedby); both are put back when it goes.

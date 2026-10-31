@@ -82,7 +82,9 @@ describe("native controls", () => {
     expect(css).toMatch(/input\[type="number"\]\s*\{[^}]*appearance: textfield/);
     // Search and date boxes are drawn as the other text boxes (pnpm audit:ui finds any control left out).
     expect(css).toMatch(/input\[type="search"\]\s*\{[^}]*appearance: none/);
-    expect(css).toMatch(/\.field input\[type="date"\]\s*\{[^}]*appearance: none/);
+    // No date box is left: the range is chosen on the widget's own calendar, or typed in plain boxes.
+    expect(css).not.toContain('input[type="date"]');
+    expect(css).toMatch(/\.calendarGrid td\.start button, \.calendarGrid td\.end button \{[^}]*background: var\(--tp-primary-bg\)/);
     // <small> is never drawn under 12px, however small its parent's text.
     expect(css).toContain("small { font-size: max(12px, .85em); }");
     // Links inside text and sortable headers are still 24px targets (WCAG 2.5.8); the day's move keeps full contrast.
