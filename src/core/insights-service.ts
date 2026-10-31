@@ -29,6 +29,7 @@ import { scheduleStart } from "./dividends.js";
 import { fail } from "./errors.js";
 import { resolveInstrumentFromList } from "./trading-service.js";
 import { readsOnTheirWayShared, Trading212ApiError, Trading212Client, type HistoryKind } from "./trading212-client.js";
+import { readCancelled, readWatch } from "./request-context.js";
 import { summarizeExport, type ExportSummary } from "./export-csv.js";
 import { accountName, ledgerPrefix, recordKey, SETTLE_MS, union, type HistoryLedgers, type LedgerPending, type LedgerSegment } from "./history-ledger.js";
 
@@ -183,6 +184,8 @@ export class InsightsService {
     const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached = this.historyCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as Collected<HistoryItemOf<K>>;
+    // A call cancelled during an earlier read reads nothing more: its answer is not sent, and is not kept.
+    if (readCancelled()) return { items: [], truncated: true };
 
     const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);
@@ -207,12 +210,15 @@ export class InsightsService {
     let truncated = false;
     let limited = false;
     for (let page = 0; page < pages; page++) {
+      // A call cancelled meanwhile reads no further: what was read is the answer no one waits for, and is not kept.
+      if (page > 0 && readCancelled()) { truncated = true; limited = true; break; }
       // Past the first page, a limit that resets later than a read waits gives what was read, cut short, not nothing.
       const result = await client.getHistoryPage(kind, next, ticker).catch((error: unknown) => {
         if (page > 0 && error instanceof Trading212ApiError && error.status === 429) return undefined;
         throw error;
       });
       if (!result) { truncated = true; limited = true; break; }
+      readWatch()?.page?.();
       items.push(...(result.items as HistoryItemOf<K>[]));
       const oldest = result.items.length ? itemTime(kind, result.items[result.items.length - 1]!) : NaN;
       const reachedStart = start !== undefined && Number.isFinite(oldest) && oldest < start.getTime();
@@ -252,9 +258,13 @@ export class InsightsService {
     // Trading 212 no longer knows is "refused".
     const read = async (next: string | undefined, filter?: string) => {
       const first = budget === pages;
+      // A call cancelled meanwhile reads no further, as if the limit stopped it: what was read is still kept.
+      if (!first && readCancelled()) { limited = true; return undefined; }
       budget -= 1;
       try {
-        return await client.getHistoryPage(kind, next, filter);
+        const page = await client.getHistoryPage(kind, next, filter);
+        readWatch()?.page?.();
+        return page;
       } catch (error) {
         if (first) throw error;
         if (next && error instanceof Trading212ApiError && REFUSED.has(error.status)) return "refused" as const;

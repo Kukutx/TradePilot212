@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.85.0
+
+- A long history read reports its progress. A client that asks for progress on a tool call gets a notification for each page of 50 records read. Trading 212 allows few history reads a minute, so a year of trades or a tax year can take a while, and the host can show how far it has got.
+- Over stdio (the Claude Code plugin, or Claude Desktop running the server locally), a client that cancels a tool call stops its history reads before their next page, so a call no one waits for no longer uses up the reads that later ones need. What it read is kept in the history ledger, and the next read goes on from there. The HTTP server answers each request on its own, so a cancel does not reach a call there.
+- The server names itself to the host as **TradePilot 212**, with its icon and the repository as its website.
+- The widget's header shows the same icon, a rising line on the brand colours, in place of the letters "TP".
+
 ## 2.84.0
 
 - The Trades and Cash movements pages list a long period to its start. Below the newest 200 fills or 500 movements, **Show older** lists the next page beneath them. It reads the same window, ended where the first page ended and read as far back, so what came in since does not move the pages. The totals still cover the whole period.

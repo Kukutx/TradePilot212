@@ -65,6 +65,12 @@ It also offers four JSON resources per account with keys, for a host to attach t
 
 The prompts are generated from `skills/*/SKILL.md` into `src/core/skill-prompts.ts`, since the Worker and the bundled plugin cannot read `skills/` at run time. After changing a skill, run `pnpm build:prompts` (`pnpm build:plugin` runs it too); a test fails while the two differ.
 
+### Progress, cancelling and the server's name
+
+A long history read (a year of trades, a tax year, the dividends of every holding) can take a while, since Trading 212 allows few history reads a minute. A client that asks for progress on a tool call (a `progressToken` in its `_meta`) gets a `notifications/progress` for each page of 50 records read. Over stdio (this plugin, or Claude Desktop running the server locally), a client that cancels the call stops the read before its next page, and the call reads no other history after it. What it read is kept in the history ledger, so the next read goes on from there, and nothing is sent back. The HTTP server (the Worker, `pnpm start`) answers each request on its own, so a cancel sent as another request does not reach the call: it reads to the end as before, and its answer is dropped.
+
+The server names itself `TradePilot 212`, with its icon and this repository as its website, for a host that lists its connections.
+
 ### Why order tools are off by default
 
 In ChatGPT and other MCP Apps hosts, TradePilot's execution tools are app-only: the model cannot see them, and only a click in the TradePilot UI can call them.

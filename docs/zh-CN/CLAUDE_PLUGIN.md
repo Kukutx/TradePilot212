@@ -68,6 +68,13 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 
 这些 prompt 由 `skills/*/SKILL.md` 生成到 `src/core/skill-prompts.ts`，因为 Worker 和打包后的插件在运行时读不到 `skills/`。修改 skill 后，运行 `pnpm build:prompts`（`pnpm build:plugin` 也会运行它）；两者不一致时会有测试失败。
 
+<a id="progress-cancelling-and-the-servers-name"></a>
+### 进度、取消和服务器名称
+
+读取较长的历史（一年的成交、一个税年、所有持仓的股息）可能要一阵子，因为 Trading 212 每分钟只允许少量历史读取。在工具调用里要求进度的客户端（`_meta` 里带 `progressToken`），每读完一页 50 条记录都会收到一条 `notifications/progress`。通过 stdio 运行时（本插件，或在本机运行服务器的 Claude Desktop），客户端取消调用后，读取在下一页前停止，这次调用之后也不再读取其他历史；已读到的记录留在历史账本里，下次读取从那里接着读，这次调用不再返回结果。HTTP 服务器（Worker、`pnpm start`）把每个请求单独处理，作为另一个请求发来的取消到不了正在进行的调用：它会像以前一样读完，结果被丢弃。
+
+服务器以 `TradePilot 212` 的名称出现，带有它的图标，网站是本仓库，供列出连接的宿主显示。
+
 <a id="why-order-tools-are-off-by-default"></a>
 ### 为什么下单工具默认关闭
 

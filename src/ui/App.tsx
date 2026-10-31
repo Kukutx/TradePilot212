@@ -1349,7 +1349,9 @@ export default function App() {
       <TipLayer />
       <header className="appHeader">
         <div className="brandBlock">
-          <div className="brandMark" aria-hidden="true">TP</div>
+          <div className="brandMark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" focusable="false"><path d="M14 44l11-12 8 7 17-18" /><circle cx="50" cy="21" r="4" /></svg>
+          </div>
           <div className="brandCopy">
             <span className="brokerLabel">{t("brokerName")}</span>
             <h1>{t("appName")}</h1>

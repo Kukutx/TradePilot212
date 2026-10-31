@@ -34,6 +34,7 @@ import { addUsage, blockingChecks, EMPTY_USAGE, evaluatePolicy, usageKey, type D
 import type { Notifier } from "./notify.js";
 import type { StateStore } from "./state-store.js";
 import { ExecutionStatusUnknownError, readsOnTheirWayShared, Trading212ApiError, Trading212Client } from "./trading212-client.js";
+import { readCancelled, readWatch } from "./request-context.js";
 import { randomToken } from "./web-utils.js";
 import type { ExternalFxRate, ExternalQuote, QuoteOptions, QuoteProvider } from "./quotes.js";
 
@@ -1650,7 +1651,9 @@ export class TradingService {
     const since = options.since ? Date.parse(options.since) : NaN;
     let path: string | undefined;
     for (let page = 0; page < (options.maxPages ?? 4); page++) {
+      if (page > 0 && readCancelled()) break;
       const result = await client.getHistoryPage("orders", path);
+      readWatch()?.page?.();
       let oldest = Infinity;
       for (const item of result.items) {
         // An old order can fill recently, so a fill's time counts over the order's creation.
@@ -1709,7 +1712,9 @@ export class TradingService {
     let order: OrderStatusReport["order"];
     let path: string | undefined;
     for (let page = 0; page < maxPages; page++) {
+      if (page > 0 && readCancelled()) break;
       const result = await client.getHistoryPage("orders", path);
+      readWatch()?.page?.();
       for (const item of result.items) {
         if (String(item.order?.id) !== id) continue;
         order ??= item.order as OrderStatusReport["order"];
