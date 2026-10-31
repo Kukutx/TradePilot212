@@ -313,6 +313,13 @@ function inspect(host = []) {
   // A tap shows the project's own press, not the system's grey or blue box.
   const tapped = [...document.querySelectorAll("button, a[href], summary, [role=tab], [role=option], [role=radio]")].find((element) => visible(element) && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(getComputedStyle(element).webkitTapHighlightColor ?? "transparent"));
   if (tapped) problems.push(`system tap highlight: ${describe(tapped)}`);
+  // The project's sliders: named, with their value in words, and at least 24px to hit (WCAG 2.5.8).
+  for (const slider of document.querySelectorAll("[role=slider]")) {
+    if (!visible(slider)) continue;
+    const box = slider.getBoundingClientRect();
+    if (box.height < 24 || box.width < 24) problems.push(`small slider: ${describe(slider)} (${Math.round(box.width)}×${Math.round(box.height)}px)`);
+    if (!slider.getAttribute("aria-valuetext") || !(slider.getAttribute("aria-label") || slider.getAttribute("aria-labelledby"))) problems.push(`slider without a name or value text: ${describe(slider)}`);
+  }
   return problems;
 }
 

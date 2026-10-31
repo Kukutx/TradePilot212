@@ -499,7 +499,7 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
       </section>
 
       {onGoal && onRemoveGoal && (
-        <GoalPanel {...(data.goal ? { goal: data.goal } : {})} {...(data.currentValue === undefined ? {} : { value: data.currentValue })} currency={currency} locale={locale} t={t} busy={busy} onSave={onGoal} onRemove={onRemoveGoal} />
+        <GoalPanel {...(data.goal ? { goal: data.goal } : {})} {...(data.timeWeighted?.risk ? { measured: data.timeWeighted.risk } : {})} {...(data.currentValue === undefined ? {} : { value: data.currentValue })} currency={currency} locale={locale} t={t} busy={busy} onSave={onGoal} onRemove={onRemoveGoal} />
       )}
 
       {data.valueHistory && data.valueHistory.length >= 2 && (

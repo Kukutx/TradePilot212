@@ -10,6 +10,25 @@ import { fill, type Translator } from "../lib/messages";
 import { axisMoney, niceTicks, ViewSwitch } from "./charts";
 import { Field, Metric } from "./common";
 import { Select } from "./select";
+import { Slider } from "./slider";
+
+/** The account's own return and volatility, from the time-weighted return over the days read (shared/risk.ts). */
+export interface MeasuredGoalRisk { from: string; to: string; volatility: number; annualized?: number }
+
+/** The slider's end for the amount added each month: a round amount at least three times the one set, and 1,000. */
+export function monthlyScale(monthly: number): { max: number; step: number } {
+  const want = Math.max(1_000, monthly * 3);
+  const magnitude = 10 ** Math.floor(Math.log10(want));
+  const max = Math.ceil(want / magnitude) * magnitude;
+  return { max, step: max <= 2_000 ? 10 : max <= 10_000 ? 50 : 100 };
+}
+
+/** The sliders' ends and steps for the percentages, in percent; a value typed outside them sits at that end. */
+export const GOAL_SLIDERS = {
+  expectedReturn: { min: -5, max: 15, step: 0.5 },
+  volatility: { min: 0, max: 40, step: 0.5 },
+  inflation: { min: 0, max: 10, step: 0.1 },
+} as const;
 
 export interface GoalRequest { target: number; by: string; monthly: number; expectedReturn: number; volatility: number; inflation: number; name?: string }
 
@@ -142,8 +161,8 @@ export function GoalChart({ projection, target, currency, locale, t }: {
 
 const percentText = (fraction: number, locale: SupportedLocale) => num(Math.round(fraction * 1000) / 10, locale, 1);
 
-function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, onDraft }: {
-  goal?: InvestmentGoal; value?: number; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
+export function GoalForm({ goal, value, measured, currency, locale, t, busy, onSave, onCancel, onDraft }: {
+  goal?: InvestmentGoal; value?: number; measured?: MeasuredGoalRisk; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
   onSave: (request: GoalRequest) => void; onCancel: () => void;
   /** The inputs as typed, when they make a goal, for the chart beside the form. */
   onDraft: (inputs: GoalInputs | undefined) => void;
@@ -159,6 +178,13 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
   const [inflationText, setInflationText] = useState(percentText(start.inflation ?? 0, locale));
   const [name, setName] = useState(goal?.name ?? "");
   const [touched, setTouched] = useState(false);
+  // The monthly slider keeps its scale while the form is open, so the thumb does not jump under the finger.
+  const [monthlyRange] = useState(() => monthlyScale(start.monthly));
+  const [opened] = useState(() => ({
+    target: parseAmount(String(start.target)), by: monthEnd(Number(start.by.slice(0, 4)), Number(start.by.slice(5, 7))), monthly: parseAmount(String(start.monthly)),
+    expectedReturn: parseAmount(percentText(start.expectedReturn, locale)) / 100, volatility: parseAmount(percentText(start.volatility, locale)) / 100,
+    inflation: parseAmount(percentText(start.inflation ?? 0, locale)) / 100, name: (goal?.name ?? "").trim(),
+  }));
   const target = parseAmount(targetText);
   const monthly = monthlyText.trim() ? parseAmount(monthlyText) : 0;
   const expectedReturn = parseAmount(returnText) / 100;
@@ -180,6 +206,21 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
   const years = Array.from({ length: MAX_GOAL_YEARS + 1 }, (_, index) => String(now.getUTCFullYear() + index));
   const months = Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2000, index, 1))) }));
   const show = (error: string | undefined) => (touched ? error : undefined);
+  const percentSlider = (key: keyof typeof GOAL_SLIDERS, text: string, setText: (text: string) => void) => (labelId: string) => {
+    const range = GOAL_SLIDERS[key];
+    const typed = parseAmount(text);
+    return <Slider {...range} value={Number.isFinite(typed) ? typed : range.min} labelledBy={labelId} valueText={`${num(Number.isFinite(typed) ? typed : range.min, locale, 1)}%`}
+      onChange={(next) => setText(num(next, locale, 1))} />;
+  };
+  // A saved goal edited: the save button says there is something to save. It is measured against what the form
+  // showed when it opened (the month's last day, percentages to one decimal), not the goal as stored.
+  const changed = Boolean(goal && valid && (opened.target !== target || opened.by !== by || opened.monthly !== monthly || Math.abs(opened.expectedReturn - expectedReturn) > 1e-9
+    || Math.abs(opened.volatility - volatility) > 1e-9 || Math.abs(opened.inflation - inflation) > 1e-9 || opened.name !== name.trim()));
+  // The account's own figures, from a year of recorded values or more; the return is kept inside what a goal takes.
+  const useMeasured = measured?.annualized === undefined ? undefined : () => {
+    setReturnText(percentText(Math.min(0.3, Math.max(-0.5, measured.annualized!)), locale));
+    setVolatilityText(percentText(Math.min(1, measured.volatility), locale));
+  };
   const submit = () => {
     setTouched(true);
     if (!valid || busy) return;
@@ -200,23 +241,33 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
             </div>
           )}
         </Field>
-        <Field label={t("goalMonthly")} unit={currency} error={show(errors.monthly)}>
+        <Field label={t("goalMonthly")} unit={currency} error={show(errors.monthly)} below={(labelId) => (
+          <Slider min={0} max={monthlyRange.max} step={monthlyRange.step} value={Number.isFinite(monthly) ? monthly : 0} labelledBy={labelId}
+            valueText={money(Number.isFinite(monthly) ? monthly : 0, currency, locale, { digits: 0 })} onChange={(next) => setMonthlyText(String(next))} />
+        )}>
           {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={monthlyText} onChange={(event) => setMonthlyText(event.target.value)} />}
         </Field>
-        <Field label={t("goalReturn")} unit="%" hint={t("goalReturnHint")} error={show(errors.expectedReturn)}>
+        <Field label={t("goalReturn")} unit="%" hint={t("goalReturnHint")} error={show(errors.expectedReturn)} below={percentSlider("expectedReturn", returnText, setReturnText)}>
           {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={returnText} onChange={(event) => setReturnText(event.target.value)} />}
         </Field>
-        <Field label={t("goalVolatility")} unit="%" hint={t("goalVolatilityHint")} error={show(errors.volatility)}>
+        <Field label={t("goalVolatility")} unit="%" hint={t("goalVolatilityHint")} error={show(errors.volatility)} below={percentSlider("volatility", volatilityText, setVolatilityText)}>
           {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={volatilityText} onChange={(event) => setVolatilityText(event.target.value)} />}
         </Field>
-        <Field label={t("goalInflation")} unit="%" hint={t("goalInflationHint")} error={show(errors.inflation)}>
+        <Field label={t("goalInflation")} unit="%" hint={t("goalInflationHint")} error={show(errors.inflation)} below={percentSlider("inflation", inflationText, setInflationText)}>
           {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={inflationText} onChange={(event) => setInflationText(event.target.value)} />}
         </Field>
         <Field label={t("goalName")}>
           {(props) => <input {...props} maxLength={80} autoComplete="off" value={name} placeholder={t("goalNamePlaceholder")} onChange={(event) => setName(event.target.value)} />}
         </Field>
       </div>
+      <div className="goalMeasured">
+        <button type="button" className="secondaryButton compactButton" disabled={!useMeasured} onClick={useMeasured}>{t("goalUseMeasured")}</button>
+        <span className="fieldHint">{useMeasured && measured
+          ? fill(t("goalMeasuredHint"), { from: dayLabel(measured.from, locale), to: dayLabel(measured.to, locale), rate: pct(measured.annualized, locale, 1, { signed: true }), volatility: pct(measured.volatility, locale, 1) })
+          : t("goalMeasuredShort")}</span>
+      </div>
       <div className="alertFormActions">
+        {changed && <span className="goalUnsaved" role="status">{t("goalUnsaved")}</span>}
         <button type="button" className="secondaryButton" onClick={onCancel}>{t("cancel")}</button>
         <button type="submit" className="primaryButton" disabled={busy} aria-disabled={Boolean(touched && !valid) || undefined}>{busy ? t("saving") : t("goalSave")}</button>
       </div>
@@ -224,8 +275,10 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
   );
 }
 
-export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRemove }: {
+export function GoalPanel({ goal, value, measured, currency, locale, t, busy, onSave, onRemove }: {
   goal?: InvestmentGoal; value?: number; currency: string; locale: SupportedLocale; t: Translator; busy: boolean;
+  /** The account's own return and volatility over the days read, for the form's "use my account's figures". */
+  measured?: MeasuredGoalRisk;
   /** Resolves to the goal as saved; rejects with the reason it was not. */
   onSave: (request: GoalRequest) => Promise<InvestmentGoal | undefined>;
   onRemove: () => Promise<boolean>;
@@ -270,7 +323,7 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
         <h2 id="goal-title">{saved?.name ? fill(t("goalTitleNamed"), { name: saved.name }) : t("goalTitle")}</h2>
         {saved && !editing && (
           <span className="goalActions">
-            <button type="button" className="secondaryButton compactButton" disabled={disabled} onClick={() => setEditing(true)}>{t("goalEdit")}</button>
+            <button type="button" className="secondaryButton compactButton" data-reveals="form" disabled={disabled} onClick={() => setEditing(true)}>{t("goalEdit")}</button>
             <button type="button" className="secondaryButton compactButton" disabled={disabled} onClick={() => void remove()}>{t("goalRemove")}</button>
           </span>
         )}
@@ -278,11 +331,11 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
       {!saved && !editing && (
         <div className="emptyState compact goalEmpty">
           <span>{t("goalEmpty")}</span>
-          <button type="button" className="primaryButton compactButton" disabled={disabled} onClick={() => setEditing(true)}>{t("goalStart")}</button>
+          <button type="button" className="primaryButton compactButton" data-reveals="form" disabled={disabled} onClick={() => setEditing(true)}>{t("goalStart")}</button>
         </div>
       )}
       {failed && <div className="notice error compactNotice" role="alert">{failed}</div>}
-      {editing && <GoalForm {...(saved ? { goal: saved } : {})} {...(value === undefined ? {} : { value })} currency={currency} locale={locale} t={t} busy={disabled} onSave={(request) => void save(request)} onCancel={() => { setEditing(false); setDraft(undefined); }} onDraft={setDraft} />}
+      {editing && <GoalForm {...(saved ? { goal: saved } : {})} {...(value === undefined ? {} : { value })} {...(measured ? { measured } : {})} currency={currency} locale={locale} t={t} busy={disabled} onSave={(request) => void save(request)} onCancel={() => { setEditing(false); setDraft(undefined); }} onDraft={setDraft} />}
       {shown && value === undefined && <p className="panelNote">{t("goalNoValue")}</p>}
       {shown && projection && share !== undefined && (
         <>
