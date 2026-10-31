@@ -15,7 +15,7 @@ import type { StateStore } from "./state-store.js";
 import type { TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
 
-export const MAX_ACCOUNT_ALERTS = 20;
+export const MAX_ACCOUNT_ALERTS = 50;
 /** How often the day's-move alerts read the day's move: it reads every holding's closes and the day's fills. */
 export const DAY_MOVE_EVERY_MS = 10 * 60_000;
 /** An account summary read this recent (alone, or with the day's move just before) is used as it is. */

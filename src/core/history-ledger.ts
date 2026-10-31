@@ -23,9 +23,11 @@ import type { HistoryKind } from "./trading212-client.js";
 
 export type LedgerItem = HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem;
 
-/** Records kept of one kind at most (a few MB); past this the oldest go, down to TRIM_TO, and with them the way back. */
-export const MAX_RECORDS = 10_000;
-const TRIM_TO = 9_000;
+/**
+ * Records kept of one kind by default (HISTORY_MAX_RECORDS), some years of an account that buys every week: past it the
+ * oldest go, down to nine tenths of it, and with them the way back. 0 keeps every record.
+ */
+export const MAX_RECORDS = 50_000;
 /** Past this many chunks, the next read merges them. */
 export const MAX_CHUNKS = 24;
 /** A chunk is kept under this much JSON: a Durable Object holds 2 MB in one value at most. */
@@ -110,7 +112,12 @@ export class HistoryLedgers {
   /** One read of a ledger at a time in this process: two at once would read the same pages twice. */
   private readonly queues = new Map<string, Promise<unknown>>();
 
-  constructor(private readonly store: StateStore) {}
+  /** Past this many records of a kind the oldest go; 0 keeps them all. */
+  private readonly maxRecords: number;
+
+  constructor(private readonly store: StateStore, options: { maxRecords?: number } = {}) {
+    this.maxRecords = options.maxRecords ?? MAX_RECORDS;
+  }
 
   /** Runs `work` after any other work on this ledger in this process. */
   exclusive<T>(prefix: string, work: () => Promise<T>): Promise<T> {
@@ -138,7 +145,7 @@ export class HistoryLedgers {
     return { meta: { ...known, segments: within(known.segments, items, times.place, await this.floor(prefix)) }, items, chunks: chunks.map((chunk) => chunk.key) };
   }
 
-  /** Below this place, records went past MAX_RECORDS. */
+  /** Below this place, records went past the most kept. */
   private async floor(prefix: string): Promise<number | undefined> {
     const floor = await this.store.get<number>(`${prefix}floor`);
     return typeof floor === "number" && Number.isFinite(floor) ? floor : undefined;
@@ -152,13 +159,13 @@ export class HistoryLedgers {
   async add<T extends LedgerItem>(prefix: string, kind: HistoryKind, ledger: Ledger<T> | undefined, added: T[],
     meta: Pick<LedgerMeta, "segments" | "pending">, times: LedgerTimes<T>): Promise<{ items: T[]; meta: LedgerMeta }> {
     let items = union(kind, [...added, ...(ledger?.items ?? [])], times.time);
-    const capped = items.length > MAX_RECORDS;
+    const capped = this.maxRecords > 0 && items.length > this.maxRecords;
     let floor = await this.floor(prefix);
     if (capped) {
       // The lowest placed go, so every record placed above the lowest kept is still kept and the segments can stop
       // there; one placed lower but in the history later (an old order filled since) stays too.
       const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
-      const cut = placed[Math.min(TRIM_TO, placed.length) - 1];
+      const cut = placed[Math.min(Math.floor(this.maxRecords * 0.9), placed.length) - 1];
       if (cut !== undefined) {
         items = items.filter((item) => !(times.place(item) < cut) || !(times.time(item) < cut));
         floor = Math.max(floor ?? cut, cut);

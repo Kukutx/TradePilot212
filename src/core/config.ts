@@ -3,6 +3,7 @@ import type { CredentialStatus, TradingEnvironment } from "../shared/contracts.j
 import type { TradingPolicy } from "../shared/automation.js";
 import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quotes.js";
 import { fail } from "./errors.js";
+import { MAX_RECORDS } from "./history-ledger.js";
 import { DEFAULT_FX_FEE_RATE, MAX_FX_FEE_RATE } from "../shared/trade-cost.js";
 import { parseYearStart, validTimeZone } from "../shared/time-zone.js";
 import { REPORT_KINDS, type ReportKind } from "../shared/automation.js";
@@ -64,6 +65,8 @@ export interface RuntimeConfig {
   oauthRedirectHosts: string[];
   /** Trading 212's currency conversion fee, for the estimates of what a rebalance converts (FX_FEE_RATE, default 0.0015). */
   fxFeeRate: number;
+  /** History records kept of each kind (HISTORY_MAX_RECORDS, default 50,000); 0 keeps every one. */
+  historyMaxRecords: number;
   trading212: Record<TradingEnvironment, { baseUrl: string; apiKey: string; apiSecret: string }>;
 }
 
@@ -78,7 +81,7 @@ export type RuntimeEnv = Partial<Record<
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
   | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS" | "NOTIFY_LOCALE" | "NOTIFY_QUIET_HOURS" | "REPORTS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "BENCHMARK" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
-  | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE" | "TIMEZONE" | "TAX_YEAR_START" | "DIGEST_HOUR" | "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL",
+  | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE" | "HISTORY_MAX_RECORDS" | "TIMEZONE" | "TAX_YEAR_START" | "DIGEST_HOUR" | "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL",
   string
 >>;
 
@@ -111,6 +114,13 @@ function nonNegative(env: RuntimeEnv, name: keyof RuntimeEnv, fallback: number):
 function fxFeeRate(env: RuntimeEnv): number {
   const value = nonNegative(env, "FX_FEE_RATE", DEFAULT_FX_FEE_RATE);
   if (value > MAX_FX_FEE_RATE) throw new Error(`FX_FEE_RATE must be a fraction from 0 to ${MAX_FX_FEE_RATE}, such as 0.0015 for 0.15%`);
+  return value;
+}
+
+function historyMaxRecords(env: RuntimeEnv): number {
+  const value = nonNegative(env, "HISTORY_MAX_RECORDS", MAX_RECORDS);
+  // Fewer than this would forget an account's first year of weekly buys and their dividends.
+  if (value && (!Number.isInteger(value) || value < 1000)) throw new Error("HISTORY_MAX_RECORDS must be a whole number of 1000 or more, or 0 to keep every record");
   return value;
 }
 
@@ -259,6 +269,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     sampleData,
     oauthRedirectHosts: list(env, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     fxFeeRate: fxFeeRate(env),
+    historyMaxRecords: historyMaxRecords(env),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData
       ? {

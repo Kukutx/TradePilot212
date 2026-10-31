@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
-import { HistoryLedgers, MAX_CHUNKS, MAX_RECORDS } from "./history-ledger.js";
+import { HistoryLedgers, MAX_CHUNKS } from "./history-ledger.js";
 import { MemoryStateStore } from "./state-store.js";
 
 const config = {
@@ -87,6 +87,32 @@ describe("history collection", () => {
     });
     const history = await service.tradeHistory("demo", { from: new Date("2026-10-09T00:00:00Z"), to: new Date("2026-10-10T00:00:00Z") });
     expect(history.fills[0]).toMatchObject({ ticker: "AAPL_US_EQ", name: "Apple", price: 230 });
+  });
+
+  it("lists a window's fills and cash movements a page at a time, newest first", async () => {
+    const orders = Array.from({ length: 5 }, (_, index) => ({ order: { id: 10 - index, side: "BUY", ticker: "AAPL_US_EQ" }, fill: { filledAt: `2026-10-0${9 - index}T14:00:00Z`, quantity: 1, price: 200, walletImpact: { netValue: -200 } } }));
+    const deposits = Array.from({ length: 5 }, (_, index) => ({ reference: `d${index}`, type: "DEPOSIT", amount: 100 + index, currency: "EUR", dateTime: `2026-10-0${9 - index}T10:00:00Z` }));
+    const service = new InsightsService({
+      config,
+      instruments: async () => [],
+      fetcher: fetcherFor({
+        "https://demo.test/api/v0/equity/history/orders?limit=50": { items: orders },
+        "https://demo.test/api/v0/equity/history/transactions?limit=50": { items: deposits },
+        "https://demo.test/api/v0/equity/history/dividends?limit=50": { items: [] },
+      }, []),
+    });
+    const window = { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-10T00:00:00Z") };
+    const first = await service.tradeHistory("demo", window, undefined, 2);
+    expect(first.fills.map((fill) => fill.orderId)).toEqual(["10", "9"]);
+    expect(first).not.toHaveProperty("offset");
+    const next = await service.tradeHistory("demo", window, undefined, 2, undefined, true, 2);
+    expect(next).toMatchObject({ offset: 2, count: 5, totals: { buys: 5 } });
+    expect(next.fills.map((fill) => fill.orderId)).toEqual(["8", "7"]);
+    // The orders that never filled come with the first page only.
+    expect(next).not.toHaveProperty("unfilled");
+    const cash = await service.cashHistory("demo", window, { limit: 3, offset: 3 });
+    expect(cash).toMatchObject({ offset: 3, count: 5 });
+    expect(cash.items.map((item) => item.reference)).toEqual(["d3", "d4"]);
   });
 
   it("reads the exchanges once for callers at the same moment", async () => {
@@ -392,7 +418,8 @@ describe("history ledger", () => {
 
   it("keeps chunks under a Durable Object's value size, and past the most records keeps the newest and says so", async () => {
     const store = new MemoryStateStore();
-    const ledgers = new HistoryLedgers(store);
+    const most = 6000;
+    const ledgers = new HistoryLedgers(store, { maxRecords: most });
     const times = { time: (item: { dateTime?: string }) => Date.parse(item.dateTime ?? ""), place: (item: { dateTime?: string }) => Date.parse(item.dateTime ?? "") };
     const record = (index: number) => ({ reference: `r${index}`, type: "DEPOSIT", amount: 1, currency: "EUR", dateTime: new Date(base - index * 60_000).toISOString(), note: "x".repeat(600) });
     const segment = { readAt: new Date().toISOString(), next: null, complete: true };
@@ -401,10 +428,10 @@ describe("history ledger", () => {
     expect(chunks.length).toBeGreaterThan(2);
     for (const chunk of chunks) expect(JSON.stringify(chunk.value).length).toBeLessThan(1_000_000);
     expect(meta.segments[0]!.complete).toBe(true);
-    // Past MAX_RECORDS the oldest go: the history no longer reaches its start, and nothing further back is read.
+    // Past the most kept the oldest go: the history no longer reaches its start, and nothing further back is read.
     const loaded = await ledgers.load("p:", "transactions", times);
-    const capped = await ledgers.add("p:", "transactions", loaded, Array.from({ length: MAX_RECORDS }, (_, index) => record(4000 + index)), { segments: [{ ...segment, bottom: new Date(base - 14_000 * 60_000).toISOString() }], pending: [] }, times);
-    expect(capped.items.length).toBeLessThan(MAX_RECORDS);
+    const capped = await ledgers.add("p:", "transactions", loaded, Array.from({ length: most }, (_, index) => record(4000 + index)), { segments: [{ ...segment, bottom: new Date(base - 14_000 * 60_000).toISOString() }], pending: [] }, times);
+    expect(capped.items.length).toBeLessThan(most);
     expect(capped.meta.segments[0]).toMatchObject({ complete: false, next: null, bottom: new Date(Math.min(...capped.items.map(times.place))).toISOString() });
     expect((capped.items[0] as { reference?: string }).reference).toBe("r0");
   });

@@ -222,6 +222,7 @@ function config(): RuntimeConfig {
     sampleData: false,
     oauthRedirectHosts: [],
     fxFeeRate: 0.0015,
+    historyMaxRecords: 50_000,
     taxYearStart: "01-01",
     trading212: {
       demo: { baseUrl: "https://demo.test", apiKey: "key", apiSecret: "secret" },

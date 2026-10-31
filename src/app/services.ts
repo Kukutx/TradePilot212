@@ -68,7 +68,7 @@ export function createServices(input: ServiceDependencies) {
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment),
     // The sample account's history is drawn relative to today: kept, it would go stale.
-    ...(deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store) }) });
+    ...(deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store, { maxRecords: deps.config.historyMaxRecords }) }) });
   const automation = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });
   const orders = new OrderWatch({ config: deps.config, store: deps.store, trading });

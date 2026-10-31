@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.84.0
+
+- The Trades and Cash movements pages list a long period to its start. Below the newest 200 fills or 500 movements, **Show older** lists the next page beneath them. The same window is used, ended where the first page ended, so what came in since does not move the pages. The totals still cover the whole period.
+- `get_trade_history` and `get_cash_history` take `offset`, the entries already listed, for the next page. The text says which entries a page holds and what offset lists the next.
+- TradePilot keeps more of the history it has read: 50,000 records of each kind by default (was 10,000), some years of weekly buys and their dividends. With fewer kept, the UK matching of an account that buys every week would soon have stopped reaching back to its first purchases. `HISTORY_MAX_RECORDS` sets another number, or `0` keeps every record.
+- More of everything else can be saved:
+  - journal notes, 10,000 (was 1,000);
+  - investment plans, 50 (was 20);
+  - price alerts, 100 (was 50);
+  - account alerts, 50 (was 20).
+
 ## 2.83.0
 
 - An order's final confirmation shows what it would change, under **If it fills**, from the holdings and cash its review read. Nothing more is read for it, and the confirmation is otherwise as before. All amounts are in the account currency:

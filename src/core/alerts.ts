@@ -13,7 +13,7 @@ import type { DayClose } from "./today.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
 
-export const MAX_ALERTS = 50;
+export const MAX_ALERTS = 100;
 const alertKey = (id: string) => `alert:${id}`;
 
 export interface AlertInput {
