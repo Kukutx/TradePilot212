@@ -1385,7 +1385,10 @@ export const en = {
   exportShort: "Save",
   exportCsv: "CSV, for a spreadsheet",
   exportJson: "JSON, all the data",
-  saveFileFailed: "The chat did not save the file.",
+  saveFileFailed: "The chat could not save the file.",
+  saveFileNotSaved: "The file was not saved.",
+  exportedCut: "Saved {name}. The history read stopped at its limit, so older rows can be missing, as the page says.",
+  exportedEstimate: "Saved {name}. Its UK figures are an estimate, as the page says; notes at the end of the file say why.",
   exportedPart: "Saved {name} with the {count} listed; the period has {of}.",
 } as const;
 

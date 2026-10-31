@@ -1,6 +1,6 @@
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CancelDraftPayload,
   CancelPreview,
@@ -399,7 +399,7 @@ export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [problem, setProblem] = useState<Problem | null>(null);
   /** What came of handing the host a file or a question, when the reader needs telling. */
-  const [hostNote, setHostNote] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
+  const [hostNote, setHostNote] = useState<{ tone: "info" | "warning" | "error"; text: string } | null>(null);
   const [book, setBook] = useState<InstrumentBook>(() => readSavedBook());
   const [locale, setLocale] = useState<SupportedLocale>(() =>
     readSavedLocale() ?? resolveLocale(typeof navigator === "undefined" ? "en" : navigator.language),
@@ -537,26 +537,51 @@ export default function App() {
     if (app) syncHostContext(app.getHostContext());
   }, [app]);
 
-  // What the host takes besides tool calls, as it said when the widget connected.
+  // Reviews stay inline: the widget never asks for fullscreen on its own, only from the Full view button.
+  const cancelDraftActive = base?.kind === "cancel_draft" && !cancelDraftClosed;
+  const transactionActive = Boolean(draft || preview || cancelPreview || cancelDraftActive);
+  const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
+  const reviewing = transactionActive || basketActive;
+  const traded = Boolean(basketResult || pieResult || execution?.ok);
+
+  // What the host takes besides tool calls, as it said when the widget connected: text, for a message or context.
   const hostCan = app?.getHostCapabilities();
+  const canAsk = Boolean(hostCan?.message?.text);
+  const canTell = Boolean(hostCan?.updateModelContext?.text);
   /** The data the page in view is drawn from: an instrument's page, a tab's read, or what the host handed over. */
-  const shown: { kind?: unknown } | null | undefined = base?.kind === "holding" ? base
+  const shown: { kind?: unknown; environment?: unknown } | null | undefined = base?.kind === "holding" ? base
     : base && (base.kind === "portfolio" || isInsight(base)) ? (tab === "holdings" ? (base.kind === "portfolio" ? base : undefined) : insights[tab as InsightKind])
     : base;
-  const pageName = base?.kind === "holding" ? `instrument page for ${base.instrument.name ?? base.ticker}`
+  const pageName = base?.kind === "holding" ? `instrument (${base.instrument.name ?? base.ticker})`
     : base && (base.kind === "portfolio" || isInsight(base)) ? PAGE_NAMES[tab] : base ? base.kind.replace(/_/g, " ") : undefined;
   const sampleAccount = Boolean((base as { credentials?: CredentialStatus } | null)?.credentials?.sample);
-  const context = shown && pageName ? viewContext({ page: pageName, environment, sample: sampleAccount }, shown) : undefined;
+  // The account the page's data is for, which lags the switch while the other account's page loads.
+  const shownEnvironment: TradingEnvironment = shown?.environment === "live" || shown?.environment === "demo" ? shown.environment : environment;
+  const context = useMemo(() => {
+    if (!pageName) return undefined;
+    // A review is told as one, without its figures: the model is not to take it for the account's state.
+    if (reviewing) {
+      return viewContext({ page: "trade review", environment, sample: sampleAccount,
+        note: traded ? "The trade reviewed was sent from the widget; its result is on screen." : "Nothing is placed until the user confirms it in the widget." }, undefined);
+    }
+    const note = traded ? "An order was just sent from the widget; the figures below can be from before it." : undefined;
+    if (!shown) return viewContext({ page: pageName, environment, sample: sampleAccount, note: "Its data is loading or could not be read." }, undefined);
+    return viewContext({ page: pageName, environment: shownEnvironment, sample: sampleAccount, ...(note ? { note } : {}) }, shown);
+  }, [pageName, reviewing, traded, shown, shownEnvironment, environment, sampleAccount]);
   // The model is told what the reader looks at, a moment after it settles; a host keeps only the latest.
   const toldContext = useRef<string | undefined>(undefined);
+  const tell = useCallback(async (text: string) => {
+    if (!app || text === toldContext.current) return;
+    toldContext.current = text;
+    await app.updateModelContext({ content: [{ type: "text", text }] }).catch(() => { toldContext.current = undefined; });
+  }, [app]);
   useEffect(() => {
-    if (!app || !hostCan?.updateModelContext || !context || context === toldContext.current) return;
-    const timer = window.setTimeout(() => {
-      toldContext.current = context;
-      app.updateModelContext({ content: [{ type: "text", text: context }] }).catch(() => { toldContext.current = undefined; });
-    }, 600);
+    if (!canTell || !context || context === toldContext.current) return;
+    const timer = window.setTimeout(() => void tell(context), 600);
     return () => window.clearTimeout(timer);
-  }, [app, hostCan, context]);
+  }, [canTell, context, tell]);
+  // A note about a file or a question belongs to the page it was asked from.
+  useEffect(() => { setHostNote(null); }, [tab, base]);
 
   async function saveFile(format: ExportFormat): Promise<void> {
     if (!app || !canExport(shown)) return;
@@ -564,8 +589,11 @@ export default function App() {
     setHostNote(null);
     try {
       const result = await app.downloadFile({ contents: [{ type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.mimeType, text: file.text } }] });
-      if (result.isError) setHostNote({ tone: "error", text: t("saveFileFailed") });
+      // The host says no when the reader closes its save dialog too: said plainly, not as a failure.
+      if (result.isError) setHostNote({ tone: "info", text: t("saveFileNotSaved") });
       else if (file.of) setHostNote({ tone: "warning", text: fill(t("exportedPart"), { name: file.name, count: String(file.rows), of: String(file.of) }) });
+      else if (file.partial?.includes("historyCut")) setHostNote({ tone: "warning", text: fill(t("exportedCut"), { name: file.name }) });
+      else if (file.partial) setHostNote({ tone: "warning", text: fill(t("exportedEstimate"), { name: file.name }) });
     } catch {
       setHostNote({ tone: "error", text: t("saveFileFailed") });
     }
@@ -576,10 +604,7 @@ export default function App() {
     setHostNote(null);
     try {
       // What the page shows goes first, so the question is read with it.
-      if (hostCan?.updateModelContext && context && context !== toldContext.current) {
-        toldContext.current = context;
-        await app.updateModelContext({ content: [{ type: "text", text: context }] }).catch(() => { toldContext.current = undefined; });
-      }
+      if (canTell && context) await tell(context);
       const result = await app.sendMessage({ role: "user", content: [{ type: "text", text: question }] });
       if (result.isError) setHostNote({ tone: "error", text: t("askFailed") });
     } catch {
@@ -587,10 +612,6 @@ export default function App() {
     }
   }
 
-  // Reviews stay inline: the widget never asks for fullscreen on its own, only from the Full view button.
-  const cancelDraftActive = base?.kind === "cancel_draft" && !cancelDraftClosed;
-  const transactionActive = Boolean(draft || preview || cancelPreview || cancelDraftActive);
-  const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -1279,9 +1300,9 @@ export default function App() {
   const positions = base?.kind === "portfolio" ? base.positions : [];
   const cancelTarget = cancelPreview ?? (base?.kind === "cancel_draft" && cancelDraftActive ? base : null);
   const fullLabel = displayMode === "fullscreen" ? t("collapse") : t("expand");
-  const exportItems: MenuItem[] = hostCan?.downloadFile && canExport(shown) && !transactionActive && !basketActive
+  const exportItems: MenuItem[] = hostCan?.downloadFile && canExport(shown) && !reviewing
     ? [{ id: "csv", label: t("exportCsv") }, { id: "json", label: t("exportJson") }] : [];
-  const askItems: MenuItem[] = !hostCan?.message || !pageName || transactionActive ? [] : [
+  const askItems: MenuItem[] = !canAsk || !pageName || reviewing ? [] : [
     { id: "general", label: t("askGeneral") },
     ...(base?.kind === "holding" ? [{ id: "page", label: fill(t("askHolding"), { name: base.instrument.shortName || base.instrument.name || base.ticker }) }]
       : portfolioLike ? [{ id: "page", label: t(ASK_KEYS[tab]) }] : []),
@@ -1365,7 +1386,7 @@ export default function App() {
         <div className="notice warning"><strong>{t("readonlyMode")}</strong><span>{t("readonlyHint")}</span></div>
       )}
       {hostNote && (
-        <div className={`notice ${hostNote.tone}`} role={hostNote.tone === "error" ? "alert" : "status"}>
+        <div className={hostNote.tone === "info" ? "notice" : `notice ${hostNote.tone}`} role={hostNote.tone === "error" ? "alert" : "status"}>
           <div className="noticeCopy"><span>{hostNote.text}</span></div>
         </div>
       )}

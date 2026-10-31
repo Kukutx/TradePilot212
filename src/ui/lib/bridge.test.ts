@@ -7,13 +7,13 @@ import { Menu } from "../components/menu";
 import { canExport, CONTEXT_LIMIT, csvText, exportFile, viewContext } from "./bridge";
 
 const portfolio: PortfolioSnapshot = {
-  kind: "portfolio", environment: "demo", credentials: { demo: true, live: false }, account: { currency: "EUR", totalValue: 1000 },
+  kind: "portfolio", environment: "demo", credentials: { demo: true, live: false }, account: { id: 21200000, currency: "EUR", totalValue: 1000 }, writeEnabled: true,
   positions: [{
     instrument: { ticker: "VUSAl_EQ", name: "Vanguard S&P 500, \"Dist\"", shortName: "VUSA", currencyCode: "GBP", isin: "IE00B3XXRP09" },
     quantity: 3, quantityAvailableForTrading: 3, quantityInPies: 0, averagePricePaid: 80.5, currentPrice: 90.25,
     walletImpact: { currentValue: 317.1, totalCost: 283.2, unrealizedProfitLoss: 33.9 },
   }],
-  orders: [], timestamp: "2026-10-31T09:00:00.000Z",
+  orders: [{ id: 7, ticker: "AAPL_US_EQ", quantity: 1 }], activity: [], timestamp: "2026-10-31T09:00:00.000Z",
 };
 
 describe("files for the host to save", () => {
@@ -31,7 +31,10 @@ describe("files for the host to save", () => {
     expect(holdings.text.split("\r\n")[1]).toBe("VUSAl_EQ,\"Vanguard S&P 500, \"\"Dist\"\"\",IE00B3XXRP09,3,0,80.5,90.25,GBP,317.1,283.2,33.9,EUR");
     const json = exportFile(portfolio, "json");
     expect(json.name).toBe("tradepilot-demo-holdings-2026-10-31.json");
-    expect(JSON.parse(json.text)).not.toHaveProperty("credentials");
+    // Only what the page is about: no account number, pending orders, activity or settings.
+    const data = JSON.parse(json.text);
+    expect(Object.keys(data).sort()).toEqual(["account", "environment", "kind", "positions", "timestamp"]);
+    expect(data.account).toEqual({ currency: "EUR", totalValue: 1000 });
 
     const trades = {
       kind: "trade_history", environment: "live", period: { to: "2026-10-31T00:00:00Z" }, count: 40, limit: 1, truncated: false, timestamp: "2026-10-31T09:00:00Z",
@@ -40,6 +43,9 @@ describe("files for the host to save", () => {
     } as TradeHistory;
     expect(exportFile(trades, "csv")).toMatchObject({ name: "tradepilot-live-trades-2026-10-31.csv", rows: 1, of: 40 });
     expect(exportFile(trades, "csv").text.split("\r\n")[1]).toBe("2026-10-30T14:00:00Z,AAPL_US_EQ,,BUY,,2,200,USD,342.1,,0.5,,EUR,");
+    // A journal note is the user's own, and stays out of a file of trades.
+    expect(JSON.parse(exportFile({ ...trades, journal: [{ note: "private" }] } as TradeHistory, "json").text)).not.toHaveProperty("journal");
+    expect(exportFile({ ...trades, truncated: true }, "csv").partial).toEqual(["historyCut"]);
 
     const cash = { kind: "cash_history", environment: "demo", period: { to: "x" }, items: [{ date: "2026-10-01", type: "DEPOSIT", amount: 500, currency: "EUR" }], count: 1, totals: {}, currency: "EUR", truncated: false, timestamp: "2026-10-31T09:00:00Z" } as CashHistory;
     expect(exportFile(cash, "csv").of).toBeUndefined();
@@ -48,7 +54,7 @@ describe("files for the host to save", () => {
       kind: "tax_year", environment: "demo", accountCurrency: "GBP", year: 2026, yearStart: "04-06", timeZone: "Europe/London", firstDay: "2026-04-06", lastDay: "2027-04-05",
       period: { from: "", to: "" }, ended: false, disposals: { count: 1, proceeds: 100, gains: 10, losses: 0, net: 10 }, byTicker: [{ ticker: "VUSAl_EQ", disposals: 1, proceeds: 100, realizedProfitLoss: 10 }],
       income: { dividends: 0, interest: 0 }, costs: { total: 0, byType: [] }, truncated: false, notes: [], timestamp: "2026-10-31T09:00:00Z",
-      ukMatching: { byTicker: [
+      ukMatching: { complete: true, notes: [], byTicker: [
         { ticker: "VUSAl_EQ", disposals: 1, quantity: 1, proceeds: 100, cost: 92, gain: 8, sameDay: 0, thirtyDay: 0, pool: 1, unmatched: 0, realizedProfitLoss: 10 },
         { ticker: "VUSA_EQ", disposals: 1, quantity: 1, proceeds: 50, cost: 40, gain: 10, sameDay: 1, thirtyDay: 0, pool: 0, unmatched: 0, realizedProfitLoss: 9 },
       ] },
@@ -56,13 +62,26 @@ describe("files for the host to save", () => {
     const year = exportFile(tax, "csv");
     expect(year.name).toBe("tradepilot-demo-tax-year-2026-04-06-2026-10-31.csv");
     expect(year.text.split("\r\n").slice(1, 3)).toEqual(["VUSAl_EQ,1,100,10,1,100,92,8,0,0,1,0,GBP", "VUSA_EQ,1,,,1,50,40,10,1,0,0,0,GBP"]);
+    expect(year.partial).toBeUndefined();
+    // An estimate says so in the file, below the rows, as the page does.
+    const estimate = exportFile({ ...tax, notes: ["Interest is counted when paid."], ukMatching: { ...tax.ukMatching!, complete: false, provisional: true, notes: [] } }, "csv");
+    expect(estimate.partial).toEqual(["matchingIncomplete", "matchingProvisional"]);
+    expect(estimate.text.split("\r\n").slice(3, 8)).toEqual([
+      "",
+      "\"Note: Not every sale could be matched and valued by the UK rules: an estimate, check before filing.\"",
+      "Note: The year's last sales can still be matched with buys in the next 30 days: the UK figures can change.",
+      "Note: Interest is counted when paid.",
+      "",
+    ]);
   });
 });
 
 describe("what the model is told", () => {
   it("names the page and the account, with the page's own summary, kept short", () => {
     const text = viewContext({ page: "Holdings", environment: "demo", sample: true }, portfolio);
-    expect(text).toMatch(/^The user is looking at TradePilot's Holdings page in the widget, for the sample \(simulated\) account\. Nothing has been traded from it\./);
+    expect(text).toMatch(/^The user is looking at TradePilot's Holdings page in the widget, for the sample \(simulated\) account\. What the page shows:\n/);
+    expect(viewContext({ page: "trade review", environment: "live", sample: false, note: "Nothing is placed until the user confirms it in the widget." }, undefined))
+      .toBe("The user is looking at TradePilot's trade review page in the widget, for the Live (real money) account. Nothing is placed until the user confirms it in the widget.");
     expect(text.split("\n").length).toBeGreaterThan(1);
     const long = viewContext({ page: "Holdings", environment: "live", sample: false }, { ...portfolio, positions: Array.from({ length: 400 }, () => portfolio.positions[0]!) });
     expect(long).toContain("Live (real money)");

@@ -1387,6 +1387,9 @@ export const zhCN: Record<MessageKey, string> = {
   exportShort: "保存",
   exportCsv: "CSV（用表格软件打开）",
   exportJson: "JSON（完整数据）",
-  saveFileFailed: "对话没有保存这个文件。",
+  saveFileFailed: "对话没能保存这个文件。",
+  saveFileNotSaved: "文件没有保存。",
+  exportedCut: "已保存 {name}。和页面上说的一样，这次读取的历史到上限就停了，较早的记录可能不在里面。",
+  exportedEstimate: "已保存 {name}。和页面上说的一样，其中按英国规则算出的数字是估算；文件末尾的说明写了原因。",
   exportedPart: "已保存 {name}，包含列表中的 {count} 条；这段时间共有 {of} 条。",
 };

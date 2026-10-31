@@ -26,7 +26,8 @@ export function Menu({ label, items, onChoose, disabled = false, className, chil
   const menuId = `${own}-menu`;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [placement, setPlacement] = useState<{ above: boolean; shift: number }>({ above: false, shift: 0 });
+  // Null until measured for this opening: the list is laid out unseen until then, so it never shows where it would not fit.
+  const [placement, setPlacement] = useState<{ above: boolean; shift: number } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -53,7 +54,7 @@ export function Menu({ label, items, onChoose, disabled = false, className, chil
   // Opened below the button, or above it where the reader sees more room there; from the button's end, moved toward
   // its start as far as it needs to stay inside the frame.
   useEffect(() => {
-    if (!open) { setPlacement({ above: false, shift: 0 }); return; }
+    if (!open) { setPlacement(null); return; }
     let live = true;
     void visibleArea().then((area) => {
       if (!live || !button.current || !list.current) return;
@@ -102,7 +103,8 @@ export function Menu({ label, items, onChoose, disabled = false, className, chil
         disabled={disabled} onClick={() => (open ? close(true) : show(0))} onKeyDown={buttonKeys}>
         {children}
       </button>
-      <ul ref={list} id={menuId} role="menu" aria-label={label} hidden={!open} className={`menuList${placement.above ? " above" : ""}`} style={placement.shift ? { insetInlineEnd: placement.shift } : undefined} onKeyDown={menuKeys}>
+      <ul ref={list} id={menuId} role="menu" aria-label={label} hidden={!open} className={`menuList${placement?.above ? " above" : ""}`}
+        style={!placement ? { opacity: 0 } : placement.shift ? { insetInlineEnd: placement.shift } : undefined} onKeyDown={menuKeys}>
         {items.map((item, index) => (
           <li key={item.id} role="menuitem" tabIndex={index === active ? 0 : -1} className={index === active ? "menuItem active" : "menuItem"} data-item={item.id}
             onMouseMove={() => { if (index !== active) setActive(index); }} onClick={() => run(index)}>
