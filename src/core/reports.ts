@@ -2,7 +2,8 @@
 // before, on the 1st for the month before. Each says what the account's value did over the period, its time-weighted
 // return when TradePilot recorded the days, the money put in or taken out, dividends and interest, the trades and
 // realized gains, and the costs, in NOTIFY_LOCALE's language. They only read; a period counts as reported only once a
-// notification endpoint accepted it, and is tried again every 15 minutes for the rest of the day until then.
+// notification endpoint accepted it, and is tried again every 15 minutes from the digest's hour until then, on later
+// days too while it is still the latest period that ended: a week missed on Monday goes out on Tuesday.
 
 import { REPORT_KINDS, type ReportKind } from "../shared/automation.js";
 import type { TradingEnvironment } from "../shared/contracts.js";
@@ -17,6 +18,8 @@ import type { TradingService } from "./trading-service.js";
 export { REPORT_KINDS, type ReportKind };
 
 const DAY_MS = 86_400_000;
+/** A period's mark outlives the period after it, so it is never reported twice. */
+const DONE_MS = 40 * DAY_MS;
 const RETRY_MS = 15 * 60_000;
 
 const addDays = (day: string, days: number) => {
@@ -38,6 +41,12 @@ export function reportPeriod(kind: ReportKind, day: string): { first: string; la
   if (!day.endsWith("-01")) return undefined;
   const last = addDays(day, -1);
   return { first: `${last.slice(0, 8)}01`, last };
+}
+
+/** The latest period that has ended by `day`: the week before the latest Monday, or the month before this one. */
+export function latestPeriod(kind: ReportKind, day: string): { first: string; last: string } {
+  const sinceMonday = (new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7;
+  return reportPeriod(kind, kind === "weekly" ? addDays(day, -sinceMonday) : `${day.slice(0, 8)}01`)!;
 }
 
 const REPORT_WORDS = {
@@ -105,7 +114,10 @@ export class PeriodicReports {
     performance: (environment: TradingEnvironment, window: HistoryWindow) => Promise<PerformanceSummary>;
   }) {}
 
-  /** Each report due today, once per environment, at or after the digest's hour. Returns `kind:environment` for each sent. */
+  /**
+   * Each kind's latest ended period not yet reported, once per environment, at or after the digest's hour. Returns
+   * `kind:environment` for each sent.
+   */
   async run(now = new Date()): Promise<string[]> {
     const { digest, reports } = this.deps.config;
     if (!digest || !reports.length || !this.deps.notify || localHour(now.getTime(), digest.timeZone) < digest.hour) return [];
@@ -113,19 +125,20 @@ export class PeriodicReports {
     const credentials = credentialStatus(this.deps.config);
     const sent: string[] = [];
     for (const kind of reports) {
-      const period = reportPeriod(kind, day);
-      if (!period) continue;
+      const period = latestPeriod(kind, day);
       for (const environment of ["demo", "live"] as const) {
         if (!credentials[environment]) continue;
-        // A failed attempt is tried again every 15 minutes for the rest of the day.
-        const attempt = await this.deps.store.increment(`report-try:${kind}:${environment}:${day}`, RETRY_MS, now.getTime());
+        // A failed attempt is tried again every 15 minutes, until the next period ends.
+        const attempt = await this.deps.store.increment(`report-try:${kind}:${environment}:${period.first}`, RETRY_MS, now.getTime());
         if (attempt.count > 1) continue;
-        const claimKey = `report:${kind}:${environment}:${day}`;
-        const claim = await this.deps.store.increment(claimKey, 2 * DAY_MS, now.getTime());
+        // Kept once sent: the period's mark.
+        const claimKey = `report:${kind}:${environment}:${period.first}`;
+        const claim = await this.deps.store.increment(claimKey, DONE_MS, now.getTime());
         if (claim.count > 1) continue;
         let delivered = false;
         try {
-          const window: HistoryWindow = { from: new Date(midnight(period.first, digest.timeZone)), to: new Date(midnight(day, digest.timeZone)), endsNow: false };
+          // From the period's first local midnight to just before the next period's: what is stamped at that midnight is the next period's.
+          const window: HistoryWindow = { from: new Date(midnight(period.first, digest.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest.timeZone) - 1), endsNow: false };
           const summary = await this.deps.performance(environment, window);
           const text = reportText(kind, period, summary, this.deps.config.notifyLocale);
           const type = kind === "weekly" ? "weekly_report" as const : "monthly_report" as const;

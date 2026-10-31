@@ -2,8 +2,8 @@
 
 ## 2.81.0
 
-- Weekly and monthly reports. `REPORTS=weekly,monthly` (either or both, with `DIGEST_HOUR`) sends a report at the digest's hour: on Monday for the seven days before, on the 1st for the month before. It gives the account's value at the start and end with the change, the time-weighted return over those days, net deposits, dividends and interest, the buys and sells with their turnover, the realized gains and the costs, read as `get_portfolio_performance` reads them, and says when a history cut short may make them low. Like the digest, it is sent whatever `NOTIFY_EVENTS` lists, comes at its hour in quiet hours too, is tried again every 15 minutes until an endpoint takes it, and only reads. The Automation tab shows which reports are on.
-- The daily digest is written in `NOTIFY_LOCALE`'s language too: with `zh-CN`, 总值, 当日, 现金, 前三大持仓, 到期计划, 收到股息 and the rest, the figures as before.
+- Weekly and monthly reports. `REPORTS=weekly,monthly` (either or both, with `DIGEST_HOUR`) sends a report at the digest's hour: on Monday for the seven days before, on the 1st for the month before. It gives the account's value at the start and end with the change, the time-weighted return over those days, net deposits, dividends and interest, the buys and sells with their turnover, the realized gains and the costs, read as `get_portfolio_performance` reads them, and says when a history cut short may make them low. Like the digest, it is sent whatever `NOTIFY_EVENTS` lists, comes at its hour in quiet hours too, is tried again every 15 minutes until an endpoint takes it, on later days too (a week missed on Monday goes out on Tuesday), and only reads. The value it starts from is the last recorded before the period's first midnight, so the first day's move is counted; get_portfolio_performance and the Performance tab now start from it too. What is stamped at that midnight belongs to the period that starts there, not to both. The Automation tab shows which reports are on.
+- The daily digest is written in `NOTIFY_LOCALE`'s language too: with `zh-CN`, 总值, 当日, 现金, 前三大持仓, 到期计划, 收到股息 and the rest, the figures as before, with Chinese punctuation.
 
 ## 2.80.0
 

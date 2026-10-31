@@ -169,6 +169,7 @@ const DIGEST_WORDS = {
     drift: (points: string) => `largest drift from targets ${points} points`,
     uncovered: (list: string) => `no full stop-loss: ${list}`,
     join: ", ",
+    aside: (text: string) => ` (${text})`,
   },
   "zh-CN": {
     total: (value: string, change: string | undefined) => `总值 ${value}${change ? `（较上次摘要 ${change}）` : ""}`,
@@ -184,10 +185,11 @@ const DIGEST_WORDS = {
     fills: (count: number) => `过去一天成交 ${count} 笔订单`,
     received: (sum: string, list: string) => `收到股息 ${sum}：${list}`,
     expected: (list: string) => `本周预计股息：${list}`,
-    due: (on: string) => `已到期 ${on}`,
+    due: (on: string) => `应于 ${on} 到账`,
     drift: (points: string) => `与目标的最大偏离 ${points} 个百分点`,
     uncovered: (list: string) => `未被止损完全覆盖：${list}`,
     join: "，",
+    aside: (text: string) => `（${text}）`,
   },
 } as const;
 
@@ -196,12 +198,12 @@ export function digestText(input: DigestInput, locale: NotifyLocale = "en"): str
   const words = DIGEST_WORDS[locale];
   const change = input.previousTotalValue === undefined ? undefined : signed(input.totalValue - input.previousTotalValue);
   const top = [...input.positions].sort((a, b) => b.value - a.value).slice(0, 3)
-    .map((item) => `${item.ticker} ${round(item.value)}${item.profitLoss === undefined ? "" : ` (${signed(item.profitLoss)})`}`);
+    .map((item) => `${item.ticker} ${round(item.value)}${item.profitLoss === undefined ? "" : words.aside(signed(item.profitLoss))}`);
   const day = input.day;
   const more = (count: number, shown: number) => (count > shown ? ` +${count - shown}` : "");
   return [
     words.total(`${round(input.totalValue)} ${input.currency}`, change),
-    day ? words.day(signed(day.profitLoss), day.change === undefined ? undefined : signedPct(day.change), day.days.join(", "), day.counted < day.of ? words.part(day.counted, day.of) : undefined) : undefined,
+    day ? words.day(signed(day.profitLoss), day.change === undefined ? undefined : signedPct(day.change), day.days.join(words.join), day.counted < day.of ? words.part(day.counted, day.of) : undefined) : undefined,
     // One sold out on the day has no price to compare: its sells' amount instead.
     day?.movers.length ? words.movers(day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? `${signed(mover.profitLoss)} ${input.currency}`.trim() : signedPct(mover.change)}`).join(words.join)) : undefined,
     words.cash(String(round(input.cash))),

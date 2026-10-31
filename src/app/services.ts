@@ -118,7 +118,7 @@ export function createServices(input: ServiceDependencies) {
   const reports = new PeriodicReports({
     config: deps.config, store: deps.store, trading,
     performance: (environment, window) => insights.performance(environment, window, undefined, (account) =>
-      values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), ...(account === undefined ? {} : { account }) })),
+      values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) })),
     ...(notify ? { notify } : {}),
   });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price and account alerts, target drift and the daily digest. */

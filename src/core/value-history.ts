@@ -9,6 +9,7 @@ import type { StateStore } from "./state-store.js";
 import type { TradingService } from "./trading-service.js";
 
 const HOUR_MS = 3_600_000;
+const WEEK_MS = 7 * 86_400_000;
 /** Points are kept for about six years. */
 const KEEP_MS = 6 * 366 * 86_400_000;
 // One key per month keeps each stored value small (Durable Object values are capped).
@@ -75,16 +76,21 @@ export class ValueHistory {
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
    * date-time bound compares when each value was read. Only one Trading 212 account's days are
-   * returned: `account` when given, otherwise the account of the newest point.
+   * returned: `account` when given, otherwise the account of the newest point. With `withStart`, a date-time `from`
+   * also brings the last reading before it, from the week before: the value the window starts from, so the window's
+   * first day has its move. A day's reading is its last, late in the UTC day, so in a zone at or west of UTC the
+   * evening before a window's first local midnight would otherwise be left out.
    */
-  async points(environment: TradingEnvironment, range: { from?: string; to?: string; account?: number } = {}): Promise<ValuePoint[]> {
+  async points(environment: TradingEnvironment, range: { from?: string; to?: string; account?: number; withStart?: boolean } = {}): Promise<ValuePoint[]> {
     const stored = (await this.deps.store.list<StoredPoint[]>(`value-history:${this.series(environment)}:`))
       .flatMap((entry) => entry.value)
       .sort((a, b) => a.date.localeCompare(b.date));
     // A caller that knows the account asks for its days; otherwise the newest point names it.
     const current = range.account ?? stored[stored.length - 1]?.account;
-    return stored
-      .filter((point) => point.account === current && within(point, range.from, "from") && within(point, range.to, "to"))
-      .map(({ account: _account, ...point }) => point);
+    const mine = stored.filter((point) => point.account === current && within(point, range.to, "to"));
+    const inside = mine.filter((point) => within(point, range.from, "from"));
+    const start = range.withStart && range.from && !DATE_ONLY.test(range.from) ? Date.parse(range.from) : NaN;
+    const before = Number.isFinite(start) ? mine.filter((point) => Date.parse(point.at) < start && Date.parse(point.at) >= start - WEEK_MS).at(-1) : undefined;
+    return (before ? [before, ...inside] : inside).map(({ account: _account, ...point }) => point);
   }
 }
