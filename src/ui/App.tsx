@@ -27,6 +27,7 @@ import { journalText, type JournalReview } from "../shared/journal";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
+import { TipLayer } from "./components/tips";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
@@ -1180,6 +1181,7 @@ export default function App() {
     <div className={`appShell mode-${displayMode}`}>
       {/* A thin sweep along the top while anything loads, so a refresh of a view already shown is seen, not only the spinning icon. */}
       {loading && <span className="loadingBar" aria-hidden="true" />}
+      <TipLayer />
       <header className="appHeader">
         <div className="brandBlock">
           <div className="brandMark" aria-hidden="true">TP</div>

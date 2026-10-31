@@ -736,18 +736,30 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .rangeNote { margin: 0; color: var(--tp-muted); font-size: 12px; }
 .rangeActions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .rangeActions .linkButton { margin-right: auto; }
-.field input[type="date"] { -webkit-appearance: none; appearance: none; min-height: 44px; font-variant-numeric: tabular-nums; }
-.field input[type="date"]::-webkit-calendar-picker-indicator {
-  width: 18px; height: 18px; padding: 2px; border-radius: 6px; cursor: pointer; opacity: 1;
-  background: var(--tp-muted);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15.5' rx='2.5'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E") center / 18px 18px no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15.5' rx='2.5'/%3E%3Cpath d='M3.5 10h17M8 3v4M16 3v4'/%3E%3C/svg%3E") center / 18px 18px no-repeat;
-}
-.field input[type="date"]::-webkit-calendar-picker-indicator:hover { background: var(--tp-text); }
-.field input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
-.field input[type="date"]::-webkit-datetime-edit-text { color: var(--tp-muted); padding: 0 1px; }
-.field input[type="date"]::-webkit-datetime-edit-month-field:focus, .field input[type="date"]::-webkit-datetime-edit-day-field:focus, .field input[type="date"]::-webkit-datetime-edit-year-field:focus { background: color-mix(in srgb, var(--tp-accent) 20%, transparent); color: var(--tp-text); border-radius: 4px; }
-@media (forced-colors: active) { .field input[type="date"]::-webkit-calendar-picker-indicator { background: ButtonText; forced-color-adjust: none; } .rangeButton.active { border-color: Highlight; } }
+.field input.dayInput { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+@media (forced-colors: active) { .rangeButton.active { border-color: Highlight; } .calendarGrid td.start button, .calendarGrid td.end button { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
+
+/* The range calendar (components/calendar.tsx): a month of days, the chosen range a band from the first to the last. */
+.calendar { display: grid; gap: 6px; }
+.calendarHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.calendarHead strong { font-size: 14px; font-weight: 700; text-transform: capitalize; }
+.calendarStep { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); cursor: pointer; }
+.calendarStep:hover:not([aria-disabled="true"]) { border-color: var(--tp-border-strong); }
+.calendarStep[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
+.calendarStep .icon { width: 16px; height: 16px; }
+.calendarStep .icon.flip { transform: scaleX(-1); }
+.calendarGrid { width: 100%; border-collapse: separate; border-spacing: 0 2px; table-layout: fixed; }
+.calendarGrid th { padding: 2px 0 4px; color: var(--tp-muted); font-size: 12px; font-weight: 650; text-align: center; }
+.calendarGrid td { padding: 0; text-align: center; }
+.calendarGrid td.inside, .calendarGrid td.start:not(.end), .calendarGrid td.end:not(.start) { background: color-mix(in srgb, var(--tp-accent) 14%, transparent); }
+.calendarGrid td.start:not(.end) { border-radius: 10px 0 0 10px; }
+.calendarGrid td.end:not(.start) { border-radius: 0 10px 10px 0; }
+.calendarGrid button { width: 100%; max-width: 40px; height: 36px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--tp-text); font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.calendarGrid button:hover:not(:disabled) { background: var(--tp-bg-soft); }
+.calendarGrid td.today button { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.calendarGrid td.start button, .calendarGrid td.end button { background: var(--tp-primary-bg); color: var(--tp-primary-text); font-weight: 700; }
+.calendarGrid button:disabled { color: var(--tp-muted); cursor: not-allowed; opacity: .55; }
+@media (pointer: coarse) { .calendarGrid button { height: 42px; max-width: 44px; } }
 @container (max-width: 420px) { .rangeFields { grid-template-columns: 1fr; } .rangeButton span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; } }
 
 .twoColumn { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -1762,3 +1774,24 @@ strong.historyAmount { flex: none; font-size: 13px; }
   .resultSplitTrack { border: 1px solid CanvasText; }
   .resultSplitFill { background: CanvasText !important; }
 }
+
+/* The widget's own tooltip (components/tips.tsx), in place of the browser's: a small dark bubble in either theme. */
+.tipBubble {
+  position: fixed; z-index: 60; top: 0; left: 0; max-width: min(280px, calc(100vw - 16px)); padding: 6px 10px;
+  border-radius: 8px; background: #1c1d20; color: #f4f4f5; box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+  font-size: 12.5px; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; pointer-events: none;
+  opacity: 0; transform: translateY(2px); transition: opacity .12s ease, transform .12s ease;
+}
+.tipBubble[hidden] { display: none; }
+.tipBubble.shown { opacity: 1; transform: none; }
+.tipBubble.below { transform: translateY(-2px); }
+.tipBubble.below.shown { transform: none; }
+/* With a mouse the bubble can be moved onto, to read it (WCAG 1.4.13), across the gap to its element too. */
+@media (hover: hover) { .tipBubble.shown { pointer-events: auto; } }
+.tipBubble::after { content: ""; position: absolute; inset-inline: 0; top: 100%; height: 8px; }
+.tipBubble.below::after { top: auto; bottom: 100%; }
+/* A long press shows the bubble, not the phone's callout over it. */
+@media (pointer: coarse) { [title], [data-tip-title] { -webkit-touch-callout: none; } }
+:root[data-theme="dark"] .tipBubble { background: #f4f4f5; color: #1c1d20; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
+@media (prefers-reduced-motion: reduce) { .tipBubble { transition: none; } }
+@media (forced-colors: active) { .tipBubble { border: 1px solid CanvasText; } }

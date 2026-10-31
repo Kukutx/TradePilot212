@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { createTranslator } from "../i18n";
 import { PeriodSwitch } from "../views/InsightsView";
-import { RangeContext, rangeLabel, rangeProblem, type DateRange } from "./range-picker";
+import { RangeContext, rangeLabel, rangeProblem, typedDay, type DateRange } from "./range-picker";
 
 const t = createTranslator("en");
 const noop = () => {};
@@ -41,5 +41,12 @@ describe("a custom range", () => {
     expect(on).not.toContain('aria-checked="true"');
     // Without a view that can read one, the switch is as it was.
     expect(renderToStaticMarkup(createElement(PeriodSwitch, { value: "1m", onChange: noop, t, disabled: false }))).not.toContain("rangeButton");
+  });
+  it("writes a day typed with slashes, dots or digits alone (a phone's number pad) as YYYY-MM-DD", () => {
+    expect(typedDay("20261005")).toBe("2026-10-05");
+    expect(typedDay("2026/10/05")).toBe("2026-10-05");
+    expect(typedDay(" 2026.10.05 ")).toBe("2026-10-05");
+    expect(typedDay("2026-10")).toBe("2026-10");
+    expect(typedDay("2026100")).toBe("2026100");
   });
 });

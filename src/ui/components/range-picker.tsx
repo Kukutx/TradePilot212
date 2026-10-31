@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type For
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { dayLabel } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
+import { RangeCalendar, realDay } from "./calendar";
 import { Field, Icon } from "./common";
 
 /**
@@ -25,7 +26,8 @@ export const todayLocal = (now = new Date()) => `${now.getFullYear()}-${String(n
 
 /** Why a range cannot be read, or nothing when it can. */
 export function rangeProblem(range: { from: string; to: string }, today = todayLocal()): MessageKey | undefined {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to)) return "rangeMissing";
+  // A day that is not on the calendar (2026-02-31), as one typed can be, is no day at all.
+  if (!realDay(range.from) || !realDay(range.to)) return "rangeMissing";
   if (range.from > range.to) return "rangeOrder";
   if (range.to > today) return "rangeFuture";
   if (range.from < FIRST_DAY) return "rangeEarly";
@@ -36,6 +38,15 @@ export function rangeProblem(range: { from: string; to: string }, today = todayL
 export function rangeLabel(range: DateRange, locale: SupportedLocale): string {
   const sameYear = range.from.slice(0, 4) === range.to.slice(0, 4);
   return range.from === range.to ? dayLabel(range.to, locale) : `${dayLabel(range.from, locale, { year: !sameYear })} – ${dayLabel(range.to, locale)}`;
+}
+
+/**
+ * A day as typed, written as YYYY-MM-DD: 2026/10/05 and 2026.10.05 as well, and 20261005, all a phone's number pad
+ * can type (it has no "-").
+ */
+export function typedDay(text: string): string {
+  const day = text.trim().replace(/[./\s]/g, "-");
+  return /^\d{8}$/.test(day) ? `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6)}` : day;
 }
 
 /** The last 30 days, to start from when no range was chosen yet. */
@@ -52,13 +63,15 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<{ from: string; to: string }>({ from: "", to: "" });
   const [tried, setTried] = useState(false);
-  useEffect(() => { if (open) first.current?.focus(); }, [open]);
+  const panel = useRef<HTMLFormElement>(null);
+  // The panel opens on the calendar's day, not a box: on a phone a box would open the keyboard over the calendar.
+  useEffect(() => { if (open) panel.current?.querySelector<HTMLElement>('.calendarGrid button[tabindex="0"]')?.focus(); }, [open]);
   if (!context) return null;
   const { range, onRange, onClear, locale } = context;
   const today = todayLocal();
   const problem = rangeProblem(draft, today);
   // The box a problem is about: the first day's when it is missing or too early, else the last day's.
-  const onFirst = problem === "rangeEarly" || (problem === "rangeMissing" && !/^\d{4}-\d{2}-\d{2}$/.test(draft.from));
+  const onFirst = problem === "rangeEarly" || (problem === "rangeMissing" && !realDay(draft.from));
   const close = () => { setOpen(false); setTried(false); button.current?.focus(); };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -79,13 +92,18 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
         <Icon name="calendar" />{label && <span>{label}</span>}
       </button>
       {open && (
-        <form id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}>
+        <form ref={panel} id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}>
+          <p className="rangeNote">{t("rangePick")}</p>
+          <RangeCalendar from={draft.from} to={draft.to} min={FIRST_DAY} max={today} today={today} locale={locale} t={t} onPick={setDraft} />
+          {/* The days typed, as year-month-day: plain text boxes, as a date box would open the browser's own calendar. */}
           <div className="rangeFields">
             <Field label={t("rangeFrom")} {...(tried && problem && onFirst ? { error: t(problem) } : {})}>
-              {(props) => <input {...props} ref={first} type="date" value={draft.from} min={FIRST_DAY} max={draft.to && draft.to <= today ? draft.to : today} onChange={(event) => setDraft({ ...draft, from: event.target.value })} />}
+              {(props) => <input {...props} ref={first} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={10} placeholder="YYYY-MM-DD" className="dayInput"
+                value={draft.from} onChange={(event) => setDraft({ ...draft, from: typedDay(event.target.value) })} />}
             </Field>
             <Field label={t("rangeTo")} {...(tried && problem && !onFirst ? { error: t(problem) } : {})}>
-              {(props) => <input {...props} ref={last} type="date" value={draft.to} min={draft.from || FIRST_DAY} max={today} onChange={(event) => setDraft({ ...draft, to: event.target.value })} />}
+              {(props) => <input {...props} ref={last} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={10} placeholder="YYYY-MM-DD" className="dayInput"
+                value={draft.to} onChange={(event) => setDraft({ ...draft, to: typedDay(event.target.value) })} />}
             </Field>
           </div>
           <p className="rangeNote">{t("rangeNote")}</p>
