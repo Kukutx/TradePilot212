@@ -83,7 +83,11 @@ const REPORT_WORDS = {
 } as const;
 
 /** The report as " · " parts, as the digest is: each part is a line where the service lays out lines. */
-export function reportText(kind: ReportKind, period: { first: string; last: string }, summary: PerformanceSummary, locale: NotifyLocale = "en", goal?: InvestmentGoal): string {
+export function reportText(
+  kind: ReportKind, period: { first: string; last: string }, summary: PerformanceSummary, locale: NotifyLocale = "en", goal?: InvestmentGoal,
+  /** The value the goal is measured against, when the period recorded one value only (no history to show for it). */
+  goalValue?: number,
+): string {
   const words = REPORT_WORDS[locale];
   const currency = summary.accountCurrency;
   const money = (value: number, sign = false) => {
@@ -98,7 +102,7 @@ export function reportText(kind: ReportKind, period: { first: string; last: stri
   const { dividends, interest } = summary.income;
   const { buys, sells, turnover } = summary.trades;
   // The goal against the value at the period's end, the last recorded in it.
-  const goalValue = end?.totalValue;
+  const measured = end?.totalValue ?? goalValue;
   return [
     words.period(kind, period.first, period.last),
     start && end && start !== end ? words.value(money(end.totalValue), money(start.totalValue), money(end.totalValue - start.totalValue, true)) : undefined,
@@ -109,7 +113,7 @@ export function reportText(kind: ReportKind, period: { first: string; last: stri
     buys || sells ? words.trades(buys, sells, money(turnover)) : words.noTrades,
     Math.abs(summary.realizedProfitLoss) >= 0.005 ? words.realized(money(summary.realizedProfitLoss, true)) : undefined,
     Math.abs(summary.costs.total) >= 0.005 ? words.costs(money(summary.costs.total)) : undefined,
-    goal && goalValue !== undefined ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(goalValue / goal.target), money(goal.target), goal.by) : undefined,
+    goal && measured !== undefined ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(measured / goal.target), money(goal.target), goal.by) : undefined,
     summary.coverage.truncated ? words.short : undefined,
   ].filter(Boolean).join(" · ");
 }
@@ -121,6 +125,11 @@ export class PeriodicReports {
     performance: (environment: TradingEnvironment, window: HistoryWindow) => Promise<PerformanceSummary>;
     /** The account's investment goal, said against the period's last recorded value. */
     goal?: (environment: TradingEnvironment) => Promise<InvestmentGoal | undefined>;
+    /**
+     * The last value recorded in the window: the performance gives its values only when there are two or more, and one
+     * is enough to measure the goal against.
+     */
+    lastValue?: (environment: TradingEnvironment, window: HistoryWindow) => Promise<number | undefined>;
   }) {}
 
   /**
@@ -150,7 +159,8 @@ export class PeriodicReports {
           const window: HistoryWindow = { from: new Date(midnight(period.first, digest.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest.timeZone) - 1), endsNow: false };
           const summary = await this.deps.performance(environment, window);
           const goal = await this.deps.goal?.(environment).catch(() => undefined);
-          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal);
+          const goalValue = goal && !summary.valueHistory?.length ? await this.deps.lastValue?.(environment, window).catch(() => undefined) : undefined;
+          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal, goalValue);
           const type = kind === "weekly" ? "weekly_report" as const : "monthly_report" as const;
           const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type, outcome: text };
           if (!(await this.deps.notify(event, { force: true }))) {

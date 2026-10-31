@@ -124,6 +124,7 @@ export function createServices(input: ServiceDependencies) {
     performance: (environment, window) => insights.performance(environment, window, undefined, (account) =>
       values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) })),
     goal: (environment) => goals.get(environment),
+    lastValue: async (environment, window) => (await values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString() })).at(-1)?.totalValue,
     ...(notify ? { notify } : {}),
   });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record and the goal measured against it, due plans, price, account and listing alerts, target drift and the daily digest. */

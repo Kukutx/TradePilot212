@@ -1015,8 +1015,8 @@ export default function App() {
   }
 
   /**
-   * Save or remove the investment goal; nothing trades. The performance read shown keeps the goal as saved, so the
-   * tab shows it again unchanged. A failure is handed to the goal panel, which says it beside the form.
+   * Save or remove the investment goal; nothing trades. The performance read and the dashboard shown keep the goal as
+   * saved, so either shows it again unchanged. A failure is handed to the goal panel, which says it beside the form.
    */
   async function changeGoal(env: TradingEnvironment, input: { action: "set" | "remove" } & Partial<GoalRequest>): Promise<InvestmentGoal | undefined> {
     let goal: InvestmentGoal | undefined;
@@ -1030,6 +1030,12 @@ export default function App() {
       if (!performance || performance.environment !== env) return shown;
       const { goal: _old, ...rest } = performance;
       return { ...shown, performance: goal ? { ...rest, goal } : rest };
+    });
+    // The dashboard's goal line too, which Holdings shows again without reading the account.
+    setBase((current) => {
+      if (current?.kind !== "portfolio" || current.environment !== env) return current;
+      const { goal: _old, ...rest } = current;
+      return goal ? { ...rest, goal } : rest;
     });
     return goal;
   }
