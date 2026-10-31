@@ -297,8 +297,10 @@ export function PriceChart({ prices, trades, levels, currency, locale, t }: {
               const centre = tagY[index]!;
               const edge = item.price > high ? "↑" : item.price < low ? "↓" : "";
               return (
-                <g key={item.key} className={`priceTag ${item.kind}${edge ? " edge" : ""}`}>
-                  {item.label && <title>{`${item.label} ${money(item.price)}`}</title>}
+                // The project's bubble shows the label, on hover and on a long press: an SVG <title> would be the
+                // browser's own tooltip, which a touch screen never shows.
+                <g key={item.key} className={`priceTag ${item.kind}${edge ? " edge" : ""}`}
+                  {...(item.label ? { title: `${item.label} ${money(item.price)}`, role: "img", "aria-label": `${item.label} ${money(item.price)}` } : {})}>
                   {!edge && <line x1={right} x2={right + 4} y1={y(item.price)} y2={centre} />}
                   <rect x={right + 4} y={centre - TAG_HEIGHT / 2} width={PAD.right - 6} height={TAG_HEIGHT} rx={5} />
                   <text x={right + 4 + (PAD.right - 6) / 2} y={centre} dy="0.34em" textAnchor="middle">{edge}{num(item.price, locale, tagDigits(item.price))}</text>
