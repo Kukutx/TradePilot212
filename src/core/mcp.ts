@@ -19,7 +19,7 @@ import type { TradeTotals } from "../shared/trade-cost.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
 import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, Preferences, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
-import { APP_META } from "../shared/meta.js";
+import { APP_ICON_DATA_URI, APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
 import { holdingDetail } from "./holding.js";
@@ -31,6 +31,7 @@ import { taxYearZone } from "../shared/time-zone.js";
 import { withTargetVolatility } from "../shared/holding-risk.js";
 import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
+import { toolCallWatch, watchingReads } from "./request-context.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -157,10 +158,14 @@ const windowSchema = {
     .describe("History pages of 50 records to read per data set. Trading 212 limits history reads per minute; TradePilot paces them to the limit it reports, and a read cut short by it comes back truncated."),
 };
 
-/** Registers a tool with the shape of what it returns (tool-output.ts) as its outputSchema. */
-const registerAppTool = ((server: McpServer, name: string, config: Record<string, unknown>, handler: unknown) => {
+/**
+ * Registers a tool with the shape of what it returns (tool-output.ts) as its outputSchema, run with the call's read
+ * watch (request-context.ts): the history pages it reads report progress, and a cancelled call stops reading them.
+ */
+const registerAppTool = ((server: McpServer, name: string, config: Record<string, unknown>, handler: (...args: unknown[]) => unknown) => {
   const outputSchema = TOOL_OUTPUT[name];
-  return (registerAppToolBase as (...args: unknown[]) => unknown)(server, name, outputSchema ? { ...config, outputSchema } : config, handler);
+  const watched = (...args: unknown[]) => watchingReads(toolCallWatch(args[args.length - 1]), () => handler(...args));
+  return (registerAppToolBase as (...args: unknown[]) => unknown)(server, name, outputSchema ? { ...config, outputSchema } : config, watched);
 }) as unknown as typeof registerAppToolBase;
 
 
@@ -182,7 +187,13 @@ export function createMcpServer(
     config.sampleData ? SAMPLE_INSTRUCTIONS : "",
     canWrite ? ORDER_INSTRUCTIONS : "",
   ].filter(Boolean).join("\n\n");
-  const server = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const server = new McpServer({
+    name: "tradepilot212",
+    title: APP_META.name,
+    version: APP_META.version,
+    websiteUrl: APP_META.websiteUrl,
+    icons: [{ src: APP_ICON_DATA_URI, mimeType: "image/svg+xml", sizes: ["any"] }],
+  }, instructions ? { instructions } : {});
   const preferences: Preferences = { ...(config.timeZone ? { timeZone: config.timeZone } : {}), taxYearStart: config.taxYearStart };
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist, closes };
   /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
