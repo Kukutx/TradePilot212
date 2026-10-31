@@ -38348,6 +38348,15 @@ var TradingService = class {
       return { kind: "order_execution", environment: pending.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
     }
   }
+  /**
+   * Drop the last dashboard read, and keep none that was under way: the account was read again and may have changed
+   * outside TradePilot, so a read that follows takes it fresh (resource-changes.ts says the holdings changed).
+   */
+  forgetDashboard(environment) {
+    this.writes += 1;
+    this.dashboards.delete(environment);
+    this.reading.delete(environment);
+  }
   /** Something was sent to Trading 212: history read before it is out of date. */
   wrote(environment) {
     this.writes += 1;
@@ -47785,7 +47794,10 @@ function createServices(input2) {
   const tick2 = async () => {
     const settled3 = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
     const recorded = await stage("value history", () => values.snapshot());
-    for (const { environment } of recorded) changes.emit(environment, "holdings");
+    for (const { environment } of recorded) {
+      trading.forgetDashboard(environment);
+      changes.emit(environment, "holdings");
+    }
     return {
       ...settled3,
       values: recorded,
