@@ -64,6 +64,8 @@ It also offers five JSON resources per account with keys, for a host to attach t
 | `tradepilot://demo/watchlist` | The watched instruments with their notes |
 | `tradepilot://demo/goal` | The investment goal and the milestone it has reached, or `null` |
 
+A client can subscribe to any of them. The server then sends `notifications/resources/updated` when the resource changes, and the client reads it again: the journal, targets, watchlist and goal whenever they are saved, from the widget, a tool or the scheduler (a milestone reached included), and the holdings after TradePilot sends something to Trading 212 and each time the scheduler reads the account value (about hourly), since a change made in the Trading 212 app is only seen then. Only an open connection hears of changes, so this works over stdio; the HTTP server answers each request on its own. A change made by another TradePilot process on the same data directory is not heard.
+
 The prompts are generated from `skills/*/SKILL.md` into `src/core/skill-prompts.ts`, since the Worker and the bundled plugin cannot read `skills/` at run time. After changing a skill, run `pnpm build:prompts` (`pnpm build:plugin` runs it too); a test fails while the two differ.
 
 ### Progress, cancelling and the server's name

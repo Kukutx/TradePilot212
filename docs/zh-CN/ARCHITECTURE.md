@@ -159,7 +159,7 @@ Node 使用基于文件、原子写入的实现。Cloudflare 使用一个以 SQL
 
 券商写操作始终只对 App 可见。
 
-除了工具，`mcp-prompts.ts` 还把每个 skill 作为 MCP prompt 提供，并为每个配置了密钥的账户，把账户保存的状态（持仓、交易日志、目标、自选列表）作为资源提供，同时为 prompt 的账户和标的参数提供自动补全。每个工具都声明了 `outputSchema`（`tool-output.ts`），服务器会按它检查每个结果。
+除了工具，`mcp-prompts.ts` 还把每个 skill 作为 MCP prompt 提供，并为每个配置了密钥的账户，把账户保存的状态（持仓、交易日志、目标配置、自选列表、投资目标）作为资源提供，客户端可以订阅这些资源（`resource-changes.ts` 监听存储的写入和发往 Trading 212 的操作），同时为 prompt 的账户和标的参数提供自动补全。每个工具都声明了 `outputSchema`（`tool-output.ts`），服务器会按它检查每个结果。
 
 <a id="execution-invariants"></a>
 ## 执行不变量
