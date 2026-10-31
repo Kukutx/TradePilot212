@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { projectGoal, type InvestmentGoal } from "../../shared/goal";
 import { createTranslator } from "../i18n";
-import { defaultGoal, GoalChart, GoalPanel, GoalProgressLine, monthEnd } from "./goal";
+import { defaultGoal, GoalChart, GoalForm, GoalPanel, GoalProgressLine, monthEnd, monthlyScale } from "./goal";
 
 const t = createTranslator("en");
 const now = new Date("2026-10-31T12:00:00Z");
@@ -68,5 +68,40 @@ describe("the investment goal panel", () => {
     // Without a way to open it, it is not a button; without the value, there is no line.
     expect(renderToStaticMarkup(createElement(GoalProgressLine, { goal, value: 25_000, currency: "EUR", locale: "zh-CN", t: createTranslator("zh-CN") }))).toContain('<div class="goalLine" role="group"');
     expect(renderToStaticMarkup(createElement(GoalProgressLine, { goal, currency: "EUR", locale: "en", t }))).toBe("");
+  });
+});
+
+describe("the goal form's sliders", () => {
+  const form = (props: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(GoalForm, {
+    goal, value: 25_000, currency: "EUR", locale: "en", t, busy: false, onSave: () => {}, onCancel: () => {}, onDraft: () => {}, ...props,
+  }));
+
+  it("puts a slider under the monthly amount, the return, the volatility and the inflation, named by each field's label", () => {
+    const html = form();
+    expect(html.match(/role="slider"/g)).toHaveLength(4);
+    expect(html).toContain('aria-valuemin="0" aria-valuemax="2000" aria-valuenow="500" aria-valuetext="€500"');
+    expect(html).toContain('aria-valuemin="-5" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6%"');
+    expect(html).toContain('aria-valuemin="0" aria-valuemax="40" aria-valuenow="15" aria-valuetext="15%"');
+    expect(html).toMatch(/aria-labelledby="[^"]+-label"/);
+    expect(html).not.toContain('type="range"');
+    // Nothing changed yet.
+    expect(html).not.toContain("Changed, not saved");
+  });
+
+  it("scales the monthly slider to the amount set", () => {
+    expect(monthlyScale(500)).toEqual({ max: 2000, step: 10 });
+    expect(monthlyScale(100)).toEqual({ max: 1000, step: 10 });
+    expect(monthlyScale(2500)).toEqual({ max: 8000, step: 50 });
+    expect(monthlyScale(5000)).toEqual({ max: 20000, step: 100 });
+  });
+
+  it("offers the account's own return and volatility from a year of records, and says what it needs otherwise", () => {
+    const year = form({ measured: { from: "2025-10-30", to: "2026-10-30", volatility: 0.182, annualized: 0.091 } });
+    expect(year).toContain('<button type="button" class="secondaryButton compactButton">Use my account&#x27;s figures</button>');
+    expect(year).toContain("The time-weighted return from Oct 30, 2025 to Oct 30, 2026: +9.1% a year, with 18.2% volatility. These are past figures, not a forecast.");
+    const short = form({ measured: { from: "2026-06-01", to: "2026-10-30", volatility: 0.2 } });
+    expect(short).toContain('<button type="button" class="secondaryButton compactButton" disabled="">Use my account&#x27;s figures</button>');
+    expect(short).toContain("Needs a year or more of the account values TradePilot records");
+    expect(form()).toContain('disabled="">Use my account');
   });
 });

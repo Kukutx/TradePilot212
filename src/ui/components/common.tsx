@@ -42,7 +42,7 @@ export function SectionHeader({ title, count }: { title: string; count: number }
  * A labelled form control. The hint and the error are tied to the control with aria-describedby, the
  * error sets aria-invalid, and a unit (a currency code) sits inside the input's right edge.
  */
-export function Field({ label, children, hint, error, unit, group }: {
+export function Field({ label, children, hint, error, unit, group, below }: {
   label: string;
   children: (props: { id: string; "aria-describedby"?: string; "aria-invalid"?: boolean }) => ReactNode;
   hint?: string;
@@ -50,6 +50,8 @@ export function Field({ label, children, hint, error, unit, group }: {
   unit?: string;
   /** The control is a group of controls (a radio group) named by the label through `${id}-label`, not a form field. */
   group?: boolean;
+  /** A second control for the same value under the first (a slider), handed the label's id to be named by it. */
+  below?: (labelId: string) => ReactNode;
 }) {
   const id = useId();
   const hintId = hint ? `${id}-hint` : undefined;
@@ -62,6 +64,7 @@ export function Field({ label, children, hint, error, unit, group }: {
         {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
         {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}
       </div>
+      {below?.(`${id}-label`)}
       {error && <span className="fieldError" id={errorId}><Icon name="alert" />{error}</span>}
       {hint && <span className="fieldHint" id={hintId}>{hint}</span>}
     </div>

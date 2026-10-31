@@ -1977,3 +1977,25 @@ svg { -webkit-user-select: none; user-select: none; }
 .metric.updatedMetric .autoRefreshToggle input:checked + .toggleTrack > span { transform: translateX(11px); }
 @media (pointer: coarse) { .metric.updatedMetric .autoRefreshToggle { min-height: 36px; } }
 @media (forced-colors: active) { .refreshWarn { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; color: CanvasText; } }
+
+/* ---- The widget's own slider (components/slider.tsx) ---- */
+/* The whole row takes the pointer: at least 28px tall to hit, the thumb itself 18px. A vertical swipe still scrolls. */
+.slider { position: relative; display: flex; align-items: center; min-height: 28px; margin-top: 4px; padding: 0 9px; border-radius: 999px; cursor: pointer; touch-action: pan-y; outline: none; -webkit-user-select: none; user-select: none; }
+.sliderTrack { position: relative; flex: 1; height: 4px; border-radius: 999px; background: var(--tp-border-strong); }
+.sliderFill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--tp-fill-info); }
+.sliderThumb { position: absolute; top: 50%; width: 18px; height: 18px; border: 2px solid var(--tp-fill-info); border-radius: 50%; background: var(--tp-bg); box-shadow: 0 1px 3px rgba(0,0,0,.18); transform: translate(-50%, -50%); transition: box-shadow .12s ease, transform .12s ease; touch-action: none; }
+.slider:hover .sliderThumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--tp-fill-info) 16%, transparent), 0 1px 3px rgba(0,0,0,.18); }
+.slider:active .sliderThumb { transform: translate(-50%, -50%) scale(1.08); }
+.slider:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 2px; }
+.slider.disabled { cursor: default; opacity: .55; }
+@media (pointer: coarse) { .slider { min-height: 36px; } .sliderThumb { width: 22px; height: 22px; } }
+@media (prefers-reduced-motion: reduce) { .sliderThumb { transition: none; } }
+@media (forced-colors: active) {
+  .sliderTrack { forced-color-adjust: none; background: GrayText; }
+  .sliderFill { background: Highlight; }
+  .sliderThumb { forced-color-adjust: none; border-color: Highlight; background: Canvas; box-shadow: none; }
+  .slider:focus-visible { outline-color: CanvasText; }
+}
+.goalMeasured { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.goalMeasured .fieldHint { flex: 1 1 240px; }
+.goalUnsaved { align-self: center; margin-right: auto; color: var(--tp-amber-text); font-size: 12px; font-weight: 650; }
