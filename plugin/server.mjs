@@ -33584,11 +33584,11 @@ var McpServer = class {
         return tool.scopeChallenge?.(context);
       }
       case "resources/read": {
-        const resourceUri = context.request.params?.uri;
-        if (typeof resourceUri !== "string") return;
+        const resourceUri2 = context.request.params?.uri;
+        if (typeof resourceUri2 !== "string") return;
         let uri;
         try {
-          uri = new URL(resourceUri);
+          uri = new URL(resourceUri2);
         } catch {
           return;
         }
@@ -36198,8 +36198,76 @@ var SKILL_PROMPTS = [
   }
 ];
 
-// src/core/mcp-prompts.ts
+// src/core/resource-changes.ts
 var ENVIRONMENTS = ["demo", "live"];
+var resourceUri = (environment, name) => `tradepilot://${environment}/${name}`;
+var ResourceChanges = class {
+  listeners = /* @__PURE__ */ new Set();
+  /** Call `listener` with each changed resource's address; the returned function stops it. */
+  on(listener) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  emit(environment, name) {
+    const uri = resourceUri(environment, name);
+    for (const listener of this.listeners) {
+      try {
+        listener(uri);
+      } catch {
+      }
+    }
+  }
+};
+var environmentOf = (text) => text === "demo" || text === "live" ? text : void 0;
+function resourcesOfKey(key, value) {
+  const [prefix, second] = key.split(":");
+  if (prefix === "goal" || prefix === "goal-milestone") {
+    const environment = environmentOf(second);
+    return environment ? [[environment, "goal"]] : [];
+  }
+  if (prefix === "targets") {
+    const environment = environmentOf(second);
+    return environment ? [[environment, "targets"]] : [];
+  }
+  if (prefix === "watch") {
+    const environment = environmentOf(second);
+    return environment ? [[environment, "watchlist"]] : [];
+  }
+  if (prefix === "journal") {
+    const environment = environmentOf(value?.environment);
+    return environment ? [[environment, "journal"]] : ENVIRONMENTS.map((item) => [item, "journal"]);
+  }
+  return [];
+}
+function watchingStore(store2, changes) {
+  const said = (key, value) => {
+    for (const [environment, name] of resourcesOfKey(key, value)) changes.emit(environment, name);
+  };
+  return new Proxy(store2, {
+    get(target, property, receiver) {
+      if (property === "put") return async (key, value, expiresAt) => {
+        await target.put(key, value, expiresAt);
+        said(key, value);
+      };
+      if (property === "delete") return async (key) => {
+        await target.delete(key);
+        said(key);
+      };
+      if (property === "consume") return async (key) => {
+        const value = await target.consume(key);
+        if (value !== void 0) said(key, value);
+        return value;
+      };
+      const member = Reflect.get(target, property, receiver);
+      return typeof member === "function" ? member.bind(target) : member;
+    }
+  });
+}
+
+// src/core/mcp-prompts.ts
+var ENVIRONMENTS2 = ["demo", "live"];
 var MAX_COMPLETIONS = 20;
 var TITLES = {
   "daily-brief": "Daily brief",
@@ -36211,14 +36279,35 @@ var TITLES = {
   "trade-journal": "Trade journal"
 };
 var ABOUT_INSTRUMENT = /* @__PURE__ */ new Set(["order-followup", "trade-journal"]);
-function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2, goals }, config3) {
-  const environmentOf = (value) => {
+function subscribeToChanges(server2, changes, uris) {
+  const subscribed = /* @__PURE__ */ new Set();
+  server2.server.registerCapabilities({ resources: { subscribe: true } });
+  server2.server.setRequestHandler("resources/subscribe", async (request) => {
+    if (uris.has(request.params.uri)) subscribed.add(request.params.uri);
+    return {};
+  });
+  server2.server.setRequestHandler("resources/unsubscribe", async (request) => {
+    subscribed.delete(request.params.uri);
+    return {};
+  });
+  const stop = changes.on((uri) => {
+    if (subscribed.has(uri)) server2.server.sendResourceUpdated({ uri }).catch(() => void 0);
+  });
+  const closed = server2.server.onclose;
+  server2.server.onclose = () => {
+    stop();
+    subscribed.clear();
+    closed?.();
+  };
+}
+function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2, goals, changes }, config3) {
+  const environmentOf2 = (value) => {
     const named = (value ?? "").trim().toLowerCase();
     if (named === "") return config3.defaultTradingEnvironment;
     if (named === "demo" || named === "live") return named;
     throw new Error(`Unknown account "${value}": use demo or live`);
   };
-  const environments = (value) => ENVIRONMENTS.filter((environment) => environment.startsWith(value.trim().toLowerCase()));
+  const environments = (value) => ENVIRONMENTS2.filter((environment) => environment.startsWith(value.trim().toLowerCase()));
   const instruments = async (value, environment) => {
     if (!credentialStatus(config3)[environment]) return [];
     const [dashboard2, watched] = await Promise.all([trading.getDashboard(environment, 6e4).catch(() => void 0), watchlist2.list(environment).catch(() => [])]);
@@ -36237,7 +36326,7 @@ function registerPromptsAndResources(server2, { trading, journal, targets, watch
       environment: completable(external_exports.string().describe("demo or live; this server's default when left out."), (value) => environments(value)).optional(),
       ...about ? { instrument: completable(external_exports.string().describe("The instrument, as a ticker or name."), (value, context) => {
         try {
-          return instruments(value, environmentOf(context?.arguments?.environment));
+          return instruments(value, environmentOf2(context?.arguments?.environment));
         } catch {
           return [];
         }
@@ -36247,7 +36336,7 @@ function registerPromptsAndResources(server2, { trading, journal, targets, watch
     server2.registerPrompt(skill.name, { title: TITLES[skill.name] ?? skill.name, description: skill.description, argsSchema }, (args) => {
       const { environment, instrument, request } = args;
       const lines = [
-        `Follow the TradePilot steps below on the ${environmentOf(environment).toUpperCase()} Trading 212 account.`,
+        `Follow the TradePilot steps below on the ${environmentOf2(environment).toUpperCase()} Trading 212 account.`,
         instrument ? `The instrument: ${instrument}.` : "",
         request ? `The user asked: ${request}` : ""
       ].filter(Boolean);
@@ -36256,9 +36345,11 @@ function registerPromptsAndResources(server2, { trading, journal, targets, watch
 ${skill.body}` } }] };
     });
   }
+  const uris = /* @__PURE__ */ new Set();
   const perAccount = (name, title, description, read) => {
-    for (const environment of ENVIRONMENTS.filter((item) => credentialStatus(config3)[item])) {
-      const uri = `tradepilot://${environment}/${name}`;
+    for (const environment of ENVIRONMENTS2.filter((item) => credentialStatus(config3)[item])) {
+      const uri = resourceUri(environment, name);
+      uris.add(uri);
       server2.registerResource(`${environment}-${name}`, uri, { title: `${title} (${environment.toUpperCase()})`, description, mimeType: "application/json" }, async () => ({
         contents: [{ uri, mimeType: "application/json", text: JSON.stringify(await read(environment), null, 2) }]
       }));
@@ -36272,6 +36363,7 @@ ${skill.body}` } }] };
   perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: await targets.get(environment) ?? null }));
   perAccount("goal", "Investment goal", "The saved investment goal: the target, the date, what is added each month, the return and volatility assumed and the milestone reached; null when none is set.", async (environment) => ({ environment, goal: await goals.get(environment) ?? null }));
   perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist2.list(environment) }));
+  if (changes && uris.size) subscribeToChanges(server2, changes, uris);
 }
 
 // src/shared/protection.ts
@@ -41480,7 +41572,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.95.0",
+  version: "2.96.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -44620,7 +44712,7 @@ function listedRange(listed, offset, count) {
   if (!offset) return `${listed} of ${count}`;
   return listed ? `${offset + 1}\u2013${offset + listed} of ${count}` : `none past ${offset} of ${count}`;
 }
-function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ changes, trading, insights, automation: automation3, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -44673,7 +44765,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       ]
     })
   );
-  registerPromptsAndResources(server2, { trading, journal, targets: targetAllocations, watchlist: watchlist2, goals }, config3);
+  registerPromptsAndResources(server2, { trading, journal, targets: targetAllocations, watchlist: watchlist2, goals, changes }, config3);
   registerAppTool(
     server2,
     "get_portfolio_dashboard",
@@ -47600,7 +47692,9 @@ var OVERVIEW_WAIT_MS = 3e3;
 var processSampleBroker;
 function createServices(input2) {
   const sampleFetcher = () => input2.fetcher ? createSampleBroker(input2.fetcher) : processSampleBroker ??= createSampleBroker();
-  const deps = input2.config.sampleData ? { ...input2, fetcher: sampleFetcher() } : input2;
+  const changes = new ResourceChanges();
+  const watched = { ...input2, store: watchingStore(input2.store, changes) };
+  const deps = input2.config.sampleData ? { ...watched, fetcher: sampleFetcher() } : watched;
   const notifications = createNotifications(deps.config, deps.store, deps.fetcher);
   const notify = notifications?.send;
   const quotes = deps.config.sampleData ? createSampleQuotes() : createQuoteProvider(deps.config, deps.fetcher);
@@ -47612,7 +47706,10 @@ function createServices(input2) {
     afterBasket: (planId, result2, unattended) => automation3.recordRun(planId, result2, /* @__PURE__ */ new Date(), unattended ? "scheduler" : "you"),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
-    afterWrite: (environment) => insights.forgetHistory(environment)
+    afterWrite: (environment) => {
+      insights.forgetHistory(environment);
+      changes.emit(environment, "holdings");
+    }
   });
   const insights = new InsightsService({
     config: deps.config,
@@ -47688,6 +47785,7 @@ function createServices(input2) {
   const tick2 = async () => {
     const settled3 = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
     const recorded = await stage("value history", () => values.snapshot());
+    for (const { environment } of recorded) changes.emit(environment, "holdings");
     return {
       ...settled3,
       values: recorded,
@@ -47765,7 +47863,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { changes, trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts
