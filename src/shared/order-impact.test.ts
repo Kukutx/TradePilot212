@@ -22,8 +22,8 @@ describe("what an order would change", () => {
 
   it("counts a sell's gain against the average price, keeps the rest at its value, and notes the UK rule", () => {
     const gain = orderImpact({ side: "sell", quantity: 4, position: held, account, instrumentCurrency: "USD", accountNotional: 720, fxFeeRate: 0.0015, ukTaxYear: true });
-    // 720 less 4/10 of the 1400 cost, less the fee of 1.08.
-    expect(gain).toMatchObject({ sharesAfter: 6, weightBefore: 0.18, weightAfter: 0.108, cashAfter: 2718.92, realized: 158.92, ukRule: "sell" });
+    // 720 less 4/10 of the 1400 cost; the fee of 1.08 comes off the cash, as Trading 212 reports it apart.
+    expect(gain).toMatchObject({ sharesAfter: 6, weightBefore: 0.18, weightAfter: 0.108, cashAfter: 2718.92, realized: 160, ukRule: "sell" });
     const loss = orderImpact({ side: "sell", quantity: 10, position: held, account, instrumentCurrency: "USD", accountNotional: 1300, fxFeeRate: 0.0015, ukTaxYear: true });
     expect(loss).toMatchObject({ sharesAfter: 0, weightAfter: 0, ukRule: "sell_loss" });
     expect(loss!.realized).toBeLessThan(0);
@@ -33,6 +33,10 @@ describe("what an order would change", () => {
   it("converts nothing in the account's own currency, pence included, and leaves out what it cannot know", () => {
     const pounds = orderImpact({ side: "buy", quantity: 2, account: { currency: "GBP", totalValue: 1000, cash: { availableToTrade: 500 } }, instrumentCurrency: "GBX", accountNotional: 100, fxFeeRate: 0.0015, ukTaxYear: false });
     expect(pounds).toEqual({ currency: "GBP", sharesBefore: 0, sharesAfter: 2, weightBefore: 0, weightAfter: 0.1, cashBefore: 500, cashAfter: 400 });
+    // A price in pence is not pounds: without the broker's valuation the holding's value is not guessed.
+    const pence = orderImpact({ side: "buy", quantity: 1, position: { ...held, instrument: { ...held.instrument, currencyCode: "GBX" }, currentPrice: 250, walletImpact: {} }, account: { currency: "GBP", totalValue: 1000, cash: { availableToTrade: 500 } }, instrumentCurrency: "GBX", accountNotional: 2.5, fxFeeRate: 0.0015, ukTaxYear: false });
+    expect(pence).not.toHaveProperty("weightBefore");
+    expect(pence).toMatchObject({ cashAfter: 497.5 });
     // No value in the account currency: shares only.
     expect(orderImpact({ side: "buy", quantity: 1, position: held, account, instrumentCurrency: "USD", fxFeeRate: 0.0015, ukTaxYear: false }))
       .toEqual({ currency: "EUR", sharesBefore: 10, sharesAfter: 11, cashBefore: 2000 });

@@ -771,13 +771,14 @@ function impactLines(impact: OrderImpact): string[] {
     `shares ${num(impact.sharesBefore, 8)} to ${num(impact.sharesAfter, 8)}`,
     ...(impact.weightBefore === undefined || impact.weightAfter === undefined ? [] : [`${pct(impact.weightBefore)} to ${pct(impact.weightAfter)} of the account`]),
     ...(impact.cashAfter === undefined ? [] : [`cash to trade ${money(impact.cashBefore)} to ${money(impact.cashAfter, impact.currency)}`]),
-    ...(impact.realized === undefined ? [] : [`realized ${signed(impact.realized)} ${impact.currency} against Trading 212's average price`]),
+    ...(impact.realized === undefined ? [] : [`realized ${signed(impact.realized)} ${impact.currency} against Trading 212's average price, before the conversion fee`]),
     ...(impact.fxFee === undefined ? [] : [`conversion fee at most ${money(impact.fxFee, impact.currency)} (${pct(impact.fxFeeRate, 2)})`]),
   ];
   return [
     `If it fills, about: ${parts.join("; ")}.`,
-    ...(impact.ukRule === "sell_loss" ? ["UK rules: buying the same shares back today or within 30 days matches them with this sale first, so this loss would be set against that rebuy rather than stand."]
-      : impact.ukRule === "sell" ? ["UK rules: shares of the same company bought today or within 30 days after this sale are matched with it first, not with the pool."] : []),
+    ...(impact.cashAfter !== undefined && impact.cashAfter < 0 ? ["The cash to trade would fall below zero with the conversion fee: Trading 212 may refuse the order for want of funds."] : []),
+    ...(impact.ukRule === "sell_loss" ? ["UK rules, outside an ISA: shares of the same company bought back today or within 30 days are matched with this sale first, at that rebuy's cost instead of the average cost, so most of this loss may not count."]
+      : impact.ukRule === "sell" ? ["UK rules, outside an ISA: shares of the same company bought today or within 30 days after this sale are matched with it first, at their own cost instead of the section 104 pool's average."] : []),
   ];
 }
 

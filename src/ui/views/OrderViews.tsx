@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import type { PolicyCheck } from "../../shared/automation";
 import type { CancelPreview, Instrument, OrderDraft, OrderImpact, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { MAX_JOURNAL_TEXT } from "../../shared/journal";
@@ -260,11 +260,12 @@ export function OrderConfirmation({
 
 /** What the order would change once it fills, at the review's prices: each row from before to after. */
 export function OrderImpactRows({ impact, locale, t }: { impact: OrderImpact; locale: SupportedLocale; t: Translator }) {
+  const titleId = useId();
   const change = (before: string, after: string) => `${before} → ${after}`;
   const cash = (value: number | undefined) => money(value, impact.currency, locale);
   return (
-    <section className="orderImpact" aria-labelledby="order-impact-title">
-      <h3 id="order-impact-title" className="sectionEyebrow">{t("impactTitle")}</h3>
+    <section className="orderImpact" aria-labelledby={titleId}>
+      <h3 id={titleId} className="sectionEyebrow">{t("impactTitle")}</h3>
       <div className="confirmationRows">
         <DetailRow label={t("impactShares")} value={change(qty(impact.sharesBefore, locale), qty(impact.sharesAfter, locale))} />
         {impact.weightBefore !== undefined && impact.weightAfter !== undefined && (
@@ -280,6 +281,7 @@ export function OrderImpactRows({ impact, locale, t }: { impact: OrderImpact; lo
           <div><span>{t("impactFxFee")}<small className="rowHint">{fill(t("impactFxFeeHint"), { rate: pct(impact.fxFeeRate, locale, 2) })}</small></span><strong>{fill(t("atMost"), { amount: cash(impact.fxFee) })}</strong></div>
         )}
       </div>
+      {impact.cashAfter !== undefined && impact.cashAfter < 0 && <div className="notice warning compactNotice">{t("impactCashShort")}</div>}
       {impact.ukRule && <div className="notice compactNotice">{t(impact.ukRule === "sell_loss" ? "impactUkLoss" : "impactUkSale")}</div>}
       <p className="impactFootnote">{t("impactFootnote")}</p>
     </section>

@@ -6,9 +6,10 @@
   - the shares held, before and after;
   - the holding's share of the account, before and after (until now worked out only for a buy, and only when a weight limit was set);
   - the cash left to trade;
-  - for a sell, the realized gain or loss as Trading 212 counts it against its average price;
+  - for a sell, the realized gain or loss as Trading 212 counts it against its average price, before the conversion fee it lists apart (a Market sell is valued at the lower of its reference and last prices, so its gain is not overstated);
   - for an instrument in another currency, the conversion fee at most.
-- With a UK tax year, a sell notes that shares of the same company bought the same day or in the 30 days after it are matched with it first. A sale at a loss also notes that buying back within 30 days sets the loss against the rebuy.
+- A buy that would take the cash below zero with the conversion fee says Trading 212 may refuse it.
+- With a UK tax year, a sell notes the matching rules, which apply outside an ISA. Shares of the same company bought the same day or in the 30 days after the sale are matched with it first, at their own cost. A sale at a loss also notes that buying back within 30 days means most of the loss may not count.
 - `app_prepare_order` returns these figures as `impact`, and the model is told them with the review.
 
 ## 2.82.0

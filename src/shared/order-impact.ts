@@ -36,8 +36,9 @@ export function orderImpact(input: OrderImpactInput): OrderImpact | undefined {
   const fxFee = converts && notional !== undefined && input.fxFeeRate > 0 ? notional * input.fxFeeRate : undefined;
 
   // The holding at the broker's own valuation; what is left after a sell keeps its value per share, whatever the
-  // order's price, and a buy adds what it pays.
-  const sameCurrency = !converts;
+  // order's price, and a buy adds what it pays. Without one, only a price in the account's own currency is used: a
+  // price in pence is not pounds.
+  const sameCurrency = input.instrumentCurrency.toUpperCase() === currency.toUpperCase();
   const heldValue = !sharesBefore ? 0 : walletNumber(input.position, "currentValue") ?? (sameCurrency && input.position?.currentPrice ? sharesBefore * input.position.currentPrice : undefined);
   const valueAfter = heldValue === undefined ? undefined
     : input.side === "buy" ? notional === undefined ? undefined : heldValue + notional
@@ -51,10 +52,11 @@ export function orderImpact(input: OrderImpactInput): OrderImpact | undefined {
   const cashAfter = cashBefore === undefined || notional === undefined ? undefined
     : input.side === "buy" ? cashBefore - notional - (fxFee ?? 0) : cashBefore + notional - (fxFee ?? 0);
 
-  // Trading 212 counts a sale's gain against the holding's average price: the proceeds less the shares' part of its cost.
+  // Trading 212 counts a sale's gain against the holding's average price: the proceeds less the shares' part of its
+  // cost. The conversion fee is a cost it reports apart, as the cash row counts it.
   const cost = walletNumber(input.position, "totalCost");
   const realized = input.side === "sell" && notional !== undefined && cost !== undefined && sharesBefore > 0
-    ? notional - cost * (Math.min(input.quantity, sharesBefore) / sharesBefore) - (fxFee ?? 0) : undefined;
+    ? notional - cost * (Math.min(input.quantity, sharesBefore) / sharesBefore) : undefined;
 
   return {
     currency,
