@@ -84,7 +84,7 @@ main { max-width: 1072px; margin: 0 auto; padding: 24px 16px 40px; }
 #frame iframe { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: height .15s ease; }
 details { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 summary { cursor: pointer; padding: 9px 12px; color: var(--muted); font-size: 13px; }
-pre, #calls { margin: 0; padding: 0 12px 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre, #calls, #context { margin: 0; padding: 0 12px 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #calls { padding-left: 32px; }
 #foot { margin: 22px 0 0; color: var(--muted); font-size: 12px; }
 #exit-fullscreen { display: none; }
@@ -130,6 +130,7 @@ pre, #calls { margin: 0; padding: 0 12px 12px; font: 12px/1.5 ui-monospace, SFMo
       <div id="frame"></div>
       <details><summary id="model-summary">What the model reads</summary><pre id="text"></pre></details>
       <details><summary id="calls-summary">Calls from the widget</summary><ol id="calls"></ol></details>
+      <details><summary id="context-summary">What the widget told the model</summary><pre id="context"></pre></details>
     </div>
   </div>
   <p id="foot"></p>

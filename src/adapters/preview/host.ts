@@ -39,7 +39,7 @@ const copy = {
     title: "TradePilot preview", sample: "Sample account", demo: "Your Demo account", view: "View", theme: "Theme", light: "Light", dark: "Dark",
     language: "Language", width: "Width", phone: "Phone", chat: "Chat", wide: "Wide", host: "Host styles", hostNone: "None", hostGiven: "Given",
     portfolio: "Portfolio", orders: "Orders", pies: "Pies", automation: "Automation",
-    modelText: "What the model reads", calls: "Calls from the widget", none: "None yet.", loading: "Loading…", failed: "The tool call failed.",
+    modelText: "What the model reads", calls: "Calls from the widget", context: "What the widget told the model", asked: "Asked in the chat", saved: "Saved", none: "None yet.", loading: "Loading…", failed: "The tool call failed.",
     exitFullscreen: "Exit full screen (Esc)",
     footSample: "Simulated EUR account. Orders fill against it and nothing is sent to Trading 212. Restart the preview to start fresh.",
     footDemo: "Your Trading 212 Demo account. Confirmed orders go to the practice account. Live is switched off here.",
@@ -49,7 +49,7 @@ const copy = {
     title: "TradePilot 预览", sample: "样例账户", demo: "你的 Demo 账户", view: "页面", theme: "主题", light: "浅色", dark: "深色",
     language: "语言", width: "宽度", phone: "手机", chat: "聊天", wide: "宽屏", host: "宿主样式", hostNone: "无", hostGiven: "提供",
     portfolio: "组合", orders: "下单", pies: "Pies", automation: "自动化",
-    modelText: "模型读到的文字", calls: "界面发出的调用", none: "暂无。", loading: "加载中…", failed: "工具调用失败。",
+    modelText: "模型读到的文字", calls: "界面发出的调用", context: "界面告诉模型的内容", asked: "在对话里问", saved: "已保存", none: "暂无。", loading: "加载中…", failed: "工具调用失败。",
     exitFullscreen: "退出全屏（Esc）",
     footSample: "模拟的 EUR 账户。订单在本地成交，不会发到 Trading 212。重启预览即恢复初始数据。",
     footDemo: "你的 Trading 212 Demo 模拟账户。确认后的订单会发到模拟账户。这里不会使用 Live。",
@@ -167,6 +167,8 @@ function renderChrome(): void {
   for (const id of ["view", "theme", "language", "width", "host"] as const) $(`label-${id}`).textContent = t[id];
   for (const [id, key] of [["theme-light", "light"], ["theme-dark", "dark"], ["width-375", "phone"], ["width-720", "chat"], ["width-1040", "wide"], ["host-none", "hostNone"], ["host-given", "hostGiven"]] as const) $(id).textContent = t[key];
   $("model-summary").textContent = t.modelText;
+  $("context-summary").textContent = t.context;
+  $("context").textContent = modelContext || t.none;
   $("exit-fullscreen").setAttribute("aria-label", t.exitFullscreen);
   $("exit-fullscreen").title = t.exitFullscreen;
   $("foot").textContent = `${boot.mode === "demo" ? t.footDemo : t.footSample} ${t.footShared}`;
@@ -192,6 +194,8 @@ function renderChrome(): void {
 }
 
 const calls: string[] = [];
+/** The latest page the widget described to the model (ui/update-model-context); a host keeps only the latest. */
+let modelContext = "";
 function renderCalls(): void {
   const t = copy[state.lang];
   $("calls-summary").textContent = `${t.calls} (${calls.length})`;
@@ -209,6 +213,7 @@ async function mount(): Promise<void> {
     previous.iframe.remove();
   }
   calls.length = 0;
+  modelContext = "";
   setDisplayMode("inline");
   renderChrome();
   $("text").textContent = copy[state.lang].loading;
@@ -233,7 +238,7 @@ async function mount(): Promise<void> {
   if (state.host === "given") iframe.style.background = HOST_STYLES["--color-background-primary"] ?? "";
   $("frame").appendChild(iframe);
 
-  const bridge = new AppBridge(null, { name: "tradepilot-preview", version: "1.0.0" }, { openLinks: {}, serverTools: {}, logging: {} }, { hostContext: hostContext() });
+  const bridge = new AppBridge(null, { name: "tradepilot-preview", version: "1.0.0" }, { openLinks: {}, serverTools: {}, logging: {}, downloadFile: {}, message: { text: {} }, updateModelContext: { text: {} } }, { hostContext: hostContext() });
   bridge.oncalltool = async (params) => {
     calls.push(params.name);
     renderCalls();
@@ -250,8 +255,31 @@ async function mount(): Promise<void> {
     window.open(url, "_blank", "noopener,noreferrer");
     return {};
   };
-  bridge.onmessage = async () => ({});
-  bridge.onupdatemodelcontext = async () => ({});
+  // A question asked from the widget is listed with its calls; a real host would post it in the chat.
+  bridge.onmessage = async ({ content }) => {
+    const text = content.map((block) => (block.type === "text" ? block.text : `[${block.type}]`)).join(" ");
+    calls.push(`${copy[state.lang].asked}: ${text}`);
+    renderCalls();
+    return {};
+  };
+  bridge.onupdatemodelcontext = async ({ content }) => {
+    modelContext = (content ?? []).map((block) => (block.type === "text" ? block.text : `[${block.type}]`)).join("\n");
+    $("context").textContent = modelContext || copy[state.lang].none;
+    return {};
+  };
+  // A file the widget saves is downloaded by the page, as a host would offer it.
+  bridge.ondownloadfile = async ({ contents }) => {
+    for (const item of contents) {
+      if (item.type !== "resource" || !("text" in item.resource)) continue;
+      const name = item.resource.uri.split("/").pop() || "tradepilot.txt";
+      const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([item.resource.text], { type: item.resource.mimeType ?? "text/plain" })), download: name });
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      calls.push(`${copy[state.lang].saved}: ${name}`);
+    }
+    renderCalls();
+    return {};
+  };
   bridge.onloggingmessage = (message) => console.info("[widget]", message);
   bridge.oninitialized = () => {
     void bridge.sendToolInput({ arguments: scenario.args });

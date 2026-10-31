@@ -27,7 +27,9 @@ import { journalText, type JournalReview } from "../shared/journal";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
+import { Menu, type MenuItem } from "./components/menu";
 import { TipLayer } from "./components/tips";
+import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bridge";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
@@ -116,6 +118,16 @@ const INSIGHT_TOOLS: Record<InsightKind, string> = {
 const TAB_KEYS: Record<PortfolioTab, MessageKey> = {
   holdings: "tabHoldings", watchlist: "tabWatchlist", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome", journal_review: "tabJournal",
   trade_history: "tabHistory", cash_history: "tabHistory", tax_year: "tabHistory", pies: "piesTitle", automation: "automationTitle",
+};
+/** Each page's name as the model is told it, in English whatever the reader's language. */
+const PAGE_NAMES: Record<PortfolioTab, string> = {
+  holdings: "Holdings", watchlist: "Watchlist", allocation: "Allocation", performance: "Performance", income: "Income", journal_review: "Journal",
+  trade_history: "History: trades", cash_history: "History: cash movements", tax_year: "History: tax year", pies: "Pies", automation: "Automation",
+};
+/** The question each page offers to ask in the chat, besides asking what the page shows. */
+const ASK_KEYS: Record<PortfolioTab, MessageKey> = {
+  holdings: "askHoldings", watchlist: "askWatchlist", allocation: "askAllocation", performance: "askPerformance", income: "askIncome", journal_review: "askJournal",
+  trade_history: "askTrades", cash_history: "askCash", tax_year: "askTaxYear", pies: "askPies", automation: "askAutomation",
 };
 /** The tab strip, in order; "history" stands for whichever of its three pages was shown last. */
 const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "history", "journal_review", "pies", "automation"] as const;
@@ -386,6 +398,8 @@ export default function App() {
   const [pieResult, setPieResult] = useState<PieChangeResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [problem, setProblem] = useState<Problem | null>(null);
+  /** What came of handing the host a file or a question, when the reader needs telling. */
+  const [hostNote, setHostNote] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const [book, setBook] = useState<InstrumentBook>(() => readSavedBook());
   const [locale, setLocale] = useState<SupportedLocale>(() =>
     readSavedLocale() ?? resolveLocale(typeof navigator === "undefined" ? "en" : navigator.language),
@@ -522,6 +536,56 @@ export default function App() {
   useEffect(() => {
     if (app) syncHostContext(app.getHostContext());
   }, [app]);
+
+  // What the host takes besides tool calls, as it said when the widget connected.
+  const hostCan = app?.getHostCapabilities();
+  /** The data the page in view is drawn from: an instrument's page, a tab's read, or what the host handed over. */
+  const shown: { kind?: unknown } | null | undefined = base?.kind === "holding" ? base
+    : base && (base.kind === "portfolio" || isInsight(base)) ? (tab === "holdings" ? (base.kind === "portfolio" ? base : undefined) : insights[tab as InsightKind])
+    : base;
+  const pageName = base?.kind === "holding" ? `instrument page for ${base.instrument.name ?? base.ticker}`
+    : base && (base.kind === "portfolio" || isInsight(base)) ? PAGE_NAMES[tab] : base ? base.kind.replace(/_/g, " ") : undefined;
+  const sampleAccount = Boolean((base as { credentials?: CredentialStatus } | null)?.credentials?.sample);
+  const context = shown && pageName ? viewContext({ page: pageName, environment, sample: sampleAccount }, shown) : undefined;
+  // The model is told what the reader looks at, a moment after it settles; a host keeps only the latest.
+  const toldContext = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!app || !hostCan?.updateModelContext || !context || context === toldContext.current) return;
+    const timer = window.setTimeout(() => {
+      toldContext.current = context;
+      app.updateModelContext({ content: [{ type: "text", text: context }] }).catch(() => { toldContext.current = undefined; });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [app, hostCan, context]);
+
+  async function saveFile(format: ExportFormat): Promise<void> {
+    if (!app || !canExport(shown)) return;
+    const file = exportFile(shown, format);
+    setHostNote(null);
+    try {
+      const result = await app.downloadFile({ contents: [{ type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.mimeType, text: file.text } }] });
+      if (result.isError) setHostNote({ tone: "error", text: t("saveFileFailed") });
+      else if (file.of) setHostNote({ tone: "warning", text: fill(t("exportedPart"), { name: file.name, count: String(file.rows), of: String(file.of) }) });
+    } catch {
+      setHostNote({ tone: "error", text: t("saveFileFailed") });
+    }
+  }
+
+  async function ask(question: string): Promise<void> {
+    if (!app) return;
+    setHostNote(null);
+    try {
+      // What the page shows goes first, so the question is read with it.
+      if (hostCan?.updateModelContext && context && context !== toldContext.current) {
+        toldContext.current = context;
+        await app.updateModelContext({ content: [{ type: "text", text: context }] }).catch(() => { toldContext.current = undefined; });
+      }
+      const result = await app.sendMessage({ role: "user", content: [{ type: "text", text: question }] });
+      if (result.isError) setHostNote({ tone: "error", text: t("askFailed") });
+    } catch {
+      setHostNote({ tone: "error", text: t("askFailed") });
+    }
+  }
 
   // Reviews stay inline: the widget never asks for fullscreen on its own, only from the Full view button.
   const cancelDraftActive = base?.kind === "cancel_draft" && !cancelDraftClosed;
@@ -1215,6 +1279,13 @@ export default function App() {
   const positions = base?.kind === "portfolio" ? base.positions : [];
   const cancelTarget = cancelPreview ?? (base?.kind === "cancel_draft" && cancelDraftActive ? base : null);
   const fullLabel = displayMode === "fullscreen" ? t("collapse") : t("expand");
+  const exportItems: MenuItem[] = hostCan?.downloadFile && canExport(shown) && !transactionActive && !basketActive
+    ? [{ id: "csv", label: t("exportCsv") }, { id: "json", label: t("exportJson") }] : [];
+  const askItems: MenuItem[] = !hostCan?.message || !pageName || transactionActive ? [] : [
+    { id: "general", label: t("askGeneral") },
+    ...(base?.kind === "holding" ? [{ id: "page", label: fill(t("askHolding"), { name: base.instrument.shortName || base.instrument.name || base.ticker }) }]
+      : portfolioLike ? [{ id: "page", label: t(ASK_KEYS[tab]) }] : []),
+  ];
 
   return (
     <div className={`appShell mode-${displayMode}`}>
@@ -1255,6 +1326,19 @@ export default function App() {
             <button type="button" lang="en" aria-pressed={locale === "en"} className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
           </div>
 
+          <div className="headerTools">
+          {askItems.length > 0 && (
+            <Menu label={t("askLabel")} items={askItems} disabled={loading} onChoose={(id) => void ask(askItems.find((item) => item.id === id)!.label)}>
+              <Icon name="chat" />
+              <span className="actionText" aria-hidden="true">{t("askShort")}</span>
+            </Menu>
+          )}
+          {exportItems.length > 0 && (
+            <Menu label={t("exportLabel")} items={exportItems} disabled={loading} onChoose={(id) => void saveFile(id as ExportFormat)}>
+              <Icon name="download" />
+              <span className="actionText" aria-hidden="true">{t("exportShort")}</span>
+            </Menu>
+          )}
           {canToggleFullscreen && (
             <button className="iconAction" type="button" onClick={() => void toggleDisplayMode()} title={fullLabel} aria-label={fullLabel}>
               <Icon name={displayMode === "fullscreen" ? "collapse" : "expand"} />
@@ -1265,6 +1349,7 @@ export default function App() {
             <Icon name="refresh" className={loading ? "spinning" : undefined} />
             <span className="actionText" aria-hidden="true">{loading ? t("refreshing") : t("refresh")}</span>
           </button>
+          </div>
         </div>
       </header>
 
@@ -1278,6 +1363,11 @@ export default function App() {
 
       {!writeEnabled && base && base.kind !== "error" && (
         <div className="notice warning"><strong>{t("readonlyMode")}</strong><span>{t("readonlyHint")}</span></div>
+      )}
+      {hostNote && (
+        <div className={`notice ${hostNote.tone}`} role={hostNote.tone === "error" ? "alert" : "status"}>
+          <div className="noticeCopy"><span>{hostNote.text}</span></div>
+        </div>
       )}
       {problem && (
         <div className="notice error problemNotice" role="alert">

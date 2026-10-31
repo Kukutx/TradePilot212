@@ -120,6 +120,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .brokerLabel { display: block; color: var(--tp-muted); font-size: 12px; font-weight: 650; letter-spacing: .075em; text-transform: uppercase; white-space: nowrap; }
 
 .headerActions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
+/* The icon actions stay together: where the row has no room for them all, they take a row of their own, at its end. */
+.headerTools { display: flex; align-items: center; gap: inherit; margin-inline-start: auto; }
 .environmentSwitch {
   display: inline-flex;
   align-items: center;
@@ -654,7 +656,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .secondaryButton.danger { min-height: 44px; }
   .appShell { padding: 12px; }
   .appHeader { align-items: flex-start; flex-direction: column; gap: 11px; }
-  .headerActions { width: 100%; justify-content: space-between; gap: 6px; }
+  .headerActions { width: 100%; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
   .environmentSwitch { flex: 1 1 auto; }
   .environmentSwitch button { flex: 1 1 0; justify-content: center; padding: 0 7px; }
   .iconAction { height: 46px; width: 46px; }
@@ -1838,3 +1840,22 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .notifyResults li svg { width: 15px; height: 15px; flex: 0 0 auto; }
 .notifyResults li.ok svg { color: var(--tp-green); }
 .notifyResults li.failed svg { color: var(--tp-red); }
+/* A menu of actions (components/menu.tsx): the header's Ask and Save. Drawn as the lists are, from the button's end. */
+.menuWrap { position: relative; display: inline-flex; }
+.menuList {
+  position: absolute; z-index: 30; top: calc(100% + 4px); inset-inline-end: 0;
+  width: max-content; min-width: 200px; max-width: min(320px, calc(100vw - 16px)); margin: 0; padding: 4px; list-style: none;
+  border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg); color: var(--tp-text);
+  box-shadow: var(--tp-shadow); animation: selectOpen .12s ease-out;
+}
+.menuList[hidden] { display: none; }
+.menuList.above { top: auto; bottom: calc(100% + 4px); animation-name: selectOpenUp; }
+.appHeader:has(.menuWrap.open) { position: relative; z-index: 6; }
+.menuItem { display: grid; gap: 2px; min-height: 36px; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; line-height: 1.35; cursor: pointer; white-space: normal; }
+.menuItem.active { background: var(--tp-bg-soft); }
+.menuItem:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: -2px; }
+.menuItem:focus:not(:focus-visible) { outline: none; }
+.menuDetail { color: var(--tp-muted); font-size: 12px; font-weight: 500; }
+@media (pointer: coarse) { .menuItem { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .menuList { animation: none; } }
+@media (forced-colors: active) { .menuList { border-color: CanvasText; } .menuItem.active { forced-color-adjust: none; background: Highlight; color: HighlightText; } }

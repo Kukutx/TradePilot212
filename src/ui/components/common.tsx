@@ -3,7 +3,7 @@ import type { Position } from "../../shared/contracts";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { radioKeys, radioTab } from "../lib/radio";
 
-export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert" | "calendar" | "check";
+export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert" | "calendar" | "check" | "chat" | "download";
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   const paths = {
@@ -16,6 +16,8 @@ export function Icon({ name, className }: { name: IconName; className?: string }
     alert: <><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></>,
     calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></>,
     check: <path d="M5 12.5l4.5 4.5L19 7.5"/>,
+    chat: <path d="M4.5 5.5h15a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.5V17.5h-1A1.5 1.5 0 0 1 3 16V7a1.5 1.5 0 0 1 1.5-1.5Z"/>,
+    download: <><path d="M12 4v11M7 10.5l5 5 5-5"/><path d="M4.5 19.5h15"/></>,
   } as const;
   return <svg viewBox="0 0 24 24" aria-hidden="true" className={`icon${className ? ` ${className}` : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
