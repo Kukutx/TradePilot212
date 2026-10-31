@@ -1979,11 +1979,11 @@ svg { -webkit-user-select: none; user-select: none; }
 @media (forced-colors: active) { .refreshWarn { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; color: CanvasText; } }
 
 /* ---- The widget's own slider (components/slider.tsx) ---- */
-/* The whole row takes the pointer: at least 28px tall to hit, the thumb itself 18px. A vertical swipe still scrolls. */
+/* The whole row takes the pointer: at least 28px tall to hit, the thumb itself 18px. A vertical swipe, from the thumb too, scrolls. */
 .slider { position: relative; display: flex; align-items: center; min-height: 28px; margin-top: 4px; padding: 0 9px; border-radius: 999px; cursor: pointer; touch-action: pan-y; outline: none; -webkit-user-select: none; user-select: none; }
 .sliderTrack { position: relative; flex: 1; height: 4px; border-radius: 999px; background: var(--tp-border-strong); }
 .sliderFill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--tp-fill-info); }
-.sliderThumb { position: absolute; top: 50%; width: 18px; height: 18px; border: 2px solid var(--tp-fill-info); border-radius: 50%; background: var(--tp-bg); box-shadow: 0 1px 3px rgba(0,0,0,.18); transform: translate(-50%, -50%); transition: box-shadow .12s ease, transform .12s ease; touch-action: none; }
+.sliderThumb { position: absolute; top: 50%; width: 18px; height: 18px; border: 2px solid var(--tp-fill-info); border-radius: 50%; background: var(--tp-bg); box-shadow: 0 1px 3px rgba(0,0,0,.18); transform: translate(-50%, -50%); transition: box-shadow .12s ease, transform .12s ease; }
 .slider:hover .sliderThumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--tp-fill-info) 16%, transparent), 0 1px 3px rgba(0,0,0,.18); }
 .slider:active .sliderThumb { transform: translate(-50%, -50%) scale(1.08); }
 .slider:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 2px; }

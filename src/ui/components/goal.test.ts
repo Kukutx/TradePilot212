@@ -88,6 +88,12 @@ describe("the goal form's sliders", () => {
     expect(html).not.toContain("Changed, not saved");
   });
 
+  it("says nothing changed on opening a goal the form shows rounded (a day mid-month, a return to two decimals)", () => {
+    const html = form({ goal: { ...goal, by: "2035-01-01", expectedReturn: 0.0725, inflation: 0.0215 } });
+    expect(html).toContain('aria-valuetext="7.3%"');
+    expect(html).not.toContain("Changed, not saved");
+  });
+
   it("scales the monthly slider to the amount set", () => {
     expect(monthlyScale(500)).toEqual({ max: 2000, step: 10 });
     expect(monthlyScale(100)).toEqual({ max: 1000, step: 10 });

@@ -1,7 +1,8 @@
 // The widget's own slider: a track, the part chosen in the theme's colour and a round thumb, drawn by the widget in
 // every browser (never `<input type="range">`, whose look is the system's). It is a `role="slider"` reached with Tab:
 // the arrow keys move it a step, Page Up and Page Down ten, Home and End to its ends; a pointer or a finger drags it
-// anywhere on the track. A vertical swipe on a touch screen still scrolls the page; a sideways one moves the thumb.
+// anywhere on the track. On a touch screen a finger moves it only once it goes sideways, or with a tap: a swipe that
+// starts on the slider and goes up or down scrolls the page and leaves the value as it was.
 
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 
@@ -34,6 +35,9 @@ export function sliderKey(key: string, value: number, min: number, max: number, 
   }
 }
 
+/** How far a finger moves before it counts as a drag or a scroll, in CSS pixels. */
+export const TOUCH_SLOP = 6;
+
 export function Slider({ value, min, max, step, label, labelledBy, valueText, disabled = false, onChange }: {
   value: number;
   min: number;
@@ -51,6 +55,8 @@ export function Slider({ value, min, max, step, label, labelledBy, valueText, di
   const track = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
   const pending = useRef<number | null>(null);
+  /** A finger down on the slider, not yet moving it: where it went down, and whether it has started dragging. */
+  const touch = useRef<{ id: number; x: number; y: number; dragging: boolean } | null>(null);
   const change = useRef(onChange);
   change.current = onChange;
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
@@ -69,14 +75,46 @@ export function Slider({ value, min, max, step, label, labelledBy, valueText, di
       pending.current = null;
     });
   };
+  const drop = () => {
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    pending.current = null;
+    touch.current = null;
+  };
   const down = (event: PointerEvent<HTMLDivElement>) => {
     if (disabled || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (event.pointerType !== "mouse") {
+      // Not yet: the finger may be starting to scroll the page.
+      touch.current = { id: event.pointerId, x: event.clientX, y: event.clientY, dragging: false };
+      return;
+    }
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.currentTarget.focus({ preventScroll: true });
     fromPointer(event.clientX);
   };
   const move = (event: PointerEvent<HTMLDivElement>) => {
-    if (!disabled && event.currentTarget.hasPointerCapture?.(event.pointerId)) fromPointer(event.clientX);
+    if (disabled) return;
+    const finger = touch.current;
+    if (finger && finger.id === event.pointerId && !finger.dragging) {
+      const dx = Math.abs(event.clientX - finger.x), dy = Math.abs(event.clientY - finger.y);
+      if (dy > TOUCH_SLOP && dy >= dx) { touch.current = null; return; }
+      if (dx <= TOUCH_SLOP) return;
+      // Sideways: it is the slider's now.
+      finger.dragging = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      event.currentTarget.focus({ preventScroll: true });
+    }
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) fromPointer(event.clientX);
+  };
+  // A tap that did not move sets the value where it landed.
+  const up = (event: PointerEvent<HTMLDivElement>) => {
+    const finger = touch.current;
+    touch.current = null;
+    if (disabled || !finger || finger.id !== event.pointerId || finger.dragging) return;
+    if (Math.abs(event.clientX - finger.x) <= TOUCH_SLOP && Math.abs(event.clientY - finger.y) <= TOUCH_SLOP) {
+      event.currentTarget.focus({ preventScroll: true });
+      fromPointer(event.clientX);
+    }
   };
   const key = (event: KeyboardEvent<HTMLDivElement>) => {
     if (disabled) return;
@@ -90,7 +128,7 @@ export function Slider({ value, min, max, step, label, labelledBy, valueText, di
     <div className={`slider${disabled ? " disabled" : ""}`} role="slider" tabIndex={disabled ? -1 : 0}
       aria-valuemin={min} aria-valuemax={max} aria-valuenow={now} aria-valuetext={valueText} aria-orientation="horizontal"
       {...(labelledBy ? { "aria-labelledby": labelledBy } : { "aria-label": label })} {...(disabled ? { "aria-disabled": true } : {})}
-      onPointerDown={down} onPointerMove={move} onKeyDown={key}>
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={drop} onKeyDown={key}>
       <div className="sliderTrack" ref={track}>
         <span className="sliderFill" style={{ width: `${(share * 100).toFixed(2)}%` }} />
         <span className="sliderThumb" style={{ left: `${(share * 100).toFixed(2)}%` }} />

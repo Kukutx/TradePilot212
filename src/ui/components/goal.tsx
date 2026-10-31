@@ -180,6 +180,11 @@ export function GoalForm({ goal, value, measured, currency, locale, t, busy, onS
   const [touched, setTouched] = useState(false);
   // The monthly slider keeps its scale while the form is open, so the thumb does not jump under the finger.
   const [monthlyRange] = useState(() => monthlyScale(start.monthly));
+  const [opened] = useState(() => ({
+    target: parseAmount(String(start.target)), by: monthEnd(Number(start.by.slice(0, 4)), Number(start.by.slice(5, 7))), monthly: parseAmount(String(start.monthly)),
+    expectedReturn: parseAmount(percentText(start.expectedReturn, locale)) / 100, volatility: parseAmount(percentText(start.volatility, locale)) / 100,
+    inflation: parseAmount(percentText(start.inflation ?? 0, locale)) / 100, name: (goal?.name ?? "").trim(),
+  }));
   const target = parseAmount(targetText);
   const monthly = monthlyText.trim() ? parseAmount(monthlyText) : 0;
   const expectedReturn = parseAmount(returnText) / 100;
@@ -207,9 +212,10 @@ export function GoalForm({ goal, value, measured, currency, locale, t, busy, onS
     return <Slider {...range} value={Number.isFinite(typed) ? typed : range.min} labelledBy={labelId} valueText={`${num(Number.isFinite(typed) ? typed : range.min, locale, 1)}%`}
       onChange={(next) => setText(num(next, locale, 1))} />;
   };
-  // A saved goal edited: the save button says there is something to save.
-  const changed = Boolean(goal && valid && (goal.target !== target || goal.by !== by || goal.monthly !== monthly || Math.abs(goal.expectedReturn - expectedReturn) > 1e-9
-    || Math.abs(goal.volatility - volatility) > 1e-9 || Math.abs((goal.inflation ?? 0) - inflation) > 1e-9 || (goal.name ?? "") !== name.trim()));
+  // A saved goal edited: the save button says there is something to save. It is measured against what the form
+  // showed when it opened (the month's last day, percentages to one decimal), not the goal as stored.
+  const changed = Boolean(goal && valid && (opened.target !== target || opened.by !== by || opened.monthly !== monthly || Math.abs(opened.expectedReturn - expectedReturn) > 1e-9
+    || Math.abs(opened.volatility - volatility) > 1e-9 || Math.abs(opened.inflation - inflation) > 1e-9 || opened.name !== name.trim()));
   // The account's own figures, from a year of recorded values or more; the return is kept inside what a goal takes.
   const useMeasured = measured?.annualized === undefined ? undefined : () => {
     setReturnText(percentText(Math.min(0.3, Math.max(-0.5, measured.annualized!)), locale));
