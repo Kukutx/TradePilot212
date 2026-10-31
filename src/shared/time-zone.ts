@@ -1,6 +1,8 @@
 // Days and hours in a time zone (an IANA name such as Europe/London), without a time-zone library: the offset is read
 // from Intl at each instant, so summer time is followed.
 
+const DAY_MS = 86_400_000;
+
 /** "MM-DD" → month and day; the default is the calendar year. */
 export function parseYearStart(value: string | undefined): { month: number; day: number; text: string } {
   const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
@@ -43,6 +45,23 @@ export function localMidnight(year: number, month: number, day: number, timeZone
   const target = new Date(guess).toISOString().slice(0, 10);
   if (localDay(midnight, timeZone) >= target) return midnight;
   return midnight + zoneOffset(midnight + 6 * 3_600_000, timeZone) - zoneOffset(midnight, timeZone);
+}
+
+/**
+ * The instant a local day's `hour` o'clock starts in `timeZone` (`day` as YYYY-MM-DD). An hour the clocks skip in
+ * spring is the first instant after the jump, so a plan due then is due as soon as that hour's time exists.
+ */
+export function localHourStart(day: string, hour: number, timeZone: string): number {
+  const [year, month, date] = day.split("-").map(Number) as [number, number, number];
+  const guess = Date.UTC(year, month - 1, date, hour);
+  // The zone's offsets a day either side: the one before a change of the clocks near this hour and the one after.
+  const before = zoneOffset(guess - DAY_MS, timeZone);
+  const after = zoneOffset(guess + DAY_MS, timeZone);
+  // The instants that read as this hour; the earlier where the clocks go back and the hour comes twice.
+  const readings = [guess - before, guess - after].filter((instant) => instant + zoneOffset(instant, timeZone) === guess).sort((a, b) => a - b);
+  if (readings.length) return readings[0]!;
+  // In the gap the clocks skip: the instant they jump, which reads as the hour the old offset would have shown.
+  return guess - before;
 }
 
 /** The local hour (0 to 23) of an instant in `timeZone`. */

@@ -3,36 +3,53 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DcaPlan } from "../../shared/automation";
 import { createTranslator } from "../i18n";
-import { planChanges, planDraft, PlanForm, PlanList, planProblems, planRequest, sameInstrument } from "./plans";
+import { defaultHour, planChanges, planDraft, PlanForm, PlanList, planProblems, planRequest, planSchedule, sameInstrument } from "./plans";
 
 const en = createTranslator("en");
 const noop = () => {};
 const plan: DcaPlan = {
-  id: "dca_1", environment: "demo", label: "Monthly core", frequency: "monthly", dayOfMonth: 5, hourUtc: 15, autoExecute: false, paused: false,
+  id: "dca_1", environment: "demo", label: "Monthly core", frequency: "monthly", dayOfMonth: 5, hour: 15, timeZone: "UTC", autoExecute: false, paused: false,
   legs: [{ ticker: "VUSAl_EQ", amount: 1250 }, { ticker: "MSFT_US_EQ", amount: 100, orderType: "limit", limitOffsetPercent: 0.5 }],
   nextRunAt: "2026-11-05T15:00:00.000Z", createdAt: "2026-10-01T00:00:00.000Z",
 };
 
 describe("investment plans in the widget", () => {
   it("starts the form from the plan, its amounts as plain figures, and saves the same plan back unchanged", () => {
-    const draft = planDraft(plan);
+    const draft = planDraft(plan, "Europe/London");
     expect(draft.legs.map((leg) => leg.amount)).toEqual(["1250", "100"]);
     const request = planRequest(draft, "demo");
-    expect(request).toEqual({ label: "Monthly core", legs: plan.legs, frequency: "monthly", dayOfMonth: 5, hourUtc: 15, autoExecute: false });
+    expect(request).toEqual({ label: "Monthly core", legs: plan.legs, frequency: "monthly", dayOfMonth: 5, hour: 15, timeZone: "UTC", autoExecute: false });
     // Nothing changed is nothing sent: a schedule sent again would start the plan again from now.
     expect(planChanges(plan, request)).toEqual({});
   });
 
   it("sends only what changed, the whole schedule when any of it did", () => {
     const draft = { ...planDraft(plan), frequency: "weekly" as const, weekday: 3 };
-    expect(planChanges(plan, planRequest(draft, "demo"))).toEqual({ frequency: "weekly", weekday: 3, hourUtc: 15 });
+    expect(planChanges(plan, planRequest(draft, "demo"))).toEqual({ frequency: "weekly", weekday: 3, hour: 15, timeZone: "UTC" });
+    const daily = { ...planDraft(plan), frequency: "daily" as const, timeZone: "Europe/London" };
+    expect(planChanges(plan, planRequest(daily, "demo"))).toEqual({ frequency: "daily", hour: 15, timeZone: "Europe/London" });
     const renamed = { ...planDraft(plan), label: "Core", legs: [{ ticker: "VUSAl_EQ", amount: "300" }] };
     expect(planChanges(plan, planRequest(renamed, "demo"))).toEqual({ label: "Core", legs: [{ ticker: "VUSAl_EQ", amount: 300 }] });
   });
 
   it("never sends unattended running for a Live plan, and invests by targets with an amount", () => {
-    const draft = { ...planDraft(undefined), mode: "targets" as const, targetAmount: "500", autoExecute: true };
-    expect(planRequest(draft, "live")).toEqual({ targetAmount: 500, frequency: "monthly", dayOfMonth: 1, hourUtc: 15 });
+    const draft = { ...planDraft(undefined, "UTC"), mode: "targets" as const, targetAmount: "500", autoExecute: true };
+    expect(planRequest(draft, "live")).toEqual({ targetAmount: 500, frequency: "monthly", dayOfMonth: 1, hour: 15, timeZone: "UTC" });
+  });
+
+  it("starts a new plan in the server's zone at the hour that is 15:00 UTC there", () => {
+    const summer = new Date("2026-07-01T00:00:00Z");
+    expect(defaultHour("Europe/London", summer)).toBe(16);
+    expect(defaultHour("Asia/Shanghai", summer)).toBe(23);
+    expect(planDraft(undefined, "Europe/Berlin")).toMatchObject({ timeZone: "Europe/Berlin" });
+  });
+
+  it("says each schedule in words, with its hour and zone", () => {
+    const at = { hour: 9, timeZone: "Europe/London" };
+    expect(planSchedule({ frequency: "daily", ...at }, en, "en")).toBe("Every weekday · 09:00 Europe/London");
+    expect(planSchedule({ frequency: "biweekly", weekday: 3, ...at }, en, "en")).toBe("Every other Wednesday · 09:00 Europe/London");
+    expect(planSchedule({ frequency: "monthly", dayOfMonth: 31, ...at }, en, "en")).toBe("Monthly on the last day · 09:00 Europe/London");
+    expect(planSchedule({ frequency: "monthly", dayOfMonth: 30, ...at }, en, "en")).toBe("Monthly on day 30 (or the month's last day) · 09:00 Europe/London");
   });
 
   it("asks for an instrument and an amount above zero on each buy", () => {
@@ -46,13 +63,13 @@ describe("investment plans in the widget", () => {
     const readOnly = renderToStaticMarkup(createElement(PlanList, props));
     expect(readOnly).not.toContain("New plan");
     expect(readOnly).not.toContain("Open orders now");
-    const managed = renderToStaticMarkup(createElement(PlanList, { ...props, onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }));
+    const managed = renderToStaticMarkup(createElement(PlanList, { ...props, onSave: async () => true as const, onChange: async () => true as const, onSkip: noop, onDelete: noop, onReview: noop }));
     expect(managed).toContain('data-reveals="form">New plan</button>');
     // Busy, the buttons stay focusable rather than disabled, so focus stays on the one pressed.
-    expect(renderToStaticMarkup(createElement(PlanList, { ...props, busy: true, onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }))).not.toContain("disabled=\"\"");
-    for (const label of ["Open orders now", "Pause", "Change", "Delete"]) expect(managed).toContain(`>${label}</button>`);
+    expect(renderToStaticMarkup(createElement(PlanList, { ...props, busy: true, onSave: async () => true as const, onChange: async () => true as const, onSkip: noop, onDelete: noop, onReview: noop }))).not.toContain("disabled=\"\"");
+    for (const label of ["Open orders now", "Skip next", "Pause", "Change", "Delete"]) expect(managed).toContain(`>${label}</button>`);
     expect(managed).toContain("Monthly on day 5 · 15:00 UTC");
-    expect(renderToStaticMarkup(createElement(PlanList, { ...props, plans: [{ ...plan, paused: true }], onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }))).toContain(">Resume</button>");
+    expect(renderToStaticMarkup(createElement(PlanList, { ...props, plans: [{ ...plan, paused: true }], onSave: async () => true as const, onChange: async () => true as const, onSkip: noop, onDelete: noop, onReview: noop }))).toContain(">Resume</button>");
   });
 
   it("draws the form with the widget's own lists and switches, and the Demo-only unattended switch", () => {

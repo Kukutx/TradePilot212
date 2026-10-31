@@ -34183,28 +34183,28 @@ var StdioServerTransport = class {
     if (this._closed) return Promise.reject(/* @__PURE__ */ new Error("StdioServerTransport is closed"));
     return new Promise((resolve, reject) => {
       const json3 = serializeMessage(message);
-      let settled2 = false;
+      let settled3 = false;
       const onError = (error62) => {
-        if (settled2) return;
-        settled2 = true;
+        if (settled3) return;
+        settled3 = true;
         this._stdout.off("error", onError);
         this._stdout.off("drain", onDrain);
         reject(error62);
       };
       const onDrain = () => {
-        if (settled2) return;
-        settled2 = true;
+        if (settled3) return;
+        settled3 = true;
         this._stdout.off("error", onError);
         this._stdout.off("drain", onDrain);
         resolve();
       };
       this._stdout.once("error", onError);
       if (this._stdout.write(json3)) {
-        if (settled2) return;
-        settled2 = true;
+        if (settled3) return;
+        settled3 = true;
         this._stdout.off("error", onError);
         resolve();
-      } else if (!settled2) this._stdout.once("drain", onDrain);
+      } else if (!settled3) this._stdout.once("drain", onDrain);
     });
   }
 };
@@ -35219,6 +35219,7 @@ function bandEstimate(over, within3, band, totalValue, accountCurrency, fxFeeRat
 }
 
 // src/shared/time-zone.ts
+var DAY_MS = 864e5;
 function parseYearStart(value) {
   const match = /^(\d{2})-(\d{2})$/.exec(value?.trim() ?? "01-01");
   const month = Number(match?.[1]), day2 = Number(match?.[2]);
@@ -35256,6 +35257,15 @@ function localMidnight(year, month, day2, timeZone2) {
   const target = new Date(guess).toISOString().slice(0, 10);
   if (localDay(midnight, timeZone2) >= target) return midnight;
   return midnight + zoneOffset(midnight + 6 * 36e5, timeZone2) - zoneOffset(midnight, timeZone2);
+}
+function localHourStart(day2, hour, timeZone2) {
+  const [year, month, date5] = day2.split("-").map(Number);
+  const guess = Date.UTC(year, month - 1, date5, hour);
+  const before = zoneOffset(guess - DAY_MS, timeZone2);
+  const after = zoneOffset(guess + DAY_MS, timeZone2);
+  const readings = [guess - before, guess - after].filter((instant) => instant + zoneOffset(instant, timeZone2) === guess).sort((a, b) => a - b);
+  if (readings.length) return readings[0];
+  return guess - before;
 }
 function localHour(instant, timeZone2) {
   return new Date(instant + zoneOffset(instant, timeZone2)).getUTCHours();
@@ -37712,14 +37722,14 @@ var MIN_ANNUAL_DAYS = 365;
 var MIN_RATIO_VOLATILITY = 5e-3;
 var FLAT = 5e-5;
 var WEEKDAYS_A_YEAR = 261;
-var DAY_MS = 864e5;
+var DAY_MS2 = 864e5;
 var round6 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
-var dayNumber = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS;
+var dayNumber = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS2;
 var weekdayOf = (day2) => ((day2 + 3) % 7 + 7) % 7;
 var weekdayOn = (date5) => {
   const day2 = dayNumber(date5);
   const back = Math.max(0, weekdayOf(day2) - 4);
-  return back && Number.isFinite(day2) ? new Date((day2 - back) * DAY_MS).toISOString().slice(0, 10) : date5;
+  return back && Number.isFinite(day2) ? new Date((day2 - back) * DAY_MS2).toISOString().slice(0, 10) : date5;
 };
 function weekdaysBetween(from, to) {
   const start = dayNumber(from), end = dayNumber(to);
@@ -37974,11 +37984,11 @@ function expectedPayments(schedule, quantity, from, until = Number.POSITIVE_INFI
 // src/core/uk-matching.ts
 var UK_ZONE = "Europe/London";
 var EPSILON = 1e-9;
-var DAY_MS2 = 864e5;
+var DAY_MS3 = 864e5;
 var round8 = (value) => Math.round(value * 100) / 100;
 var shares = (value) => Math.round(value * 1e8) / 1e8;
 function dayAfter(day2, days) {
-  return new Date(Date.parse(`${day2}T00:00:00Z`) + days * DAY_MS2).toISOString().slice(0, 10);
+  return new Date(Date.parse(`${day2}T00:00:00Z`) + days * DAY_MS3).toISOString().slice(0, 10);
 }
 function keysBy(orders, holdings) {
   const isins = /* @__PURE__ */ new Map();
@@ -38146,7 +38156,7 @@ function ukShareMatching(input2) {
     });
   }
   rows2.sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain));
-  const provisional = now.getTime() <= input2.to.getTime() + 30 * DAY_MS2;
+  const provisional = now.getTime() <= input2.to.getTime() + 30 * DAY_MS3;
   const notes = [
     "An estimate by HMRC's matching rules: each sale is matched with shares of the same instrument bought the same UK day, then in the 30 days after it, then with the section 104 pool at its average cost. Days and the year (6 April to 5 April) are UK time. Gains and losses are kept apart per disposal, one instrument's sales on one day; `disposals` counts the fills.",
     "Costs and proceeds are Trading 212's net amount of each fill on the account (walletImpact.netValue), taken to include its fees and FX charges as the account's performance figures take them; check them against the Trading 212 statement. A UK return needs pounds sterling at the rate of each trade.",
@@ -38861,10 +38871,10 @@ var HistoryLedgers = class {
   exclusive(prefix, work) {
     const before = this.queues.get(prefix) ?? Promise.resolve();
     const run = before.then(work, work);
-    const settled2 = run.then(() => void 0, () => void 0);
-    this.queues.set(prefix, settled2);
-    void settled2.then(() => {
-      if (this.queues.get(prefix) === settled2) this.queues.delete(prefix);
+    const settled3 = run.then(() => void 0, () => void 0);
+    this.queues.set(prefix, settled3);
+    void settled3.then(() => {
+      if (this.queues.get(prefix) === settled3) this.queues.delete(prefix);
     });
     return run;
   }
@@ -39014,19 +39024,19 @@ function itemTime(kind, item) {
 var periodOfWindow = (window) => ({ ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() });
 var orderIdOf2 = (id) => id === void 0 || id === null || id === "" ? {} : { orderId: String(id) };
 var DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-var DAY_MS3 = 864e5;
+var DAY_MS4 = 864e5;
 function parseDate(value, endOfDay) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (!match) return NaN;
   const [year, month, date5] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const calendar = new Date(Date.UTC(year, month - 1, date5));
   if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month - 1 || calendar.getUTCDate() !== date5) return NaN;
-  return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS3 - 1 : 0) : Date.parse(value);
+  return DATE_ONLY.test(value) ? calendar.getTime() + (endOfDay ? DAY_MS4 - 1 : 0) : Date.parse(value);
 }
 var ENDS_NOW_MS2 = 5 * 6e4;
 var LOCAL_TODAY_MS = 12 * 36e5;
 function parseWindow(input2, now = /* @__PURE__ */ new Date()) {
-  const day2 = DAY_MS3;
+  const day2 = DAY_MS4;
   const to = input2.to ? new Date(parseDate(input2.to, true)) : now;
   if (Number.isNaN(to.getTime())) fail("INVALID_INPUT", "to must be a real date (YYYY-MM-DD) or an ISO date-time", { field: "to" });
   const endsNow = !input2.to || to.getTime() >= now.getTime() - (DATE_ONLY.test(input2.to) ? LOCAL_TODAY_MS : ENDS_NOW_MS2);
@@ -39627,7 +39637,7 @@ var MAX_EXPORT_BYTES = 25e6;
 // src/core/targets.ts
 var DEFAULT_DRIFT_THRESHOLD = 0.05;
 var HOUR_MS = 36e5;
-var DAY_MS4 = 864e5;
+var DAY_MS5 = 864e5;
 var targetKey = (environment) => `targets:${environment}`;
 var share2 = (value) => Math.round(value * 1e4) / 1e4;
 var exact = (value) => Math.round(value * 1e6) / 1e6;
@@ -39751,7 +39761,7 @@ var TargetAllocations = class {
       const slot = await this.deps.store.increment(`drift-check:${environment}`, HOUR_MS, now.getTime());
       if (slot.count > 1) continue;
       const drift = allocationDrift(saved, await this.deps.allocation(environment));
-      const due = drift.over && (!saved.lastNotifiedAt || now.getTime() - Date.parse(saved.lastNotifiedAt) >= DAY_MS4);
+      const due = drift.over && (!saved.lastNotifiedAt || now.getTime() - Date.parse(saved.lastNotifiedAt) >= DAY_MS5);
       if (due) {
         const current = await this.get(environment);
         if (!current || current.updatedAt !== saved.updatedAt) continue;
@@ -39769,7 +39779,7 @@ var MAX_PLANS = 20;
 var MAX_PLAN_LEGS = 10;
 var DEFAULT_HOUR_UTC = 15;
 var RUN_LOCK_MS = 10 * 6e4;
-var DAY_MS5 = 864e5;
+var DAY_MS6 = 864e5;
 var planKey = (id) => `plan:${id}`;
 var floorTo2 = (value, digits) => Math.floor(value * 10 ** digits + 1e-9) / 10 ** digits;
 var MIN_TARGET_LEG = 1;
@@ -39782,36 +39792,82 @@ function planLimitPrice(price, offsetPercent) {
   const digits = price >= 1 ? 2 : 4;
   return Math.round(price * (1 + offsetPercent / 100) * 10 ** digits) / 10 ** digits;
 }
-function nextRunAt(plan2, after) {
-  if (plan2.frequency === "monthly") {
-    const day2 = plan2.dayOfMonth ?? 1;
-    let candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), day2, plan2.hourUtc));
-    if (candidate2 <= after) candidate2 = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth() + 1, day2, plan2.hourUtc));
-    return candidate2;
+var shiftDay = (day2, days) => new Date(Date.parse(`${day2}T00:00:00Z`) + days * DAY_MS6).toISOString().slice(0, 10);
+var weekdayOf2 = (day2) => (/* @__PURE__ */ new Date(`${day2}T00:00:00Z`)).getUTCDay() || 7;
+var daysBetween = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS6);
+function runsOn(plan2, day2) {
+  switch (plan2.frequency) {
+    case "daily":
+      return weekdayOf2(day2) <= 5;
+    case "weekly":
+      return weekdayOf2(day2) === (plan2.weekday ?? 1);
+    case "biweekly":
+      return weekdayOf2(day2) === (plan2.weekday ?? 1) && (!plan2.anchorDay || (daysBetween(plan2.anchorDay, day2) % 14 + 14) % 14 === 0);
+    case "monthly": {
+      const [year, month] = day2.split("-").map(Number);
+      const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      return Number(day2.slice(8)) === Math.min(plan2.dayOfMonth ?? 1, last);
+    }
   }
-  const weekday2 = plan2.weekday ?? 1;
-  const today = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), plan2.hourUtc));
-  const isoToday = today.getUTCDay() || 7;
-  let candidate = new Date(today.getTime() + (weekday2 - isoToday + 7) % 7 * DAY_MS5);
-  if (candidate <= after) candidate = new Date(candidate.getTime() + 7 * DAY_MS5);
-  return candidate;
+}
+function nextRunAt(plan2, after) {
+  const zone = plan2.timeZone || "UTC";
+  let day2 = localDay(after.getTime(), zone);
+  for (let step = 0; step < 400; step++, day2 = shiftDay(day2, 1)) {
+    if (!runsOn(plan2, day2)) continue;
+    const at = localHourStart(day2, plan2.hour, zone);
+    if (at > after.getTime()) return new Date(at);
+  }
+  throw new Error("No run within 400 days");
 }
 function previousRunAt(plan2, next) {
-  if (plan2.frequency === "monthly") return new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() - 1, plan2.dayOfMonth ?? 1, plan2.hourUtc));
-  return new Date(next.getTime() - 7 * DAY_MS5);
+  const zone = plan2.timeZone || "UTC";
+  let day2 = shiftDay(localDay(next.getTime(), zone), -1);
+  for (let step = 0; step < 400 && !runsOn(plan2, day2); step++) day2 = shiftDay(day2, -1);
+  return new Date(localHourStart(day2, plan2.hour, zone));
 }
 function scheduleFrom(plan2, now) {
   const next = nextRunAt(plan2, now);
   const lastRun = plan2.lastRunAt ? Date.parse(plan2.lastRunAt) : NaN;
   return Number.isFinite(lastRun) && lastRun > previousRunAt(plan2, next).getTime() ? nextRunAt(plan2, next) : next;
 }
+function anchored(schedule, first) {
+  const { anchorDay: _anchor, ...rest } = schedule;
+  return schedule.frequency === "biweekly" ? { ...rest, anchorDay: localDay(first.getTime(), schedule.timeZone || "UTC") } : rest;
+}
+function storedPlan(raw) {
+  const { hourUtc, dayOfMonth, weekday: weekday2, anchorDay, ...rest } = raw;
+  const weekly = raw.frequency === "weekly" || raw.frequency === "biweekly";
+  return {
+    ...rest,
+    ...raw.frequency === "monthly" && dayOfMonth !== void 0 ? { dayOfMonth } : {},
+    ...weekly && weekday2 !== void 0 ? { weekday: weekday2 } : {},
+    ...raw.frequency === "biweekly" && anchorDay ? { anchorDay } : {},
+    hour: raw.hour ?? hourUtc ?? DEFAULT_HOUR_UTC,
+    timeZone: raw.timeZone || "UTC"
+  };
+}
+function settled2(plan2) {
+  const { inFlightDueAt: _due, inFlightSince: _since, ...rest } = plan2;
+  return rest;
+}
 function validateSchedule(input2) {
-  if (input2.frequency === "monthly" && (input2.dayOfMonth === void 0 || !Number.isInteger(input2.dayOfMonth) || input2.dayOfMonth < 1 || input2.dayOfMonth > 28))
-    fail("INVALID_INPUT", "Monthly plans need dayOfMonth between 1 and 28", { field: "dayOfMonth" });
-  if (input2.frequency === "weekly" && (input2.weekday === void 0 || !Number.isInteger(input2.weekday) || input2.weekday < 1 || input2.weekday > 7))
-    fail("INVALID_INPUT", "Weekly plans need weekday between 1 (Monday) and 7 (Sunday)", { field: "weekday" });
-  if (input2.hourUtc !== void 0 && (!Number.isInteger(input2.hourUtc) || input2.hourUtc < 0 || input2.hourUtc > 23))
-    fail("INVALID_INPUT", "hourUtc must be an integer from 0 to 23", { field: "hourUtc" });
+  if (input2.frequency === "monthly" && (input2.dayOfMonth === void 0 || !Number.isInteger(input2.dayOfMonth) || input2.dayOfMonth < 1 || input2.dayOfMonth > 31))
+    fail("INVALID_INPUT", "Monthly plans need dayOfMonth between 1 and 31 (a day past a month's end is its last day)", { field: "dayOfMonth" });
+  if ((input2.frequency === "weekly" || input2.frequency === "biweekly") && (input2.weekday === void 0 || !Number.isInteger(input2.weekday) || input2.weekday < 1 || input2.weekday > 7))
+    fail("INVALID_INPUT", "Weekly and biweekly plans need weekday between 1 (Monday) and 7 (Sunday)", { field: "weekday" });
+  if (input2.hour !== void 0 && (!Number.isInteger(input2.hour) || input2.hour < 0 || input2.hour > 23))
+    fail("INVALID_INPUT", "hour must be an integer from 0 to 23", { field: "hour" });
+  if (input2.timeZone !== void 0 && !validTimeZone(input2.timeZone))
+    fail("INVALID_INPUT", `Unknown time zone "${input2.timeZone}"; use an IANA name such as Europe/London`, { field: "timeZone" });
+}
+function scheduleOf(input2) {
+  return {
+    frequency: input2.frequency,
+    ...input2.frequency === "monthly" ? { dayOfMonth: input2.dayOfMonth } : input2.frequency === "daily" ? {} : { weekday: input2.weekday },
+    hour: input2.hour,
+    timeZone: input2.timeZone
+  };
 }
 function assertAutoExecuteAllowed(environment, autoExecute) {
   if (autoExecute && environment !== "demo") fail("INVALID_INPUT", "Unattended execution is only available for Demo plans. Live plans always wait for your confirmation.", { field: "autoExecute" });
@@ -39823,12 +39879,17 @@ var AutomationService = class {
   deps;
   async listPlans(environment) {
     const entries = await this.deps.store.list("plan:");
-    return entries.map((entry) => entry.value).filter((plan2) => !environment || plan2.environment === environment).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
+    return entries.map((entry) => storedPlan(entry.value)).filter((plan2) => !environment || plan2.environment === environment).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
   }
   async getPlan(id) {
-    const plan2 = await this.deps.store.get(planKey(id));
+    const plan2 = await this.read(id);
     if (!plan2) fail("PLAN_NOT_FOUND", "Plan not found", { planId: id });
     return plan2;
+  }
+  /** A stored plan in today's shape, or nothing. */
+  async read(id) {
+    const plan2 = await this.deps.store.get(planKey(id));
+    return plan2 ? storedPlan(plan2) : void 0;
   }
   async resolveLegs(environment, legs) {
     if (!legs.length || legs.length > MAX_PLAN_LEGS) fail("INVALID_INPUT", `A plan needs 1 to ${MAX_PLAN_LEGS} legs`);
@@ -39851,11 +39912,10 @@ var AutomationService = class {
     const byTargets = input2.targetAmount !== void 0;
     if (byTargets && input2.legs.length) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
     if (byTargets) validateTargetAmount(input2.targetAmount);
-    const schedule = {
-      frequency: input2.frequency,
-      ...input2.frequency === "monthly" ? { dayOfMonth: input2.dayOfMonth } : { weekday: input2.weekday },
-      hourUtc: input2.hourUtc ?? DEFAULT_HOUR_UTC
-    };
+    const timeZone2 = input2.timeZone ?? (input2.hour === void 0 ? "UTC" : this.deps.config.timeZone ?? "UTC");
+    const plain = scheduleOf({ frequency: input2.frequency, dayOfMonth: input2.dayOfMonth, weekday: input2.weekday, hour: input2.hour ?? DEFAULT_HOUR_UTC, timeZone: timeZone2 });
+    const first = nextRunAt(plain, now);
+    const schedule = anchored(plain, first);
     const plan2 = {
       id: `dca_${randomToken(12)}`,
       environment: input2.environment,
@@ -39865,7 +39925,7 @@ var AutomationService = class {
       ...schedule,
       autoExecute: !!input2.autoExecute,
       paused: false,
-      nextRunAt: nextRunAt(schedule, now).toISOString(),
+      nextRunAt: first.toISOString(),
       createdAt: now.toISOString()
     };
     await this.deps.store.put(planKey(plan2.id), plan2);
@@ -39875,40 +39935,72 @@ var AutomationService = class {
     const plan2 = await this.getPlan(id);
     assertAutoExecuteAllowed(plan2.environment, patch.autoExecute);
     let base = plan2;
-    if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hourUtc].some((value) => value !== void 0)) {
+    if ([patch.frequency, patch.dayOfMonth, patch.weekday, patch.hour, patch.timeZone].some((value) => value !== void 0)) {
       const frequency = patch.frequency ?? plan2.frequency;
-      const schedule = {
+      const wanted = {
         frequency,
-        ...frequency === "monthly" ? { dayOfMonth: patch.dayOfMonth ?? plan2.dayOfMonth } : { weekday: patch.weekday ?? plan2.weekday },
-        hourUtc: patch.hourUtc ?? plan2.hourUtc
+        dayOfMonth: patch.dayOfMonth ?? plan2.dayOfMonth,
+        weekday: patch.weekday ?? plan2.weekday,
+        hour: patch.hour ?? plan2.hour,
+        timeZone: patch.timeZone ?? plan2.timeZone
       };
-      validateSchedule(schedule);
-      const { dayOfMonth: _day, weekday: _weekday, ...rest } = plan2;
-      base = { ...rest, ...schedule, nextRunAt: scheduleFrom({ ...schedule, ...plan2.lastRunAt ? { lastRunAt: plan2.lastRunAt } : {} }, now).toISOString() };
+      validateSchedule(wanted);
+      const plain = scheduleOf(wanted);
+      const lastRun = plan2.lastRunAt ? { lastRunAt: plan2.lastRunAt } : {};
+      const { dayOfMonth: _day, weekday: _weekday, anchorDay: _anchor, ...rest } = plan2;
+      const sameDays = JSON.stringify({ ...plain, hour: 0 }) === JSON.stringify({ ...scheduleOf(plan2), hour: 0 });
+      if (sameDays) {
+        const kept = plan2.anchorDay ? { ...plain, anchorDay: plan2.anchorDay } : plain;
+        const zone = plain.timeZone || "UTC";
+        const sameDay = localHourStart(localDay(Date.parse(plan2.nextRunAt), zone), plain.hour, zone);
+        const next = sameDay > now.getTime() ? new Date(sameDay) : scheduleFrom({ ...kept, ...lastRun }, now);
+        base = { ...rest, ...kept.anchorDay ? kept : anchored(plain, next), nextRunAt: next.toISOString() };
+      } else {
+        const next = scheduleFrom({ ...plain, ...lastRun }, now);
+        base = { ...rest, ...anchored(plain, next), nextRunAt: next.toISOString() };
+      }
     }
     if (patch.legs !== void 0 && patch.targetAmount !== void 0) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
     if (patch.targetAmount !== void 0) validateTargetAmount(patch.targetAmount);
     const legs = patch.legs === void 0 ? void 0 : await this.resolveLegs(plan2.environment, patch.legs);
     const resumed = patch.paused === false && plan2.paused && Date.parse(base.nextRunAt) <= now.getTime();
-    const latest = await this.deps.store.get(planKey(id)) ?? plan2;
+    const latest = await this.read(id) ?? plan2;
     const changed = base !== plan2;
+    if (changed) {
+      delete latest.dayOfMonth;
+      delete latest.weekday;
+      delete latest.anchorDay;
+    }
     const updated = {
       ...latest,
-      ...changed ? { frequency: base.frequency, hourUtc: base.hourUtc, nextRunAt: base.nextRunAt } : {},
-      ...changed ? base.frequency === "monthly" ? { dayOfMonth: base.dayOfMonth } : { weekday: base.weekday } : {},
+      ...changed ? { frequency: base.frequency, hour: base.hour, timeZone: base.timeZone, nextRunAt: base.nextRunAt } : {},
+      ...changed && base.dayOfMonth !== void 0 ? { dayOfMonth: base.dayOfMonth } : {},
+      ...changed && base.weekday !== void 0 ? { weekday: base.weekday } : {},
+      ...changed && base.anchorDay !== void 0 ? { anchorDay: base.anchorDay } : {},
       ...patch.label === void 0 ? {} : { label: patch.label.trim().slice(0, 80) || plan2.label },
       ...legs === void 0 ? {} : { legs },
       ...patch.targetAmount === void 0 ? {} : { legs: [], targetAmount: patch.targetAmount },
       ...patch.paused === void 0 ? {} : { paused: patch.paused },
       ...patch.autoExecute === void 0 ? {} : { autoExecute: patch.autoExecute }
     };
-    if (changed) {
-      if (updated.frequency === "monthly") delete updated.weekday;
-      else delete updated.dayOfMonth;
-    }
     if (legs !== void 0) delete updated.targetAmount;
     if (resumed) updated.nextRunAt = scheduleFrom(updated, now).toISOString();
     await this.deps.store.put(planKey(id), updated);
+    return updated;
+  }
+  /**
+   * Leave out the plan's next run: it becomes due on the run after. A plan that is due now (its run waiting for you)
+   * moves on from now, so the run waiting is the one left out.
+   */
+  async skipNextRun(id, now = /* @__PURE__ */ new Date()) {
+    const plan2 = await this.getPlan(id);
+    const since = plan2.inFlightSince ? Date.parse(plan2.inFlightSince) : NaN;
+    if (plan2.inFlightDueAt === plan2.nextRunAt && Number.isFinite(since) && now.getTime() - since < RUN_LOCK_MS)
+      fail("EXECUTION_BUSY", "This plan's run is being sent right now. Try again in a few minutes, once its result is in.");
+    const from = new Date(Math.max(now.getTime(), Date.parse(plan2.nextRunAt) || 0));
+    const updated = { ...settled2(plan2), nextRunAt: nextRunAt(plan2, from).toISOString(), lastOutcome: `Skipped the run due ${plan2.nextRunAt}.` };
+    await this.deps.store.put(planKey(id), updated);
+    await this.deps.trading.recordActivity("plan_skipped", plan2.environment, { planId: id, outcome: `skipped the run due ${plan2.nextRunAt}` });
     return updated;
   }
   async deletePlan(id) {
@@ -40011,13 +40103,12 @@ var AutomationService = class {
   }
   /** Called after a plan's basket was executed, whether by the user or by the scheduler. */
   async recordRun(planId, result2, now = /* @__PURE__ */ new Date()) {
-    const plan2 = await this.deps.store.get(planKey(planId));
+    const plan2 = await this.read(planId);
     if (!plan2) return;
     const attempted = result2.legs.some((leg) => leg.result);
     const from = new Date(Math.max(now.getTime(), Date.parse(plan2.nextRunAt) || 0));
-    const { inFlightDueAt: _inFlight, ...rest } = plan2;
     await this.deps.store.put(planKey(planId), {
-      ...rest,
+      ...settled2(plan2),
       lastRunAt: now.toISOString(),
       lastOutcome: result2.message,
       ...attempted ? { nextRunAt: nextRunAt(plan2, from).toISOString() } : {}
@@ -40035,17 +40126,17 @@ var AutomationService = class {
       if (plan2.paused || Date.parse(plan2.nextRunAt) > now.getTime()) continue;
       const unattended = plan2.autoExecute && plan2.environment === "demo" && this.deps.config.demoAutomationEnabled;
       if (!unattended) {
-        const notice = await this.deps.store.increment(`plan-due:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS5, now.getTime());
+        const notice = await this.deps.store.increment(`plan-due:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS6, now.getTime());
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id });
         reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message: `"${plan2.label}" is due and waits for your confirmation.` });
         continue;
       }
       const lock = await this.deps.store.increment(`plan-lock:${plan2.id}:${plan2.nextRunAt}`, RUN_LOCK_MS, now.getTime());
       if (lock.count > 1) continue;
-      const latest = await this.deps.store.get(planKey(plan2.id));
+      const latest = await this.read(plan2.id);
       if (!latest || latest.paused || latest.nextRunAt !== plan2.nextRunAt) continue;
       if (latest.inFlightDueAt === latest.nextRunAt) {
-        const notice = await this.deps.store.increment(`plan-unclear:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS5, now.getTime());
+        const notice = await this.deps.store.increment(`plan-unclear:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS6, now.getTime());
         const message = `"${plan2.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id, outcome: message.slice(0, 200) });
         reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message });
@@ -40062,11 +40153,11 @@ var AutomationService = class {
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
         const closed = preview.legs.filter((leg) => leg.notices.some((notice) => notice.code === "MARKET_CLOSED_QUEUED" || notice.code === "MARKET_HOURS_UNKNOWN" && notice.details?.reason === "unavailable"));
         if (closed.length) throw new Error(`Market closed or its hours unknown for ${closed.map((leg) => leg.draft.ticker).join(", ")}; the plan stays due until a tick inside the session.`);
-        const current = await this.deps.store.get(planKey(plan2.id));
+        const current = await this.read(plan2.id);
         if (!current || current.paused || current.nextRunAt !== plan2.nextRunAt) continue;
         if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
         if (current.targetAmount !== void 0 && (await this.deps.targets?.(plan2.environment))?.updatedAt !== basket.targetsSavedAt) continue;
-        await this.deps.store.put(planKey(plan2.id), { ...current, inFlightDueAt: current.nextRunAt });
+        await this.deps.store.put(planKey(plan2.id), { ...current, inFlightDueAt: current.nextRunAt, inFlightSince: now.toISOString() });
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan2.environment, { planId: plan2.id, legs: result2.legs.length, outcome: result2.status });
@@ -40074,11 +40165,8 @@ var AutomationService = class {
       } catch (error62) {
         const { code, message } = asStructuredError(error62);
         if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
-          const current = await this.deps.store.get(planKey(plan2.id));
-          if (current?.inFlightDueAt) {
-            const { inFlightDueAt: _f, ...rest } = current;
-            await this.deps.store.put(planKey(plan2.id), rest);
-          }
+          const current = await this.read(plan2.id);
+          if (current?.inFlightDueAt) await this.deps.store.put(planKey(plan2.id), settled2(current));
         }
         await this.skip(plan2, now, message, false);
         reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message });
@@ -40087,14 +40175,14 @@ var AutomationService = class {
     return reports;
   }
   async skip(plan2, now, message, advance) {
-    const current = await this.deps.store.get(planKey(plan2.id));
+    const current = await this.read(plan2.id);
     if (!current) return;
     await this.deps.store.put(planKey(plan2.id), {
       ...current,
       lastOutcome: message,
       ...advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}
     });
-    const logged = await this.deps.store.increment(`plan-skip:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS5, now.getTime());
+    const logged = await this.deps.store.increment(`plan-skip:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS6, now.getTime());
     if (advance || logged.count === 1) await this.deps.trading.recordActivity("plan_skipped", plan2.environment, { planId: plan2.id, outcome: message.slice(0, 200) });
   }
 };
@@ -40519,7 +40607,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.78.0"
+  version: "2.79.0"
 };
 
 // src/shared/holding-risk.ts
@@ -40535,14 +40623,14 @@ var PARITY_ROUNDS = 1e3;
 var PARITY_SETTLED = 1e-12;
 var PARITY_SPREAD = 1e-6;
 var MAX_PARITY_TARGETS = 20;
-var DAY_MS6 = 864e5;
+var DAY_MS7 = 864e5;
 var round13 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits || 0;
-var dayNumber2 = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS6;
-var weekdayOf2 = (day2) => ((day2 + 3) % 7 + 7) % 7;
-var weekOf = (day2) => day2 - weekdayOf2(day2);
+var dayNumber2 = (date5) => Date.parse(`${date5}T00:00:00Z`) / DAY_MS7;
+var weekdayOf3 = (day2) => ((day2 + 3) % 7 + 7) % 7;
+var weekOf = (day2) => day2 - weekdayOf3(day2);
 function weeklyCloses(points3, today) {
   const now = dayNumber2(today);
-  const open2 = weekdayOf2(now) < 5 ? weekOf(now) : void 0;
+  const open2 = weekdayOf3(now) < 5 ? weekOf(now) : void 0;
   const weeks = /* @__PURE__ */ new Map();
   for (const point of points3) {
     const day2 = dayNumber2(point.date);
@@ -40945,17 +41033,17 @@ var PRICE_RANGES = [
   ["6m", 183],
   ["1y", 366]
 ];
-var DAY_MS7 = 864e5;
+var DAY_MS8 = 864e5;
 var RANGE_SLACK_DAYS = 6;
 function rangeCovered(points3, days) {
   const first = points3[0];
   const last = points3[points3.length - 1];
-  return !!first && !!last && Date.parse(`${first.date}T00:00:00Z`) <= Date.parse(`${last.date}T00:00:00Z`) - (days - RANGE_SLACK_DAYS) * DAY_MS7;
+  return !!first && !!last && Date.parse(`${first.date}T00:00:00Z`) <= Date.parse(`${last.date}T00:00:00Z`) - (days - RANGE_SLACK_DAYS) * DAY_MS8;
 }
 function pricesIn(points3, days) {
   const last = points3[points3.length - 1];
   if (!last) return [];
-  const start = Date.parse(`${last.date}T00:00:00Z`) - days * DAY_MS7;
+  const start = Date.parse(`${last.date}T00:00:00Z`) - days * DAY_MS8;
   return points3.filter((point) => Date.parse(`${point.date}T00:00:00Z`) >= start);
 }
 function priceMove(points3) {
@@ -41597,9 +41685,9 @@ function candidates(data) {
 }
 var WEEKDAYS = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 function planLine(plan2) {
-  const schedule = plan2.frequency === "monthly" ? `monthly on day ${plan2.dayOfMonth}` : `weekly on ${WEEKDAYS[plan2.weekday ?? 1]}`;
+  const schedule = plan2.frequency === "monthly" ? (plan2.dayOfMonth ?? 1) >= 31 ? "monthly on the last day" : `monthly on day ${plan2.dayOfMonth}${(plan2.dayOfMonth ?? 1) > 28 ? " (or the month's last day)" : ""}` : plan2.frequency === "daily" ? "every weekday" : `${plan2.frequency === "biweekly" ? "every other" : "weekly on"} ${WEEKDAYS[plan2.weekday ?? 1]}`;
   const legs = plan2.targetAmount !== void 0 ? `${num2(plan2.targetAmount)} across the saved targets, most to the furthest below` : plan2.legs.map((leg) => `${num2(leg.amount)} ${leg.ticker}${leg.orderType === "limit" ? ` (limit +${num2(leg.limitOffsetPercent ?? 0.5)}%)` : ""}`).join(", ");
-  return `"${plan2.label}" (${plan2.id}, ${env(plan2.environment)}): ${legs}; ${schedule} at ${plan2.hourUtc}:00 UTC; next ${minute(plan2.nextRunAt)}${plan2.paused ? "; paused" : ""}${plan2.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan2.lastOutcome ? `; last: ${plan2.lastOutcome}` : ""}`;
+  return `"${plan2.label}" (${plan2.id}, ${env(plan2.environment)}): ${legs}; ${schedule} at ${String(plan2.hour).padStart(2, "0")}:00 ${plan2.timeZone}; next ${minute(plan2.nextRunAt)}${plan2.paused ? "; paused" : ""}${plan2.autoExecute ? "; runs unattended" : "; waits for confirmation"}${plan2.lastOutcome ? `; last: ${plan2.lastOutcome}` : ""}`;
 }
 function alertLine(alert, instrument) {
   const unit = instrument?.currencyCode ? ` ${instrument.currencyCode}` : "";
@@ -41839,7 +41927,7 @@ function describePayload(data) {
 }
 
 // src/core/price-history.ts
-var DAY_MS8 = 864e5;
+var DAY_MS9 = 864e5;
 var UNIT_RATIO = 10;
 var UNIT_RATIO_FILL = 50;
 var HISTORY_WAIT_MS = 3e3;
@@ -41939,9 +42027,9 @@ function seeded(seed) {
     return ((mixed ^ mixed >>> 14) >>> 0) / 4294967296;
   };
 }
-var dayOf = (time3) => Math.floor(time3 / DAY_MS8);
+var dayOf = (time3) => Math.floor(time3 / DAY_MS9);
 var weekday = (day2) => {
-  const weekdayIndex = new Date(day2 * DAY_MS8).getUTCDay();
+  const weekdayIndex = new Date(day2 * DAY_MS9).getUTCDay();
   return weekdayIndex !== 0 && weekdayIndex !== 6;
 };
 function samplePriceHistory(ticker, input2) {
@@ -41982,14 +42070,14 @@ function samplePriceHistory(ticker, input2) {
   }
   const digits = input2.last >= 1e3 ? 1 : input2.last >= 10 ? 2 : 4;
   const points3 = days.map((day2, index) => ({
-    date: new Date(day2 * DAY_MS8).toISOString().slice(0, 10),
+    date: new Date(day2 * DAY_MS9).toISOString().slice(0, 10),
     close: Math.round(Math.exp(log2[index]) * 10 ** digits) / 10 ** digits
   }));
   return { source: "sample", points: points3 };
 }
 
 // src/core/today.ts
-var DAY_MS9 = 864e5;
+var DAY_MS10 = 864e5;
 var CONCURRENCY = 4;
 var READ_BUDGET_MS = 5e3;
 var FILLS_WAIT_MS = 3e3;
@@ -42024,7 +42112,7 @@ function sessionOf(events, now, extendedHours = false) {
 function fallbackDay(now) {
   const weekday2 = now.getUTCDay();
   const back = weekday2 === 6 ? 1 : weekday2 === 0 ? 2 : 0;
-  return isoDay2(now.getTime() - back * DAY_MS9);
+  return isoDay2(now.getTime() - back * DAY_MS10);
 }
 function inCloseUnit(price, close) {
   const ratio2 = price / close;
@@ -42138,7 +42226,7 @@ async function daySessionOf(deps, environment, instrument, quoted2, now = /* @__
 async function dayCloseOf(deps, environment, instrument, price, quoted2, now = /* @__PURE__ */ new Date()) {
   const session = await daySessionOf(deps, environment, instrument, quoted2, now);
   if (!session) return { missing: "data", problem: `Trading 212's exchange schedules could not be read, so the trading day of ${instrument.ticker}'s price is not known.` };
-  const from = new Date(Math.floor(now.getTime() / DAY_MS9) * DAY_MS9 - 365 * DAY_MS9);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10);
   const closes2 = quoted2 ? deps.quotedCloses : deps.closes;
   const move = await dayMove({ ...deps.priceHistory ? { priceHistory: deps.priceHistory } : {}, ...closes2 ? { closes: closes2 } : {} }, { environment, now, from, rates: {} }, { ticker: instrument.ticker, instrument, price, session, fills: [] });
   if (!move.previousClose || move.change === void 0) return { missing: move.missing ?? "data", problem: move.problem ?? `No previous close for ${instrument.ticker}.` };
@@ -42178,7 +42266,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     return fills.filter((fill) => fill.ticker === ticker && Date.parse(fill.at) >= start);
   };
   const rates = accountCurrency ? knownFxRates(positions, accountCurrency) : {};
-  const from = new Date(Math.floor(now.getTime() / DAY_MS9) * DAY_MS9 - 365 * DAY_MS9);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10);
   const held = new Set(positions.map((position) => position.instrument.ticker));
   const soldOut = [...new Set(fills.filter((fill) => !held.has(fill.ticker)).map((fill) => fill.ticker))].filter((ticker) => dayFills(ticker).some((fill) => fill.side === "sell"));
   const items = [...positions.map((position) => ({ ticker: position.instrument.ticker, position })), ...soldOut.map((ticker) => ({ ticker }))];
@@ -42220,7 +42308,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
 }
 
 // src/core/holding.ts
-var DAY_MS10 = 864e5;
+var DAY_MS11 = 864e5;
 var MAX_FILLS = 20;
 var MAX_CHART_FILLS = 200;
 var MAX_DIVIDENDS = 12;
@@ -42244,7 +42332,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const position = held ?? dashboard2.positions.find((item) => item.instrument.ticker === ticker);
   const total = dashboard2.account?.totalValue;
   const value = position?.walletImpact?.currentValue;
-  const window = { from: new Date(Math.floor(now.getTime() / DAY_MS10) * DAY_MS10 - 365 * DAY_MS10), to: now };
+  const window = { from: new Date(Math.floor(now.getTime() / DAY_MS11) * DAY_MS11 - 365 * DAY_MS11), to: now };
   const dividendWindow = { from: new Date(Math.min(window.from.getTime(), scheduleStart(now.getTime()))), to: now };
   const historyRead = Promise.all([
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
@@ -42296,7 +42384,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const rates = accountCurrency ? knownFxRates(dashboard2.positions, accountCurrency) : {};
   const accountRate = full.currencyCode ? rates[full.currencyCode.toUpperCase()] : void 0;
   const schedule = position && position.quantity > 0 && Array.isArray(history) ? dividendSchedule(history[1].items.flatMap((item) => item.quantity && item.quantity > 0 && item.amount ? [{ at: Date.parse(item.date), perShare: item.amount / item.quantity, amount: item.amount, quantity: item.quantity }] : [])) : void 0;
-  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS10) : [];
+  const nextDividends = schedule && position ? expectedPayments(schedule, position.quantity, monthStart(now.getTime()), addMonths(now.getTime(), 12) + DAY_MS11) : [];
   const moved = prices && "prices" in prices ? await dayMove({ priceHistory: async () => prices, ...deps.closes ? { closes: deps.closes } : {} }, {
     environment,
     now,
@@ -42374,7 +42462,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
 }
 
 // src/core/journal-review.ts
-var DAY_MS11 = 864e5;
+var DAY_MS12 = 864e5;
 var MAX_REVIEW_TRADES = 50;
 var round16 = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
 function orderSide(item) {
@@ -42438,7 +42526,7 @@ function summarizeJournalReview(input2) {
     const ratio2 = quotedPrice !== void 0 && quotedPrice > 0 ? quotedPrice / price : void 0;
     const priceNow = ratio2 !== void 0 && !(input2.quoted?.has(ticker) && (ratio2 >= 10 || ratio2 <= 0.1)) ? quotedPrice : void 0;
     const move = priceNow !== void 0 ? priceNow / price - 1 : void 0;
-    const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt)) / DAY_MS11));
+    const days = Math.max(0, Math.floor((now.getTime() - Date.parse(fill.filledAt)) / DAY_MS12));
     const name = input2.names?.get(ticker) ?? item.order?.instrument?.name;
     const realised = side === "sell" ? fill.walletImpact?.realisedProfitLoss : void 0;
     const currency = item.order?.currency ?? item.order?.instrument?.currency;
@@ -42536,7 +42624,7 @@ async function journalReview2(deps, environment, window, options = {}, now = /* 
 }
 
 // src/core/watchlist.ts
-var DAY_MS12 = 864e5;
+var DAY_MS13 = 864e5;
 var CONCURRENCY2 = 4;
 var READ_BUDGET_MS2 = 5e3;
 var QUOTE_WAIT_MS2 = 3e3;
@@ -42672,7 +42760,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
   ]);
   const session = sessionFinder(exchanges, now);
   const listed = new Map(instruments.map((instrument) => [instrument.ticker, instrument]));
-  const from = new Date(Math.floor(now.getTime() / DAY_MS12) * DAY_MS12 - 365 * DAY_MS12);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13);
   const row = async (item, ask) => {
     const instrument = listed.get(item.ticker);
     const position = dashboard2.positions.find((entry) => entry.instrument?.ticker === item.ticker);
@@ -42754,7 +42842,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
 }
 
 // src/core/attribution.ts
-var DAY_MS13 = 864e5;
+var DAY_MS14 = 864e5;
 var CONCURRENCY3 = 4;
 var READ_BUDGET_MS3 = 5e3;
 var LIST_WAIT_MS2 = 3e3;
@@ -42811,7 +42899,7 @@ function closeBefore(points3, day2) {
   let found;
   for (const point of points3) if (point.date < day2 && point.close > 0) found = point;
   if (!found) return void 0;
-  return Date.parse(`${day2}T00:00:00Z`) - Date.parse(`${found.date}T00:00:00Z`) <= STALE_CLOSE_DAYS * DAY_MS13 ? found : void 0;
+  return Date.parse(`${day2}T00:00:00Z`) - Date.parse(`${found.date}T00:00:00Z`) <= STALE_CLOSE_DAYS * DAY_MS14 ? found : void 0;
 }
 function allTimeGains(input2) {
   const held = new Map(input2.positions.filter((position) => position.instrument?.ticker && position.quantity > 0).map((position) => [position.instrument.ticker, position]));
@@ -42906,7 +42994,7 @@ function attributeGains(input2) {
   };
 }
 async function readAttribution(deps, environment, window, maxPages, now = /* @__PURE__ */ new Date()) {
-  const from = window.from ? Math.floor(window.from.getTime() / DAY_MS13) * DAY_MS13 : void 0;
+  const from = window.from ? Math.floor(window.from.getTime() / DAY_MS14) * DAY_MS14 : void 0;
   const to = Math.min(window.to.getTime(), now.getTime());
   if (window.to.getTime() < now.getTime() - 5 * 6e4) {
     return { attributionMissing: "period", attributionProblem: "Only today's holdings are known, so gains by instrument need a period that ends now." };
@@ -42945,7 +43033,7 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
   const closes2 = /* @__PURE__ */ new Map();
   if (starting.length) {
     const day2 = dayOf2(from);
-    const readFrom = new Date(Math.min(Math.floor(now.getTime() / DAY_MS13) * DAY_MS13 - 365 * DAY_MS13, from - (STALE_CLOSE_DAYS + 1) * DAY_MS13));
+    const readFrom = new Date(Math.min(Math.floor(now.getTime() / DAY_MS14) * DAY_MS14 - 365 * DAY_MS14, from - (STALE_CLOSE_DAYS + 1) * DAY_MS14));
     const deadline = Date.now() + (deps.budgetMs ?? READ_BUDGET_MS3);
     const read = async (ticker) => {
       const position = held.get(ticker);
@@ -42975,7 +43063,7 @@ async function readAttribution(deps, environment, window, maxPages, now = /* @__
 }
 
 // src/core/benchmark.ts
-var DAY_MS14 = 864e5;
+var DAY_MS15 = 864e5;
 var START_SLACK_DAYS = 7;
 var LIST_WAIT_MS3 = 3e3;
 var MAX_OPTIONS = 8;
@@ -42996,7 +43084,7 @@ function benchmarkReturns(series, points3, through) {
     return index >= 0 ? points3[index] : void 0;
   };
   const base = closeOn(first.date);
-  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS14) return void 0;
+  if (!base || !(base.close > 0) || Date.parse(`${first.date}T00:00:00Z`) - Date.parse(`${base.date}T00:00:00Z`) > START_SLACK_DAYS * DAY_MS15) return void 0;
   const out = series.map((point) => ({ date: point.date, return: round19(closeOn(point.date).close / base.close - 1) }));
   const drawdown = drawdownOf(out);
   const risk = through ? benchmarkRiskOf(series, out, through) : void 0;
@@ -43046,8 +43134,8 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
   const offered = benchmarkOptions.length ? { benchmarkOptions } : {};
   if (none) return { ...offered, benchmarkChoice: "none" };
   if (!instrument) return { ...offered, benchmarkChoice: wanted, benchmarkMissing: "instrument", benchmarkProblem: found && "problem" in found ? found.problem : `No benchmark ${wanted}.` };
-  const yearAgo = Math.floor(now.getTime() / DAY_MS14) * DAY_MS14 - 365 * DAY_MS14;
-  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS14));
+  const yearAgo = Math.floor(now.getTime() / DAY_MS15) * DAY_MS15 - 365 * DAY_MS15;
+  const from = new Date(Math.min(yearAgo, Date.parse(`${summary.timeWeighted.from}T00:00:00Z`) - START_SLACK_DAYS * DAY_MS15));
   const read = await deps.priceHistory({
     instrument,
     from,
@@ -43076,7 +43164,7 @@ async function compareWithBenchmark(deps, environment, summary, choice, now = /*
 }
 
 // src/core/holding-risk.ts
-var DAY_MS15 = 864e5;
+var DAY_MS16 = 864e5;
 var CONCURRENCY4 = 4;
 var READ_BUDGET_MS4 = 5e3;
 var MIN_DAYS = (MIN_WEEKS + 2) * 7;
@@ -43091,7 +43179,7 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   const market = found && "instrument" in found ? found.instrument : void 0;
   if (market && !listed.has(market.ticker)) listed.set(market.ticker, market);
   const positions = new Map(read.positions.flatMap((position) => position.instrument?.ticker ? [[position.instrument.ticker, position]] : []));
-  const from = new Date(Math.floor(now.getTime() / DAY_MS15) * DAY_MS15 - 365 * DAY_MS15);
+  const from = new Date(Math.floor(now.getTime() / DAY_MS16) * DAY_MS16 - 365 * DAY_MS16);
   const requestFor = (ticker) => {
     const position = positions.get(ticker);
     const instrument = listed.get(ticker) ?? position?.instrument;
@@ -44326,10 +44414,10 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       "manage_investment_plans",
       {
         title: "Manage Investment Plans",
-        description: "Create, change, pause or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent. Instead of legs, targetAmount invests that amount each run across the target weights saved with manage_target_allocation, most to the targets furthest below their weight, as Market buys; nothing is sold.",
+        description: "Create, change, pause, skip a run of, or delete a standing dollar-cost-averaging plan (for example 'buy 100 EUR of VUSA on the 1st of every month'). It runs every weekday, weekly, every other week or monthly (a day of the month, or the last day), at an hour in its own time zone. Saving a plan places no order. When a plan is due, Live plans and ordinary Demo plans wait for the user to confirm the basket (open it with review_investment_plan). Only Demo plans with autoExecute run unattended, and only when the server enables Demo automation. Amounts are in the account currency. Held legs are priced from the broker; legs not held yet from the external quote provider when it can map them. A leg can be a Market buy (default) or a Day Limit buy capped at the last price plus limitOffsetPercent. Instead of legs, targetAmount invests that amount each run across the target weights saved with manage_target_allocation, most to the targets furthest below their weight, as Market buys; nothing is sold.",
         inputSchema: external_exports.object({
-          action: external_exports.enum(["create", "update", "delete"]),
-          planId: external_exports.string().optional().describe("Required for update and delete"),
+          action: external_exports.enum(["create", "update", "skip", "delete"]).describe("skip leaves out the plan's next run (or the run waiting for you): it becomes due on the one after"),
+          planId: external_exports.string().optional().describe("Required for update, skip and delete"),
           environment: environmentWithDefault,
           label: external_exports.string().max(80).optional(),
           legs: external_exports.array(external_exports.object({
@@ -44339,10 +44427,12 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             limitOffsetPercent: external_exports.number().min(0).max(MAX_LIMIT_OFFSET_PERCENT).optional().describe("Limit legs: percent above the last broker price (default 0.5)")
           })).min(1).max(MAX_PLAN_LEGS).optional(),
           targetAmount: external_exports.number().positive().optional().describe("Instead of legs: amount in the account currency to invest each run across the saved target weights"),
-          frequency: external_exports.enum(["weekly", "monthly"]).optional(),
-          dayOfMonth: external_exports.number().int().min(1).max(28).optional(),
-          weekday: external_exports.number().int().min(1).max(7).optional().describe("1 = Monday \u2026 7 = Sunday"),
-          hourUtc: external_exports.number().int().min(0).max(23).optional().describe("Hour (UTC) the plan becomes due. Default 15, inside the US and EU sessions."),
+          frequency: external_exports.enum(["daily", "weekly", "biweekly", "monthly"]).optional().describe("daily = every weekday (Monday to Friday); biweekly = every other week on `weekday`, counted from the first run"),
+          dayOfMonth: external_exports.number().int().min(1).max(31).optional().describe("Monthly plans: 1 to 31; a day past a month's end is its last day, so 31 is always the last day"),
+          weekday: external_exports.number().int().min(1).max(7).optional().describe("Weekly and biweekly plans: 1 = Monday \u2026 7 = Sunday"),
+          hour: external_exports.number().int().min(0).max(23).optional().describe("Hour of the day the plan becomes due, in timeZone. Without hour or timeZone a new plan is due at 15:00 UTC, inside the US and EU sessions."),
+          timeZone: external_exports.string().min(1).max(64).optional().describe("IANA zone for the plan's days and hour, such as Europe/London (summer time followed). Default: the server's TIMEZONE when hour is given, else UTC."),
+          hourUtc: external_exports.number().int().min(0).max(23).optional().describe("Deprecated: hour in UTC. Same as hour with timeZone UTC."),
           autoExecute: external_exports.boolean().optional().describe("Demo only: run unattended when due"),
           paused: external_exports.boolean().optional()
         }),
@@ -44351,6 +44441,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       },
       async (input2) => {
         try {
+          const at = input2.hour !== void 0 || input2.timeZone !== void 0 ? { ...input2.hour === void 0 ? {} : { hour: input2.hour }, ...input2.timeZone === void 0 ? {} : { timeZone: input2.timeZone } } : input2.hourUtc === void 0 ? {} : { hour: input2.hourUtc, timeZone: "UTC" };
           if (input2.action === "create") {
             if (!input2.legs && input2.targetAmount === void 0 || !input2.frequency) return toolError(new Error("frequency and either legs or targetAmount are required to create a plan"));
             const plan3 = await automation3.createPlan({
@@ -44361,7 +44452,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
               frequency: input2.frequency,
               ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
               ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
-              ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc },
+              ...at,
               ...input2.autoExecute === void 0 ? {} : { autoExecute: input2.autoExecute }
             });
             const unattended = plan3.autoExecute && !config3.demoAutomationEnabled ? " Unattended runs also need AUTOMATION_DEMO_ENABLED=true on the server." : "";
@@ -44369,6 +44460,10 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             return result({ kind: "investment_plan", plan: plan3 }, `Saved plan ${plan3.id}; next due ${plan3.nextRunAt}. No order was placed.${unattended}${noTargets}`);
           }
           if (!input2.planId) return toolError(new Error("planId is required"));
+          if (input2.action === "skip") {
+            const plan3 = await automation3.skipNextRun(input2.planId);
+            return result({ kind: "investment_plan", plan: plan3 }, `Skipped a run of plan ${plan3.id}; next due ${plan3.nextRunAt}.`);
+          }
           if (input2.action === "delete") {
             await automation3.deletePlan(input2.planId);
             return result({ kind: "investment_plan", deleted: input2.planId }, `Deleted plan ${input2.planId}.`);
@@ -44382,7 +44477,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             ...input2.frequency === void 0 ? {} : { frequency: input2.frequency },
             ...input2.dayOfMonth === void 0 ? {} : { dayOfMonth: input2.dayOfMonth },
             ...input2.weekday === void 0 ? {} : { weekday: input2.weekday },
-            ...input2.hourUtc === void 0 ? {} : { hourUtc: input2.hourUtc }
+            ...at
           });
           return result({ kind: "investment_plan", plan: plan2 }, `Updated plan ${plan2.id}; next due ${plan2.nextRunAt}.`);
         } catch (error62) {
@@ -45189,13 +45284,13 @@ function symbolFromTicker(ticker) {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS16 = 864e5;
+var DAY_MS17 = 864e5;
 var watchKey2 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS16).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS17).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -45302,7 +45397,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS16);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS17);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -45310,16 +45405,16 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS17 = 864e5;
+var DAY_MS18 = 864e5;
 var round20 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round20(value)}`;
 var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round20(value * 100)}%`;
 var MOVERS = 3;
 var EXPECTED_DIVIDENDS = 3;
 var RECEIVED_DIVIDENDS = 5;
-var WEEK_MS = 7 * DAY_MS17;
-var LATE_DIVIDEND_MS = 3 * DAY_MS17;
-var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS17;
+var WEEK_MS = 7 * DAY_MS18;
+var LATE_DIVIDEND_MS = 3 * DAY_MS18;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS18;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -45328,7 +45423,7 @@ function dividendsSince(mark, now) {
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
   if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
-  return { since: now.getTime() - DAY_MS17, known: false };
+  return { since: now.getTime() - DAY_MS18, known: false };
 }
 function dividendMark(dividends, now) {
   const from = now.getTime() - LATE_DIVIDEND_MS;
@@ -45413,7 +45508,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS17, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS18, now.getTime());
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
@@ -45429,7 +45524,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan2) => plan2.environment === environment && !plan2.paused && Date.parse(plan2.nextRunAt) <= now.getTime());
-        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS17;
+        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS18;
         const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;

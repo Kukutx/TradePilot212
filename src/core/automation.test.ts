@@ -5,6 +5,7 @@ import { nextRunAt, planLimitPrice } from "./automation.js";
 import { basketNotes } from "./trading-service.js";
 import { createConfig, type RuntimeEnv } from "./config.js";
 import { MemoryStateStore } from "./state-store.js";
+import { localHourStart } from "../shared/time-zone.js";
 
 const etf = (ticker: string): Instrument => ({ ticker, name: `${ticker} ETF`, shortName: ticker.split("_")[0]!, currencyCode: "EUR", type: "ETF" });
 const instruments = [etf("VUSA_EQ"), etf("AGGH_EQ"), etf("EQQQ_EQ")];
@@ -207,10 +208,117 @@ describe("standing plans", () => {
 
   it("computes the next monthly and weekly due times", () => {
     const after = new Date("2026-10-11T12:00:00Z"); // a Sunday
-    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 1, hourUtc: 15 }, after).toISOString()).toBe("2026-11-01T15:00:00.000Z");
-    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 11, hourUtc: 15 }, after).toISOString()).toBe("2026-10-11T15:00:00.000Z");
-    expect(nextRunAt({ frequency: "weekly", weekday: 1, hourUtc: 15 }, after).toISOString()).toBe("2026-10-12T15:00:00.000Z");
-    expect(nextRunAt({ frequency: "weekly", weekday: 7, hourUtc: 9 }, after).toISOString()).toBe("2026-10-18T09:00:00.000Z");
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 1, hour: 15, timeZone: "UTC" }, after).toISOString()).toBe("2026-11-01T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 11, hour: 15, timeZone: "UTC" }, after).toISOString()).toBe("2026-10-11T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "weekly", weekday: 1, hour: 15, timeZone: "UTC" }, after).toISOString()).toBe("2026-10-12T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "weekly", weekday: 7, hour: 9, timeZone: "UTC" }, after).toISOString()).toBe("2026-10-18T09:00:00.000Z");
+  });
+
+  it("runs every weekday, every other week, and on a month's last day", () => {
+    const after = new Date("2026-10-09T16:00:00Z"); // a Friday, after 15:00
+    const utc = { hour: 15, timeZone: "UTC" };
+    expect(nextRunAt({ frequency: "daily", ...utc }, after).toISOString()).toBe("2026-10-12T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "daily", ...utc }, new Date("2026-10-13T09:00:00Z")).toISOString()).toBe("2026-10-13T15:00:00.000Z");
+    // Every other Monday from 12 October: not the 19th.
+    const fortnight = { frequency: "biweekly" as const, weekday: 1, anchorDay: "2026-10-12", ...utc };
+    expect(nextRunAt(fortnight, new Date("2026-10-12T16:00:00Z")).toISOString()).toBe("2026-10-26T15:00:00.000Z");
+    expect(nextRunAt(fortnight, new Date("2026-10-30T00:00:00Z")).toISOString()).toBe("2026-11-09T15:00:00.000Z");
+    // 31 is the month's last day; 30 is the 28th in a February.
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 31, ...utc }, new Date("2026-02-01T00:00:00Z")).toISOString()).toBe("2026-02-28T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 31, ...utc }, new Date("2026-03-01T00:00:00Z")).toISOString()).toBe("2026-03-31T15:00:00.000Z");
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 30, ...utc }, new Date("2028-02-01T00:00:00Z")).toISOString()).toBe("2028-02-29T15:00:00.000Z");
+  });
+
+  it("keeps a plan's hour in its own zone through summer time", () => {
+    const london = { frequency: "weekly" as const, weekday: 1, hour: 15, timeZone: "Europe/London" };
+    // 15:00 in London is 14:00 UTC in summer and 15:00 UTC in winter.
+    expect(nextRunAt(london, new Date("2026-10-19T00:00:00Z")).toISOString()).toBe("2026-10-19T14:00:00.000Z");
+    expect(nextRunAt(london, new Date("2026-10-26T00:00:00Z")).toISOString()).toBe("2026-10-26T15:00:00.000Z");
+    // The hour the clocks skip (01:00 on 29 March 2026 in London) is due as the clocks jump.
+    expect(nextRunAt({ frequency: "monthly", dayOfMonth: 29, hour: 1, timeZone: "Europe/London" }, new Date("2026-03-28T00:00:00Z")).toISOString()).toBe("2026-03-29T01:00:00.000Z");
+    // West of UTC too: 02:00 on 9 March 2025 in New York is skipped, so it is due at the jump (03:00 EDT), on that day.
+    expect(nextRunAt({ frequency: "weekly", weekday: 7, hour: 2, timeZone: "America/New_York" }, new Date("2025-03-09T06:30:00Z")).toISOString()).toBe("2025-03-09T07:00:00.000Z");
+    // Where the clocks jump at midnight (Havana, Santiago) hour 0 is the jump, not the evening before.
+    expect(localHourStart("2026-03-08", 0, "America/Havana")).toBe(Date.parse("2026-03-08T05:00:00Z"));
+    expect(localHourStart("2026-09-06", 0, "America/Santiago")).toBe(Date.parse("2026-09-06T04:00:00Z"));
+    // An hour the clocks go back over comes twice: the first, in any zone.
+    expect(localHourStart("2026-11-01", 1, "America/New_York")).toBe(Date.parse("2026-11-01T05:00:00Z"));
+    expect(localHourStart("2026-10-25", 1, "Europe/London")).toBe(Date.parse("2026-10-25T00:00:00Z"));
+    expect(localHourStart("2026-10-12", 9, "Asia/Kolkata")).toBe(Date.parse("2026-10-12T03:30:00Z"));
+    // A day in Shanghai starts the evening before in UTC.
+    expect(nextRunAt({ frequency: "daily", hour: 9, timeZone: "Asia/Shanghai" }, new Date("2026-10-12T02:00:00Z")).toISOString()).toBe("2026-10-13T01:00:00.000Z");
+  });
+
+  it("schedules a new plan's hour in its zone, the server's when an hour comes alone, and 15:00 UTC with neither", async () => {
+    const { automation } = setup({ TIMEZONE: "Europe/London" });
+    const now = new Date("2026-10-11T12:00:00Z");
+    const zoned = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "weekly", weekday: 1, hour: 9 }, now);
+    expect(zoned).toMatchObject({ hour: 9, timeZone: "Europe/London", nextRunAt: "2026-10-12T08:00:00.000Z" });
+    const plain = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "daily" }, now);
+    expect(plain).toMatchObject({ hour: 15, timeZone: "UTC", nextRunAt: "2026-10-12T15:00:00.000Z" });
+    expect(plain.weekday).toBeUndefined();
+    const fortnight = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "biweekly", weekday: 3, hour: 15, timeZone: "UTC" }, now);
+    expect(fortnight).toMatchObject({ anchorDay: "2026-10-14", nextRunAt: "2026-10-14T15:00:00.000Z" });
+    await expect(automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "daily", timeZone: "Mars/Olympus" }, now)).rejects.toThrow(/Unknown time zone/);
+  });
+
+  it("reads a plan saved before 2.79 with its UTC hour", async () => {
+    const { automation, store } = setup();
+    await store.put("plan:dca_old", { id: "dca_old", environment: "demo", label: "Old", legs: [{ ticker: "VUSAl_EQ", amount: 50 }], frequency: "monthly", dayOfMonth: 3, hourUtc: 14, autoExecute: false, paused: false, nextRunAt: "2026-11-03T14:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" });
+    const plan = await automation.getPlan("dca_old");
+    expect(plan).toMatchObject({ hour: 14, timeZone: "UTC" });
+    expect("hourUtc" in plan).toBe(false);
+    expect((await automation.listPlans())[0]).toMatchObject({ hour: 14, timeZone: "UTC" });
+    const later = await automation.updatePlan("dca_old", { dayOfMonth: 4 }, new Date("2026-10-11T12:00:00Z"));
+    expect(later.nextRunAt).toBe("2026-11-04T14:00:00.000Z");
+  });
+
+  it("skips the next run, or the one waiting, and says so", async () => {
+    const { automation } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 5 }, new Date("2026-10-01T00:00:00Z"));
+    expect(plan.nextRunAt).toBe("2026-10-05T15:00:00.000Z");
+    const skipped = await automation.skipNextRun(plan.id, new Date("2026-10-02T00:00:00Z"));
+    expect(skipped.nextRunAt).toBe("2026-11-05T15:00:00.000Z");
+    expect(skipped.lastOutcome).toMatch(/Skipped the run due 2026-10-05/);
+    // Overdue (waiting for you): the waiting run is the one left out.
+    const again = await automation.skipNextRun(plan.id, new Date("2026-11-06T00:00:00Z"));
+    expect(again.nextRunAt).toBe("2026-12-05T15:00:00.000Z");
+  });
+
+  it("keeps a plan on its day and weeks when only its hour moves, and a skip skipped", async () => {
+    const { automation } = setup();
+    const ran = { legs: [{ result: {} }], message: "sent" } as never;
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "biweekly", weekday: 3, hour: 15, timeZone: "UTC" }, new Date("2026-10-01T00:00:00Z"));
+    expect(plan).toMatchObject({ anchorDay: "2026-10-07", nextRunAt: "2026-10-07T15:00:00.000Z" });
+    await automation.recordRun(plan.id, ran, new Date("2026-10-07T15:05:00Z"));
+    // Every other Wednesday: the 21st, not the 14th, at the new hour.
+    const later = await automation.updatePlan(plan.id, { hour: 20 }, new Date("2026-10-12T00:00:00Z"));
+    expect(later).toMatchObject({ anchorDay: "2026-10-07", nextRunAt: "2026-10-21T20:00:00.000Z" });
+    const skipped = await automation.skipNextRun(plan.id, new Date("2026-10-12T00:00:00Z"));
+    expect(skipped.nextRunAt).toBe("2026-11-04T20:00:00.000Z");
+    expect((await automation.updatePlan(plan.id, { hour: 9 }, new Date("2026-10-12T00:00:00Z"))).nextRunAt).toBe("2026-11-04T09:00:00.000Z");
+    // An hour already past on the day: the next day the schedule runs, on its weeks.
+    expect((await automation.updatePlan(plan.id, { hour: 8 }, new Date("2026-11-04T08:30:00Z"))).nextRunAt).toBe("2026-11-18T08:00:00.000Z");
+  });
+
+  it("refuses to skip a run being sent this moment, and settles one whose result never came", async () => {
+    const { automation, store } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 5 }, new Date("2026-10-01T00:00:00Z"));
+    const now = new Date("2026-10-05T15:01:00Z");
+    await store.put(`plan:${plan.id}`, { ...plan, inFlightDueAt: plan.nextRunAt, inFlightSince: "2026-10-05T15:00:30Z" });
+    await expect(automation.skipNextRun(plan.id, now)).rejects.toThrow(/being sent right now/);
+    const settled = await automation.skipNextRun(plan.id, new Date("2026-10-05T15:20:00Z"));
+    expect(settled).toMatchObject({ nextRunAt: "2026-11-05T15:00:00.000Z" });
+    expect(settled.inFlightDueAt).toBeUndefined();
+    expect(settled.inFlightSince).toBeUndefined();
+  });
+
+  it("drops schedule fields a plan's frequency does not use", async () => {
+    const { automation, store } = setup();
+    await store.put("plan:dca_mixed", { id: "dca_mixed", environment: "demo", label: "Mixed", legs: [{ ticker: "VUSAl_EQ", amount: 50 }], frequency: "weekly", weekday: 2, dayOfMonth: 9, anchorDay: "2026-10-06", hour: 15, timeZone: "UTC", autoExecute: false, paused: false, nextRunAt: "2026-10-13T15:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z" });
+    const plan = await automation.getPlan("dca_mixed");
+    expect(plan.weekday).toBe(2);
+    expect("dayOfMonth" in plan || "anchorDay" in plan).toBe(false);
   });
 
   it("never lets a Live plan run unattended", async () => {
@@ -331,8 +439,8 @@ describe("standing plans", () => {
     const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 });
     const now = new Date("2026-10-11T12:00:00Z");
     expect((await automation.updatePlan(plan.id, { dayOfMonth: 15 }, now)).nextRunAt).toBe("2026-10-15T15:00:00.000Z");
-    const weekly = await automation.updatePlan(plan.id, { frequency: "weekly", weekday: 1, hourUtc: 9 }, now);
-    expect(weekly).toMatchObject({ frequency: "weekly", weekday: 1, hourUtc: 9, nextRunAt: "2026-10-12T09:00:00.000Z" });
+    const weekly = await automation.updatePlan(plan.id, { frequency: "weekly", weekday: 1, hour: 9 }, now);
+    expect(weekly).toMatchObject({ frequency: "weekly", weekday: 1, hour: 9, timeZone: "UTC", nextRunAt: "2026-10-12T09:00:00.000Z" });
     expect(weekly.dayOfMonth).toBeUndefined();
     await expect(automation.updatePlan(plan.id, { frequency: "monthly" }, now)).rejects.toThrow(/dayOfMonth/);
   });
@@ -341,7 +449,7 @@ describe("standing plans", () => {
     const { automation, store } = setup();
     const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1 }, new Date("2026-09-15T00:00:00Z"));
     await store.put(`plan:${plan.id}`, { ...plan, lastRunAt: "2026-10-01T15:01:00.000Z", nextRunAt: "2026-11-01T15:00:00.000Z" });
-    const moved = await automation.updatePlan(plan.id, { hourUtc: 18 }, new Date("2026-10-01T16:00:00Z"));
+    const moved = await automation.updatePlan(plan.id, { hour: 18 }, new Date("2026-10-01T16:00:00Z"));
     expect(moved.nextRunAt).toBe("2026-11-01T18:00:00.000Z");
     expect(moved.lastRunAt).toBe("2026-10-01T15:01:00.000Z");
 
