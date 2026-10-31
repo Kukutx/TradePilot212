@@ -874,6 +874,7 @@ export const en = {
   planMonthly: "Monthly on day {day}",
   planWeekly: "Weekly on",
   planPaused: "Paused",
+  planRunDue: "the run due {date}",
   planRunsShow: "Last runs ({count})",
   planRunsHide: "Hide the last runs ({count})",
   planRunSubmitted: "Sent",

@@ -424,7 +424,9 @@ export function PlanList({ plans, environment, currency, hasTargets, defaultZone
                 ? fill(t("planByTargets"), { amount: sum(plan.targetAmount) })
                 : plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
               <small>{planSchedule(plan, t, locale)}{plan.paused ? "" : ` · ${t("nextRun")} ${dateTime(plan.nextRunAt, locale)}`}</small>
-              {plan.lastOutcome && <small className="mutedInline">{plan.lastRunAt ? `${dateTime(plan.lastRunAt, locale)} · ` : ""}{plan.lastOutcome}</small>}
+              {plan.runs?.[0] && plan.runs[0].message === plan.lastOutcome?.slice(0, 200)
+                ? <small className="mutedInline">{t(runOutcome(plan.runs[0]).key)} · {runLine(plan.runs[0], t, locale)}</small>
+                : plan.lastOutcome && <small className="mutedInline">{plan.lastRunAt ? `${dateTime(plan.lastRunAt, locale)} · ` : ""}{plan.lastOutcome}</small>}
               {plan.runs && plan.runs.length > 0 && <PlanRuns runs={plan.runs} t={t} locale={locale} />}
               {manage && <PlanActions plan={plan} t={t} busy={busy} onReview={onReview!} onPause={(id, paused) => void onChange!(id, { paused })} onSkip={onSkip!} onEdit={() => open(plan.id)}
                 onDelete={(id) => { onDelete!(id); focus("plans-heading"); }} />}
@@ -445,6 +447,15 @@ const RUN_OUTCOMES: Record<PlanRun["outcome"], { key: MessageKey; tone: string }
   left_out: { key: "planRunLeftOut", tone: "muted" },
 };
 
+const runOutcome = (run: PlanRun) => RUN_OUTCOMES[run.outcome] ?? RUN_OUTCOMES.stopped;
+
+/** When a run happened, the run it left out (for a skip), the orders it sent and whether it ran unattended. */
+function runLine(run: PlanRun, t: Translator, locale: SupportedLocale): string {
+  const orders = run.legs ? fill(t("planRunOrders"), { submitted: String(run.submitted ?? 0), legs: String(run.legs) }) : "";
+  const due = run.outcome === "left_out" ? fill(t("planRunDue"), { date: dateTime(run.dueAt, locale) }) : "";
+  return [dateTime(run.at, locale), due, orders, run.by === "scheduler" ? t("planRunUnattended") : ""].filter(Boolean).join(" · ");
+}
+
 /** A plan's last runs, newest first, behind a toggle: when, how it went, and the orders it sent. */
 export function PlanRuns({ runs, t, locale }: { runs: PlanRun[]; t: Translator; locale: SupportedLocale }) {
   const [open, setOpen] = useState(false);
@@ -457,13 +468,14 @@ export function PlanRuns({ runs, t, locale }: { runs: PlanRun[]; t: Translator; 
       {open && (
         <ol id={id} className="planRunList">
           {runs.map((run) => {
-            const outcome = RUN_OUTCOMES[run.outcome] ?? RUN_OUTCOMES.stopped;
-            const orders = run.legs ? fill(t("planRunOrders"), { submitted: String(run.submitted ?? 0), legs: String(run.legs) }) : "";
+            const outcome = runOutcome(run);
+            // A skip says which run it left out; a run that sent all its orders needs no reason. The rest keep the server's.
+            const reason = run.outcome === "left_out" || (run.outcome === "submitted" && run.submitted === run.legs) ? "" : run.message;
             return (
               <li key={`${run.at}-${run.dueAt}`}>
                 <span className={`runOutcome ${outcome.tone}`}>{t(outcome.key)}</span>
-                <span>{[dateTime(run.at, locale), orders, run.by === "scheduler" ? t("planRunUnattended") : ""].filter(Boolean).join(" · ")}</span>
-                {run.message && <small>{run.message}</small>}
+                <span>{runLine(run, t, locale)}</span>
+                {reason && <small>{reason}</small>}
               </li>
             );
           })}

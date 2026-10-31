@@ -876,6 +876,7 @@ export const zhCN: Record<MessageKey, string> = {
   planMonthly: "每月 {day} 日",
   planWeekly: "每周",
   planPaused: "已暂停",
+  planRunDue: "原定 {date} 的那次",
   planRunsShow: "最近运行记录（{count}）",
   planRunsHide: "收起运行记录（{count}）",
   planRunSubmitted: "已发送",
