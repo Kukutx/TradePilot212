@@ -163,6 +163,13 @@ const registerAppTool = ((server: McpServer, name: string, config: Record<string
   return (registerAppToolBase as (...args: unknown[]) => unknown)(server, name, outputSchema ? { ...config, outputSchema } : config, handler);
 }) as unknown as typeof registerAppToolBase;
 
+
+/** "1–200 of 950", or "40 of 40" for a whole first page: which of a window's entries a page lists. */
+function listedRange(listed: number, offset: number | undefined, count: number): string {
+  if (!offset) return `${listed} of ${count}`;
+  return listed ? `${offset + 1}–${offset + listed} of ${count}` : `none past ${offset} of ${count}`;
+}
+
 export function createMcpServer(
   { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
   config: RuntimeConfig,
@@ -439,19 +446,20 @@ export function createMcpServer(
         ticker: z.string().min(1).optional(),
         includeUnfilled: z.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
         limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).max(1_000_000).default(0).describe("Fills to pass over, newest first, for the next page: the number already listed. Give the first page's period (its period.to as `to`) so newer fills do not move the pages"),
         ...windowSchema,
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
-    async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, includeUnfilled, limit, offset, period, from, to, maxPages }) => {
       try {
-        const history = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled);
+        const history = await insights.tradeHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), ticker, limit, maxPages, includeUnfilled, offset);
         const orderIds = [...history.fills, ...(history.unfilled ?? [])].flatMap((item) => (item.orderId ? [item.orderId] : []));
         // The notes are an extra: a store that cannot be read leaves the history as it is.
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...history, ...(notes.length ? { journal: notes } : {}) };
-        return result(data, `Returned ${data.fills.length} of ${data.count} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${listedRange(data.fills.length, data.offset, data.count)} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
@@ -469,15 +477,16 @@ export function createMcpServer(
         ticker: z.string().min(1).optional().describe("Only dividends of this ticker, symbol, name or ISIN"),
         types: z.array(z.string().min(1).max(30)).max(10).optional(),
         limit: z.number().int().min(1).max(500).default(100),
+        offset: z.number().int().min(0).max(1_000_000).default(0).describe("Entries to pass over, newest first, for the next page: the number already listed. Give the first page's period (its period.to as `to`) so newer entries do not move the pages"),
         ...windowSchema,
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } },
     },
-    async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, types, limit, offset, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), { ...(ticker ? { ticker } : {}), ...(types ? { types } : {}), limit, ...(maxPages ? { maxPages } : {}) }) };
-        return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...(from ? { from } : {}), ...(to ? { to } : {}) }), { ...(ticker ? { ticker } : {}), ...(types ? { types } : {}), limit, offset, ...(maxPages ? { maxPages } : {}) }) };
+        return result(data, `Returned ${listedRange(data.items.length, data.offset, data.count)} entries${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
       }
