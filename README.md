@@ -298,6 +298,8 @@ The Performance tab compares the return with the S&P 500 (SPY) by default; `BENC
 
 Rebalance estimates count Trading 212's currency conversion fee, 0.15% on Invest and ISA accounts, on the trades in another currency than the account's. Set `FX_FEE_RATE` (a fraction, `0.0015` by default) if yours differs, or `FX_FEE_RATE=0` if you trade from balances held in each currency, which convert nothing.
 
+TradePilot keeps the history it has read, so a long period is read from Trading 212 once. It keeps 25,000 records of each kind by default, which is some years of weekly buys. `HISTORY_MAX_RECORDS` sets another number (1,000 or more), or `0` keeps every record. The UK tax year's matching reads the whole history, and a period that reaches back past what is kept is marked truncated ([ANALYTICS.md](./docs/ANALYTICS.md)).
+
 ## Local development
 
 Node development server:

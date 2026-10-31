@@ -306,6 +306,8 @@ TAX_YEAR_START=04-06          # 英国税年；记录页和 get_tax_year_summary
 
 调仓估算会把 Trading 212 的汇兑费（Invest 和 ISA 账户为 0.15%）计入用非账户货币交易的部分。费率不同时设 `FX_FEE_RATE`（小数，默认 `0.0015`）；如果你用各币种的余额直接交易、不需要换汇，设 `FX_FEE_RATE=0`。
 
+TradePilot 会保存读过的历史，所以较长的期间只需从 Trading 212 读一次。默认每类保存 25,000 条记录，大约够每周定投好几年。`HISTORY_MAX_RECORDS` 可以改成别的数（至少 1,000），设为 `0` 则全部保存。英国税年的股份匹配要读取全部历史；回溯到已保存记录之前的期间会标记为已截断（[ANALYTICS.md](./docs/zh-CN/ANALYTICS.md)）。
+
 ## 本地开发
 
 Node 开发服务器：

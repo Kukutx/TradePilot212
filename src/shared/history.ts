@@ -600,6 +600,10 @@ export interface CashHistory {
   /** Newest first, up to the limit asked for; `count` is how many the window holds. */
   items: CashHistoryItem[];
   count: number;
+  /** Entries passed over before these, newest first, when this is a later page: from 2.84. */
+  offset?: number;
+  /** The pages of history read, when the read asked for a number: a later page asks for as many. */
+  maxPages?: number;
   /** Each type's total over the whole window, in the account currency. */
   totals: Record<string, number>;
   currency: string;
@@ -663,6 +667,10 @@ export interface TradeHistory {
   fills: TradeFill[];
   count: number;
   limit: number;
+  /** Fills passed over before these, newest first, when this is a later page: from 2.84. */
+  offset?: number;
+  /** The pages of history read, when the read asked for a number: a later page asks for as many. */
+  maxPages?: number;
   /** Over every fill in the window, not only those listed, in the account currency. */
   totals: FillTotals;
   unfilled?: UnfilledOrder[];

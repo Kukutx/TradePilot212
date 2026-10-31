@@ -447,7 +447,7 @@ export class InsightsService {
    * Dividends and cash movements (deposits, withdrawals, interest, fees) one by one, newest first,
    * with totals per type. `types` takes DIVIDEND and Trading 212's transaction types; a ticker limits it to dividends.
    */
-  async cashHistory(environment: TradingEnvironment, window: HistoryWindow, options: { ticker?: string; types?: string[]; limit?: number; maxPages?: number } = {}): Promise<CashHistory> {
+  async cashHistory(environment: TradingEnvironment, window: HistoryWindow, options: { ticker?: string; types?: string[]; limit?: number; offset?: number; maxPages?: number } = {}): Promise<CashHistory> {
     let exact: string | undefined;
     if (options.ticker?.trim()) {
       try {
@@ -491,15 +491,21 @@ export class InsightsService {
           currency: item.currency ?? "",
           ...(item.reference ? { reference: item.reference } : {}),
         })),
-    ].sort((a, b) => b.date.localeCompare(a.date));
+    // Newest first, and entries of one moment in one order on every read, so a page never repeats or skips one.
+    ].sort((a, b) => b.date.localeCompare(a.date) || (b.reference ?? "").localeCompare(a.reference ?? "") || a.type.localeCompare(b.type)
+      || ((a as CashHistoryItem).ticker ?? "").localeCompare((b as CashHistoryItem).ticker ?? "") || a.amount - b.amount);
+    const offset = Math.max(0, Math.floor(options.offset ?? 0));
     const totals: Record<string, number> = {};
     for (const item of items) totals[item.type] = Math.round(((totals[item.type] ?? 0) + item.amount) * 100) / 100;
     return {
       kind: "cash_history" as const,
       environment,
       period: periodOfWindow(window),
-      items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
+      // A page of the window's entries, newest first: `offset` passes over those already listed.
+      items: items.slice(offset, offset + Math.max(1, Math.min(500, options.limit ?? 100))),
       count: items.length,
+      ...(offset ? { offset } : {}),
+      ...(options.maxPages ? { maxPages: options.maxPages } : {}),
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
       ...(options.ticker?.trim() || types.size ? { filter: { ...(options.ticker?.trim() ? { ticker: exact ?? options.ticker.trim() } : {}), ...(types.size ? { types: [...types] } : {}) } } : {}),
@@ -508,7 +514,7 @@ export class InsightsService {
     };
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false): Promise<TradeHistory> {
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false, from = 0): Promise<TradeHistory> {
     // A name or symbol resolves to the exact ticker, which Trading 212 filters on its side, so a rarely
     // traded instrument is not lost past the page limit. One it no longer lists falls back to a prefix match.
     let exact: string | undefined;
@@ -529,8 +535,11 @@ export class InsightsService {
         return Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());
       });
     const max = Math.max(1, Math.min(200, limit));
+    // A page of the window's fills, newest first: `offset` passes over those already listed; the orders that never
+    // filled come with the first page.
+    const offset = Math.max(0, Math.floor(from));
     // Orders that closed without a fill: cancelled, rejected or expired.
-    const unfilled = includeUnfilled
+    const unfilled = includeUnfilled && !offset
       ? inWindow.filter((item) => !item.fill).slice(0, max).map((item) => ({
           ...orderIdOf(item.order?.id),
           ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
@@ -547,9 +556,13 @@ export class InsightsService {
           initiatedFrom: item.order?.initiatedFrom,
         }))
       : undefined;
-    const filled = inWindow.filter((item) => item.fill);
+    // Newest fill first, and fills of one moment in one order whichever way they were read (Trading 212 lists by
+    // when the order was made, the ledger by the fill), so a page never repeats or skips one.
+    const fillTime = (item: HistoryOrderItem) => { const time = Date.parse(item.fill?.filledAt ?? ""); return Number.isFinite(time) ? time : -Infinity; };
+    const filled = inWindow.filter((item) => item.fill)
+      .sort((a, b) => fillTime(b) - fillTime(a) || recordKey("orders", b).localeCompare(recordKey("orders", a)));
     const fills = filled
-      .slice(0, max)
+      .slice(offset, offset + max)
       .map((item) => ({
         ...orderIdOf(item.order?.id),
         ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
@@ -583,7 +596,7 @@ export class InsightsService {
     for (const key of ["bought", "sold", "realised", "costs"] as const) totals[key] = Math.round(totals[key] * 100) / 100;
     const filter = ticker?.trim() ? { filter: { ticker: exact ?? ticker.trim() } } : {};
     return {
-      kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, count: filled.length, limit: max, totals, ...(unfilled ? { unfilled } : {}), ...filter,
+      kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, count: filled.length, limit: max, ...(offset ? { offset } : {}), ...(maxPages ? { maxPages } : {}), totals, ...(unfilled ? { unfilled } : {}), ...filter,
       truncated: collected.truncated, timestamp: new Date().toISOString(),
     };
   }

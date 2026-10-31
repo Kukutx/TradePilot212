@@ -35138,6 +35138,160 @@ function fail(code, message, details) {
   throw new TradePilotError(code, message, details);
 }
 
+// src/core/history-ledger.ts
+var MAX_RECORDS = 25e3;
+var MAX_CHUNKS = 24;
+var CHUNK_CHARS = 1e6;
+var MAX_SEGMENTS = 8;
+var SETTLE_MS = 3 * 864e5;
+function recordKey(kind, item) {
+  if (kind === "orders") {
+    const { order, fill } = item;
+    if (fill?.id !== void 0 || order?.id !== void 0) return `o:${String(order?.id ?? "")}:f:${String(fill?.id ?? "")}:${fill?.filledAt ?? ""}`;
+  } else {
+    const reference = item.reference;
+    if (reference) return `r:${reference}`;
+  }
+  return `j:${JSON.stringify(item)}`;
+}
+var ledgerPrefix = (environment, account, kind) => `ledger:${environment}:${account}:${kind}:`;
+async function accountName(apiKey) {
+  const digest2 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`tradepilot-ledger:${apiKey}`));
+  return [...new Uint8Array(digest2).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+var chunkKey = (prefix) => `${prefix}c:${Date.now().toString(36).padStart(9, "0")}-${crypto.randomUUID().slice(0, 8)}`;
+var HistoryLedgers = class {
+  constructor(store2, options = {}) {
+    this.store = store2;
+    this.maxRecords = options.maxRecords ?? MAX_RECORDS;
+  }
+  store;
+  /** One read of a ledger at a time in this process: two at once would read the same pages twice. */
+  queues = /* @__PURE__ */ new Map();
+  /** Past this many records of a kind the oldest go; 0 keeps them all. */
+  maxRecords;
+  /** Runs `work` after any other work on this ledger in this process. */
+  exclusive(prefix, work) {
+    const before = this.queues.get(prefix) ?? Promise.resolve();
+    const run = before.then(work, work);
+    const settled3 = run.then(() => void 0, () => void 0);
+    this.queues.set(prefix, settled3);
+    void settled3.then(() => {
+      if (this.queues.get(prefix) === settled3) this.queues.delete(prefix);
+    });
+    return run;
+  }
+  /** What is kept, without the records. */
+  async meta(prefix) {
+    const meta3 = await this.store.get(`${prefix}meta`);
+    return meta3?.version === 3 && Array.isArray(meta3.segments) ? meta3 : void 0;
+  }
+  /** The records kept, each once, newest first by `time` (those without one last), and what is known of them. */
+  async load(prefix, kind, times) {
+    const meta3 = await this.meta(prefix);
+    const chunks = await this.store.list(`${prefix}c:`);
+    if (!meta3 && !chunks.length) return void 0;
+    const items = union2(kind, chunks.flatMap((chunk) => chunk.value), times.time);
+    const known = meta3 ?? { version: 3, segments: [], pending: [], updatedAt: (/* @__PURE__ */ new Date(0)).toISOString() };
+    return { meta: { ...known, segments: within(known.segments, items, times.place, await this.floor(prefix)) }, items, chunks: chunks.map((chunk) => chunk.key) };
+  }
+  /** Below this place, records went past the most kept. */
+  async floor(prefix) {
+    const floor = await this.store.get(`${prefix}floor`);
+    return typeof floor === "number" && Number.isFinite(floor) ? floor : void 0;
+  }
+  /**
+   * Adds `added` to what `ledger` was loaded with, and sets what is known of it. Past MAX_CHUNKS the chunks loaded
+   * are merged (written before they are deleted); past MAX_RECORDS the oldest go, and the segments that reached them
+   * stop there. Returns the records now kept and what is known of them.
+   */
+  async add(prefix, kind, ledger, added, meta3, times) {
+    let items = union2(kind, [...added, ...ledger?.items ?? []], times.time);
+    const capped = this.maxRecords > 0 && items.length > this.maxRecords;
+    let floor = await this.floor(prefix);
+    let segments = meta3.segments;
+    if (floor !== void 0 && !capped && (this.maxRecords === 0 || items.length < this.maxRecords * 0.8)) {
+      await this.store.delete(`${prefix}floor`);
+      floor = void 0;
+      segments = segments.filter((segment) => segment.next !== null || segment.complete);
+    }
+    if (capped) {
+      const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
+      const cut3 = placed[Math.min(Math.floor(this.maxRecords * 0.9), placed.length) - 1];
+      if (cut3 !== void 0) {
+        items = items.filter((item) => !(times.place(item) < cut3) || !(times.time(item) < cut3));
+        floor = Math.max(floor ?? cut3, cut3);
+        await this.store.put(`${prefix}floor`, floor);
+      }
+    }
+    const chunks = ledger?.chunks ?? [];
+    const still = new Set(items);
+    const fresh = added.filter((item) => still.has(item));
+    const freshChunks = split(fresh);
+    if (capped || chunks.length + freshChunks.length > MAX_CHUNKS && chunks.length + freshChunks.length > split(items).length + MAX_CHUNKS) {
+      for (const chunk of split(items)) await this.store.put(chunkKey(prefix), chunk);
+      for (const key of chunks) await this.store.delete(key);
+    } else {
+      for (const chunk of freshChunks) await this.store.put(chunkKey(prefix), chunk);
+    }
+    const kept = {
+      version: 3,
+      segments: fewest(within(segments, items, times.place, floor)),
+      pending: meta3.pending,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    await this.store.put(`${prefix}meta`, kept);
+    return { items, meta: kept };
+  }
+};
+function within(segments, items, place, trimmed) {
+  let lowest;
+  for (const item of items) {
+    const value = place(item);
+    if (Number.isFinite(value) && (lowest === void 0 || value < lowest)) lowest = value;
+  }
+  const floor = trimmed === void 0 ? lowest : Math.max(trimmed, lowest ?? trimmed);
+  return segments.flatMap((segment) => {
+    if (segment.bottom === void 0 || floor === void 0 || Date.parse(segment.bottom) >= floor) return [segment];
+    if (Date.parse(segment.readAt) < floor) return [];
+    return [{ readAt: segment.readAt, bottom: new Date(floor).toISOString(), next: null, complete: false }];
+  });
+}
+function fewest(segments) {
+  return segments.length <= MAX_SEGMENTS ? segments : [segments[0], ...segments.slice(segments.length - MAX_SEGMENTS + 1)];
+}
+function split(items) {
+  const chunks = [];
+  let chunk = [];
+  let size = 0;
+  for (const item of items) {
+    const length = JSON.stringify(item).length + 1;
+    if (chunk.length && size + length > CHUNK_CHARS) {
+      chunks.push(chunk);
+      chunk = [];
+      size = 0;
+    }
+    chunk.push(item);
+    size += length;
+  }
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
+function union2(kind, items, time3) {
+  const seen = /* @__PURE__ */ new Set();
+  const once = items.filter((item) => {
+    const key = recordKey(kind, item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const at = (item) => {
+    const value = time3(item);
+    return Number.isFinite(value) ? value : -Infinity;
+  };
+  return once.map((item, index) => ({ item, index })).sort((a, b) => at(b.item) - at(a.item) || a.index - b.index).map(({ item }) => item);
+}
+
 // src/shared/trade-cost.ts
 var DEFAULT_FX_FEE_RATE = 15e-4;
 var MAX_FX_FEE_RATE = 0.05;
@@ -35685,6 +35839,11 @@ function fxFeeRate(env2) {
   if (value > MAX_FX_FEE_RATE) throw new Error(`FX_FEE_RATE must be a fraction from 0 to ${MAX_FX_FEE_RATE}, such as 0.0015 for 0.15%`);
   return value;
 }
+function historyMaxRecords(env2) {
+  const value = nonNegative(env2, "HISTORY_MAX_RECORDS", MAX_RECORDS);
+  if (value && (!Number.isInteger(value) || value < 1e3)) throw new Error("HISTORY_MAX_RECORDS must be a whole number of 1000 or more, or 0 to keep every record");
+  return value;
+}
 function tradingEnvironment(env2) {
   const value = (env2.DEFAULT_TRADING_ENV || "demo").trim().toLowerCase();
   if (value !== "demo" && value !== "live") throw new Error("DEFAULT_TRADING_ENV must be demo or live");
@@ -35806,6 +35965,7 @@ function createConfig(env2, requestOrigin) {
     sampleData,
     oauthRedirectHosts: list(env2, "OAUTH_REDIRECT_HOSTS").map((item) => item.toLowerCase()),
     fxFeeRate: fxFeeRate(env2),
+    historyMaxRecords: historyMaxRecords(env2),
     // Sample data never reaches Trading 212: Demo points at the simulated account and Live has no keys.
     trading212: sampleData ? {
       demo: { baseUrl: SAMPLE_BASE_URL, apiKey: "sample", apiSecret: "sample" },
@@ -35913,7 +36073,7 @@ var TOOL_OUTPUT = {
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),
-  get_cash_history: payload("cash_history", "environment:s period:o items:a count:n totals:o currency:s filter:o truncated:b timestamp:s"),
+  get_cash_history: payload("cash_history", "environment:s period:o items:a count:n offset:n maxPages:n totals:o currency:s filter:o truncated:b timestamp:s"),
   get_holding_detail: payload("holding", holding),
   get_income_summary: payload("income", "environment:s accountCurrency:s period:o total:n dividends:n interest:n byMonth:a byTicker:a trailing12Months:n forwardAnnual:o yields:o cash:o truncated:b timestamp:s credentials:o writeEnabled:b"),
   get_journal_review: payload("journal_review", "environment:s accountCurrency:s period:o fills:n withNote:n overall:o tags:a reviewed:n due:n trades:a tradesTotal:n unmatched:n withoutOrder:n unpriced:a notQuoted:a truncated:b timestamp:s credentials:o writeEnabled:b"),
@@ -35926,7 +36086,7 @@ var TOOL_OUTPUT = {
   get_quote: payload("quote", "environment:s instrument:o price:n asOf:s source:s"),
   get_recent_trading_activity: payload("activity", "environment:s activity:a timestamp:s"),
   get_tax_year_summary: payload("tax_year", "environment:s accountCurrency:s year:n yearStart:s timeZone:s firstDay:s lastDay:s period:o ended:b disposals:o byTicker:a income:o costs:o ukMatching:o truncated:b notes:a timestamp:s"),
-  get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
+  get_trade_history: payload("trade_history", "environment:s period:o fills:a count:n limit:n offset:n maxPages:n totals:o unfilled:a filter:o journal:a truncated:b timestamp:s"),
   get_trading_policy: payload("trading_policy", "environment:s policy:o maxOrderNotional:n maxOrderQuantity:n usageToday:o demoAutomationEnabled:b timestamp:s"),
   get_watchlist: payload("watchlist", "environment:s accountCurrency:s items:a timestamp:s credentials:o writeEnabled:b"),
   list_investment_plans: payload("investment_plans", "environment:s defaultEnvironment:s plans:a demoAutomationEnabled:b timestamp:s"),
@@ -39271,148 +39431,6 @@ function summarizeExport(text) {
 var round10 = (value) => Math.round(value * 1e8) / 1e8;
 var escape2 = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
-// src/core/history-ledger.ts
-var MAX_RECORDS = 1e4;
-var TRIM_TO = 9e3;
-var MAX_CHUNKS = 24;
-var CHUNK_CHARS = 1e6;
-var MAX_SEGMENTS = 8;
-var SETTLE_MS = 3 * 864e5;
-function recordKey(kind, item) {
-  if (kind === "orders") {
-    const { order, fill } = item;
-    if (fill?.id !== void 0 || order?.id !== void 0) return `o:${String(order?.id ?? "")}:f:${String(fill?.id ?? "")}:${fill?.filledAt ?? ""}`;
-  } else {
-    const reference = item.reference;
-    if (reference) return `r:${reference}`;
-  }
-  return `j:${JSON.stringify(item)}`;
-}
-var ledgerPrefix = (environment, account, kind) => `ledger:${environment}:${account}:${kind}:`;
-async function accountName(apiKey) {
-  const digest2 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`tradepilot-ledger:${apiKey}`));
-  return [...new Uint8Array(digest2).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-var chunkKey = (prefix) => `${prefix}c:${Date.now().toString(36).padStart(9, "0")}-${crypto.randomUUID().slice(0, 8)}`;
-var HistoryLedgers = class {
-  constructor(store2) {
-    this.store = store2;
-  }
-  store;
-  /** One read of a ledger at a time in this process: two at once would read the same pages twice. */
-  queues = /* @__PURE__ */ new Map();
-  /** Runs `work` after any other work on this ledger in this process. */
-  exclusive(prefix, work) {
-    const before = this.queues.get(prefix) ?? Promise.resolve();
-    const run = before.then(work, work);
-    const settled3 = run.then(() => void 0, () => void 0);
-    this.queues.set(prefix, settled3);
-    void settled3.then(() => {
-      if (this.queues.get(prefix) === settled3) this.queues.delete(prefix);
-    });
-    return run;
-  }
-  /** What is kept, without the records. */
-  async meta(prefix) {
-    const meta3 = await this.store.get(`${prefix}meta`);
-    return meta3?.version === 3 && Array.isArray(meta3.segments) ? meta3 : void 0;
-  }
-  /** The records kept, each once, newest first by `time` (those without one last), and what is known of them. */
-  async load(prefix, kind, times) {
-    const meta3 = await this.meta(prefix);
-    const chunks = await this.store.list(`${prefix}c:`);
-    if (!meta3 && !chunks.length) return void 0;
-    const items = union2(kind, chunks.flatMap((chunk) => chunk.value), times.time);
-    const known = meta3 ?? { version: 3, segments: [], pending: [], updatedAt: (/* @__PURE__ */ new Date(0)).toISOString() };
-    return { meta: { ...known, segments: within(known.segments, items, times.place, await this.floor(prefix)) }, items, chunks: chunks.map((chunk) => chunk.key) };
-  }
-  /** Below this place, records went past MAX_RECORDS. */
-  async floor(prefix) {
-    const floor = await this.store.get(`${prefix}floor`);
-    return typeof floor === "number" && Number.isFinite(floor) ? floor : void 0;
-  }
-  /**
-   * Adds `added` to what `ledger` was loaded with, and sets what is known of it. Past MAX_CHUNKS the chunks loaded
-   * are merged (written before they are deleted); past MAX_RECORDS the oldest go, and the segments that reached them
-   * stop there. Returns the records now kept and what is known of them.
-   */
-  async add(prefix, kind, ledger, added, meta3, times) {
-    let items = union2(kind, [...added, ...ledger?.items ?? []], times.time);
-    const capped = items.length > MAX_RECORDS;
-    let floor = await this.floor(prefix);
-    if (capped) {
-      const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
-      const cut3 = placed[Math.min(TRIM_TO, placed.length) - 1];
-      if (cut3 !== void 0) {
-        items = items.filter((item) => !(times.place(item) < cut3) || !(times.time(item) < cut3));
-        floor = Math.max(floor ?? cut3, cut3);
-        await this.store.put(`${prefix}floor`, floor);
-      }
-    }
-    const chunks = ledger?.chunks ?? [];
-    const still = new Set(items);
-    const fresh = added.filter((item) => still.has(item));
-    if (capped || chunks.length + split(fresh).length > MAX_CHUNKS) {
-      for (const chunk of split(items)) await this.store.put(chunkKey(prefix), chunk);
-      for (const key of chunks) await this.store.delete(key);
-    } else {
-      for (const chunk of split(fresh)) await this.store.put(chunkKey(prefix), chunk);
-    }
-    const kept = {
-      version: 3,
-      segments: fewest(within(meta3.segments, items, times.place, floor)),
-      pending: meta3.pending,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    await this.store.put(`${prefix}meta`, kept);
-    return { items, meta: kept };
-  }
-};
-function within(segments, items, place, trimmed) {
-  const placed = items.map(place).filter(Number.isFinite);
-  const lowest = placed.length ? Math.min(...placed) : void 0;
-  const floor = trimmed === void 0 ? lowest : Math.max(trimmed, lowest ?? trimmed);
-  return segments.flatMap((segment) => {
-    if (segment.bottom === void 0 || floor === void 0 || Date.parse(segment.bottom) >= floor) return [segment];
-    if (Date.parse(segment.readAt) < floor) return [];
-    return [{ readAt: segment.readAt, bottom: new Date(floor).toISOString(), next: null, complete: false }];
-  });
-}
-function fewest(segments) {
-  return segments.length <= MAX_SEGMENTS ? segments : [segments[0], ...segments.slice(segments.length - MAX_SEGMENTS + 1)];
-}
-function split(items) {
-  const chunks = [];
-  let chunk = [];
-  let size = 0;
-  for (const item of items) {
-    const length = JSON.stringify(item).length + 1;
-    if (chunk.length && size + length > CHUNK_CHARS) {
-      chunks.push(chunk);
-      chunk = [];
-      size = 0;
-    }
-    chunk.push(item);
-    size += length;
-  }
-  if (chunk.length) chunks.push(chunk);
-  return chunks;
-}
-function union2(kind, items, time3) {
-  const seen = /* @__PURE__ */ new Set();
-  const once = items.filter((item) => {
-    const key = recordKey(kind, item);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const at = (item) => {
-    const value = time3(item);
-    return Number.isFinite(value) ? value : -Infinity;
-  };
-  return once.map((item, index) => ({ item, index })).sort((a, b) => at(b.item) - at(a.item) || a.index - b.index).map(({ item }) => item);
-}
-
 // src/core/insights-service.ts
 var DEFAULT_HISTORY_PAGES = 10;
 var MAX_HISTORY_PAGES = 40;
@@ -39825,15 +39843,20 @@ var InsightsService = class {
         currency: item.currency ?? "",
         ...item.reference ? { reference: item.reference } : {}
       }))
-    ].sort((a, b) => b.date.localeCompare(a.date));
+      // Newest first, and entries of one moment in one order on every read, so a page never repeats or skips one.
+    ].sort((a, b) => b.date.localeCompare(a.date) || (b.reference ?? "").localeCompare(a.reference ?? "") || a.type.localeCompare(b.type) || (a.ticker ?? "").localeCompare(b.ticker ?? "") || a.amount - b.amount);
+    const offset = Math.max(0, Math.floor(options.offset ?? 0));
     const totals = {};
     for (const item of items) totals[item.type] = Math.round(((totals[item.type] ?? 0) + item.amount) * 100) / 100;
     return {
       kind: "cash_history",
       environment,
       period: periodOfWindow(window),
-      items: items.slice(0, Math.max(1, Math.min(500, options.limit ?? 100))),
+      // A page of the window's entries, newest first: `offset` passes over those already listed.
+      items: items.slice(offset, offset + Math.max(1, Math.min(500, options.limit ?? 100))),
       count: items.length,
+      ...offset ? { offset } : {},
+      ...options.maxPages ? { maxPages: options.maxPages } : {},
       totals,
       currency: items.find((item) => item.currency)?.currency ?? "",
       ...options.ticker?.trim() || types.size ? { filter: { ...options.ticker?.trim() ? { ticker: exact2 ?? options.ticker.trim() } : {}, ...types.size ? { types: [...types] } : {} } } : {},
@@ -39841,7 +39864,7 @@ var InsightsService = class {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
-  async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false) {
+  async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false, from = 0) {
     let exact2;
     if (ticker?.trim()) {
       try {
@@ -39858,7 +39881,8 @@ var InsightsService = class {
       return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
     });
     const max = Math.max(1, Math.min(200, limit));
-    const unfilled = includeUnfilled ? inWindow3.filter((item) => !item.fill).slice(0, max).map((item) => ({
+    const offset = Math.max(0, Math.floor(from));
+    const unfilled = includeUnfilled && !offset ? inWindow3.filter((item) => !item.fill).slice(0, max).map((item) => ({
       ...orderIdOf2(item.order?.id),
       ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
@@ -39873,8 +39897,12 @@ var InsightsService = class {
       priceCurrency: item.order?.currency ?? item.order?.instrument?.currency,
       initiatedFrom: item.order?.initiatedFrom
     })) : void 0;
-    const filled = inWindow3.filter((item) => item.fill);
-    const fills = filled.slice(0, max).map((item) => ({
+    const fillTime = (item) => {
+      const time3 = Date.parse(item.fill?.filledAt ?? "");
+      return Number.isFinite(time3) ? time3 : -Infinity;
+    };
+    const filled = inWindow3.filter((item) => item.fill).sort((a, b) => fillTime(b) - fillTime(a) || recordKey("orders", b).localeCompare(recordKey("orders", a)));
+    const fills = filled.slice(offset, offset + max).map((item) => ({
       ...orderIdOf2(item.order?.id),
       ticker: item.order?.ticker ?? item.order?.instrument?.ticker,
       ...item.order?.instrument?.name ? { name: item.order.instrument.name } : {},
@@ -39918,6 +39946,8 @@ var InsightsService = class {
       fills,
       count: filled.length,
       limit: max,
+      ...offset ? { offset } : {},
+      ...maxPages ? { maxPages } : {},
       totals,
       ...unfilled ? { unfilled } : {},
       ...filter,
@@ -40209,7 +40239,7 @@ var TargetAllocations = class {
 };
 
 // src/core/automation.ts
-var MAX_PLANS = 20;
+var MAX_PLANS = 50;
 var MAX_PLAN_LEGS = 10;
 var DEFAULT_HOUR_UTC = 15;
 var RUN_LOCK_MS = 10 * 6e4;
@@ -40866,7 +40896,7 @@ var PiesService = class {
 };
 
 // src/core/account-alerts.ts
-var MAX_ACCOUNT_ALERTS = 20;
+var MAX_ACCOUNT_ALERTS = 50;
 var DAY_MOVE_EVERY_MS = 10 * 6e4;
 var SUMMARY_REUSE_MS = 3e4;
 var WRITE_EVERY_MS = 10 * 6e4;
@@ -41041,7 +41071,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.83.0"
+  version: "2.84.0"
 };
 
 // src/shared/holding-risk.ts
@@ -42019,11 +42049,12 @@ function tradeHistory(data) {
   };
   const currency = totals.currency ?? fills.find((fill) => fill.accountCurrency)?.accountCurrency ?? "";
   const all = data.count ?? fills.length;
+  const offset = data.offset ?? 0;
   const partial2 = all > fills.length;
   return [
     ...all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num2(totals.bought)}, ${totals.sells} sells ${num2(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num2(totals.costs)}.`] : ["No fills in this window."],
     ...fees.size ? [`Fees by kind${partial2 ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")}.`] : [],
-    ...partial2 ? [`The newest ${fills.length} of ${all} fills are listed below; a higher limit (up to 200) or a shorter window lists more.`] : [],
+    ...!partial2 ? [] : offset && !fills.length ? [`No fills past the first ${offset} of ${all}.`] : offset ? [`Fills ${offset + 1}\u2013${offset + fills.length} of ${all}, newest first, are listed below${offset + fills.length < all ? `; offset ${offset + fills.length} lists the next` : ""}.`] : [`The newest ${fills.length} of ${all} fills are listed below; offset ${fills.length}, with this window's period.from and period.to as from and to, lists the next, or a shorter window fewer.`],
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
@@ -42042,10 +42073,13 @@ function orderStatus(data) {
   ];
 }
 function cashHistory(data) {
+  const offset = data.offset ?? 0;
+  const next = offset + data.items.length;
   return [
     Object.keys(data.totals).length ? `Totals${data.currency ? ` (${data.currency})` : ""}: ${Object.entries(data.totals).map(([type, total]) => `${type.toLowerCase()} ${signed(total)}`).join(", ")}.` : "No entries in this window.",
     ...rows(data.items, (item) => `${day(item.date)} ${item.type}${item.ticker ? ` ${item.ticker}` : ""}${item.name ? ` (${item.name})` : ""} ${signed(item.amount)} ${item.currency}`.trimEnd() + `${item.quantity === void 0 ? "" : `, ${num2(item.quantity, 8)} shares`}${item.grossPerShare === void 0 ? "" : ` \xD7 ${num2(item.grossPerShare, 6)} ${item.perShareCurrency ?? ""} gross`.trimEnd()}`, 60),
-    ...data.count > data.items.length ? [`${data.count - data.items.length} more not shown; raise limit or narrow the window.`] : [],
+    ...offset && !data.items.length ? [`No entries past the first ${offset} of ${data.count}.`] : offset ? [`Entries ${offset + 1}\u2013${next} of ${data.count}, newest first.`] : [],
+    ...data.count > next ? [`${data.count - next} more not shown; offset ${next}, with this window's period.from and period.to as from and to, lists the next.`] : [],
     ...data.truncated ? ["History was truncated at the page limit; older entries are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : []
   ];
 }
@@ -43805,6 +43839,10 @@ var registerAppTool = ((server2, name, config3, handler) => {
   const outputSchema = TOOL_OUTPUT[name];
   return j(server2, name, outputSchema ? { ...config3, outputSchema } : config3, handler);
 });
+function listedRange(listed, offset, count) {
+  if (!offset) return `${listed} of ${count}`;
+  return listed ? `${offset + 1}\u2013${offset + listed} of ${count}` : `none past ${offset} of ${count}`;
+}
 function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
@@ -44050,18 +44088,19 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         ticker: external_exports.string().min(1).optional(),
         includeUnfilled: external_exports.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
         limit: external_exports.number().int().min(1).max(200).default(50),
+        offset: external_exports.number().int().min(0).max(1e6).default(0).describe("Fills to pass over, newest first, for the next page: the number already listed. Ask for the same window as the first page (its period.from as `from`, its period.to as `to`) and the same maxPages, so the pages count the same fills"),
         ...windowSchema
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, ticker, includeUnfilled, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, includeUnfilled, limit, offset, period, from, to, maxPages }) => {
       try {
-        const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled);
+        const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled, offset);
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...history, ...notes.length ? { journal: notes } : {} };
-        return result(data, `Returned ${data.fills.length} of ${data.count} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
+        return result(data, `Returned ${listedRange(data.fills.length, data.offset, data.count)} fills${data.unfilled ? ` and ${data.unfilled.length} unfilled order(s)` : ""}${notes.length ? `, with ${notes.length} journal note(s) on these orders` : ""}${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -44078,15 +44117,16 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         ticker: external_exports.string().min(1).optional().describe("Only dividends of this ticker, symbol, name or ISIN"),
         types: external_exports.array(external_exports.string().min(1).max(30)).max(10).optional(),
         limit: external_exports.number().int().min(1).max(500).default(100),
+        offset: external_exports.number().int().min(0).max(1e6).default(0).describe("Entries to pass over, newest first, for the next page: the number already listed. Ask for the same window as the first page (its period.from as `from`, its period.to as `to`) and the same maxPages, so the pages count the same entries"),
         ...windowSchema
       }),
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, ticker, types, limit, period, from, to, maxPages }) => {
+    async ({ environment, ticker, types, limit, offset, period, from, to, maxPages }) => {
       try {
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), { ...ticker ? { ticker } : {}, ...types ? { types } : {}, limit, ...maxPages ? { maxPages } : {} }) };
-        return result(data, `Returned ${data.items.length} of ${data.count} entries${data.truncated ? " (history truncated)" : ""}.`);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...await insights.cashHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), { ...ticker ? { ticker } : {}, ...types ? { types } : {}, limit, offset, ...maxPages ? { maxPages } : {} }) };
+        return result(data, `Returned ${listedRange(data.items.length, data.offset, data.count)} entries${data.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -45620,7 +45660,7 @@ var PriceAlerts = class {
 };
 
 // src/core/journal.ts
-var MAX_JOURNAL_ENTRIES = 1e3;
+var MAX_JOURNAL_ENTRIES = 2e3;
 var entryKey = (id) => `journal:${id}`;
 var claimKey = (environment, orderId) => `journal-order:${environment}:${orderId}`;
 var CLAIM_MS = 6e4;
@@ -46420,7 +46460,7 @@ function createServices(input2) {
     ...deps.fetcher ? { fetcher: deps.fetcher } : {},
     instruments: (environment) => trading.instruments(environment),
     // The sample account's history is drawn relative to today: kept, it would go stale.
-    ...deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store) }
+    ...deps.config.sampleData ? {} : { ledgers: new HistoryLedgers(deps.ledgerStore ?? deps.store, { maxRecords: deps.config.historyMaxRecords }) }
   });
   const automation3 = new AutomationService({ config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment) });
   const links = new ProtectiveLinks({ config: deps.config, store: deps.store, trading });

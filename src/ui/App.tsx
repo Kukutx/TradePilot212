@@ -29,6 +29,7 @@ import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale 
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
 import { Menu, type MenuItem } from "./components/menu";
 import { TipLayer } from "./components/tips";
+import { joinPages } from "./lib/history-pages";
 import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bridge";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
@@ -766,6 +767,39 @@ export default function App() {
       // With nothing to show, the error takes the view's place; otherwise the older data stays below it.
       if (insights[kind]) setProblem(failure);
       else setInsightError({ kind, problem: failure });
+    } finally {
+      setStatus("idle");
+    }
+  }
+
+  /**
+   * List the next page of the trades or cash movements shown, below them: the same window, ended where the first page
+   * ended, so entries that came in since do not move the pages.
+   */
+  async function loadMore(kind: "trade_history" | "cash_history"): Promise<void> {
+    const current = insights[kind];
+    if (!current) return;
+    const listed = current.kind === "trade_history" ? current.fills.length : current.items.length;
+    const args = {
+      environment: current.environment,
+      ...(current.period.from ? { from: current.period.from } : {}), to: current.period.to,
+      ...(current.filter?.ticker ? { ticker: current.filter.ticker } : {}),
+      ...(current.kind === "cash_history" && current.filter?.types ? { types: current.filter.types } : {}),
+      ...(current.maxPages ? { maxPages: current.maxPages } : {}),
+      limit: kind === "trade_history" ? 200 : 500,
+      offset: (current.offset ?? 0) + listed,
+    };
+    setStatus("loading");
+    setProblem(null);
+    try {
+      const next = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
+      setInsights((shown) => {
+        // A page read for a list since replaced (another period, account or filter) is dropped.
+        if (shown[kind] !== current || next.kind !== kind) return shown;
+        return { ...shown, [kind]: joinPages(current, next as typeof current) };
+      });
+    } catch (requestError) {
+      setProblem(problemFrom("errorTitleLoad", requestError, () => void loadMore(kind)));
     } finally {
       setStatus("idle");
     }
@@ -1519,11 +1553,11 @@ export default function App() {
               />
             )}
             {portfolioLike && tab === "trade_history" && insights.trade_history && (
-              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} {...scopeOf("trade_history")} busy={loading}
+              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} {...scopeOf("trade_history")} busy={loading} onMore={() => void loadMore("trade_history")}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "cash_history" && insights.cash_history && (
-              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} {...scopeOf("cash_history")} busy={loading}
+              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} {...scopeOf("cash_history")} busy={loading} onMore={() => void loadMore("cash_history")}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "tax_year" && insights.tax_year && (

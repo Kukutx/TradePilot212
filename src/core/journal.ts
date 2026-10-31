@@ -10,7 +10,7 @@ import type { StateStore } from "./state-store.js";
 import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
 import { randomToken } from "./web-utils.js";
 
-export const MAX_JOURNAL_ENTRIES = 1000;
+export const MAX_JOURNAL_ENTRIES = 2_000;
 const entryKey = (id: string) => `journal:${id}`;
 /**
  * Taken atomically while a note on an order is saved, so two saves at once cannot both write one. It lapses

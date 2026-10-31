@@ -57,7 +57,7 @@ export interface PlanPatch {
   timeZone?: string;
 }
 
-export const MAX_PLANS = 20;
+export const MAX_PLANS = 50;
 export const MAX_PLAN_LEGS = 10;
 /** A new plan's hour when none is given: 15:00 UTC, inside the US and the main European sessions. */
 const DEFAULT_HOUR_UTC = 15;

@@ -1285,6 +1285,8 @@ export const zhCN: Record<MessageKey, string> = {
   historyCashType: "流水类型",
   historyAll: "全部",
   historyNoCash: "这段时间没有资金流水。",
+  historyLoadMore: "显示更早的（还有 {count} 条）",
+  historyShowingFrom: "列出第 {from} 到第 {to} 条（共 {count} 条），合计涵盖全部。",
   historyShowingNewest: "只列出最新的 {shown} 条（共 {count} 条），合计涵盖全部。",
   historyShowingNewestFiltered: "只列出最新的 {shown} 条（共 {count} 条）；输入筛选时，合计只算列出且符合筛选的。",
   historyFilteredBy: "仅显示",

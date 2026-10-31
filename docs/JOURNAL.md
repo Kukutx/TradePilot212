@@ -11,7 +11,7 @@ TradePilot keeps a note per trade: why you made it, and later, looking back, wha
 - **On an instrument.** **Add note** at the top of the holding's journal writes one without an order, such as what you are waiting for before buying.
 - **From the chat.** `manage_trade_journal` with `action: "add"`, an `instrument` and a `thesis` or `review`; an `orderId` from `get_trade_history` or `get_order_status` ties it to that order.
 
-Each note has a thesis (why), a review (looking back) or both, up to 1000 characters each, and up to 8 tags. An order has at most one note, also when two saves happen at once: adding a second one names the first so you can change it instead, and deleting a note frees its order. Up to 1000 notes are kept.
+Each note has a thesis (why), a review (looking back) or both, up to 1000 characters each, and up to 8 tags. An order has at most one note, also when two saves happen at once: adding a second one names the first so you can change it instead, and deleting a note frees its order. Up to 2,000 notes are kept.
 
 ## Reading them
 
