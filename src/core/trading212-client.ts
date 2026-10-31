@@ -228,7 +228,7 @@ export class Trading212Client {
   async getAccountSummary(options: { fresh?: boolean } = {}) { return { ...await this.request<AccountSummary>("GET", "/equity/account/summary", undefined, options.fresh) }; }
   async getPositions(options: { fresh?: boolean } = {}) { return unwrapArray<Position>(await this.request("GET", "/equity/positions", undefined, options.fresh)).map(normalizePosition); }
   async getOrders(options: { fresh?: boolean } = {}) { return [...unwrapArray<PendingOrder>(await this.request("GET", "/equity/orders", undefined, options.fresh))]; }
-  getOrder(id: string) { return this.request<PendingOrder>("GET", `/equity/orders/${encodeURIComponent(id)}`); }
+  getOrder(id: string, options: { fresh?: boolean } = {}) { return this.request<PendingOrder>("GET", `/equity/orders/${encodeURIComponent(id)}`, undefined, options.fresh); }
   async getInstruments() { return unwrapArray<Instrument>(await this.request("GET", "/equity/metadata/instruments")); }
   placeOrder(draft: OrderDraft): Promise<unknown> {
     const quantity = draft.side === "buy" ? draft.quantity : -draft.quantity;

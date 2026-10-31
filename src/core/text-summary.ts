@@ -10,7 +10,7 @@ import { equalRiskTargets, marketScenarios, PARITY_MIN_VOLATILITY } from "../sha
 import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
-import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment, OrderImpact } from "../shared/contracts.js";
+import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, ReplaceDraftPayload, ReplaceExecutionResult, ReplacePreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment, OrderImpact } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, MarketSensitivity, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import { tradeSource, type HistoryFilter, type TradeSource } from "../shared/history.js";
@@ -823,6 +823,26 @@ function cancelPreview(data: CancelPreview): string[] {
   ];
 }
 
+function replacePreview(data: ReplacePreview): string[] {
+  return [
+    `Ready to change on ${env(data.environment)}: ${orderLine(data.original)}.`,
+    `It becomes: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === undefined ? "" : ` ≈ ${money(data.estimatedNotional, data.estimatedNotionalCurrency)}`}. Trading 212 cannot edit an order: the confirmation cancels it and places the new one once the cancel shows nothing of it filled.`,
+    ...(data.impact ? impactLines(data.impact) : []),
+    ...noticesLines(data.notices),
+    ...policyLines(data.policy),
+    tokenLine(data.token, data.expiresAt, data.environment),
+  ];
+}
+
+function replaceExecution(data: ReplaceExecutionResult): string[] {
+  const order = data.order as PendingOrder | undefined;
+  return [
+    ...(data.stage === "replaced" && order && typeof order === "object" && order.id !== undefined ? [`Trading 212 order ${orderLine(order)}.`] : []),
+    ...(data.stage === "cancelled_not_placed" ? [`Order ${data.orderId} is cancelled and the new order was NOT placed. Tell the user; do not place it again without their word.`] : []),
+    ...(data.stage === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : []),
+  ];
+}
+
 function basketExecution(data: BasketExecutionResult): string[] {
   return rows(data.legs, (leg) => `${draftLine(leg.draft)}: ${leg.result ? `${leg.result.status}${leg.result.ok ? "" : ` (${leg.result.message})`}${leg.result.verificationId ? `, verificationId ${leg.result.verificationId}` : ""}` : `not sent (${leg.skipped ?? "skipped"})`}`);
 }
@@ -1064,6 +1084,14 @@ export function describePayload(data: unknown): string {
       break;
     }
     case "cancel_preview": lines = cancelPreview(payload as unknown as CancelPreview); break;
+    case "replace_draft": {
+      const draft = payload as unknown as ReplaceDraftPayload;
+      const changes = Object.entries(draft.changes ?? {}).map(([key, value]) => `${key} ${value}`).join(", ");
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Change on ${env(draft.environment)}: ${orderLine(draft.order)}${changes ? `; proposed: ${changes}` : ""}. The user reviews and confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
+    case "replace_preview": lines = replacePreview(payload as unknown as ReplacePreview); break;
+    case "replace_execution": lines = replaceExecution(payload as unknown as ReplaceExecutionResult); break;
     case "order_status": lines = orderStatus(payload as unknown as OrderStatusReport); break;
     case "cash_history": lines = cashHistory(payload as unknown as Parameters<typeof cashHistory>[0]); break;
     case "execution_verification": {

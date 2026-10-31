@@ -273,6 +273,9 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "cancel_submitted": return t("activityCancelSubmitted");
     case "cancel_rejected": return t("activityCancelRejected");
     case "cancel_status_unknown": return t("activityCancelUnknown");
+    case "replace_prepared": return t("activityReplacePrepared");
+    case "order_replaced": return t("activityOrderReplaced");
+    case "replace_stopped": return t("activityReplaceStopped");
     case "basket_prepared": return t("activityBasketPrepared");
     case "basket_submitted": return t("activityBasketSubmitted");
     case "plan_due": return t("activityPlanDue");

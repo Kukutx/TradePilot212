@@ -28,6 +28,11 @@ const fullyFilled = (outcome: Outcome | undefined) =>
 const partlyFilled = (outcome: Outcome | undefined) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled(outcome);
 const isClosedWithoutFill = (outcome: Outcome | undefined) =>
   !!outcome && outcome.filledQuantity <= 0 && !fullyFilled(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+/**
+ * How long a pair is left alone while one of its orders is changed, at most: longer than a change can take with every
+ * read waiting for its limit. The change releases it as soon as it ends.
+ */
+const HOLD_MS = 15 * 60_000;
 /** Failed cancels of the surviving order are retried on later ticks, then left to you. */
 const MAX_CANCEL_ATTEMPTS = 5;
 
@@ -51,12 +56,15 @@ export class ProtectiveLinks {
     const halfOpen: Array<{ link: ProtectiveLink; survivor: ProtectiveLink["orders"][number]; gone: ProtectiveLink["orders"][number] }> = [];
     for (const link of links) {
       if (!credentials[link.environment]) continue;
+      // One of its orders is being changed: for a moment it is not in the book, which is no fill.
+      if (link.hold && Date.parse(link.hold.until) > Date.now()) continue;
       try {
         if (!pendingByEnv.has(link.environment)) pendingByEnv.set(link.environment, await this.deps.trading.pendingOrderIds(link.environment));
         const pending = pendingByEnv.get(link.environment)!;
         const open = link.orders.filter((order) => pending.has(order.orderId));
         if (open.length === 2) continue;
         if (open.length === 0) {
+          if (!await this.unchanged(link)) continue;
           await this.drop(link, "Both protective orders have left the order book.");
           reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: "Both orders are gone." });
           continue;
@@ -78,6 +86,11 @@ export class ProtectiveLinks {
         }
         const outcome = historyByEnv.get(link.environment)!.get(gone.orderId);
         const label = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId}`;
+        // A change of one of its orders may have started since the links were read: the pair is left to it.
+        if (!await this.unchanged(link)) {
+          reports.push({ linkId: link.id, environment: link.environment, action: "waiting", message: `${gone.orderId} is being changed.` });
+          continue;
+        }
 
         if (fullyFilled(outcome)) {
           const reason = `${label} filled`;
@@ -111,6 +124,39 @@ export class ProtectiveLinks {
       }
     }
     return reports;
+  }
+
+  /** One of a pair's orders is about to be cancelled to be changed: the pair is left alone while that runs. */
+  async hold(environment: TradingEnvironment, orderId: string): Promise<void> {
+    const until = new Date(Date.now() + HOLD_MS).toISOString();
+    for (const link of await this.linksWith(environment, orderId)) await this.save({ ...link, hold: { orderId, until } });
+  }
+
+  /**
+   * The change ended: the pair now links the order that replaced the old one, or, when none did, is checked again as
+   * before (the old order closed without a fill, so the pair is unlinked and the other order stays).
+   */
+  async swap(environment: TradingEnvironment, orderId: string, newOrderId?: string): Promise<void> {
+    for (const link of await this.linksWith(environment, orderId)) {
+      const { hold: _, ...rest } = link;
+      const orders = newOrderId ? link.orders.map((order) => (order.orderId === orderId ? { ...order, orderId: newOrderId } : order)) as ProtectiveLink["orders"] : link.orders;
+      await this.save({ ...rest, orders });
+    }
+  }
+
+  /** Whether the pair is still saved as it was read, and no change of its orders is under way. */
+  private async unchanged(link: ProtectiveLink): Promise<boolean> {
+    const now = await this.deps.store.get<ProtectiveLink>(`link:${link.id}`);
+    if (!now || (now.hold && Date.parse(now.hold.until) > Date.now())) return false;
+    return now.orders.every((order, index) => order.orderId === link.orders[index]?.orderId);
+  }
+
+  private async linksWith(environment: TradingEnvironment, orderId: string): Promise<ProtectiveLink[]> {
+    return (await this.list()).filter((link) => link.environment === environment && link.orders.some((order) => order.orderId === orderId));
+  }
+
+  private save(link: ProtectiveLink) {
+    return this.deps.store.put(`link:${link.id}`, link, Date.parse(link.createdAt) + LINK_TTL_MS);
   }
 
   private async attention(link: ProtectiveLink, note: string) {

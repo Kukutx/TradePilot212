@@ -240,6 +240,8 @@ export interface ProtectiveLink {
   createdAt: string;
   /** Failed attempts to cancel the surviving order after the other one filled. */
   cancelAttempts?: number;
+  /** One of its orders is being changed (cancelled and placed again): the pair is left alone until then, from 2.100. */
+  hold?: { orderId: string; until: string };
 }
 
 /**

@@ -28,6 +28,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
   review_protective_orders: { instrument: "AAPL", stopLossPrice: 100 },
   review_order_basket: { orders: [leg] },
   review_order_cancel: { orderId: "81234" },
+  review_order_change: { orderId: "81235", stopPrice: 115 },
   plan_portfolio_rebalance: { targets: [{ ticker: "AAPL_US_EQ", weight: 0.5 }] },
   manage_target_allocation: { action: "set", targets: [{ instrument: "AAPL", weight: 0.5 }] },
   manage_watchlist: { action: "add", instrument: "MSFT" },
@@ -38,6 +39,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
   manage_history_export: { action: "read", rows: 3 },
   app_prepare_order: { ...leg, environment: "demo" },
   app_prepare_cancel: { orderId: "81234" },
+  app_prepare_replace: { orderId: "81235", stopPrice: 115 },
   app_prepare_basket: { purpose: "custom", title: "Basket", drafts: [{ ...leg, environment: "demo" }] },
   app_prepare_pie_change: { action: "update", pieId: 4101, name: "Renamed" },
 };
@@ -45,7 +47,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
  * Run after the others: a plan to review and tokens to execute. An unknown execution to verify cannot be made on the
  * sample account, so that tool is checked by its schema alone.
  */
-const LATER = ["review_investment_plan", "app_execute_order", "app_execute_cancel", "app_execute_basket", "app_execute_pie_change", "app_verify_unknown_execution"];
+const LATER = ["review_investment_plan", "app_execute_order", "app_execute_cancel", "app_execute_replace", "app_execute_basket", "app_execute_pie_change", "app_verify_unknown_execution"];
 
 describe("tool output schemas", () => {
   it("declares what every tool returns, and every tool's result on the sample account matches it", async () => {
@@ -59,7 +61,7 @@ describe("tool output schemas", () => {
     const client = new Client({ name: "test", version: "0" });
     await client.connect(clientSide);
     const tools = (await client.listTools()).tools;
-    expect(tools.length).toBe(59);
+    expect(tools.length).toBe(62);
     for (const tool of tools) {
       expect(TOOL_OUTPUT[tool.name], tool.name).toBeDefined();
       expect(tool.outputSchema, tool.name).toMatchObject({ type: "object", required: ["kind"] });
@@ -80,8 +82,9 @@ describe("tool output schemas", () => {
     for (const tool of tools.filter((item) => !LATER.includes(item.name))) await call(tool.name, ARGS[tool.name] ?? {});
     const planId = String((kept.manage_investment_plans!.plan as { id: string }).id);
     await call("review_investment_plan", { planId });
-    for (const name of ["order", "cancel", "basket", "pie_change"]) await call(`app_execute_${name}`, { token: kept[`app_prepare_${name}`]!.token });
+    for (const name of ["order", "cancel", "replace", "basket", "pie_change"]) await call(`app_execute_${name}`, { token: kept[`app_prepare_${name}`]!.token });
     expect(kept.app_execute_order!.kind).toBe("order_execution");
+    expect(kept.app_execute_replace).toMatchObject({ kind: "replace_execution", ok: true, stage: "replaced" });
   }, 60_000);
 });
 

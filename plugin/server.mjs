@@ -35059,8 +35059,8 @@ var Trading212Client = class {
   async getOrders(options = {}) {
     return [...unwrapArray(await this.request("GET", "/equity/orders", void 0, options.fresh))];
   }
-  getOrder(id) {
-    return this.request("GET", `/equity/orders/${encodeURIComponent(id)}`);
+  getOrder(id, options = {}) {
+    return this.request("GET", `/equity/orders/${encodeURIComponent(id)}`, void 0, options.fresh);
   }
   async getInstruments() {
     return unwrapArray(await this.request("GET", "/equity/metadata/instruments"));
@@ -35473,6 +35473,8 @@ var DEFAULT_NOTIFY_EVENTS = [
   "order_partly_filled",
   "order_outcome_unknown",
   "cancel_status_unknown",
+  "order_replaced",
+  "replace_stopped",
   "basket_submitted",
   "plan_due",
   "plan_auto_executed",
@@ -35498,7 +35500,9 @@ var URGENT_EVENTS = /* @__PURE__ */ new Set([
   "cancel_status_unknown",
   "pie_status_unknown",
   "protective_attention",
-  "cancel_rejected"
+  "cancel_rejected",
+  // An order cancelled for a change whose new order was not placed: the position may be left without it.
+  "replace_stopped"
 ]);
 var NOTIFY_FORMATS = ["raw", "slack", "discord", "telegram", "ntfy", "bark"];
 var LABELS = {
@@ -35510,6 +35514,8 @@ var LABELS = {
     order_closed: "Order closed",
     order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
     cancel_status_unknown: "Cancellation result unclear, check Trading 212",
+    order_replaced: "Order changed",
+    replace_stopped: "Order cancelled for a change, but the new order was not placed: check Trading 212",
     basket_submitted: "Basket sent",
     plan_due: "Investment plan is due and waits for your confirmation",
     plan_auto_executed: "Investment plan ran on Demo",
@@ -35536,6 +35542,8 @@ var LABELS = {
     order_closed: "\u8BA2\u5355\u5DF2\u7ED3\u675F",
     order_outcome_unknown: "\u6709\u8BA2\u5355\u5DF2\u79BB\u5F00\u6302\u5355\u7C3F\uFF0C\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
     cancel_status_unknown: "\u64A4\u5355\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
+    order_replaced: "\u8BA2\u5355\u5DF2\u4FEE\u6539",
+    replace_stopped: "\u4E3A\u6539\u5355\u64A4\u6389\u4E86\u539F\u5355\uFF0C\u4F46\u65B0\u5355\u6CA1\u6709\u4E0B\uFF1A\u8BF7\u5230 Trading 212 \u67E5\u770B",
     basket_submitted: "\u7BEE\u5B50\u8BA2\u5355\u5DF2\u53D1\u9001",
     plan_due: "\u5B9A\u6295\u8BA1\u5212\u5DF2\u5230\u671F\uFF0C\u7B49\u4F60\u786E\u8BA4",
     plan_auto_executed: "\u5B9A\u6295\u8BA1\u5212\u5DF2\u5728\u6A21\u62DF\u8D26\u6237\u6267\u884C",
@@ -36102,6 +36110,7 @@ var TOOL_OUTPUT = {
   app_execute_basket: payload("basket_execution", "environment:s purpose:s ok:b status:s legs:a message:s"),
   app_execute_cancel: payload("order_execution", execution),
   app_execute_order: payload("order_execution", `${execution} verificationId:s`),
+  app_execute_replace: payload("replace_execution", "environment:s orderId:s ok:b stage:s reason:s order:u newOrderId:s draft:o message:s verificationId:s"),
   app_execute_pie_change: payload("pie_change_result", "environment:s action:s ok:b status:s pieId:n pie:u message:s"),
   app_get_automation: payload("automation", automation),
   app_get_dashboard: payload("portfolio", dashboard),
@@ -36113,6 +36122,7 @@ var TOOL_OUTPUT = {
   app_prepare_basket: payload("basket_preview", "token:s expiresAt:s snapshotAt:s environment:s purpose:s title:s accountCurrency:s legs:a notes:a"),
   app_prepare_cancel: payload("cancel_preview", "token:s expiresAt:s environment:s orderId:s order:o"),
   app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a impact:o warnings:a"),
+  app_prepare_replace: payload("replace_preview", "token:s expiresAt:s snapshotAt:s environment:s orderId:s original:o draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a impact:o warnings:a"),
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),
@@ -36146,6 +36156,7 @@ var TOOL_OUTPUT = {
   review_investment_plan: payload("basket_draft", drafted),
   review_order_basket: payload("basket_draft", drafted),
   review_order_cancel: payload("cancel_draft", "environment:s orderId:s order:o credentials:o writeEnabled:b"),
+  review_order_change: payload("replace_draft", "environment:s orderId:s order:o changes:o credentials:o writeEnabled:b"),
   review_pie_change: payload("pie_change_draft", "draft:o current:o credentials:o writeEnabled:b"),
   review_portfolio_stops: payload("basket_draft", drafted),
   review_protective_orders: payload("basket_draft", drafted),
@@ -36168,8 +36179,8 @@ var SKILL_PROMPTS = [
   },
   {
     "name": "order-followup",
-    "description": 'Follow up Trading 212 orders with TradePilot - whether an order filled, what is still pending, and cancelling a pending order after the user confirms it. Use for "did my order go through", "what orders are open", "cancel my Apple limit order".',
-    "body": "# Order follow-up\n\n1. Call `get_portfolio_dashboard` for the environment to list pending orders, with their ids, types, prices and how much has filled. For instruments the user holds, each order's text also says how far its stop or limit is from the last price. For every order and the recent fills of one instrument, call `get_holding_detail` with that instrument.\n2. For one order, call `get_order_status` with its id. For an order that has ended (filled, partly filled, cancelled, rejected or closed), it lists each fill with its price. For an order that is still open, it gives only the filled quantity so far; the individual fills appear once the order ends.\n3. If the user names an instrument rather than an id, match it against the pending orders. If more than one order matches, list them with side, type, price and id, and ask which one they mean before going on. For an order that is no longer pending, call `get_trade_history` for that instrument with `includeUnfilled`.\n4. To cancel, call `review_order_cancel` with the order id. If the order is a stop-loss, say that cancelling it leaves the position unprotected.\n   - Where the TradePilot widget is shown, the user confirms the cancellation there, with a second confirmation on Live.\n   - In a text-only host (a terminal), no widget appears. Show the order from the tool's text. If the user wants it cancelled, call `app_prepare_cancel` (this sends nothing) and show its summary. Call `app_execute_cancel` with that token only after the user explicitly confirms in the conversation. On Live, pass `liveAcknowledged` only after they confirm they understand it is their real account.\n\n## Rules\n\n- Never say an order was cancelled or filled unless a tool result says so. After a cancellation, check it with `get_order_status`.\n- A partly filled order keeps its filled shares when the rest is cancelled.\n- If `review_order_cancel` is not available, order tools are switched off on this instance. Tell the user they can cancel the order in the dashboard or the Trading 212 app.\n- Reply in the user's language."
+    "description": 'Follow up Trading 212 orders with TradePilot - whether an order filled, what is still pending, and changing or cancelling a pending order after the user confirms it. Use for "did my order go through", "what orders are open", "move my Apple limit to 180", "cancel my Apple limit order".',
+    "body": "# Order follow-up\n\n1. Call `get_portfolio_dashboard` for the environment to list pending orders, with their ids, types, prices and how much has filled. For instruments the user holds, each order's text also says how far its stop or limit is from the last price. For every order and the recent fills of one instrument, call `get_holding_detail` with that instrument.\n2. For one order, call `get_order_status` with its id. For an order that has ended (filled, partly filled, cancelled, rejected or closed), it lists each fill with its price. For an order that is still open, it gives only the filled quantity so far; the individual fills appear once the order ends.\n3. If the user names an instrument rather than an id, match it against the pending orders. If more than one order matches, list them with side, type, price and id, and ask which one they mean before going on. For an order that is no longer pending, call `get_trade_history` for that instrument with `includeUnfilled`.\n4. To cancel, call `review_order_cancel` with the order id. If the order is a stop-loss, say that cancelling it leaves the position unprotected.\n   - Where the TradePilot widget is shown, the user confirms the cancellation there, with a second confirmation on Live.\n   - In a text-only host (a terminal), no widget appears. Show the order from the tool's text. If the user wants it cancelled, call `app_prepare_cancel` (this sends nothing) and show its summary. Call `app_execute_cancel` with that token only after the user explicitly confirms in the conversation. On Live, pass `liveAcknowledged` only after they confirm they understand it is their real account.\n\n5. To change a pending Limit, Stop or Stop-Limit order (its quantity, limit or stop price, or validity), call `review_order_change` with the order id and only the fields that change. Its instrument, side and type stay as they are; for those, cancel it and place a new order. Say that Trading 212 cannot edit an order: confirming cancels it and places the new one only once Trading 212 shows nothing of it filled, and if part of it fills meanwhile, the new order is not placed.\n   - Where the widget is shown, the user can still adjust the change there, then confirms the old and new order side by side, with a second confirmation on Live.\n   - In a text-only host, call `app_prepare_replace` (this sends nothing) and show both orders from its summary. Call `app_execute_replace` only after the user explicitly confirms. If the result's `stage` is `cancelled_not_placed`, say plainly that the old order is cancelled and the new one was not placed, and why; never place it again without the user's word.\n\n## Rules\n\n- Never say an order was cancelled or filled unless a tool result says so. After a cancellation, check it with `get_order_status`.\n- A partly filled order keeps its filled shares when the rest is cancelled.\n- If `review_order_cancel` is not available, order tools are switched off on this instance. Tell the user they can change or cancel the order in the dashboard or the Trading 212 app.\n- Reply in the user's language."
   },
   {
     "name": "portfolio-review",
@@ -36898,6 +36909,64 @@ function randomToken(bytes = 32) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
+// src/core/order-replace.ts
+var TYPES2 = ["market", "limit", "stop", "stop_limit"];
+function orderTypeOf(order) {
+  const type = String(order.type ?? "").replaceAll("-", "_").toLowerCase();
+  return TYPES2.includes(type) ? type : void 0;
+}
+function orderSideOf(order) {
+  const side = String(order.side ?? "").toLowerCase();
+  if (side === "buy" || side === "sell") return side;
+  return Number(order.quantity) < 0 ? "sell" : "buy";
+}
+var filledOf = (order) => Math.abs(Number(order.filledQuantity ?? 0)) || 0;
+var sizeOf = (order) => Math.abs(Number(order.quantity ?? 0)) || 0;
+var validityOf = (order) => {
+  const value = String(order.timeInForce ?? order.timeValidity ?? "").toUpperCase();
+  return value === "DAY" || value === "GOOD_TILL_CANCEL" ? value : void 0;
+};
+function replacementDraft(environment, original, changes) {
+  const ticker = String(original.ticker ?? original.instrument?.ticker ?? "").trim();
+  if (!ticker) fail("INVALID_INPUT", "The order's instrument is not known, so it can't be changed here. Change it in Trading 212.", { reason: "unknown" });
+  const type = orderTypeOf(original);
+  if (!type) fail("INVALID_INPUT", `Order type ${String(original.type ?? "")} can't be changed here. Change it in Trading 212.`, { reason: "unknown" });
+  if (type === "market") fail("INVALID_INPUT", "A Market order fills at once, so it can't be changed.", { reason: "market" });
+  if (String(original.strategy ?? "QUANTITY").toUpperCase() === "VALUE")
+    fail("INVALID_INPUT", "This order was placed by amount in the Trading 212 app; change it there.", { reason: "value" });
+  if (filledOf(original) > 0)
+    fail("INVALID_INPUT", `This order has already filled ${filledOf(original)} of ${sizeOf(original)}; only the rest is open. Cancel it and place a new order for what you want.`, { reason: "partly_filled" });
+  const needsLimit = type === "limit" || type === "stop_limit";
+  const needsStop = type === "stop" || type === "stop_limit";
+  if (changes.limitPrice !== void 0 && !needsLimit) fail("INVALID_INPUT", "This order has no limit price to change.", { field: "limitPrice" });
+  if (changes.stopPrice !== void 0 && !needsStop) fail("INVALID_INPUT", "This order has no stop price to change.", { field: "stopPrice" });
+  for (const [name, value] of [["quantity", changes.quantity], ["limitPrice", changes.limitPrice], ["stopPrice", changes.stopPrice]])
+    if (value !== void 0 && !(Number.isFinite(value) && value > 0)) fail("INVALID_INPUT", `${name} must be a positive number`, { field: name });
+  const draft = {
+    environment,
+    ticker,
+    side: orderSideOf(original),
+    type,
+    quantity: changes.quantity ?? sizeOf(original),
+    timeValidity: changes.timeValidity ?? validityOf(original) ?? "DAY",
+    ...needsLimit ? { limitPrice: changes.limitPrice ?? Number(original.limitPrice) } : {},
+    ...needsStop ? { stopPrice: changes.stopPrice ?? Number(original.stopPrice) } : {}
+  };
+  const same = Math.abs(draft.quantity - sizeOf(original)) <= 1e-9 && (!needsLimit || draft.limitPrice === Number(original.limitPrice)) && (!needsStop || draft.stopPrice === Number(original.stopPrice)) && draft.timeValidity === (validityOf(original) ?? "DAY");
+  if (same) fail("INVALID_INPUT", "The change keeps the order as it is: nothing to send.", { reason: "unchanged" });
+  return draft;
+}
+function sameOpenOrder(reviewed, now) {
+  const num3 = (value) => value === void 0 || value === null ? void 0 : Number(value);
+  return sizeOf(reviewed) === sizeOf(now) && filledOf(now) === filledOf(reviewed) && num3(reviewed.limitPrice) === num3(now.limitPrice) && num3(reviewed.stopPrice) === num3(now.stopPrice) && validityOf(reviewed) === validityOf(now);
+}
+function heldBack(order) {
+  const open2 = Math.max(0, sizeOf(order) - filledOf(order));
+  if (orderSideOf(order) === "sell") return { shares: open2, value: 0 };
+  const price = Number(order.limitPrice ?? order.stopPrice ?? 0);
+  return { shares: 0, value: Number.isFinite(price) && price > 0 ? open2 * price : 0 };
+}
+
 // src/core/trading-service.ts
 var MAX_BASKET_LEGS = 20;
 function positiveNumber(name, value) {
@@ -36915,6 +36984,12 @@ var USAGE_TTL_MS = 2 * 24 * 60 * 60 * 1e3;
 var LINK_TTL_MS = 400 * 24 * 60 * 60 * 1e3;
 var SEND_LOCK_TTL_MS = 5 * 60 * 1e3;
 var SEND_LOCK_WAIT_MS = 45e3;
+var REPLACE_POLLS = 8;
+var REPLACE_POLL_MS = 1e3;
+var REPLACE_HISTORY_RETRY_MS = 2e3;
+var UK_STAMP_DUTY = 5e-3;
+var CANCELLED = /^CANCELL?ED$/;
+var ENDED = /^(CANCELL?ED|CANCELLING|FILLED|REJECTED|EXPIRED)$/;
 var sleep3 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function orderIdOf(order) {
   const id = order && typeof order === "object" ? order.id : void 0;
@@ -37588,13 +37663,20 @@ var TradingService = class {
    * `fresh` (at the send) has a risk-sized buy read its quote and rate from the source itself, not from its cache, and
    * the holdings and cash the order is checked against from Trading 212 now, not an answer of the last seconds.
    */
+  /**
+   * `replacing` is the open order this one replaces: what it holds back (a sell's shares, a buy's cash) is counted
+   * as free, since its cancel gives it back before this order is placed.
+   */
   async current(draft, options = {}) {
     const instrument = resolveInstrumentFromList(await this.instruments(draft.environment), draft.ticker);
     draft.ticker = instrument.ticker;
     const client = this.client(draft.environment);
     const now = { fresh: options.fresh === true };
-    const [positions, account] = await Promise.all([client.getPositions(now), client.getAccountSummary(now)]);
-    const position = this.positionFor(positions, instrument.ticker);
+    const [positions, read] = await Promise.all([client.getPositions(now), client.getAccountSummary(now)]);
+    let account = read;
+    const held = options.replacing ? heldBack(options.replacing) : void 0;
+    const holding3 = this.positionFor(positions, instrument.ticker);
+    const position = holding3 && held?.shares ? { ...holding3, quantityAvailableForTrading: Math.min(holding3.quantity, holding3.quantityAvailableForTrading + held.shares) } : holding3;
     const risky = !!draft.riskBudget && draft.side === "buy";
     const lookup = { fresh: risky && !!options.fresh };
     let marketPrice = position?.currentPrice || void 0;
@@ -37623,7 +37705,26 @@ var TradingService = class {
     } else if (risky && draft.fxRate && draft.fxRateQuoted && accountCode && !crossRate(rates, accountCode, instrumentCode) && this.deps.quotes && this.deps.quotes.hasFxRates !== false) {
       fail("RISK_CHECK_UNAVAILABLE", `The quote source has no ${accountCode} to ${instrumentCode} exchange rate just now, so the loss at the stop-loss of this risk-sized buy can't be checked in ${accountCode}. Nothing was sent; try again in a moment.`, { missing: "fx_rate", from: accountCode, to: instrumentCode });
     }
+    if (held?.value && account.cash?.availableToTrade !== void 0) {
+      const released = accountCode === instrumentCode ? held.value : toAccountCurrency(held.value, instrumentCode, accountCode, rates);
+      const others = await this.othersHeldBack(draft.environment, options.replacing, accountCode, rates);
+      const reserved = account.cash.reservedForOrders;
+      const room = others === void 0 ? 0 : reserved === void 0 ? Infinity : Math.max(0, reserved - others);
+      const credit = released === void 0 ? 0 : Math.min(released, room);
+      if (credit > 0) account = { ...account, cash: { ...account.cash, availableToTrade: account.cash.availableToTrade + credit } };
+    }
     const checked = validateOrderAgainstSnapshot(draft, instrument, position, account, this.deps.config, rates, marketPrice);
+    if (held && draft.side === "buy" && checked.accountNotional !== void 0 && account.cash?.availableToTrade !== void 0) {
+      const sameMoney = accountCode === instrumentCode || accountCode === "GBP" && instrumentCode === "GBX";
+      const margin = (sameMoney ? 0 : this.deps.config.fxFeeRate) + (/^GB[XP]$/.test(instrumentCode) ? UK_STAMP_DUTY : 0);
+      const needed = checked.accountNotional * (1 + margin);
+      if (needed > account.cash.availableToTrade + 1e-9)
+        fail(
+          "INSUFFICIENT_CASH",
+          `With fees, the changed order needs about ${needed.toFixed(2)} ${accountCode}, more than the ${account.cash.availableToTrade.toFixed(2)} ${accountCode} free once the open order is cancelled. A change cancels the open order first, so it is not sent unless it surely fits.`,
+          { requested: round3(needed, 2), available: round3(account.cash.availableToTrade, 2), currency: accountCode }
+        );
+    }
     if (risky && checked.estimatedNotional === void 0)
       fail("RISK_CHECK_UNAVAILABLE", `No price is known for ${instrument.ticker} (you do not hold it, the quote source has none, and the order gives none), so the loss at the stop-loss of this risk-sized buy can't be checked. Nothing was sent; give a reference price.`, { missing: "price", ticker: instrument.ticker });
     if (risky && !accountCode)
@@ -37738,7 +37839,14 @@ var TradingService = class {
     const thesis = journalText(raw.thesis);
     if (thesis) draft.thesis = thesis;
     else delete draft.thesis;
-    const current = await this.current(draft);
+    const reviewed = await this.review(draft);
+    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(reviewed.notices) });
+    await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+    return { kind: "order_preview", ...confirmation, ...reviewed.preview };
+  }
+  /** An order checked as its confirmation shows it: its value, notices, policy and what it would change. */
+  async review(draft, options = {}) {
+    const current = await this.current(draft, options);
     const snapshotAt = (/* @__PURE__ */ new Date()).toISOString();
     const market = await this.market(draft.environment, current.instrument);
     const policy2 = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
@@ -37757,11 +37865,7 @@ var TradingService = class {
       fxFeeRate: this.deps.config.fxFeeRate,
       ukTaxYear: this.deps.config.taxYearStart === "04-06"
     });
-    const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
-    await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
-    return {
-      kind: "order_preview",
-      ...confirmation,
+    const preview = {
       snapshotAt,
       draft,
       instrument: current.instrument,
@@ -37776,6 +37880,7 @@ var TradingService = class {
       ...impact ? { impact } : {},
       warnings: notices.map((notice) => notice.message)
     };
+    return { preview, notices };
   }
   /**
    * Consume a confirmation token. A Live order or basket also needs the second, explicit
@@ -37787,7 +37892,7 @@ var TradingService = class {
     if (!peeked || peeked.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     const environment = peeked.kind === "order" ? peeked.draft.environment : peeked.environment;
     if (environment === "live" && !liveAcknowledged)
-      fail("LIVE_ACK_REQUIRED", kind === "cancel" ? "Live cancellations need the second confirmation: a cancelled stop-loss no longer protects the position" : "Live orders need the second confirmation that real money will be used");
+      fail("LIVE_ACK_REQUIRED", kind === "cancel" ? "Live cancellations need the second confirmation: a cancelled stop-loss no longer protects the position" : kind === "replace" ? "Live order changes need the second confirmation that real money will be used" : "Live orders need the second confirmation that real money will be used");
     const pending = await this.deps.store.consume(key);
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     return pending;
@@ -37801,6 +37906,7 @@ var TradingService = class {
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     if (pending.kind === "order") return { kind: "order", environment: pending.draft.environment, drafts: [pending.draft] };
     if (pending.kind === "cancel") return { kind: "cancel", environment: pending.environment, orderId: pending.orderId };
+    if (pending.kind === "replace") return { kind: "replace", environment: pending.environment, orderId: pending.orderId, original: pending.original, drafts: [pending.draft] };
     return { kind: "basket", environment: pending.environment, title: pending.title, drafts: pending.drafts };
   }
   /** The environment a confirmation token belongs to, so its send can take that environment's lock. */
@@ -37842,6 +37948,24 @@ var TradingService = class {
       return this.failedSubmission(draft, 0, error62);
     }
     return this.submit(draft, current.position?.quantity ?? 0, current.accountNotional);
+  }
+  /**
+   * What the open buys other than `except` hold back, in the account currency, or undefined when one of them can't be
+   * valued in it (its instrument or rate unknown).
+   */
+  async othersHeldBack(environment, except, accountCode, rates) {
+    const [orders, instruments] = await Promise.all([this.client(environment).getOrders({ fresh: true }), this.instruments(environment)]);
+    let total = 0;
+    for (const order of orders) {
+      if (String(order.id) === String(except.id)) continue;
+      const { value } = heldBack(order);
+      if (!value) continue;
+      const code = instruments.find((item) => item.ticker === order.ticker)?.currencyCode.toUpperCase();
+      const converted = !code ? void 0 : code === accountCode ? value : toAccountCurrency(value, code, accountCode, rates);
+      if (converted === void 0) return void 0;
+      total += converted;
+    }
+    return total;
   }
   /** Compute (but never send) the trades that move the account toward target weights. */
   async planRebalance(environment, targets, options = {}) {
@@ -38347,6 +38471,142 @@ var TradingService = class {
       await this.recordActivity("cancel_rejected", pending.environment, { orderId: pending.orderId });
       return { kind: "order_execution", environment: pending.environment, ok: false, status: "rejected", error: asStructuredError(error62), message: error62 instanceof Error ? error62.message : String(error62) };
     }
+  }
+  /**
+   * Review a change to an open order: the order that replaces it, checked as a new order is, with what the open one
+   * holds back counted as free. Nothing is sent; the confirmation shows the order as it is and as it will be.
+   */
+  async prepareReplace(environment, orderId, changes) {
+    requireCredentials(this.deps.config, environment);
+    const id = orderId.trim();
+    if (!/^\d{1,20}$/.test(id)) fail("INVALID_INPUT", "orderId must be the numeric Trading 212 order id.", { field: "orderId" });
+    const original = await this.openOrder(environment, id);
+    if (!original) fail("INVALID_INPUT", `Order ${id} is not open any more, so there is nothing to change; get_order_status says how it ended.`, { reason: "gone" });
+    const draft = replacementDraft(environment, original, changes);
+    const reviewed = await this.review(draft, { replacing: original });
+    const confirmation = await this.issue({ kind: "replace", environment, orderId: id, original, draft, ...riskShown(reviewed.notices) });
+    await this.recordActivity("replace_prepared", environment, { orderId: id, ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
+    return { kind: "replace_preview", ...confirmation, ...reviewed.preview, environment, orderId: id, original };
+  }
+  /**
+   * Send a confirmed change: check the open order is as it was shown and the new one still passes, cancel the open
+   * one, wait (reading it about once a second) until Trading 212 shows it cancelled, confirm from the history that
+   * nothing of it filled, and only then place the new one. Any doubt on the way stops before the new order, and the
+   * new order is never placed a second time on its own.
+   */
+  async executeReplace(confirmationId, options = {}) {
+    return this.exclusive(await this.pendingEnvironment(confirmationId), () => this.sendReplace(confirmationId, options));
+  }
+  async sendReplace(confirmationId, options) {
+    const pending = await this.takePending(confirmationId, "replace", !!options.liveAcknowledged);
+    const { environment, orderId, draft } = pending;
+    const client = this.client(environment);
+    const base = { kind: "replace_execution", environment, orderId, draft };
+    const stop = async (stage, reason, message, extra = {}) => {
+      if (stage !== "unchanged") await this.recordActivity("replace_stopped", environment, { orderId, ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, outcome: reason });
+      return { ...base, ok: false, stage, reason, message, ...extra };
+    };
+    let now;
+    try {
+      now = await client.getOrder(orderId, { fresh: true });
+    } catch (error62) {
+      if (error62 instanceof Trading212ApiError && error62.status === 404)
+        return stop("unchanged", "gone", `Order ${orderId} is no longer open (it may have filled or been cancelled), so nothing was changed or placed.`);
+      return stop("unchanged", "check_failed", `Order ${orderId} could not be read just now, so nothing was changed or placed: ${error62 instanceof Error ? error62.message : String(error62)}`, { error: asStructuredError(error62) });
+    }
+    if (ENDED.test(String(now.status ?? "").toUpperCase()))
+      return stop("unchanged", "gone", `Order ${orderId} is ${String(now.status).toLowerCase()} in Trading 212, so nothing was changed or placed.`);
+    if (Math.abs(Number(now.filledQuantity ?? 0)) > 0)
+      return stop("unchanged", "partly_filled", `Order ${orderId} has filled ${Math.abs(Number(now.filledQuantity))} since the review, so it was left as it is and nothing was placed.`);
+    if (!sameOpenOrder(pending.original, now))
+      return stop("unchanged", "changed", `Order ${orderId} has changed since the review, so it was left as it is and nothing was placed. Review the change again.`);
+    let current;
+    try {
+      current = await this.current(draft, { fresh: true, replacing: now });
+      const market = await this.market(environment, current.instrument);
+      this.assertPolicy(this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(environment)), draft.ticker);
+      assertRiskAsShown(riskNotices(draft, current), pending.risk);
+    } catch (error62) {
+      return stop("unchanged", "check_failed", `The new order no longer passes its checks, so order ${orderId} was left as it is: ${error62 instanceof Error ? error62.message : String(error62)}`, { error: asStructuredError(error62) });
+    }
+    await this.deps.beforeReplace?.(environment, orderId).catch((error62) => console.error(JSON.stringify({ message: "TradePilot replace hook failed", error: error62 instanceof Error ? error62.message : String(error62) })));
+    const release = (newOrderId) => this.deps.afterReplace?.(environment, orderId, newOrderId).catch((error62) => console.error(JSON.stringify({ message: "TradePilot replace hook failed", error: error62 instanceof Error ? error62.message : String(error62) })));
+    try {
+      await client.cancelOrder(orderId).finally(() => this.wrote(environment));
+    } catch (error62) {
+      await release();
+      if (error62 instanceof Trading212ApiError && error62.status === 404)
+        return stop("unchanged", "gone", `Order ${orderId} left the order book before it could be cancelled (it may have filled), so nothing was placed.`);
+      if (error62 instanceof ExecutionStatusUnknownError) {
+        const verificationId = await this.createVerificationRecord({ kind: "cancel", environment, orderId, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+        return stop("unknown", "cancel_unknown", `Whether order ${orderId} was cancelled is unclear, so the new order was not placed. Check the order in Trading 212 before doing anything else.`, { ...verificationId ? { verificationId } : {}, error: asStructuredError(error62) });
+      }
+      await this.recordActivity("cancel_rejected", environment, { orderId });
+      return stop("unchanged", "cancel_rejected", `Trading 212 refused to cancel order ${orderId}, so nothing was placed. It may be filling or already filled: check it before doing anything else: ${error62 instanceof Error ? error62.message : String(error62)}`, { error: asStructuredError(error62) });
+    }
+    await this.recordActivity("cancel_submitted", environment, { orderId });
+    const ended = await this.awaitCancelled(environment, orderId);
+    if (ended === "filled") {
+      await release();
+      const verificationId = await this.createVerificationRecord({ kind: "cancel", environment, orderId, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      return stop("unknown", "partly_filled", `Order ${orderId} filled in part while it was being cancelled, so the new order was not placed. The rest of it may still be open: check the order and what you hold before placing anything.`, verificationId ? { verificationId } : {});
+    }
+    if (ended === "open") {
+      await release();
+      const verificationId = await this.createVerificationRecord({ kind: "cancel", environment, orderId, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+      return stop("unknown", "cancel_unknown", `Trading 212 still lists order ${orderId} after the cancel was sent, so the new order was not placed. Check the order in Trading 212 before doing anything else.`, verificationId ? { verificationId } : {});
+    }
+    const outcome = await this.cancelledOutcome(environment, orderId);
+    if (outcome === "filled") {
+      await release();
+      return stop("cancelled_not_placed", "filled", `Order ${orderId} filled before it was cancelled, so the new order was not placed. Check what you hold before placing anything.`);
+    }
+    if (outcome !== "cancelled") {
+      await release();
+      return stop("cancelled_not_placed", "not_confirmed", `Order ${orderId} was cancelled, but Trading 212 did not yet show that nothing of it filled, so the new order was not placed. Check the order's history, then place the new order yourself if you still want it.`);
+    }
+    const sent = await this.submit(draft, current.position?.quantity ?? 0, current.accountNotional);
+    if (sent.ok) {
+      const newOrderId = orderIdOf(sent.order);
+      await release(newOrderId);
+      await this.recordActivity("order_replaced", environment, { orderId, ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity, ...newOrderId ? { outcome: newOrderId } : {} });
+      return { ...base, ok: true, stage: "replaced", ...sent.order === void 0 ? {} : { order: sent.order }, ...newOrderId ? { newOrderId } : {}, message: `Order ${orderId} was cancelled and the new order placed${newOrderId ? ` as ${newOrderId}` : ""}.` };
+    }
+    await release();
+    if (sent.status === "unknown")
+      return stop("unknown", "placement_unknown", `Order ${orderId} was cancelled, and whether the new order was placed is unclear. Check Trading 212's orders before placing it again: ${sent.message}`, { ...sent.verificationId ? { verificationId: sent.verificationId } : {}, ...sent.error ? { error: sent.error } : {} });
+    return stop("cancelled_not_placed", "placement_rejected", `Order ${orderId} was cancelled, but Trading 212 refused the new order, so neither is open now: ${sent.message}`, { ...sent.error ? { error: sent.error } : {} });
+  }
+  /**
+   * After a cancel: read the order about once a second until Trading 212 no longer lists it or shows it cancelled
+   * ("gone"), a fill shows on it ("filled"), or about eight seconds pass ("open").
+   */
+  async awaitCancelled(environment, orderId) {
+    const client = this.client(environment);
+    for (let attempt = 0; attempt < REPLACE_POLLS; attempt++) {
+      try {
+        const order = await client.getOrder(orderId, { fresh: true });
+        if (Math.abs(Number(order.filledQuantity ?? 0)) > 0) return "filled";
+        if (CANCELLED.test(String(order.status ?? "").toUpperCase())) return "gone";
+      } catch (error62) {
+        if (error62 instanceof Trading212ApiError && error62.status === 404) return "gone";
+      }
+      await sleep3(REPLACE_POLL_MS);
+    }
+    return "open";
+  }
+  /** How a cancelled order ended in the history: "cancelled" with nothing filled, "filled" in whole or part, or not there yet. */
+  async cancelledOutcome(environment, orderId) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep3(REPLACE_HISTORY_RETRY_MS);
+      try {
+        const outcome = (await this.recentOrderOutcomes(environment, { wanted: [orderId], maxPages: 2 })).get(orderId);
+        if (outcome && outcome.filledQuantity > 0) return "filled";
+        if (outcome && CANCELLED.test(outcome.status)) return "cancelled";
+      } catch {
+      }
+    }
+    return void 0;
   }
   /**
    * Drop the last dashboard read, and keep none that was under way: the account was read again and may have changed
@@ -41581,7 +41841,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.99.0",
+  version: "2.100.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42768,6 +43028,24 @@ function cancelPreview(data) {
     tokenLine(data.token, data.expiresAt, data.environment)
   ];
 }
+function replacePreview(data) {
+  return [
+    `Ready to change on ${env(data.environment)}: ${orderLine(data.original)}.`,
+    `It becomes: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === void 0 ? "" : ` \u2248 ${money3(data.estimatedNotional, data.estimatedNotionalCurrency)}`}. Trading 212 cannot edit an order: the confirmation cancels it and places the new one once the cancel shows nothing of it filled.`,
+    ...data.impact ? impactLines(data.impact) : [],
+    ...noticesLines(data.notices),
+    ...policyLines(data.policy),
+    tokenLine(data.token, data.expiresAt, data.environment)
+  ];
+}
+function replaceExecution(data) {
+  const order = data.order;
+  return [
+    ...data.stage === "replaced" && order && typeof order === "object" && order.id !== void 0 ? [`Trading 212 order ${orderLine(order)}.`] : [],
+    ...data.stage === "cancelled_not_placed" ? [`Order ${data.orderId} is cancelled and the new order was NOT placed. Tell the user; do not place it again without their word.`] : [],
+    ...data.stage === "unknown" ? [`The result is uncertain. Do not resend; check with app_verify_unknown_execution${data.verificationId ? ` (verificationId ${data.verificationId})` : ""} or the order list.`] : []
+  ];
+}
 function basketExecution(data) {
   return rows(data.legs, (leg) => `${draftLine(leg.draft)}: ${leg.result ? `${leg.result.status}${leg.result.ok ? "" : ` (${leg.result.message})`}${leg.result.verificationId ? `, verificationId ${leg.result.verificationId}` : ""}` : `not sent (${leg.skipped ?? "skipped"})`}`);
 }
@@ -43009,6 +43287,18 @@ function describePayload(data) {
     }
     case "cancel_preview":
       lines = cancelPreview(payload2);
+      break;
+    case "replace_draft": {
+      const draft = payload2;
+      const changes = Object.entries(draft.changes ?? {}).map(([key, value]) => `${key} ${value}`).join(", ");
+      lines = [...credentialsLine(draft.environment, draft.credentials), draft.order ? `Change on ${env(draft.environment)}: ${orderLine(draft.order)}${changes ? `; proposed: ${changes}` : ""}. The user reviews and confirms it in the widget.` : `Order ${draft.orderId} is not open on ${env(draft.environment)}.`];
+      break;
+    }
+    case "replace_preview":
+      lines = replacePreview(payload2);
+      break;
+    case "replace_execution":
+      lines = replaceExecution(payload2);
       break;
     case "order_status":
       lines = orderStatus(payload2);
@@ -44497,6 +44787,9 @@ var WORDS2 = {
     order: (environment) => `Send this order to your Trading 212 ${environment} account?`,
     basket: (environment, title, count) => `Send the basket "${title}", ${count} order${count === 1 ? "" : "s"}, to your Trading 212 ${environment} account?`,
     cancel: (environment, orderId) => `Cancel order ${orderId} in your Trading 212 ${environment} account? If it is a stop-loss, the position is no longer protected.`,
+    replace: (environment, orderId) => `Change order ${orderId} in your Trading 212 ${environment} account? It is cancelled, and the new order is placed once Trading 212 shows nothing of it filled.`,
+    now: "Now:",
+    becomes: "Becomes:",
     pie: (environment, action, id, name) => {
       const account = `in your Trading 212 ${environment} account?`;
       if (action === "create") return `Create the pie "${name ?? ""}" ${account}`;
@@ -44522,6 +44815,9 @@ var WORDS2 = {
     order: (environment) => `\u628A\u8FD9\u7B14\u8BA2\u5355\u53D1\u9001\u5230\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\uFF1F`,
     basket: (environment, title, count) => `\u628A\u7BEE\u5B50\u300C${title}\u300D\u7684 ${count} \u7B14\u8BA2\u5355\u53D1\u9001\u5230\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\uFF1F`,
     cancel: (environment, orderId) => `\u64A4\u9500\u4F60 Trading 212 ${environment}\u8D26\u6237\u91CC\u7684\u8BA2\u5355 ${orderId}\uFF1F\u5982\u679C\u5B83\u662F\u6B62\u635F\u5355\uFF0C\u64A4\u9500\u540E\u8FD9\u7B14\u6301\u4ED3\u5C31\u4E0D\u518D\u53D7\u4FDD\u62A4\u3002`,
+    replace: (environment, orderId) => `\u4FEE\u6539\u4F60 Trading 212 ${environment}\u8D26\u6237\u91CC\u7684\u8BA2\u5355 ${orderId}\uFF1F\u4F1A\u5148\u64A4\u6389\u539F\u5355\uFF0C\u7B49 Trading 212 \u663E\u793A\u539F\u5355\u6CA1\u6709\u4EFB\u4F55\u6210\u4EA4\u540E\u518D\u4E0B\u65B0\u5355\u3002`,
+    now: "\u539F\u5355\uFF1A",
+    becomes: "\u65B0\u5355\uFF1A",
     pie: (environment, action, id, name) => {
       const account = `\u4F60 Trading 212 ${environment}\u8D26\u6237\u91CC\u7684`;
       if (action === "create") return `\u5728\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\u91CC\u65B0\u5EFA\u7EC4\u5408\u300C${name ?? ""}\u300D\uFF1F`;
@@ -44550,10 +44846,25 @@ function legText(draft, words) {
   ].filter(Boolean).join(words.join);
   return words.leg(words.side[draft.side], draft.quantity, draft.ticker, prices || words.market, draft.timeValidity === "GOOD_TILL_CANCEL");
 }
+function asDraft(order, environment) {
+  const given = (value) => value !== void 0 && value !== null;
+  return {
+    environment,
+    ticker: String(order.ticker ?? ""),
+    side: orderSideOf(order),
+    type: orderTypeOf(order) ?? "limit",
+    quantity: Math.abs(Number(order.quantity ?? 0)),
+    ...given(order.stopPrice) ? { stopPrice: Number(order.stopPrice) } : {},
+    ...given(order.limitPrice) ? { limitPrice: Number(order.limitPrice) } : {},
+    ...String(order.timeInForce ?? order.timeValidity ?? "").toUpperCase() === "GOOD_TILL_CANCEL" ? { timeValidity: "GOOD_TILL_CANCEL" } : {}
+  };
+}
 function confirmationMessage(pending, locale = "en") {
   const words = WORDS2[locale];
   const environment = pending.environment === "live" ? words.live : words.demo;
   if (pending.kind === "cancel") return words.cancel(environment, pending.orderId);
+  if (pending.kind === "replace")
+    return [words.replace(environment, pending.orderId), `${words.now} ${legText(asDraft(pending.original, pending.environment), words)}`, `${words.becomes} ${legText(pending.drafts[0], words)}`].join("\n");
   if (pending.kind === "pie") {
     const head2 = words.pie(environment, pending.action, pending.pieId, pending.name);
     const shares2 = Object.entries(pending.shares ?? {});
@@ -46158,6 +46469,36 @@ function createMcpServer({ changes, trading, insights, automation: automation3, 
         }
       }
     );
+    registerAppTool(
+      server2,
+      "review_order_change",
+      {
+        title: "Review an Order Change",
+        description: "Open a change to a pending Limit, Stop or Stop-Limit order (its quantity, limit or stop price, or validity) for the user to review and confirm in the widget. Review-only; never changes anything. Trading 212 cannot edit an order, so the confirmation cancels it and places the new one only once the cancel shows nothing of it filled; if anything filled meanwhile, the new order is not placed. The order's instrument, side and type stay as they are.",
+        inputSchema: external_exports.object({
+          environment: environmentWithDefault,
+          orderId: external_exports.string().min(1).max(24),
+          quantity: external_exports.number().positive().optional().describe("The new number of shares"),
+          limitPrice: external_exports.number().positive().optional().describe("The new limit price, in the instrument's currency (Limit and Stop-Limit orders)"),
+          stopPrice: external_exports.number().positive().optional().describe("The new stop price, in the instrument's currency (Stop and Stop-Limit orders)"),
+          timeValidity: external_exports.enum(["DAY", "GOOD_TILL_CANCEL"]).optional()
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } }
+      },
+      async ({ environment, orderId, ...changes2 }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          const proposed = Object.fromEntries(Object.entries(changes2).filter(([, value]) => value !== void 0));
+          return result(
+            { kind: "replace_draft", environment, orderId: orderId.trim(), ...order ? { order } : {}, changes: proposed, credentials: credentialStatus(config3), writeEnabled: true },
+            order ? "Order change opened for review. Nothing has been changed." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`
+          );
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
   }
   registerAppTool(
     server2,
@@ -46397,6 +46738,54 @@ function createMcpServer({ changes, trading, insights, automation: automation3, 
           const asked2 = await confirmInHost(server2, ctx, token, () => trading.describePending(token, "cancel"), config3.notifyLocale);
           if (!asked2.send) return asked2.ask;
           const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged || asked2.liveAcknowledged });
+          return result(data, data.message);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    registerAppTool(
+      server2,
+      "app_prepare_replace",
+      {
+        title: "Prepare order change",
+        description: "App-only validation of a change to a pending order: the order that replaces it, checked as a new order with what the pending one holds back counted as free. Creates a short-lived one-time confirmation token; changes nothing.",
+        inputSchema: external_exports.object({
+          environment: environmentEnum,
+          orderId: external_exports.string().min(1).max(24),
+          quantity: external_exports.number().positive().optional(),
+          limitPrice: external_exports.number().positive().optional(),
+          stopPrice: external_exports.number().positive().optional(),
+          timeValidity: external_exports.enum(["DAY", "GOOD_TILL_CANCEL"]).optional()
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async ({ environment, orderId, ...changes2 }) => {
+        try {
+          const proposed = Object.fromEntries(Object.entries(changes2).filter(([, value]) => value !== void 0));
+          const data = await trading.prepareReplace(environment, orderId, proposed);
+          return result(data, "Order change validated. Explicit user confirmation is still required.");
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+    registerAppTool(
+      server2,
+      "app_execute_replace",
+      {
+        title: "Execute confirmed order change",
+        description: "App-only destructive external write. Consumes a one-time token created by app_prepare_replace: cancels the pending order, waits until Trading 212 shows it cancelled with nothing filled, then places the new one. Stops before the new order on any doubt. Live changes need liveAcknowledged=true. Never retry automatically.",
+        inputSchema: external_exports.object({ token: external_exports.string().min(20), liveAcknowledged: external_exports.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } }
+      },
+      async ({ token, liveAcknowledged }, ctx) => {
+        try {
+          const asked2 = await confirmInHost(server2, ctx, token, () => trading.describePending(token, "replace"), config3.notifyLocale);
+          if (!asked2.send) return asked2.ask;
+          const data = await trading.executeReplace(token, { liveAcknowledged: liveAcknowledged === true || asked2.liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -47537,6 +47926,7 @@ var LINK_TTL_MS2 = 400 * 24 * 60 * 60 * 1e3;
 var fullyFilled2 = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
 var partlyFilled = (outcome) => !!outcome && outcome.filledQuantity > 0 && !fullyFilled2(outcome);
 var isClosedWithoutFill = (outcome) => !!outcome && outcome.filledQuantity <= 0 && !fullyFilled2(outcome) && /CANCEL|REJECT|EXPIRE/.test(outcome.status);
+var HOLD_MS = 15 * 6e4;
 var MAX_CANCEL_ATTEMPTS = 5;
 var ProtectiveLinks = class {
   constructor(deps) {
@@ -47557,12 +47947,14 @@ var ProtectiveLinks = class {
     const halfOpen = [];
     for (const link of links) {
       if (!credentials[link.environment]) continue;
+      if (link.hold && Date.parse(link.hold.until) > Date.now()) continue;
       try {
         if (!pendingByEnv.has(link.environment)) pendingByEnv.set(link.environment, await this.deps.trading.pendingOrderIds(link.environment));
         const pending = pendingByEnv.get(link.environment);
         const open2 = link.orders.filter((order) => pending.has(order.orderId));
         if (open2.length === 2) continue;
         if (open2.length === 0) {
+          if (!await this.unchanged(link)) continue;
           await this.drop(link, "Both protective orders have left the order book.");
           reports2.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: "Both orders are gone." });
           continue;
@@ -47582,6 +47974,10 @@ var ProtectiveLinks = class {
         }
         const outcome = historyByEnv.get(link.environment).get(gone.orderId);
         const label = `${link.ticker} ${gone.role === "stop_loss" ? "stop-loss" : "take-profit"} ${gone.orderId}`;
+        if (!await this.unchanged(link)) {
+          reports2.push({ linkId: link.id, environment: link.environment, action: "waiting", message: `${gone.orderId} is being changed.` });
+          continue;
+        }
         if (fullyFilled2(outcome)) {
           const reason = `${label} filled`;
           const attempts = link.cancelAttempts ?? 0;
@@ -47612,6 +48008,34 @@ var ProtectiveLinks = class {
       }
     }
     return reports2;
+  }
+  /** One of a pair's orders is about to be cancelled to be changed: the pair is left alone while that runs. */
+  async hold(environment, orderId) {
+    const until = new Date(Date.now() + HOLD_MS).toISOString();
+    for (const link of await this.linksWith(environment, orderId)) await this.save({ ...link, hold: { orderId, until } });
+  }
+  /**
+   * The change ended: the pair now links the order that replaced the old one, or, when none did, is checked again as
+   * before (the old order closed without a fill, so the pair is unlinked and the other order stays).
+   */
+  async swap(environment, orderId, newOrderId) {
+    for (const link of await this.linksWith(environment, orderId)) {
+      const { hold: _, ...rest } = link;
+      const orders = newOrderId ? link.orders.map((order) => order.orderId === orderId ? { ...order, orderId: newOrderId } : order) : link.orders;
+      await this.save({ ...rest, orders });
+    }
+  }
+  /** Whether the pair is still saved as it was read, and no change of its orders is under way. */
+  async unchanged(link) {
+    const now = await this.deps.store.get(`link:${link.id}`);
+    if (!now || now.hold && Date.parse(now.hold.until) > Date.now()) return false;
+    return now.orders.every((order, index) => order.orderId === link.orders[index]?.orderId);
+  }
+  async linksWith(environment, orderId) {
+    return (await this.list()).filter((link) => link.environment === environment && link.orders.some((order) => order.orderId === orderId));
+  }
+  save(link) {
+    return this.deps.store.put(`link:${link.id}`, link, Date.parse(link.createdAt) + LINK_TTL_MS2);
   }
   async attention(link, note) {
     await this.deps.trading.recordActivity("protective_attention", link.environment, { ticker: link.ticker, outcome: note.slice(0, 200) });
@@ -47720,7 +48144,9 @@ function createServices(input2) {
     afterWrite: (environment) => {
       insights.forgetHistory(environment);
       changes.emit(environment, "holdings");
-    }
+    },
+    beforeReplace: (environment, orderId) => links.hold(environment, orderId),
+    afterReplace: (environment, orderId, newOrderId) => links.swap(environment, orderId, newOrderId)
   });
   const insights = new InsightsService({
     config: deps.config,

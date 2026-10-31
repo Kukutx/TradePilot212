@@ -460,6 +460,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .panelTotal { color: var(--tp-muted); font-size: 13px; font-weight: 650; }
 .orderRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--tp-border); }
 .orderRow:last-child { border-bottom: 0; }
+.orderActions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .orderIdentity strong, .orderIdentity span { display: block; }
 .orderIdentity strong { font-size: 13px; }
 .orderIdentity span { margin-top: 2px; color: var(--tp-muted); font-size: 12px; }
@@ -591,6 +592,26 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .environmentTag.live { background: var(--tp-red-soft); color: var(--tp-red); }
 .closeButton { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; background: transparent; color: var(--tp-muted); }
 .closeButton:hover { background: var(--tp-bg-soft); color: var(--tp-text); }
+/* Changing an open order: the order as it is, and the two side by side in the confirmation. */
+.changeOriginal { display: grid; gap: 3px; margin: 0 0 18px; padding: 13px 14px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg-soft); }
+.changeOriginal span { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.changeOriginal strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
+.changeHow { display: grid; gap: 4px; margin-top: 14px; font-size: 12px; line-height: 1.45; }
+.changeCompare { width: 100%; margin: 4px 0 14px; border: 1px solid var(--tp-border); border-radius: 13px; border-collapse: separate; border-spacing: 0; overflow: hidden; font-size: 13px; font-variant-numeric: tabular-nums; }
+.changeCompare th, .changeCompare td { padding: 10px 12px; border-bottom: 1px solid var(--tp-border); text-align: left; vertical-align: top; overflow-wrap: break-word; }
+.changeCompare thead th { background: var(--tp-bg-soft); color: var(--tp-muted); font-size: 12px; font-weight: 680; letter-spacing: .04em; text-transform: uppercase; }
+.changeCompare tbody th, .changeCompare thead th:first-child { width: 1%; white-space: nowrap; }
+.changeCompare tbody th { color: var(--tp-muted); font-weight: 560; }
+.changeCompare tbody tr:last-child th, .changeCompare tbody tr:last-child td { border-bottom: 0; }
+.changeCompare td:last-child { font-weight: 650; }
+.changeCompare tr.changed td:last-child { background: color-mix(in srgb, var(--tp-blue-soft) 70%, transparent); }
+.changeCompare tr.changed td:nth-child(2) { color: var(--tp-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+@media (max-width: 420px) { .changeCompare th, .changeCompare td { padding: 9px 8px; } }
+.changeBadge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--tp-blue-soft); color: var(--tp-blue); font-size: 12px; font-weight: 680; vertical-align: 1px; }
+@media (forced-colors: active) {
+  .changeCompare tr.changed td:last-child { outline: 2px solid Highlight; outline-offset: -2px; }
+  .changeBadge { border: 1px solid CanvasText; }
+}
 .resolutionCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 0 0 18px; padding: 13px 14px; border: 1px solid var(--tp-border); border-radius: 13px; background: var(--tp-bg-soft); }
 .resolutionCard > div { display: grid; gap: 3px; min-width: 0; }
 .resolutionCard span { color: var(--tp-muted); font-size: 12px; font-weight: 650; }
@@ -698,6 +719,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
   .candidateCard { min-height: 224px; }
   .orderRow { grid-template-columns: minmax(0, 1fr) auto; }
   .orderRow .secondaryButton { grid-column: 1 / -1; width: 100%; }
+  .orderRow .orderActions { grid-column: 1 / -1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  .orderRow .orderActions .secondaryButton { grid-column: auto; }
   .notice { display: grid; gap: 5px; }
   .executionNotice .secondaryButton { width: 100%; margin-top: 4px; }
   .activityRow { grid-template-columns: auto minmax(0,1fr); }

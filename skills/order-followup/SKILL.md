@@ -1,6 +1,6 @@
 ---
 name: order-followup
-description: Follow up Trading 212 orders with TradePilot - whether an order filled, what is still pending, and cancelling a pending order after the user confirms it. Use for "did my order go through", "what orders are open", "cancel my Apple limit order".
+description: Follow up Trading 212 orders with TradePilot - whether an order filled, what is still pending, and changing or cancelling a pending order after the user confirms it. Use for "did my order go through", "what orders are open", "move my Apple limit to 180", "cancel my Apple limit order".
 ---
 
 # Order follow-up
@@ -12,9 +12,13 @@ description: Follow up Trading 212 orders with TradePilot - whether an order fil
    - Where the TradePilot widget is shown, the user confirms the cancellation there, with a second confirmation on Live.
    - In a text-only host (a terminal), no widget appears. Show the order from the tool's text. If the user wants it cancelled, call `app_prepare_cancel` (this sends nothing) and show its summary. Call `app_execute_cancel` with that token only after the user explicitly confirms in the conversation. On Live, pass `liveAcknowledged` only after they confirm they understand it is their real account.
 
+5. To change a pending Limit, Stop or Stop-Limit order (its quantity, limit or stop price, or validity), call `review_order_change` with the order id and only the fields that change. Its instrument, side and type stay as they are; for those, cancel it and place a new order. Say that Trading 212 cannot edit an order: confirming cancels it and places the new one only once Trading 212 shows nothing of it filled, and if part of it fills meanwhile, the new order is not placed.
+   - Where the widget is shown, the user can still adjust the change there, then confirms the old and new order side by side, with a second confirmation on Live.
+   - In a text-only host, call `app_prepare_replace` (this sends nothing) and show both orders from its summary. Call `app_execute_replace` only after the user explicitly confirms. If the result's `stage` is `cancelled_not_placed`, say plainly that the old order is cancelled and the new one was not placed, and why; never place it again without the user's word.
+
 ## Rules
 
 - Never say an order was cancelled or filled unless a tool result says so. After a cancellation, check it with `get_order_status`.
 - A partly filled order keeps its filled shares when the rest is cancelled.
-- If `review_order_cancel` is not available, order tools are switched off on this instance. Tell the user they can cancel the order in the dashboard or the Trading 212 app.
+- If `review_order_cancel` is not available, order tools are switched off on this instance. Tell the user they can change or cancel the order in the dashboard or the Trading 212 app.
 - Reply in the user's language.

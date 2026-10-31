@@ -159,6 +159,18 @@ async function scenarios(): Promise<Scenario[]> {
     const name = dashboard.positions.find((position) => position.instrument.ticker === pending.ticker)?.instrument.name ?? pending.ticker ?? "";
     list.push({ id: "cancel", group: "orders", tool: "review_order_cancel", args: { orderId: String(pending.id) }, prompt: { en: `Cancel my pending ${name} order.`, zh: `撤掉 ${name} 的挂单。` } });
   }
+  // A Limit or Stop the widget can change: a new limit 2% under the old, or the stop 2% lower.
+  const changeable = dashboard.orders.find((order) => order.id !== undefined && /^(LIMIT|STOP)$/i.test(String(order.type ?? "")) && !Number(order.filledQuantity ?? 0));
+  if (changeable) {
+    const name = dashboard.positions.find((position) => position.instrument.ticker === changeable.ticker)?.instrument.name ?? changeable.ticker ?? "";
+    const limit = typeof changeable.limitPrice === "number";
+    const price = Number(limit ? changeable.limitPrice : changeable.stopPrice);
+    list.push({
+      id: "change", group: "orders", tool: "review_order_change",
+      args: { orderId: String(changeable.id), [limit ? "limitPrice" : "stopPrice"]: round(price * 0.98) },
+      prompt: { en: `Move my ${name} ${limit ? "limit" : "stop"} 2% lower.`, zh: `把 ${name} 的${limit ? "限价" : "止损价"}调低 2%。` },
+    });
+  }
 
   const pies = await services.pies.listPies("demo").catch(() => null);
   list.push({ id: "pies", group: "pies", tool: "list_pies", args: {}, prompt: { en: "Show my pies.", zh: "看看我的 Pies。" } });

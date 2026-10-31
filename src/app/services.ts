@@ -71,6 +71,8 @@ export function createServices(input: ServiceDependencies) {
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
     afterWrite: (environment) => { insights.forgetHistory(environment); changes.emit(environment, "holdings"); },
+    beforeReplace: (environment, orderId) => links.hold(environment, orderId),
+    afterReplace: (environment, orderId, newOrderId) => links.swap(environment, orderId, newOrderId),
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment),
     // The sample account's history is drawn relative to today: kept, it would go stale.
