@@ -109,6 +109,8 @@ describe("the portfolio on the day", () => {
     // Trading 212's value of the holdings comes along; without the schedules, the day is guessed and when it closed is not known.
     expect(today.invested).toBeGreaterThan(0);
     expect(today).not.toHaveProperty("ended");
+    // Nor whether a market is open.
+    expect(today).not.toHaveProperty("open");
     expect(today.moves.every((move) => move.guessed)).toBe(true);
     expect(apple.value).toBeCloseTo(12 * 231.55 * 0.92, 1);
     const text = describePayload(today);
@@ -174,6 +176,7 @@ describe("the portfolio on the day", () => {
     expect(today.fillsProblem).toBe("The day has more orders than one read covers (100); the oldest of them are left out.");
     // Friday's sessions had all closed by Saturday: the last of them at the after-hours close.
     expect(today.ended).toEqual({ "2026-10-09": closedAt("2026-10-10T00:00:00Z") });
+    expect(today.open).toBe(false);
     expect(today.moves.some((move) => move.guessed)).toBe(false);
   });
 
@@ -183,6 +186,7 @@ describe("the portfolio on the day", () => {
     const today = await portfolioToday({ ...base, schedules }, "demo", new Date("2026-10-09T15:00:00Z"));
     expect(today.moves.every((move) => move.day === "2026-10-09")).toBe(true);
     expect(today).not.toHaveProperty("ended");
+    expect(today.open).toBe(true);
   });
 
   it("keeps a previous close that will not change for the day's later reads", async () => {

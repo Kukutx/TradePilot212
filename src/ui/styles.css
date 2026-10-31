@@ -1950,3 +1950,30 @@ strong.historyAmount { flex: none; font-size: 13px; }
 }
 /* Dragging across a chart moves its readout; it does not select the axis labels. The table view stays selectable. */
 svg { -webkit-user-select: none; user-select: none; }
+
+/* ---- The dashboard reading itself again ---- */
+/* A figure the last read changed is lit for a moment in its move's colour; without motion it is not. */
+.litFigure { border-radius: 5px; animation: tpLit 1.6s ease-out 1; }
+.litFigure.up { --tp-lit: var(--tp-green-soft); }
+/* Inside a figure whose label is a span (a phone card's facts), it stays the figure, not a label. */
+.positionFacts strong .litFigure, .metric strong .litFigure { display: inline; margin: 0; color: inherit; font-size: inherit; font-weight: inherit; }
+.litFigure.down { --tp-lit: var(--tp-red-soft); }
+@keyframes tpLit { from { background: var(--tp-lit); box-shadow: 0 0 0 3px var(--tp-lit); } to { background: transparent; box-shadow: 0 0 0 3px transparent; } }
+@media (prefers-reduced-motion: reduce) { .litFigure { animation: none; } }
+/* High contrast draws no background: the figure is outlined instead, for as long. */
+@media (forced-colors: active) {
+  .litFigure { animation: tpLitOutline 1.6s steps(1, end) 1; }
+  @keyframes tpLitOutline { from { outline: 1px solid Highlight; outline-offset: 1px; } to { outline: none; } }
+}
+.updatedMetric strong { display: flex; align-items: center; gap: 6px; }
+.updatedMetric time { overflow: hidden; text-overflow: ellipsis; }
+.updatedMetric.stale strong { color: var(--tp-amber); }
+.metric.updatedMetric .staleNote, .metric.updatedMetric .refreshStopped { display: block; margin-top: 4px; color: var(--tp-amber-text); font-size: 12px; line-height: 1.35; white-space: normal; }
+.refreshWarn { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 12px; font-style: normal; font-weight: 800; }
+.metric.updatedMetric .autoRefreshToggle { min-height: 28px; margin-top: 6px; gap: 7px; font-size: 12px; }
+.metric.updatedMetric .autoRefreshToggle span { margin: 0; color: inherit; font-size: inherit; font-weight: 560; }
+.metric.updatedMetric .autoRefreshToggle .toggleTrack { display: inline-flex; width: 28px; height: 17px; }
+.metric.updatedMetric .autoRefreshToggle .toggleTrack > span { width: 13px; height: 13px; }
+.metric.updatedMetric .autoRefreshToggle input:checked + .toggleTrack > span { transform: translateX(11px); }
+@media (pointer: coarse) { .metric.updatedMetric .autoRefreshToggle { min-height: 36px; } }
+@media (forced-colors: active) { .refreshWarn { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; color: CanvasText; } }

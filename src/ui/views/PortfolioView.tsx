@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import type { ActivityEvent, DashboardPayload, PendingOrder, Position } from "../../shared/contracts";
 import type { SupportedLocale } from "../i18n";
 import type { ValuePoint } from "../../shared/history";
@@ -12,7 +12,8 @@ import { HoldingsMap, mapDayKnown } from "../components/holdings-map";
 import { FxPart, fxShown, ResultSplitBars } from "../components/result-split";
 import { resultSplit, resultSplitOf } from "../../shared/result-split";
 import type { DayMove } from "../../shared/today";
-import { amount, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
+import { amount, dateTime, dayLabel, money, num, pct, qty, signedClass, time, walletNumber } from "../lib/format";
+import { ageText, MAX_FAILURES, useNow } from "../lib/auto-refresh";
 import { nextSort, readHoldingsPrefs, saveHoldingsPrefs, SORT_CHOICES, sortFromId, sortHoldings, sortId, type HoldingsPrefs, type HoldingsSortKey } from "../lib/holdings";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import type { MessageKey } from "../i18n";
@@ -21,6 +22,59 @@ import { stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
 import { radioKeys, radioTab } from "../lib/radio";
 
 export type { TodayState };
+
+/** The dashboard reading itself again, as App runs it: the reader's switch, and how the last reads went. */
+export interface AutoRefreshState {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  /** Reads that failed in a row, and why the last one did. */
+  failures: number;
+  problem?: string;
+}
+
+/** The dashboard's figures a read can move, keyed by figure: the account's total, and each holding's price and value. */
+export function dashboardFigures(payload: DashboardPayload): Map<string, number> {
+  const values = new Map<string, number>();
+  const put = (key: string, value: number | undefined) => { if (value !== undefined && Number.isFinite(value)) values.set(key, value); };
+  put("total", payload.account?.totalValue);
+  for (const position of payload.positions) {
+    put(`price:${position.instrument.ticker}`, position.currentPrice);
+    put(`value:${position.instrument.ticker}`, walletNumber(position, "currentValue"));
+  }
+  return values;
+}
+
+/** Which way each figure in both reads moved from the first to the second. */
+export function figuresMoved(before: Map<string, number>, after: Map<string, number>): Map<string, "up" | "down"> {
+  const moved = new Map<string, "up" | "down">();
+  for (const [key, value] of after) {
+    const old = before.get(key);
+    if (old !== undefined && old !== value) moved.set(key, value > old ? "up" : "down");
+  }
+  return moved;
+}
+
+/** Which way each figure moved since the dashboard before this one (same account), keyed by the figure. */
+type Moved = (key: string) => "up" | "down" | undefined;
+function useMoved(payload: DashboardPayload): Moved {
+  const last = useRef<{ stamp: string; environment: string; values: Map<string, number>; moved: Map<string, "up" | "down"> } | null>(null);
+  if (last.current?.stamp !== payload.timestamp) {
+    const values = dashboardFigures(payload);
+    const before = last.current;
+    const moved = before && before.environment === payload.environment ? figuresMoved(before.values, values) : new Map<string, "up" | "down">();
+    last.current = { stamp: payload.timestamp, environment: payload.environment, values, moved };
+  }
+  const moved = last.current.moved;
+  return (key) => moved.get(key);
+}
+
+/**
+ * A figure that changed since the last read, lit for a moment in the colour of its move: keyed by the read, so each
+ * read that moves it lights it again.
+ */
+function Lit({ moved, stamp, children }: { moved: "up" | "down" | undefined; stamp: string; children: ReactNode }) {
+  return moved ? <span key={stamp} className={`litFigure ${moved}`}>{children}</span> : <>{children}</>;
+}
 
 const SORT_NAMES: Record<string, MessageKey> = {
   default: "sortDefault", "value-desc": "sortValueDesc", "value-asc": "sortValueAsc", "day-desc": "sortDayDesc", "day-asc": "sortDayAsc",
@@ -39,6 +93,7 @@ export function PortfolioView({
   onProtectAll,
   today,
   onGoal,
+  auto,
 }: {
   payload: DashboardPayload;
   book?: InstrumentBook;
@@ -55,7 +110,11 @@ export function PortfolioView({
   today?: TodayState;
   /** Opens the Performance tab at the investment goal. */
   onGoal?: () => void;
+  /** The dashboard reading itself again; none for one that is not read again (an old chat's). */
+  auto?: AutoRefreshState;
 }) {
+  const moved = useMoved(payload);
+  const stamp = payload.timestamp;
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
   // The exchange rates' part of it, over every holding; the price part is the rest, so the two add up to the badge.
@@ -93,7 +152,7 @@ export function PortfolioView({
       <section className="overviewPanel">
         <div className="overviewLead">
           <span className="sectionEyebrow">{t("accountOverview")}</span>
-          <strong className="heroValue">{money(payload.account?.totalValue, currency, locale)}</strong>
+          <strong className="heroValue"><Lit moved={moved("total")} stamp={stamp}>{money(payload.account?.totalValue, currency, locale)}</Lit></strong>
           <div className={`pnlBadge ${signedClass(pnl)}`}>{t("unrealizedPnL")} · {money(pnl, currency, locale, { signed: true })}</div>
           {pnl !== undefined && fxShown(fx) && <ResultSplitBars price={pnl - fx} fx={fx} currency={currency} locale={locale} t={t} />}
           {today && <DayTotal today={today} currency={currency} locale={locale} t={t} />}
@@ -104,7 +163,7 @@ export function PortfolioView({
           <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />
           <Metric label={t("investedValue")} value={money(payload.account?.investments?.currentValue, currency, locale)} />
           <Metric label={t("positions")} value={String(payload.positions.length)} />
-          <Metric label={t("lastUpdated")} value={time(payload.timestamp, locale)} compact />
+          <UpdatedMetric timestamp={payload.timestamp} locale={locale} t={t} {...(auto ? { auto } : {})} />
         </div>
       </section>
 
@@ -159,13 +218,13 @@ export function PortfolioView({
                           {position.quantityAvailableForTrading < position.quantity && <small className="freeToSell">{fill(t("freeToSell"), { quantity: qty(position.quantityAvailableForTrading, locale) })}</small>}
                         </td>
                         <td>
-                          {money(position.currentPrice, position.instrument.currencyCode, locale)}
+                          <Lit moved={moved(`price:${position.instrument.ticker}`)} stamp={stamp}>{money(position.currentPrice, position.instrument.currencyCode, locale)}</Lit>
                           {/* Where the Day column is hidden, the day's move shows under the price. */}
                           {day && <span className="dayUnderPrice"><DayCell move={moves.get(position.instrument.ticker)} loading={day.loading} currency={currency} locale={locale} t={t} layout="row" /></span>}
                         </td>
                         {day && <td className="dayColumn"><DayCell move={moves.get(position.instrument.ticker)} loading={day.loading} currency={currency} locale={locale} t={t} /></td>}
                         <td className="optionalColumn">{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</td>
-                        <td>{money(walletNumber(position, "currentValue"), currency, locale)}</td>
+                        <td><Lit moved={moved(`value:${position.instrument.ticker}`)} stamp={stamp}>{money(walletNumber(position, "currentValue"), currency, locale)}</Lit></td>
                         <td className={signedClass(positionPnl)}>{money(positionPnl, currency, locale, { signed: true })}<FxPart fx={resultSplit(position)?.fx} currency={currency} locale={locale} t={t} /></td>
                         <td className="optionalColumn stopColumn">{guard ? <span className="stopCell"><strong>{stopGuardText(guard, position, locale, t)}</strong><small>{stopCoverageText(guard, position, locale, t)}</small></span> : <span className="mutedInline" aria-label={t("noStopLoss")}>—</span>}</td>
                       </tr>
@@ -177,6 +236,7 @@ export function PortfolioView({
             <div className="mobilePositionList">
               {positions.map((position) => (
                 <PositionCard key={position.instrument.ticker} position={position} orders={payload.orders} accountCurrency={currency} book={book} locale={locale} t={t} {...(onOpen ? { onOpen } : {})}
+                  moved={{ price: moved(`price:${position.instrument.ticker}`), value: moved(`value:${position.instrument.ticker}`), stamp }}
                   {...(day ? { day: { move: moves.get(position.instrument.ticker), loading: day.loading } } : {})} />
               ))}
             </div>
@@ -334,6 +394,7 @@ export function PositionCard({
   t,
   onOpen,
   day,
+  moved,
 }: {
   position: Position;
   /** Pending orders; a sell stop on this holding shows under its facts. */
@@ -345,6 +406,8 @@ export function PositionCard({
   onOpen?: (ticker: string) => void;
   /** The holding's move on the day, when the dashboard reads them. */
   day?: { move: DayMove | undefined; loading: boolean };
+  /** Which way the value and price moved since the last read, and that read. */
+  moved?: { price?: "up" | "down" | undefined; value?: "up" | "down" | undefined; stamp: string };
 }) {
   const positionPnl = walletNumber(position, "unrealizedProfitLoss");
   const positionValue = walletNumber(position, "currentValue");
@@ -353,8 +416,8 @@ export function PositionCard({
     <article className="positionCard">
       <div className="positionCardHeader">{onOpen ? <OpenHolding position={position} book={book} t={t} onOpen={onOpen} /> : <AssetIdentity position={position} book={book} />}<span className="compactPnlStack"><span className={`compactPnl ${signedClass(positionPnl)}`}>{money(positionPnl, accountCurrency, locale, { signed: true })}</span><FxPart fx={resultSplit(position)?.fx} currency={accountCurrency} locale={locale} t={t} /></span></div>
       <div className="positionFacts">
-        <div><span>{t("positionValue")}</span><strong>{money(positionValue, accountCurrency, locale)}</strong></div>
-        <div><span>{t("currentPrice")}</span><strong>{money(position.currentPrice, position.instrument.currencyCode, locale)}</strong></div>
+        <div><span>{t("positionValue")}</span><strong><Lit moved={moved?.value} stamp={moved?.stamp ?? ""}>{money(positionValue, accountCurrency, locale)}</Lit></strong></div>
+        <div><span>{t("currentPrice")}</span><strong><Lit moved={moved?.price} stamp={moved?.stamp ?? ""}>{money(position.currentPrice, position.instrument.currencyCode, locale)}</Lit></strong></div>
         <div><span>{t("quantity")}</span><strong>{qty(position.quantity, locale)}</strong></div>
         <div><span>{t("averagePrice")}</span><strong>{money(position.averagePricePaid, position.instrument.currencyCode, locale)}</strong></div>
       </div>
@@ -372,6 +435,34 @@ export function PositionCard({
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * When the dashboard was read, as "Just now" or "3 minutes ago" written again every half minute (the time itself in
+ * its tooltip), marked once it may be out of date; with the switch that reads it again by itself and how that went.
+ */
+function UpdatedMetric({ timestamp, locale, t, auto }: { timestamp: string; locale: SupportedLocale; t: Translator; auto?: AutoRefreshState }) {
+  const now = useNow();
+  const age = ageText(timestamp, now, locale, t);
+  const stopped = auto?.on && auto.failures >= MAX_FAILURES;
+  const failed = auto?.on && auto.failures > 0 && !stopped ? fill(t("autoRefreshFailed"), { problem: auto.problem ?? "" }) : undefined;
+  return (
+    <div className={`metric compact updatedMetric${age.stale ? " stale" : ""}`}>
+      <span>{t("lastUpdated")}</span>
+      <strong>
+        <time dateTime={timestamp} title={dateTime(timestamp, locale)}>{age.text}</time>
+        {failed && <i className="refreshWarn" role="img" aria-label={failed} title={failed}>!</i>}
+      </strong>
+      {age.stale && <small className="staleNote">{t("updatedStale")}</small>}
+      {auto && (
+        <label className="toggleField autoRefreshToggle" title={t("autoRefreshHint")}>
+          <input type="checkbox" checked={auto.on} onChange={(event) => auto.onChange(event.target.checked)} />
+          <span className="toggleTrack"><span /></span><span>{t("autoRefresh")}</span>
+        </label>
+      )}
+      {stopped && <small className="refreshStopped" role="status">{fill(t("autoRefreshStopped"), { count: num(MAX_FAILURES, locale), problem: auto.problem ?? "" })}</small>}
+    </div>
   );
 }
 
