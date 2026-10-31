@@ -193,7 +193,8 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
       </section>
       <section className="dataPanel">
         <div className="pieHeader"><h2>{t("historyFillsTitle")}</h2>{data.fills.length > 0 && <FilterBox value={filter} onChange={setFilter} label={t("historyFilterInstrument")} clearLabel={t("historyClearFilter")} />}</div>
-        {sources.length > 1 && (
+        {/* Kept while a source is chosen, so another period that leaves only that one can still clear it. */}
+        {(sources.length > 1 || shownSource !== null) && (
           <div className="filterChips" role="radiogroup" onKeyDown={radioKeys} aria-label={t("historySource")}>
             {[null, ...sources].map((key) => (
               <button key={key ?? "all"} type="button" role="radio" aria-checked={shownSource === key} tabIndex={radioTab(shownSource === key)} className={shownSource === key ? "active" : ""} onClick={() => setSource(key)}>
