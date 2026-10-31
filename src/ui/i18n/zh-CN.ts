@@ -394,6 +394,7 @@ export const zhCN: Record<MessageKey, string> = {
   todayLabel: "今日涨跌",
   todayLastSession: "上个交易日（{day}）的涨跌",
   todayLoading: "今日 …",
+  todayStale: "未更新：最近一次读取当日涨跌失败，显示的是 {time} 的数据。",
   todayFailed: "没能读到当日涨跌，刷新可重试。",
   todayPartial: "{counted}/{of} 个标的",
   todayColumn: "日涨跌",

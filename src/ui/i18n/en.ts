@@ -392,6 +392,7 @@ export const en = {
   todayLabel: "Today's move",
   todayLastSession: "Move on {day}, the last session",
   todayLoading: "Today …",
+  todayStale: "Not updated: the last read of the day failed, so these are the figures from {time}.",
   todayFailed: "The day's move could not be read; refresh to try again.",
   todayPartial: "{counted} of {of}",
   todayColumn: "Day",

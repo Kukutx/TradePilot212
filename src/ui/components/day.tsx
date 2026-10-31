@@ -3,11 +3,17 @@
 
 import type { DayMissing, DayMove, PortfolioToday } from "../../shared/today";
 import type { MessageKey, SupportedLocale } from "../i18n";
-import { dayLabel, money, num, pct, signedClass } from "../lib/format";
+import { dayLabel, money, num, pct, signedClass, time } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 
 /** The day's moves as the dashboard holds them: being read, read, or failed (the overview says so; the column goes). */
-export interface TodayState { data?: PortfolioToday; loading: boolean; failed?: boolean }
+export interface TodayState {
+  data?: PortfolioToday;
+  loading: boolean;
+  failed?: boolean;
+  /** The last read of the day failed: `data` is an earlier read's, shown with its time. */
+  stale?: boolean;
+}
 
 const DAY_MISSING: Record<DayMissing, MessageKey> = {
   provider: "todayMissingProvider",
@@ -65,6 +71,7 @@ export function DayTotal({ today, currency, locale, t }: { today: TodayState; cu
         {total.counted < total.of && ` · ${fill(t("todayPartial"), { counted: num(total.counted, locale), of: num(total.of, locale) })}`}
         <span className="visuallyHidden"> {notes.join(" ")}</span>
       </span>
+      {today.stale && <small className="dayStale" role="status">{fill(t("todayStale"), { time: time(data.timestamp, locale) })}</small>}
     </div>
   );
 }

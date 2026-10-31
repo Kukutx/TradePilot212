@@ -184,6 +184,12 @@ describe("the dashboard reading itself again", () => {
     expect(stopped).not.toContain("refreshWarn");
   });
 
+  it("says when the day's figures are an earlier read's, after a read of them failed", () => {
+    const html = render({ data: today, loading: false, stale: true });
+    expect(html).toContain('<small class="dayStale" role="status">Not updated: the last read of the day failed, so these are the figures from ');
+    expect(render({ data: today, loading: false })).not.toContain("dayStale");
+  });
+
   it("lights each figure a read moved, in the colour of its move, and none on the first read or another account's", () => {
     const before = dashboardFigures(payload);
     expect(before.get("total")).toBe(7926);

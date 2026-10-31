@@ -1999,3 +1999,4 @@ svg { -webkit-user-select: none; user-select: none; }
 .goalMeasured { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
 .goalMeasured .fieldHint { flex: 1 1 240px; }
 .goalUnsaved { align-self: center; margin-right: auto; color: var(--tp-amber-text); font-size: 12px; font-weight: 650; }
+.dayStale { flex-basis: 100%; color: var(--tp-amber-text); font-size: 12px; line-height: 1.35; }
