@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.94.0
+
+- The investment goal can assume inflation (2% for a new goal; a goal saved before assumes none). Above 0, the target and what is added each month are in today's money, the monthly amount rising with prices, and the projection grows at the return after inflation.
+- Pace: saving a goal keeps the account value as its start until the target changes. After a month, the goal panel says how far the account is ahead of or behind the middle line from that start, and `manage_goal` returns it as `projection.pace`.
+- The preview's sample goal was set four months ago, so its pace shows.
+
 ## 2.93.0
 
 - Goal milestones: when the account value first reaches 25%, 50%, 75% or 100% of the investment goal's target, the scheduler writes a `goal_milestone` activity event and sends it to the webhook, in `NOTIFY_LOCALE`'s language. It measures the value it records each hour and reads nothing more. Progress made before a goal is set or its target changed is not announced, and a milestone is said once even if the value falls back and climbs again.
