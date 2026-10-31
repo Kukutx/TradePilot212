@@ -11,7 +11,7 @@ import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPa
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment, OrderImpact } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, MarketSensitivity, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
-import { tradeSource, type TradeSource } from "../shared/history.js";
+import { tradeSource, type HistoryFilter, type TradeSource } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
@@ -686,7 +686,7 @@ interface TradeFill {
 
 interface UnfilledOrder { orderId?: string; ticker?: string; name?: string; side?: string; type?: string; status?: string; createdAt?: string; quantity?: number; value?: number; limitPrice?: number; stopPrice?: number; priceCurrency?: string }
 
-function tradeHistory(data: { fills: TradeFill[]; count?: number; offset?: number; totals?: FillTotals; unfilled?: UnfilledOrder[]; journal?: JournalEntry[]; truncated?: boolean }): string[] {
+function tradeHistory(data: { fills: TradeFill[]; count?: number; offset?: number; totals?: FillTotals; unfilled?: UnfilledOrder[]; journal?: JournalEntry[]; filter?: HistoryFilter; truncated?: boolean }): string[] {
   const fills = data.fills;
   const sell = (fill: TradeFill) => String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
   const fees = new Map<string, number>();
@@ -704,7 +704,9 @@ function tradeHistory(data: { fills: TradeFill[]; count?: number; offset?: numbe
   const all = data.count ?? fills.length;
   const offset = data.offset ?? 0;
   const partial = all > fills.length;
+  const narrowed = [data.filter?.ticker ? `ticker ${data.filter.ticker}` : "", data.filter?.source ? `source ${data.filter.source}` : ""].filter(Boolean).join(", ");
   return [
+    ...(narrowed ? [`Only fills matching ${narrowed}; ask for the next page with the same filter.`] : []),
     ...(all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num(totals.bought)}, ${totals.sells} sells ${num(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num(totals.costs)}.`] : ["No fills in this window."]),
     ...(totals.bySource && Object.keys(totals.bySource).length ? [`Placed from: ${Object.entries(totals.bySource).map(([source, count]) => `${SOURCE_TEXT[source as TradeSource] ?? source} ${count}`).join(", ")}.`] : []),
     ...(fees.size ? [`Fees by kind${partial ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")}.`] : []),

@@ -542,7 +542,8 @@ export class InsightsService {
     const matches = (value: string) => exact ? value === exact.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
     const inWindow = collected.items
       .filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase()))
-      .filter((item) => !source || tradeSource(item.order?.initiatedFrom) === source)
+      // A source is where a trade was placed: a split or another corporate action has none to match.
+      .filter((item) => !source || ((!item.fill?.type || item.fill.type.toUpperCase() === "TRADE") && tradeSource(item.order?.initiatedFrom) === source))
       .filter((item) => {
         const time = itemTime("orders", item);
         return Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());

@@ -119,12 +119,12 @@ function Toolbar({ kind, period, t, busy, onKind, onPeriod }: { kind: HistoryKin
   );
 }
 
-/** Adds up fills the way the server does for a whole window. */
 /** Where an order was placed, in words. */
 const SOURCE_KEYS: Record<TradeSource, MessageKey> = {
   app: "sourceApp", web: "sourceWeb", api: "sourceApi", autoinvest: "sourceAutoinvest", system: "sourceSystem", other: "sourceOther",
 };
 
+/** Adds up fills the way the server does for a whole window. */
 function totalsOf(fills: TradeFill[]): FillTotals {
   const sum: FillTotals = { bought: 0, sold: 0, realised: 0, costs: 0, buys: 0, sells: 0 };
   for (const item of fills) {
@@ -163,9 +163,11 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
   const currency = data.fills.find((item) => item.accountCurrency)?.accountCurrency ?? "EUR";
   const m = (value: number | undefined, signed = false) => money(value, currency, locale, { signed });
   // The sources the window's trades came from; a choice among them narrows the fills listed, as the filter box does.
-  const sources = TRADE_SOURCES.filter((key) => (data.totals?.bySource?.[key] ?? 0) > 0 || data.fills.some((item) => tradeSource(item.initiatedFrom) === key));
+  // A split or another corporate action was not placed from anywhere: only trades count.
+  const traded = (item: TradeFill) => !item.fillType || item.fillType.toUpperCase() === "TRADE";
+  const sources = TRADE_SOURCES.filter((key) => (data.totals?.bySource?.[key] ?? 0) > 0 || data.fills.some((item) => traded(item) && tradeSource(item.initiatedFrom) === key));
   const shownSource = source && sources.includes(source) ? source : null;
-  const fills = data.fills.filter((item) => matches(filter, item.ticker, item.name, book) && (!shownSource || tradeSource(item.initiatedFrom) === shownSource));
+  const fills = data.fills.filter((item) => matches(filter, item.ticker, item.name, book) && (!shownSource || (traded(item) && tradeSource(item.initiatedFrom) === shownSource)));
   const unfilled = (data.unfilled ?? []).filter((item) => matches(filter, item.ticker, item.name, book) && (!shownSource || tradeSource(item.initiatedFrom) === shownSource));
   const filtering = filter.trim() !== "" || shownSource !== null;
   // A result from before the server added up the whole window (a host's saved one) is added up here.
@@ -195,7 +197,8 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
           <div className="filterChips" role="radiogroup" onKeyDown={radioKeys} aria-label={t("historySource")}>
             {[null, ...sources].map((key) => (
               <button key={key ?? "all"} type="button" role="radio" aria-checked={shownSource === key} tabIndex={radioTab(shownSource === key)} className={shownSource === key ? "active" : ""} onClick={() => setSource(key)}>
-                {key === null ? t("historyAll") : `${t(SOURCE_KEYS[key])}${data.totals?.bySource?.[key] ? ` ${data.totals.bySource[key]}` : ""}`}
+                {/* The window's count of each, while nothing narrows the page's own list. */}
+                {key === null ? t("historyAll") : `${t(SOURCE_KEYS[key])}${!filter.trim() && data.totals?.bySource?.[key] ? ` ${data.totals.bySource[key]}` : ""}`}
               </button>
             ))}
           </div>

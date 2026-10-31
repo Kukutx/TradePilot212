@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
+import { tradeSource } from "../shared/history.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
 import { HistoryLedgers, MAX_CHUNKS } from "./history-ledger.js";
@@ -105,6 +106,10 @@ describe("history collection", () => {
     const app = await service.tradeHistory("demo", window, undefined, 50, undefined, false, 0, "app");
     expect(app.fills.map((fill) => fill.orderId)).toEqual(["20", "19"]);
     expect(app).toMatchObject({ count: 2, totals: { buys: 2, bySource: { app: 2 } }, filter: { source: "app" } });
+    expect(["IOS", "ANDROID", "WEB", "API", "AUTOINVEST", "INSTRUMENT_AUTOINVEST", "SYSTEM", "NEW_ONE", ""].map(tradeSource))
+      .toEqual(["app", "app", "web", "api", "autoinvest", "autoinvest", "system", "other", undefined]);
+    // The split placed by Trading 212 is no trade of its.
+    expect((await service.tradeHistory("demo", window, undefined, 50, undefined, false, 0, "system")).count).toBe(0);
   });
 
   it("lists a window's fills and cash movements a page at a time, newest first", async () => {

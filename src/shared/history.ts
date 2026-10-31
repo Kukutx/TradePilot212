@@ -723,7 +723,8 @@ export function tradeSource(initiatedFrom: string | undefined): TradeSource | un
   if (value === "IOS" || value === "ANDROID") return "app";
   if (value === "WEB") return "web";
   if (value === "API") return "api";
-  if (value === "AUTOINVEST") return "autoinvest";
+  // A Pie's or an account's auto-invest, or one instrument's recurring buy.
+  if (value === "AUTOINVEST" || value === "INSTRUMENT_AUTOINVEST") return "autoinvest";
   if (value === "SYSTEM") return "system";
   return "other";
 }

@@ -452,12 +452,12 @@ export function createMcpServer(
     "get_trade_history",
     {
       title: "Trade History",
-      description: "List executed fills with their order id, price, quantity, net value, realized P/L, FX rate, costs and where the order was placed (app, web, API, auto-invest), newest first, and the trade journal notes on those orders (why each was made, and any review). Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found),, by where the orders were placed (`source`), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
+      description: "List executed fills with their order id, price, quantity, net value, realized P/L, FX rate, costs and where the order was placed (app, web, API, auto-invest), newest first, and the trade journal notes on those orders (why each was made, and any review). Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), by where the orders were placed (`source`), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         ticker: z.string().min(1).optional(),
         includeUnfilled: z.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
-        source: z.enum(TRADE_SOURCES).optional().describe("Only orders placed from here: app (Trading 212's iOS or Android app), web, api, autoinvest (Pies and auto-invest), system (Trading 212 itself), other. totals.bySource counts the window's trades by source"),
+        source: z.enum(TRADE_SOURCES).optional().describe("Only orders placed from here: app (Trading 212's iOS or Android app), web, api, autoinvest (a Pie's or the account's auto-invest, or one instrument's recurring buy), system (Trading 212 itself), other. totals.bySource counts the window's trades by source"),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).max(1_000_000).default(0).describe("Fills to pass over, newest first, for the next page: the number already listed. Ask for the same window as the first page (its period.from as `from`, its period.to as `to`) and the same maxPages, so the pages count the same fills"),
         ...windowSchema,

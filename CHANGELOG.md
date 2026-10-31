@@ -2,9 +2,9 @@
 
 ## 2.89.0
 
-- Each trade says where its order was placed, from Trading 212's `initiatedFrom`: its app (iOS or Android), the web, the API, auto-invest (Pies and auto-invest), or Trading 212 itself.
+- Each trade says where its order was placed, from Trading 212's `initiatedFrom`: its app (iOS or Android), the web, the API, auto-invest (a Pie's or the account's, or one instrument's recurring buy), or Trading 212 itself. A split or another corporate action has no source.
   - The Trades page shows it on each fill. When the window's trades came from more than one place, chips above the list show each source with its count and list one source's fills.
-  - `get_trade_history` counts the window's trades by source (`totals.bySource`), and `source` lists one source's alone. The text summary says both.
+  - `get_trade_history` counts the window's trades by source (`totals.bySource`), and `source` lists one source's alone. The widget keeps that filter when it loads more fills or another period, and the text summary says both and reminds a host to keep the filter for the next page.
 - On the Trades page, totals worked out from the fills listed (when filtering) no longer count a split or another corporate action as a buy or a sell, as the server's totals have not since 2.86.
 - The sample account's trades come from the app, the web, the API and auto-invest.
 

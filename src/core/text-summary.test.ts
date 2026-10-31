@@ -191,6 +191,7 @@ describe("text summaries for hosts that only show text", () => {
     });
     expect(text).toContain("Placed from: auto-invest 1, app 1.");
     expect(text).toContain("via auto-invest");
+    expect(describePayload({ kind: "trade_history", count: 0, fills: [], filter: { source: "api" } })).toContain("Only fills matching source api; ask for the next page with the same filter.");
   });
 
   it("returns nothing for payloads the summary already covers", () => {
