@@ -74,6 +74,14 @@ describe("goal projection", () => {
     expect(projectGoal(goal, 10_500, now).pace?.difference).toBe(-500);
   });
 
+  it("puts the pace in today's money when inflation is assumed, so growth at the return assumed is on pace", () => {
+    const goal = { target: 100_000, by: "2036-10-31", monthly: 0, expectedReturn: 0.06, volatility: 0, inflation: 0.02, start: { value: 10_000, at: "2025-10-31T12:00:00Z" } };
+    const pace = goalPace(goal, 10_600, new Date("2026-10-31T12:00:00Z"))!;
+    expect(pace.months).toBe(12);
+    expect(pace.expected).toBeCloseTo(10_600, 6);
+    expect(pace.difference).toBeCloseTo(0, 6);
+  });
+
   it("finds the chance of a short goal that needs growth far beyond ±300% a year", () => {
     // 30% in a month is likely enough at 100% volatility.
     const up = projectGoal({ target: 130, by: "2026-11-30", monthly: 0, expectedReturn: 0.3, volatility: 1 }, 100, now);

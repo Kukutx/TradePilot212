@@ -156,7 +156,10 @@ export function goalPace(goal: GoalInputs & Pick<InvestmentGoal, "start">, value
   if (!Number.isFinite(since.getTime())) return undefined;
   const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 + now.getUTCMonth() - since.getUTCMonth() - (now.getUTCDate() < since.getUTCDate() ? 1 : 0);
   if (months < 1) return undefined;
-  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months);
+  // The middle line grows in the start's money and the value now is in today's, so the line is put in today's money:
+  // an account that grew at exactly the return assumed is on pace, whatever inflation was assumed.
+  const prices = goal.inflation && goal.inflation > 0 ? (1 + goal.inflation) ** (months / 12) : 1;
+  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months) * prices;
   return { since: goal.start.at, months, expected, difference: value - expected };
 }
 

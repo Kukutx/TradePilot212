@@ -3,7 +3,7 @@
 ## 2.94.0
 
 - The investment goal can assume inflation (2% for a new goal; a goal saved before assumes none). Above 0, the target and what is added each month are in today's money, the monthly amount rising with prices, and the projection grows at the return after inflation.
-- Pace: saving a goal keeps the account value as its start until the target changes. After a month, the goal panel says how far the account is ahead of or behind the middle line from that start, and `manage_goal` returns it as `projection.pace`.
+- Pace: saving a goal keeps the account value as its start until the target changes. After a month, the goal panel says how far the account is ahead of or behind the middle line from that start, and `manage_goal` returns it as `projection.pace`. With inflation assumed, the middle line is put in today's money, so growth at the return assumed is on pace.
 - The preview's sample goal was set four months ago, so its pace shows.
 
 ## 2.93.0
