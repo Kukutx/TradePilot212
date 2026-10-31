@@ -191,7 +191,8 @@ The UI is intentionally compact:
 - uncertain writes expose a read-only verification action;
 - keyboard focus is contained within modal dialogs and Escape closes the active dialog;
 - each switch of a few choices (a period, table or map, an order's side and type) is one Tab stop, with the arrow keys, Home and End moving between its choices;
-- the controls the browser would draw (scrollbars, selects, checkboxes, switches, disclosures) are drawn in the widget's style and keep the system's colours in high-contrast mode.
+- the controls the browser would draw (scrollbars, selects, checkboxes, switches, disclosures) are drawn in the widget's style and keep the system's colours in high-contrast mode;
+- what the widget hands the host besides tool calls is offered only where the host says it takes it (`getHostCapabilities`): a file to save (`ui/download-file`), a question for the chat (`ui/message`, only when the reader picks one), and an account of the page in view (`ui/update-model-context`, the page's name and account and the same summary a tool result's text gives, at most 4,000 characters, sent a moment after the page settles and only when it changed). None of them trades, and the model is told nothing was traded from the page.
 
 ## Extending the project
 

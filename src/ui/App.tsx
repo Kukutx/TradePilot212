@@ -1,6 +1,6 @@
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CancelDraftPayload,
   CancelPreview,
@@ -27,7 +27,9 @@ import { journalText, type JournalReview } from "../shared/journal";
 import { APP_META } from "../shared/meta";
 import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale } from "./i18n";
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
+import { Menu, type MenuItem } from "./components/menu";
 import { TipLayer } from "./components/tips";
+import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bridge";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
@@ -116,6 +118,16 @@ const INSIGHT_TOOLS: Record<InsightKind, string> = {
 const TAB_KEYS: Record<PortfolioTab, MessageKey> = {
   holdings: "tabHoldings", watchlist: "tabWatchlist", allocation: "tabAllocation", performance: "tabPerformance", income: "tabIncome", journal_review: "tabJournal",
   trade_history: "tabHistory", cash_history: "tabHistory", tax_year: "tabHistory", pies: "piesTitle", automation: "automationTitle",
+};
+/** Each page's name as the model is told it, in English whatever the reader's language. */
+const PAGE_NAMES: Record<PortfolioTab, string> = {
+  holdings: "Holdings", watchlist: "Watchlist", allocation: "Allocation", performance: "Performance", income: "Income", journal_review: "Journal",
+  trade_history: "History: trades", cash_history: "History: cash movements", tax_year: "History: tax year", pies: "Pies", automation: "Automation",
+};
+/** The question each page offers to ask in the chat, besides asking what the page shows. */
+const ASK_KEYS: Record<PortfolioTab, MessageKey> = {
+  holdings: "askHoldings", watchlist: "askWatchlist", allocation: "askAllocation", performance: "askPerformance", income: "askIncome", journal_review: "askJournal",
+  trade_history: "askTrades", cash_history: "askCash", tax_year: "askTaxYear", pies: "askPies", automation: "askAutomation",
 };
 /** The tab strip, in order; "history" stands for whichever of its three pages was shown last. */
 const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "history", "journal_review", "pies", "automation"] as const;
@@ -386,6 +398,8 @@ export default function App() {
   const [pieResult, setPieResult] = useState<PieChangeResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [problem, setProblem] = useState<Problem | null>(null);
+  /** What came of handing the host a file or a question, when the reader needs telling. */
+  const [hostNote, setHostNote] = useState<{ tone: "info" | "warning" | "error"; text: string } | null>(null);
   const [book, setBook] = useState<InstrumentBook>(() => readSavedBook());
   const [locale, setLocale] = useState<SupportedLocale>(() =>
     readSavedLocale() ?? resolveLocale(typeof navigator === "undefined" ? "en" : navigator.language),
@@ -527,6 +541,77 @@ export default function App() {
   const cancelDraftActive = base?.kind === "cancel_draft" && !cancelDraftClosed;
   const transactionActive = Boolean(draft || preview || cancelPreview || cancelDraftActive);
   const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
+  const reviewing = transactionActive || basketActive;
+  const traded = Boolean(basketResult || pieResult || execution?.ok);
+
+  // What the host takes besides tool calls, as it said when the widget connected: text, for a message or context.
+  const hostCan = app?.getHostCapabilities();
+  const canAsk = Boolean(hostCan?.message?.text);
+  const canTell = Boolean(hostCan?.updateModelContext?.text);
+  /** The data the page in view is drawn from: an instrument's page, a tab's read, or what the host handed over. */
+  const shown: { kind?: unknown; environment?: unknown } | null | undefined = base?.kind === "holding" ? base
+    : base && (base.kind === "portfolio" || isInsight(base)) ? (tab === "holdings" ? (base.kind === "portfolio" ? base : undefined) : insights[tab as InsightKind])
+    : base;
+  const pageName = base?.kind === "holding" ? `instrument (${base.instrument.name ?? base.ticker})`
+    : base && (base.kind === "portfolio" || isInsight(base)) ? PAGE_NAMES[tab] : base ? base.kind.replace(/_/g, " ") : undefined;
+  const sampleAccount = Boolean((base as { credentials?: CredentialStatus } | null)?.credentials?.sample);
+  // The account the page's data is for, which lags the switch while the other account's page loads.
+  const shownEnvironment: TradingEnvironment = shown?.environment === "live" || shown?.environment === "demo" ? shown.environment : environment;
+  const context = useMemo(() => {
+    if (!pageName) return undefined;
+    // A review is told as one, without its figures: the model is not to take it for the account's state.
+    if (reviewing) {
+      return viewContext({ page: "trade review", environment, sample: sampleAccount,
+        note: traded ? "The trade reviewed was sent from the widget; its result is on screen." : "Nothing is placed until the user confirms it in the widget." }, undefined);
+    }
+    const note = traded ? "An order was just sent from the widget; the figures below can be from before it." : undefined;
+    if (!shown) return viewContext({ page: pageName, environment, sample: sampleAccount, note: "Its data is loading or could not be read." }, undefined);
+    return viewContext({ page: pageName, environment: shownEnvironment, sample: sampleAccount, ...(note ? { note } : {}) }, shown);
+  }, [pageName, reviewing, traded, shown, shownEnvironment, environment, sampleAccount]);
+  // The model is told what the reader looks at, a moment after it settles; a host keeps only the latest.
+  const toldContext = useRef<string | undefined>(undefined);
+  const tell = useCallback(async (text: string) => {
+    if (!app || text === toldContext.current) return;
+    toldContext.current = text;
+    await app.updateModelContext({ content: [{ type: "text", text }] }).catch(() => { toldContext.current = undefined; });
+  }, [app]);
+  useEffect(() => {
+    if (!canTell || !context || context === toldContext.current) return;
+    const timer = window.setTimeout(() => void tell(context), 600);
+    return () => window.clearTimeout(timer);
+  }, [canTell, context, tell]);
+  // A note about a file or a question belongs to the page it was asked from.
+  useEffect(() => { setHostNote(null); }, [tab, base]);
+
+  async function saveFile(format: ExportFormat): Promise<void> {
+    if (!app || !canExport(shown)) return;
+    const file = exportFile(shown, format);
+    setHostNote(null);
+    try {
+      const result = await app.downloadFile({ contents: [{ type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.mimeType, text: file.text } }] });
+      // The host says no when the reader closes its save dialog too: said plainly, not as a failure.
+      if (result.isError) setHostNote({ tone: "info", text: t("saveFileNotSaved") });
+      else if (file.of) setHostNote({ tone: "warning", text: fill(t("exportedPart"), { name: file.name, count: String(file.rows), of: String(file.of) }) });
+      else if (file.partial?.includes("historyCut")) setHostNote({ tone: "warning", text: fill(t("exportedCut"), { name: file.name }) });
+      else if (file.partial) setHostNote({ tone: "warning", text: fill(t("exportedEstimate"), { name: file.name }) });
+    } catch {
+      setHostNote({ tone: "error", text: t("saveFileFailed") });
+    }
+  }
+
+  async function ask(question: string): Promise<void> {
+    if (!app) return;
+    setHostNote(null);
+    try {
+      // What the page shows goes first, so the question is read with it.
+      if (canTell && context) await tell(context);
+      const result = await app.sendMessage({ role: "user", content: [{ type: "text", text: question }] });
+      if (result.isError) setHostNote({ tone: "error", text: t("askFailed") });
+    } catch {
+      setHostNote({ tone: "error", text: t("askFailed") });
+    }
+  }
+
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -1215,6 +1300,13 @@ export default function App() {
   const positions = base?.kind === "portfolio" ? base.positions : [];
   const cancelTarget = cancelPreview ?? (base?.kind === "cancel_draft" && cancelDraftActive ? base : null);
   const fullLabel = displayMode === "fullscreen" ? t("collapse") : t("expand");
+  const exportItems: MenuItem[] = hostCan?.downloadFile && canExport(shown) && !reviewing
+    ? [{ id: "csv", label: t("exportCsv") }, { id: "json", label: t("exportJson") }] : [];
+  const askItems: MenuItem[] = !canAsk || !pageName || reviewing ? [] : [
+    { id: "general", label: t("askGeneral") },
+    ...(base?.kind === "holding" ? [{ id: "page", label: fill(t("askHolding"), { name: base.instrument.shortName || base.instrument.name || base.ticker }) }]
+      : portfolioLike ? [{ id: "page", label: t(ASK_KEYS[tab]) }] : []),
+  ];
 
   return (
     <div className={`appShell mode-${displayMode}`}>
@@ -1255,6 +1347,19 @@ export default function App() {
             <button type="button" lang="en" aria-pressed={locale === "en"} className={locale === "en" ? "active" : ""} onClick={() => changeLocale("en")}>EN</button>
           </div>
 
+          <div className="headerTools">
+          {askItems.length > 0 && (
+            <Menu label={t("askLabel")} items={askItems} disabled={loading} onChoose={(id) => void ask(askItems.find((item) => item.id === id)!.label)}>
+              <Icon name="chat" />
+              <span className="actionText" aria-hidden="true">{t("askShort")}</span>
+            </Menu>
+          )}
+          {exportItems.length > 0 && (
+            <Menu label={t("exportLabel")} items={exportItems} disabled={loading} onChoose={(id) => void saveFile(id as ExportFormat)}>
+              <Icon name="download" />
+              <span className="actionText" aria-hidden="true">{t("exportShort")}</span>
+            </Menu>
+          )}
           {canToggleFullscreen && (
             <button className="iconAction" type="button" onClick={() => void toggleDisplayMode()} title={fullLabel} aria-label={fullLabel}>
               <Icon name={displayMode === "fullscreen" ? "collapse" : "expand"} />
@@ -1265,6 +1370,7 @@ export default function App() {
             <Icon name="refresh" className={loading ? "spinning" : undefined} />
             <span className="actionText" aria-hidden="true">{loading ? t("refreshing") : t("refresh")}</span>
           </button>
+          </div>
         </div>
       </header>
 
@@ -1278,6 +1384,11 @@ export default function App() {
 
       {!writeEnabled && base && base.kind !== "error" && (
         <div className="notice warning"><strong>{t("readonlyMode")}</strong><span>{t("readonlyHint")}</span></div>
+      )}
+      {hostNote && (
+        <div className={hostNote.tone === "info" ? "notice" : `notice ${hostNote.tone}`} role={hostNote.tone === "error" ? "alert" : "status"}>
+          <div className="noticeCopy"><span>{hostNote.text}</span></div>
+        </div>
       )}
       {problem && (
         <div className="notice error problemNotice" role="alert">
