@@ -46527,6 +46527,8 @@ var ListingWatches = class {
 
 // src/core/goals.ts
 var goalKey = (environment) => `goal:${environment}`;
+var milestoneKey = (environment) => `goal-milestone:${environment}`;
+var belongs = (record2, goal) => !!record2 && record2.createdAt === goal.createdAt && record2.target === goal.target;
 var MILESTONE_WORDS = {
   en: (goal, mark, value, target, by) => mark >= 100 ? `${goal} reached: ${value} against a target of ${target} by ${by}.` : `${goal} is ${mark}% of the way: ${value} of ${target} by ${by}.`,
   "zh-CN": (goal, mark, value, target, by) => mark >= 100 ? `${goal}\u5DF2\u8FBE\u6210\uFF1A\u5E02\u503C ${value}\uFF0C\u76EE\u6807 ${target}\uFF0C\u622A\u6B62 ${by}\u3002` : `${goal}\u5DF2\u5B8C\u6210 ${mark}%\uFF1A${value} / ${target}\uFF0C\u622A\u6B62 ${by}\u3002`
@@ -46544,8 +46546,12 @@ var Goals = class {
     this.deps = deps;
   }
   deps;
-  get(environment) {
-    return this.deps.store.get(goalKey(environment));
+  /** The goal with the milestone its target has reached, when the scheduler has measured it. */
+  async get(environment) {
+    const [goal, record2] = await Promise.all([this.deps.store.get(goalKey(environment)), this.deps.store.get(milestoneKey(environment))]);
+    if (!goal) return void 0;
+    const { milestone: _stored, ...rest } = goal;
+    return belongs(record2, goal) ? { ...rest, milestone: record2.mark } : rest;
   }
   async set(input2, now = /* @__PURE__ */ new Date()) {
     requireCredentials(this.deps.config, input2.environment);
@@ -46566,7 +46572,6 @@ var Goals = class {
     const name = input2.name === void 0 ? current?.name : input2.name.trim().slice(0, 80) || void 0;
     const currency = input2.currency ?? current?.currency;
     const sameTarget = !!current && current.target === input2.target;
-    const milestone = sameTarget ? current.milestone : void 0;
     const start = sameTarget && current.start ? current.start : input2.value !== void 0 && Number.isFinite(input2.value) ? { value: input2.value, at: now.toISOString() } : void 0;
     const goal = {
       environment: input2.environment,
@@ -46578,17 +46583,17 @@ var Goals = class {
       inflation,
       ...currency ? { currency } : {},
       ...name ? { name } : {},
-      ...milestone === void 0 ? {} : { milestone },
       ...start ? { start } : {},
       createdAt: current?.createdAt ?? now.toISOString(),
       updatedAt: now.toISOString()
     };
     await this.deps.store.put(goalKey(input2.environment), goal);
-    return goal;
+    return current?.milestone !== void 0 && current.target === goal.target ? { ...goal, milestone: current.milestone } : goal;
   }
   async remove(environment) {
     const had = !!await this.get(environment);
     await this.deps.store.delete(goalKey(environment));
+    await this.deps.store.delete(milestoneKey(environment));
     return had;
   }
   /**
@@ -46607,14 +46612,12 @@ var Goals = class {
         reports2.push({ environment, action: "none", milestone: known, message: "No new milestone." });
         continue;
       }
-      const current = await this.get(environment);
-      if (!current || current.updatedAt !== goal.updatedAt) continue;
-      await this.deps.store.put(goalKey(environment), { ...current, milestone: mark });
+      await this.deps.store.put(milestoneKey(environment), { createdAt: goal.createdAt, target: goal.target, mark });
       if (known === void 0 || !this.deps.trading) {
         reports2.push({ environment, action: "seeded", milestone: mark, message: `Seeded at ${mark}%.` });
         continue;
       }
-      const message = milestoneText(current, mark, point.totalValue, current.currency, this.deps.config.notifyLocale);
+      const message = milestoneText(goal, mark, point.totalValue, goal.currency, this.deps.config.notifyLocale);
       await this.deps.trading.recordActivity("goal_milestone", environment, { outcome: message });
       reports2.push({ environment, action: "reached", milestone: mark, message });
     }
@@ -47160,7 +47163,7 @@ var REPORT_WORDS = {
     goal: (name, share4, target, by) => `${name ? `\u76EE\u6807\u300C${name}\u300D` : "\u6295\u8D44\u76EE\u6807"}\u5B8C\u6210 ${share4}\uFF08${target}\uFF0C\u622A\u6B62 ${by}\uFF09`
   }
 };
-function reportText(kind, period, summary, locale = "en", goal) {
+function reportText(kind, period, summary, locale = "en", goal, goalValue) {
   const words = REPORT_WORDS[locale];
   const currency = summary.accountCurrency;
   const money4 = (value, sign = false) => {
@@ -47174,7 +47177,7 @@ function reportText(kind, period, summary, locale = "en", goal) {
   const flows = summary.contributions.net;
   const { dividends, interest } = summary.income;
   const { buys, sells, turnover } = summary.trades;
-  const goalValue = end?.totalValue;
+  const measured = end?.totalValue ?? goalValue;
   return [
     words.period(kind, period.first, period.last),
     start && end && start !== end ? words.value(money4(end.totalValue), money4(start.totalValue), money4(end.totalValue - start.totalValue, true)) : void 0,
@@ -47184,7 +47187,7 @@ function reportText(kind, period, summary, locale = "en", goal) {
     buys || sells ? words.trades(buys, sells, money4(turnover)) : words.noTrades,
     Math.abs(summary.realizedProfitLoss) >= 5e-3 ? words.realized(money4(summary.realizedProfitLoss, true)) : void 0,
     Math.abs(summary.costs.total) >= 5e-3 ? words.costs(money4(summary.costs.total)) : void 0,
-    goal && goalValue !== void 0 ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(goalValue / goal.target), money4(goal.target), goal.by) : void 0,
+    goal && measured !== void 0 ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(measured / goal.target), money4(goal.target), goal.by) : void 0,
     summary.coverage.truncated ? words.short : void 0
   ].filter(Boolean).join(" \xB7 ");
 }
@@ -47217,7 +47220,8 @@ var PeriodicReports = class {
           const window = { from: new Date(midnight(period.first, digest2.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest2.timeZone) - 1), endsNow: false };
           const summary = await this.deps.performance(environment, window);
           const goal = await this.deps.goal?.(environment).catch(() => void 0);
-          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal);
+          const goalValue = goal && !summary.valueHistory?.length ? await this.deps.lastValue?.(environment, window).catch(() => void 0) : void 0;
+          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal, goalValue);
           const type = kind === "weekly" ? "weekly_report" : "monthly_report";
           const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type, outcome: text };
           if (!await this.deps.notify(event, { force: true })) {
@@ -47483,6 +47487,7 @@ function createServices(input2) {
     trading,
     performance: (environment, window) => insights.performance(environment, window, void 0, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), withStart: true, ...account === void 0 ? {} : { account } })),
     goal: (environment) => goals.get(environment),
+    lastValue: async (environment, window) => (await values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() })).at(-1)?.totalValue,
     ...notify ? { notify } : {}
   });
   const stage = async (name, run) => {
