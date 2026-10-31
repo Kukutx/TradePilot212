@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.88.0
+
+- A Trading 212 report (`manage_history_export`, the Reports page) now gives the tax withheld from dividends by country:
+  - Each row counts the gross (shares × gross per share) and what was withheld, both in the paying currency, grouped by the country in the instrument's ISIN. Pence are counted as pounds. A row whose withholding is in another currency than its gross is left out.
+  - The Reports page lists each country with its rate, the tickers and the number of payments. The text summary lists them too.
+  - US dividends withheld at 25% or more are flagged. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%.
+- The sample account's report lists each row's ISIN, and its Irish-domiciled fund pays without withholding, as such funds do.
+
 ## 2.87.0
 
 - Each investment plan keeps its latest runs, up to 12: when it ran, whether you confirmed it or the scheduler sent it unattended, how many of its orders went in, and the runs skipped or with nothing to buy. A plan used to keep only its last outcome.

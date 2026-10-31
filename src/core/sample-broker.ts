@@ -334,11 +334,13 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const order = item.order as Json, fill = item.fill as Json, impact = fill.walletImpact as Json;
       const ticker = String(order.ticker), currency = instrumentOf(ticker)?.currencyCode ?? "EUR", quantity = Number(fill.quantity);
       const fee = currency === "EUR" ? "" : round(Number(impact.netValue) * 0.0015);
-      rows.push([String(fill.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time(String(fill.filledAt)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill.id}`, Math.abs(quantity), fill.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
+      rows.push([String(fill.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time(String(fill.filledAt)), instrumentOf(ticker)?.isin ?? "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill.id}`, Math.abs(quantity), fill.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
     }
     for (const item of dividends) {
-      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity);
-      rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", round(gross * 0.15), item.tickerCurrency, "", ""].join(",")]);
+      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity), isin = instrumentOf(ticker)?.isin ?? "";
+      // Irish-domiciled funds pay without withholding; US and Dutch shares at the 15% a treaty usually gives.
+      const withheld = isin.startsWith("IE") ? "" : round(gross * 0.15);
+      rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), isin, ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", withheld, withheld === "" ? "" : item.tickerCurrency, "", ""].join(",")]);
     }
     for (const item of transactions) {
       const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST_ON_FREE_CASH" ? "Interest on cash" : String(item.type);

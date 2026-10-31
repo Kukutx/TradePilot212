@@ -1740,6 +1740,9 @@ summary::-webkit-details-marker { display: none; }
 .historyRow > .historyWho { flex: 1 1 0; }
 .historyRow > .historyAmount { flex: none; }
 strong.historyAmount { flex: none; font-size: 13px; }
+.withholdingAmount { display: grid; justify-items: end; gap: 2px; }
+.withholdingAmount strong { font-size: 13px; }
+.withholdingAmount small { color: var(--tp-muted); font-size: 12px; }
 .historyList strong.positive, .historyList small.positive { color: var(--tp-green); }
 .historyList strong.negative, .historyList small.negative { color: var(--tp-red); }
 .cashMark { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; font-size: 17px; font-weight: 760; }

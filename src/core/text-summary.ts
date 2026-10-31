@@ -966,6 +966,8 @@ function exportSummary(summary: ExportSummary): string[] {
     ...(some(summary.interest) ? [`Interest: ${money(summary.interest)}`] : []),
     ...(some(summary.dividends) ? [`Dividends (net of withholding): ${money(summary.dividends)}`] : []),
     ...(some(summary.result) ? [`Realised result: ${money(summary.result)}`] : []),
+    ...(summary.withholding?.length ? [`Withheld from dividends: ${summary.withholding.map((entry) => `${entry.country} ${round2(entry.rate * 10_000) / 100}% (${round2(entry.withheld)} of ${round2(entry.gross)} ${entry.currency} gross, ${entry.payments} payment${entry.payments === 1 ? "" : "s"})`).join("; ")}`] : []),
+    ...(summary.withholding?.some((entry) => entry.high) ? ["US dividends were withheld at 25% or more. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%. Check the form's status in the Trading 212 app. This is not tax advice."] : []),
   ];
 }
 

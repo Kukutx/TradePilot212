@@ -49,6 +49,33 @@ describe("CSV export", () => {
     expect(describePayload({ kind: "history_export", summary })).toContain("Currency conversion fee: 1.33 EUR");
   });
 
+  it("works out the tax withheld from dividends by the country of each ISIN", () => {
+    const csv = [
+      "Action,Time,ISIN,Ticker,No. of shares,Price / share,Currency (Price / share),Total,Currency (Total),Withholding tax,Currency (Withholding tax)",
+      "Dividend (Ordinary),2026-02-15 08:00:00,US0378331005,AAPL,10,0.25,USD,2.00,EUR,0.38,USD",
+      "Dividend (Ordinary),2026-03-01 08:00:00,US1912161007,KO,20,0.50,USD,6.40,EUR,3.00,USD",
+      "Dividend (Ordinary),2026-03-10 08:00:00,GB00B03MLX29,SHEL,100,25,GBX,25.00,EUR,,",
+      "Dividend (Dividend),2026-03-20 08:00:00,IE00B3XXRP09,VUSA,10,0.30,USD,2.80,EUR,,",
+      "Dividend (Ordinary),2026-03-25 08:00:00,NL0010273215,ASML,1,1.60,EUR,1.36,EUR,0.24,EUR",
+      "Dividend (Ordinary),2026-03-26 08:00:00,DE0007164600,SAP,1,2.00,EUR,1.50,EUR,0.50,USD",
+      "Market buy,2026-03-27 10:00:00,US0378331005,AAPL,1,200,USD,185,EUR,,",
+    ].join("\n");
+    const { summary } = summarizeExport(csv);
+    expect(summary.withholding).toEqual([
+      // US: 3.38 of 12.50, 27%: at or over 25%, so flagged.
+      { country: "US", currency: "USD", payments: 2, gross: 12.5, withheld: 3.38, rate: 0.2704, tickers: ["AAPL", "KO"], high: true },
+      { country: "NL", currency: "EUR", payments: 1, gross: 1.6, withheld: 0.24, rate: 0.15, tickers: ["ASML"] },
+      // Pence counted as pounds; nothing withheld.
+      { country: "GB", currency: "GBP", payments: 1, gross: 25, withheld: 0, rate: 0, tickers: ["SHEL"] },
+      { country: "IE", currency: "USD", payments: 1, gross: 3, withheld: 0, rate: 0, tickers: ["VUSA"] },
+    ]);
+    const text = describePayload({ kind: "history_export", summary });
+    expect(text).toContain("Withheld from dividends: US 27.04% (3.38 of 12.5 USD gross, 2 payments)");
+    expect(text).toContain("W-8BEN");
+    // No withholding column: nothing to say.
+    expect(summarizeExport("Action,Time,Total,Currency (Total)\nDeposit,2026-01-01 10:00:00,5,EUR").summary.withholding).toBeUndefined();
+  });
+
   it("reads an older file that puts the currency in the header", () => {
     const { summary } = summarizeExport("Action,Time,Total (EUR),Currency conversion fee (EUR)\nMarket buy,2025-01-01 10:00:00,100,0.15\nMarket buy,2025-01-02 10:00:00,50,0.08\n");
     expect(summary.actions).toEqual([{ action: "Market buy", count: 2, totals: { EUR: 150 } }]);

@@ -4,7 +4,7 @@
 // a "Currency (…)" column (older files put the currency in the header, "Currency conversion fee (EUR)"), so the
 // file is read by its header.
 
-import type { ExportSummary, ExportTotals as Totals } from "../shared/history.js";
+import type { ExportSummary, ExportTotals as Totals, WithholdingByCountry } from "../shared/history.js";
 export type { ExportSummary, Totals };
 
 /** The rows of a CSV file, as text: quoted fields, doubled quotes, CRLF and a byte-order mark are handled. */
@@ -63,6 +63,14 @@ export function summarizeExport(text: string): { summary: ExportSummary; records
   const result = money("Result");
   const action = at("Action");
   const time = at("Time");
+  const withheldColumn = money("Withholding tax");
+  const priceColumn = money("Price / share");
+  const shares = at("No. of shares");
+  const isin = at("ISIN");
+  const tickerColumn = at("Ticker");
+  const withholding = new Map<string, WithholdingByCountry>();
+  const cell = (row: string[], index: number) => (index >= 0 ? (row[index] ?? "").trim() : "");
+  const currencyOf = (column: Money, row: string[]) => column.code ?? (column.currency !== undefined ? cell(row, column.currency) : "");
 
   const add = (totals: Totals, column: Money | undefined, row: string[]) => {
     if (!column) return;
@@ -82,7 +90,10 @@ export function summarizeExport(text: string): { summary: ExportSummary; records
     add(entry.totals, total, row);
     actions.set(name, entry);
     if (/interest/i.test(name)) add(summary.interest, total, row);
-    if (/^dividend/i.test(name)) add(summary.dividends, total, row);
+    if (/^dividend/i.test(name)) {
+      add(summary.dividends, total, row);
+      if (withheldColumn && priceColumn) addWithholding(row);
+    }
     add(summary.result, result, row);
     charges.forEach((column, index) => add(chargeTotals[index]!.totals, column, row));
     const when = time >= 0 ? row[time]?.trim() : undefined;
@@ -91,8 +102,35 @@ export function summarizeExport(text: string): { summary: ExportSummary; records
       if (!summary.last || when > summary.last) summary.last = when;
     }
   }
+  if (withheldColumn) {
+    summary.withholding = [...withholding.values()]
+      .map((entry) => ({ ...entry, gross: round(entry.gross), withheld: round(entry.withheld), rate: entry.gross > 0 ? round(entry.withheld / entry.gross) : 0,
+        ...(entry.country === "US" && entry.gross > 0 && entry.withheld / entry.gross >= 0.25 ? { high: true } : {}) }))
+      .sort((a, b) => b.withheld - a.withheld || a.country.localeCompare(b.country));
+  }
   summary.actions = [...actions.values()].sort((a, b) => b.count - a.count || a.action.localeCompare(b.action));
   summary.charges = chargeTotals.filter((charge) => Object.keys(charge.totals).length);
+  /** One dividend row's gross and withholding, both in its paying currency (pence counted as pounds). */
+  function addWithholding(row: string[]) {
+    const quantity = Number(cell(row, shares)), perShare = Number(cell(row, priceColumn!.index));
+    const withheldText = cell(row, withheldColumn!.index);
+    const withheld = withheldText ? Number(withheldText) : 0;
+    if (!(quantity > 0) || !(perShare > 0) || !Number.isFinite(withheld)) return;
+    const pence = (code: string) => /^GBX$/i.test(code) || code === "GBp";
+    const pounds = (code: string) => (pence(code) ? "GBP" : code.toUpperCase());
+    const grossCode = currencyOf(priceColumn!, row), withheldCode = withheldText ? currencyOf(withheldColumn!, row) : grossCode;
+    if (!grossCode || pounds(grossCode) !== pounds(withheldCode || grossCode)) return;
+    const currency = pounds(grossCode);
+    const gross = quantity * perShare / (pence(grossCode) ? 100 : 1);
+    const tax = Math.abs(withheld) / (pence(withheldCode || grossCode) ? 100 : 1);
+    const country = /^[A-Z]{2}/.test(cell(row, isin).toUpperCase()) ? cell(row, isin).slice(0, 2).toUpperCase() : "?";
+    const key = `${country}:${currency}`;
+    const entry = withholding.get(key) ?? { country, currency, payments: 0, gross: 0, withheld: 0, rate: 0, tickers: [] };
+    entry.payments += 1; entry.gross += gross; entry.withheld += tax;
+    const ticker = cell(row, tickerColumn);
+    if (ticker && !entry.tickers.includes(ticker)) entry.tickers.push(ticker);
+    withholding.set(key, entry);
+  }
   const records = body.map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index] ?? ""]).filter(([, value]) => value !== "")));
   return { summary, records };
 }

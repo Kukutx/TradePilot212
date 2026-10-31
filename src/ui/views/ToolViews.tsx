@@ -1,8 +1,8 @@
 import type { OrderStatusReport, TradingEnvironment } from "../../shared/contracts";
 import type { ExportReport, ExportSummary, ExportTotals } from "../../shared/history";
-import type { MessageKey, SupportedLocale } from "../i18n";
+import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { AssetAvatar, DetailRow, Metric } from "../components/common";
-import { amount, dateTime, dayLabel, money, qty, signedClass } from "../lib/format";
+import { amount, dateTime, dayLabel, money, pct, qty, signedClass } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderTypeLabel, plural, type Translator } from "../lib/messages";
 
@@ -149,6 +149,37 @@ function span(report: ExportReport, t: Translator, locale: SupportedLocale): str
   return report.timeFrom ? fill(t("taxSpan"), { from: dayLabel(report.timeFrom, locale), to: report.timeTo ? dayLabel(report.timeTo, locale) : "—" }) : "—";
 }
 
+/** A country's name from its ISIN prefix, in the page's language; the code itself when the browser has no name for it. */
+function countryName(code: string, locale: SupportedLocale, t: Translator): string {
+  if (code === "?") return t("withholdingNoIsin");
+  try { return new Intl.DisplayNames([localeTag(locale)], { type: "region" }).of(code) ?? code; } catch { return code; }
+}
+
+/** The tax withheld from dividends, by country: the rate, what it came to, and a note where US dividends lost 30%. */
+function WithholdingPanel({ rows, locale, t }: { rows: NonNullable<ExportSummary["withholding"]>; locale: SupportedLocale; t: Translator }) {
+  return (
+    <section className="dataPanel">
+      <div className="pieHeader"><h2>{t("withholdingTitle")}</h2></div>
+      {rows.some((row) => row.high) && <div className="notice warning compactNotice" role="note">{t("withholdingHigh")}</div>}
+      <ul className="historyList">
+        {rows.map((row) => (
+          <li key={`${row.country}:${row.currency}`} className="historyRow">
+            <div className="historyWho"><div>
+              <strong>{countryName(row.country, locale, t)}</strong>
+              <small>{[row.tickers.slice(0, 6).join(", ") + (row.tickers.length > 6 ? " …" : ""), plural(row.payments, locale, t("withholdingPaymentsOne"), t("withholdingPayments"))].filter(Boolean).join(" · ")}</small>
+            </div></div>
+            <div className="historyAmount withholdingAmount">
+              <strong className={row.high ? "negative" : undefined}>{pct(row.rate, locale)}</strong>
+              <small>{fill(t("withholdingOf"), { withheld: money(row.withheld, row.currency, locale), gross: money(row.gross, row.currency, locale) })}</small>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="panelNote">{t("withholdingNote")}</p>
+    </section>
+  );
+}
+
 /** Trading 212's CSV reports: the list with a way to read each finished one, a request's outcome, or what one report adds up to. */
 export function ExportView({ data, locale, t, busy, onRead, onList, onBack }: {
   data: ExportPayload; locale: SupportedLocale; t: Translator; busy: boolean; onRead?: (reportId: number) => void; onList?: () => void; onBack?: () => void;
@@ -190,6 +221,7 @@ export function ExportView({ data, locale, t, busy, onRead, onList, onBack }: {
               <div className="confirmationRows">{summary.charges.map((charge) => <DetailRow key={charge.name} label={charge.name} value={totalsText(charge.totals, locale)} />)}</div>
             </section>
           )}
+          {summary.withholding && summary.withholding.length > 0 && <WithholdingPanel rows={summary.withholding} locale={locale} t={t} />}
           <section className="dataPanel">
             <div className="pieHeader"><h2>{t("exportActions")}</h2></div>
             <ul className="historyList">

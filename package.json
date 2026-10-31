@@ -1,6 +1,6 @@
 {
   "name": "tradepilot212",
-  "version": "2.87.0",
+  "version": "2.88.0",
   "private": true,
   "type": "module",
   "description": "Self-hosted Trading 212 MCP app for ChatGPT with portfolio dashboards, flexible order sizing, OAuth/PKCE, Demo/Live separation, and human-confirmed execution.",

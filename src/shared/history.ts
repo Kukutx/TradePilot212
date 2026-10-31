@@ -104,7 +104,28 @@ export interface ExportSummary {
   dividends: ExportTotals;
   /** Realised result of sales, from the Result column. */
   result: ExportTotals;
+  /**
+   * Tax withheld from dividends, by the country of each instrument's ISIN and the currency it was paid in: the gross
+   * (shares × gross per share), what was withheld, and the rate. Only rows whose gross and withholding are in one
+   * currency are counted (from 2.88). Absent when the file has no withholding column.
+   */
+  withholding?: WithholdingByCountry[];
   columns: string[];
+}
+
+export interface WithholdingByCountry {
+  /** The ISIN's two-letter country (US, GB, DE …), or "?" for rows without an ISIN. */
+  country: string;
+  currency: string;
+  payments: number;
+  gross: number;
+  withheld: number;
+  /** withheld / gross. */
+  rate: number;
+  /** The tickers paid, as the file names them. */
+  tickers: string[];
+  /** US dividends withheld at 25% or more: the rate without a W-8BEN, where a treaty usually gives 15%. */
+  high?: boolean;
 }
 
 export interface ExportReport {
