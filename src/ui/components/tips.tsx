@@ -143,8 +143,14 @@ export function TipLayer({ id = "tp-tip" }: { id?: string }) {
       if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 10) { pressed = null; window.clearTimeout(wait); }
     };
     // The click a lift brings comes at once; one later is a new press of its own.
-    const up = () => { pressed = null; window.clearTimeout(wait); if (eat) eatEnd = window.setTimeout(() => { eat = null; }, 400); };
-    const cancel = () => { pressed = null; window.clearTimeout(wait); eat = null; };
+    // Only a finger's: a mouse pressed before its hover shows leaves the hover to show.
+    const up = (event: PointerEvent) => {
+      if (event.pointerType !== "touch") return;
+      pressed = null;
+      window.clearTimeout(wait);
+      if (eat) eatEnd = window.setTimeout(() => { eat = null; }, 400);
+    };
+    const cancel = (event: PointerEvent) => { if (event.pointerType !== "touch") return; pressed = null; window.clearTimeout(wait); eat = null; };
     // A long press shows the bubble; it does not also press the button under it.
     const click = (event: MouseEvent) => {
       if (eat && inside(event.target, eat)) { event.preventDefault(); event.stopPropagation(); }
