@@ -133,8 +133,20 @@ function totalsOf(fills: TradeFill[]): FillTotals {
  * `period` is null when the host read a window none of the switch's periods is; the window then shows with the filter.
  * The page's own filter box narrows only the fills listed, so its totals are of those.
  */
-export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter }: {
+/** How many of the window's entries are listed, and a button that lists the next page of them. */
+function ListMore({ note, left, locale, t, busy, onMore }: { note: string; left: number; locale: SupportedLocale; t: Translator; busy: boolean; onMore?: (() => void) | undefined }) {
+  return (
+    <div className="listMore">
+      <p className="panelNote">{note}</p>
+      {onMore && <button type="button" className="secondaryButton" disabled={busy} onClick={onMore}>{fill(t("historyLoadMore"), { count: new Intl.NumberFormat(locale).format(left) })}</button>}
+    </div>
+  );
+}
+
+export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter, onMore }: {
   data: TradeHistory & { journal?: JournalEntry[] }; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; busy: boolean;
+  /** Lists the window's next page below the ones shown. */
+  onMore?: () => void;
   onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void; onClearFilter?: () => void;
 }) {
   const [filter, setFilter] = useState("");
@@ -203,7 +215,10 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
             </ul>
           </div>
         ))}
-        {(data.count ?? 0) > data.fills.length && <p className="panelNote">{fill(t(filtering ? "historyShowingNewestFiltered" : "historyShowingNewest"), { shown: String(data.fills.length), count: String(data.count) })}</p>}
+        {(data.count ?? 0) > data.fills.length && (
+          <ListMore note={fill(t(filtering ? "historyShowingNewestFiltered" : "historyShowingNewest"), { shown: String(data.fills.length), count: String(data.count) })}
+            left={(data.count ?? 0) - data.fills.length} locale={locale} t={t} busy={busy} onMore={onMore} />
+        )}
       </section>
       {unfilled.length > 0 && (
         <section className="dataPanel activityPanel">
@@ -267,8 +282,10 @@ export function cashTypeLabel(type: string, t: Translator, one = false): string 
 const CASH_ORDER = ["DEPOSIT", "WITHDRAW", "DIVIDEND", "INTEREST", "FEE"];
 const cashRank = (type: string) => { const at = CASH_ORDER.indexOf(type); return at < 0 ? CASH_ORDER.length : at; };
 
-export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter }: {
+export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod, onKind, onOpen, onClearFilter, onMore }: {
   data: CashHistory; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; busy: boolean;
+  /** Lists the window's next page below the ones shown. */
+  onMore?: () => void;
   onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void; onClearFilter?: () => void;
 }) {
   const [type, setType] = useState<string | null>(null);
@@ -336,7 +353,10 @@ export function CashHistoryView({ data, book, locale, t, period, busy, onPeriod,
             </ul>
           </div>
         ))}
-        {data.count > data.items.length && <p className="panelNote">{fill(t("historyShowingNewest"), { shown: String(data.items.length), count: String(data.count) })}</p>}
+        {data.count > data.items.length && (
+          <ListMore note={fill(t("historyShowingNewest"), { shown: String(data.items.length), count: String(data.count) })}
+            left={data.count - data.items.length} locale={locale} t={t} busy={busy} onMore={onMore} />
+        )}
       </section>
     </main>
   );

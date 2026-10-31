@@ -771,6 +771,43 @@ export default function App() {
     }
   }
 
+  /**
+   * List the next page of the trades or cash movements shown, below them: the same window, ended where the first page
+   * ended, so entries that came in since do not move the pages.
+   */
+  async function loadMore(kind: "trade_history" | "cash_history"): Promise<void> {
+    const current = insights[kind];
+    if (!current) return;
+    const listed = current.kind === "trade_history" ? current.fills.length : current.items.length;
+    const args = {
+      environment: current.environment,
+      ...(current.period.from ? { from: current.period.from } : {}), to: current.period.to,
+      ...(current.filter?.ticker ? { ticker: current.filter.ticker } : {}),
+      ...(current.kind === "cash_history" && current.filter?.types ? { types: current.filter.types } : {}),
+      limit: kind === "trade_history" ? 200 : 500,
+      offset: (current.offset ?? 0) + listed,
+    };
+    setStatus("loading");
+    setProblem(null);
+    try {
+      const next = await callTool<InsightPayload>(INSIGHT_TOOLS[kind], args);
+      setInsights((shown) => {
+        // A page read for a list since replaced (another period, account or filter) is dropped.
+        if (shown[kind] !== current || next.kind !== kind) return shown;
+        const { offset: _offset, ...rest } = next as TradeHistory | CashHistory;
+        const merged = current.kind === "trade_history" && rest.kind === "trade_history"
+          ? { ...rest, fills: [...current.fills, ...rest.fills], ...(current.unfilled ? { unfilled: current.unfilled } : {}),
+            ...((current as { journal?: unknown[] }).journal || (rest as { journal?: unknown[] }).journal ? { journal: [...((current as { journal?: unknown[] }).journal ?? []), ...((rest as { journal?: unknown[] }).journal ?? [])] } : {}) }
+          : current.kind === "cash_history" && rest.kind === "cash_history" ? { ...rest, items: [...current.items, ...rest.items] } : current;
+        return { ...shown, [kind]: merged };
+      });
+    } catch (requestError) {
+      setProblem(problemFrom("errorTitleLoad", requestError, () => void loadMore(kind)));
+    } finally {
+      setStatus("idle");
+    }
+  }
+
   /** Show another tax year, or count it another way; a rule change goes back to the latest year that has started. */
   async function changeTax(next: TaxSettings): Promise<void> {
     setTaxSettings(next);
@@ -1519,11 +1556,11 @@ export default function App() {
               />
             )}
             {portfolioLike && tab === "trade_history" && insights.trade_history && (
-              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} {...scopeOf("trade_history")} busy={loading}
+              <TradeHistoryView data={insights.trade_history} book={book} locale={locale} t={t} {...scopeOf("trade_history")} busy={loading} onMore={() => void loadMore("trade_history")}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "cash_history" && insights.cash_history && (
-              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} {...scopeOf("cash_history")} busy={loading}
+              <CashHistoryView data={insights.cash_history} book={book} locale={locale} t={t} {...scopeOf("cash_history")} busy={loading} onMore={() => void loadMore("cash_history")}
                 onPeriod={(next) => void changePeriod(next)} onKind={(next) => void selectTab(next)} onOpen={(ticker) => void openHolding(ticker)} />
             )}
             {portfolioLike && tab === "tax_year" && insights.tax_year && (

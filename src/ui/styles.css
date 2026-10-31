@@ -1864,3 +1864,7 @@ strong.historyAmount { flex: none; font-size: 13px; }
 @media (pointer: coarse) { .menuItem { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .menuList { animation: none; } }
 @media (forced-colors: active) { .menuList { border-color: CanvasText; } .menuItem.active { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
+
+/* The count of a long history and the button that lists its next page, side by side where they fit. */
+.listMore { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.listMore .panelNote { flex: 1 1 220px; margin: 0; }
