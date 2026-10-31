@@ -91,8 +91,9 @@ describe("native controls", () => {
     expect(css).toMatch(/\.inlineLink \{[^}]*min-width: 24px; min-height: 24px/);
     expect(css).toMatch(/\.sortHeader \{[^}]*min-width: 24px; min-height: 24px/);
     expect(css).toMatch(/\.dayCell small \{(?![^}]*opacity)[^}]*\}/);
-    // The warning mark takes the page's own background as its colour, so it reads on either theme's amber.
-    expect(css).toMatch(/\.flagIcon \{[^}]*background: var\(--tp-amber\); color: var\(--tp-bg\)/);
+    // Marks with text on a fill use the widget's own fills and inks, never the host's status inks as a background.
+    expect(css).toMatch(/\.flagIcon \{[^}]*background: var\(--tp-fill-warn\); color: var\(--tp-fill-ink\)/);
+    for (const rule of css.match(/^[^{}]*(policyGlyph|priceTag text|corrTable td\.)[^{}]*\{[^}]*\}/gm) ?? []) expect(rule).not.toMatch(/(background|fill):[^;]*var\(--tp-(green|red|amber|blue|muted|bg)\)/);
     expect(css).toContain("::-webkit-search-cancel-button");
     // A search box draws its own clear button (Firefox has none), so the browser's is hidden there.
     expect(css).toContain(".searchField input::-webkit-search-cancel-button { display: none; }");
@@ -120,5 +121,17 @@ describe("native controls", () => {
   it("keeps a loading view's tabs focusable", () => {
     expect(app).toContain("aria-disabled={busy && !active ? true : undefined}");
     expect(app).not.toContain("disabled={busy && !active}");
+  });
+
+  it("reads the MCP Apps host's style variables, each with the widget's own value to fall back on", () => {
+    const root = css.slice(0, css.indexOf("* { box-sizing"));
+    for (const name of ["--font-sans", "--color-border-primary", "--color-border-secondary", "--shadow-hairline", "--border-radius-xl", "--color-ring-primary",
+      "--color-text-success", "--color-background-success", "--color-text-danger", "--color-text-warning", "--color-text-info"]) {
+      expect(root).toMatch(new RegExp(`var\\(${name}, [^)]`));
+    }
+    // A host face never takes the sans fallbacks with it.
+    expect(root).toMatch(/font-family: var\(--font-sans, Inter\), ui-sans-serif/);
+    // A name the spec does not have (an older host's) is only read after the spec's own.
+    expect(css.split("var(--color-border-light").length).toBe(css.split("var(--color-border-primary, var(--color-border-light").length);
   });
 });

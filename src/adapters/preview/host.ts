@@ -3,6 +3,7 @@
 
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { McpUiHostContext } from "@modelcontextprotocol/ext-apps";
+import { HOST_STYLES } from "./host-styles";
 
 interface Scenario {
   id: string;
@@ -36,7 +37,7 @@ const viewSelect = $("view-select") as unknown as HTMLSelectElement;
 const copy = {
   en: {
     title: "TradePilot preview", sample: "Sample account", demo: "Your Demo account", view: "View", theme: "Theme", light: "Light", dark: "Dark",
-    language: "Language", width: "Width", phone: "Phone", chat: "Chat", wide: "Wide",
+    language: "Language", width: "Width", phone: "Phone", chat: "Chat", wide: "Wide", host: "Host styles", hostNone: "None", hostGiven: "Given",
     portfolio: "Portfolio", orders: "Orders", pies: "Pies", automation: "Automation",
     modelText: "What the model reads", calls: "Calls from the widget", none: "None yet.", loading: "Loading…", failed: "The tool call failed.",
     exitFullscreen: "Exit full screen (Esc)",
@@ -46,7 +47,7 @@ const copy = {
   },
   "zh-CN": {
     title: "TradePilot 预览", sample: "样例账户", demo: "你的 Demo 账户", view: "页面", theme: "主题", light: "浅色", dark: "深色",
-    language: "语言", width: "宽度", phone: "手机", chat: "聊天", wide: "宽屏",
+    language: "语言", width: "宽度", phone: "手机", chat: "聊天", wide: "宽屏", host: "宿主样式", hostNone: "无", hostGiven: "提供",
     portfolio: "组合", orders: "下单", pies: "Pies", automation: "自动化",
     modelText: "模型读到的文字", calls: "界面发出的调用", none: "暂无。", loading: "加载中…", failed: "工具调用失败。",
     exitFullscreen: "退出全屏（Esc）",
@@ -98,6 +99,8 @@ function readState() {
     theme: pick<Theme>("theme", ["light", "dark"], prefersDark ? "dark" : "light"),
     lang: pick<Lang>("lang", ["en", "zh-CN"], navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en"),
     width: pick<Width>("width", ["375", "720", "1040"], innerWidth < 760 ? "375" : "720"),
+    // A host that gives its style variables, or one that gives none (the widget's own fallbacks).
+    host: pick<"none" | "given">("host", ["none", "given"], "none"),
   };
 }
 
@@ -134,11 +137,12 @@ function hostContext(): McpUiHostContext {
     containerDimensions: displayMode === "fullscreen" ? { width: innerWidth, height: innerHeight } : { width: frameWidth(), maxHeight: 6000 },
     platform: Number(state.width) < 500 ? "mobile" : "web",
     userAgent: "tradepilot-preview",
+    ...(state.host === "given" ? { styles: { variables: HOST_STYLES } } : {}),
   };
 }
 
 function writeHash(): void {
-  const hash = new URLSearchParams({ view: state.view, theme: state.theme, lang: state.lang, width: state.width });
+  const hash = new URLSearchParams({ view: state.view, theme: state.theme, lang: state.lang, width: state.width, host: state.host });
   history.replaceState(null, "", `#${hash}`);
 }
 
@@ -160,8 +164,8 @@ function renderChrome(): void {
   $("title").textContent = t.title;
   $("mode").textContent = boot.mode === "demo" ? t.demo : t.sample;
   $("mode").dataset.mode = boot.mode;
-  for (const id of ["view", "theme", "language", "width"] as const) $(`label-${id}`).textContent = t[id];
-  for (const [id, key] of [["theme-light", "light"], ["theme-dark", "dark"], ["width-375", "phone"], ["width-720", "chat"], ["width-1040", "wide"]] as const) $(id).textContent = t[key];
+  for (const id of ["view", "theme", "language", "width", "host"] as const) $(`label-${id}`).textContent = t[id];
+  for (const [id, key] of [["theme-light", "light"], ["theme-dark", "dark"], ["width-375", "phone"], ["width-720", "chat"], ["width-1040", "wide"], ["host-none", "hostNone"], ["host-given", "hostGiven"]] as const) $(id).textContent = t[key];
   $("model-summary").textContent = t.modelText;
   $("exit-fullscreen").setAttribute("aria-label", t.exitFullscreen);
   $("exit-fullscreen").title = t.exitFullscreen;
@@ -225,6 +229,8 @@ async function mount(): Promise<void> {
   iframe.sandbox.add("allow-scripts", "allow-forms", "allow-popups", "allow-popups-to-escape-sandbox");
   iframe.style.width = `${frameWidth()}px`;
   iframe.style.height = "640px";
+  // A host that gives its styles draws the widget on its own page colour, so what shows through is the host's.
+  if (state.host === "given") iframe.style.background = HOST_STYLES["--color-background-primary"] ?? "";
   $("frame").appendChild(iframe);
 
   const bridge = new AppBridge(null, { name: "tradepilot-preview", version: "1.0.0" }, { openLinks: {}, serverTools: {}, logging: {} }, { hostContext: hostContext() });
@@ -262,7 +268,8 @@ async function mount(): Promise<void> {
 }
 
 function update(next: Partial<typeof state>): void {
-  const remount = next.view !== undefined && next.view !== state.view;
+  // A widget keeps the variables a host gave it, so taking them away starts it again.
+  const remount = (next.view !== undefined && next.view !== state.view) || (next.host !== undefined && next.host !== state.host);
   state = { ...state, ...next };
   writeHash();
   renderChrome();

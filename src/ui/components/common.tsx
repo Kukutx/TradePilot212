@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type CSSProperties, type InputHTMLAttributes, type ReactNode, type Ref, type RefObject } from "react";
 import type { Position } from "../../shared/contracts";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
+import { radioKeys, radioTab } from "../lib/radio";
 
 export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert" | "calendar" | "check";
 
@@ -247,4 +248,20 @@ export function useDialog() {
   const headingId = useId();
   useDialogFocus(panel, heading);
   return { panel, heading, headingId, props: dialogProps(headingId) };
+}
+
+/**
+ * A form field's few choices as one row of buttons (a radio group named by the field's label), rather than a select
+ * that hides them: the side and the order type, a plan's frequency. `id` is the field's, so the group can take the label's name.
+ */
+export function Choices<T extends string>({ id, value, options, onChange, ...described }: {
+  id: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void; "aria-describedby"?: string; "aria-invalid"?: boolean;
+}) {
+  return (
+    <div className="segmented formChoices" role="radiogroup" aria-labelledby={`${id}-label`} id={id} onKeyDown={radioKeys} {...described}>
+      {options.map(([key, label]) => (
+        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} className={`${value === key ? "active" : ""} choice-${key}`} onClick={() => onChange(key)}>{label}</button>
+      ))}
+    </div>
+  );
 }

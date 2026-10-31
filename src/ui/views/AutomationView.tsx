@@ -1,28 +1,18 @@
-import type { AutomationOverview, DcaPlan, PriceAlert } from "../../shared/automation";
+import type { AutomationOverview, PriceAlert } from "../../shared/automation";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { AccountAlertList, type AccountAlertRequest } from "../components/account-alerts";
 import { AlertActions } from "../components/alerts";
+import { PlanList, type PlanRequest, type PlanSaveResult } from "../components/plans";
 import { DetailRow, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { alertConditionLabel, fill, instrumentTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
-
-/** Weekday 1 = Monday … 7 = Sunday, in the user's language. 2024-01-01 was a Monday. */
-function weekdayName(weekday: number | undefined, locale: SupportedLocale): string {
-  if (!weekday) return "";
-  return new Intl.DateTimeFormat(localeTag(locale), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, weekday)));
-}
 
 /** A tax year's first day, MM-DD, as the locale writes a day of the year: "6 April", "4月6日". */
 export function yearStartLabel(start: string, locale: SupportedLocale): string {
   const [month, day] = start.split("-").map(Number);
   if (!month || !day) return start;
   return new Intl.DateTimeFormat(localeTag(locale), { month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(2001, month - 1, day)));
-}
-
-function schedule(plan: DcaPlan, t: Translator, locale: SupportedLocale): string {
-  const hour = `${String(plan.hourUtc).padStart(2, "0")}:00 UTC`;
-  return plan.frequency === "monthly" ? `${t("planMonthly").replace("{day}", String(plan.dayOfMonth))} · ${hour}` : `${t("planWeekly")} ${weekdayName(plan.weekday, locale)} · ${hour}`;
 }
 
 /** A day's-move alert's last change from the previous close, after the alert's other figures. */
@@ -77,7 +67,7 @@ export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined,
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert }: {
+export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert, onSavePlan, onChangePlan, onDeletePlan, onReviewPlan }: {
   data: AutomationOverview;
   book?: InstrumentBook;
   locale: SupportedLocale;
@@ -88,6 +78,11 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
   onSaveAccountAlert?: (request: AccountAlertRequest) => Promise<boolean>;
   onDeleteAccountAlert?: (alertId: string) => void;
   onRearmAccountAlert?: (alertId: string) => void;
+  /** Given where the account can be written to. */
+  onSavePlan?: (request: PlanRequest) => Promise<PlanSaveResult>;
+  onChangePlan?: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => Promise<PlanSaveResult>;
+  onDeletePlan?: (planId: string) => void;
+  onReviewPlan?: (planId: string) => void;
 }) {
   const on = (value: boolean) => (value ? t("settingOn") : t("settingOff"));
   const sum = (value: number | undefined) => amount(value, data.currency, locale);
@@ -109,26 +104,9 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
       </section>
       <TradingRules data={data} book={book} locale={locale} t={t} />
 
-      <section className="dataPanel" aria-label={t("plansTitle")}>
-        <div className="pieHeader"><h2>{t("plansTitle")}</h2></div>
-        {data.plans.length === 0 ? <div className="emptyState compact">{t("noPlans")}</div> : (
-          <ul className="automationList">
-            {data.plans.map((plan) => (
-              <li key={plan.id}>
-                <div className="automationRow">
-                  <strong>{plan.label}</strong>
-                  <span className={`statusPill ${plan.paused ? "muted" : plan.autoExecute ? "auto" : ""}`}>{plan.paused ? t("planPaused") : plan.autoExecute ? t("planAuto") : t("planConfirm")}</span>
-                </div>
-                <small>{plan.targetAmount !== undefined
-                  ? fill(t("planByTargets"), { amount: sum(plan.targetAmount) })
-                  : plan.legs.map((leg) => `${instrumentLabel(leg.ticker, book).name} ${sum(leg.amount)}${leg.orderType === "limit" ? ` (${t("limit")} +${num(leg.limitOffsetPercent ?? 0.5, locale, 2)}%)` : ""}`).join(" · ")}</small>
-                <small>{schedule(plan, t, locale)} · {t("nextRun")} {dateTime(plan.nextRunAt, locale)}</small>
-                {plan.lastOutcome && <small className="mutedInline">{plan.lastOutcome}</small>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <PlanList plans={data.plans} environment={data.environment} {...(data.currency ? { currency: data.currency } : {})} hasTargets={Boolean(data.targets)} {...(book ? { book } : {})}
+        locale={locale} t={t} busy={busy} {...(onSavePlan ? { onSave: onSavePlan } : {})} {...(onChangePlan ? { onChange: onChangePlan } : {})}
+        {...(onDeletePlan ? { onDelete: onDeletePlan } : {})} {...(onReviewPlan ? { onReview: onReviewPlan } : {})} />
 
       <section className="dataPanel" aria-label={t("alertsTitle")}>
         <div className="pieHeader"><h2>{t("alertsTitle")}</h2></div>
