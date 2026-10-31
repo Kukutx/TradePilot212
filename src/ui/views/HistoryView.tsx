@@ -1,5 +1,5 @@
 import { useContext, useMemo, useState } from "react";
-import type { CashHistory, CashHistoryItem, FillTotals, HistoryFilter, TaxYearSummary, TradeFill, TradeHistory } from "../../shared/history";
+import { TRADE_SOURCES, tradeSource, type CashHistory, type CashHistoryItem, type FillTotals, type HistoryFilter, type TaxYearSummary, type TradeFill, type TradeHistory, type TradeSource } from "../../shared/history";
 import type { JournalEntry } from "../../shared/journal";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { AssetAvatar, EmptyState, Metric, SearchField } from "../components/common";
@@ -98,6 +98,7 @@ function FilterNote({ filter, name, period, book, t, locale, busy, onClear }: {
   const parts = [
     ...(filter?.ticker ? [instrumentLabel(filter.ticker, book, name ? { name } : undefined).name] : []),
     ...(filter?.types ?? []).map((type) => cashTypeLabel(type, t)),
+    ...(filter?.source ? [fill(t("historyPlacedFrom"), { source: t(SOURCE_KEYS[filter.source]) })] : []),
     ...(period && !chosen ? [period.from ? fill(t("taxSpan"), { from: dayLabel(period.from, locale), to: dayLabel(period.to, locale) }) : fill(t("historyUntil"), { to: dayLabel(period.to, locale) })] : []),
   ];
   if (!parts.length) return null;
@@ -118,12 +119,19 @@ function Toolbar({ kind, period, t, busy, onKind, onPeriod }: { kind: HistoryKin
   );
 }
 
+/** Where an order was placed, in words. */
+const SOURCE_KEYS: Record<TradeSource, MessageKey> = {
+  app: "sourceApp", web: "sourceWeb", api: "sourceApi", autoinvest: "sourceAutoinvest", system: "sourceSystem", other: "sourceOther",
+};
+
 /** Adds up fills the way the server does for a whole window. */
 function totalsOf(fills: TradeFill[]): FillTotals {
   const sum: FillTotals = { bought: 0, sold: 0, realised: 0, costs: 0, buys: 0, sells: 0 };
   for (const item of fills) {
     const value = Math.abs(item.netValue ?? 0);
-    if (sellOf(item)) { sum.sold += value; sum.sells += 1; } else { sum.bought += value; sum.buys += 1; }
+    // A split or another corporate action is neither a buy nor a sell, as in the server's totals.
+    const trade = !item.fillType || item.fillType.toUpperCase() === "TRADE";
+    if (trade && sellOf(item)) { sum.sold += value; sum.sells += 1; } else if (trade) { sum.bought += value; sum.buys += 1; }
     sum.realised += item.realisedProfitLoss ?? 0;
     sum.costs += item.costs ?? 0;
   }
@@ -151,11 +159,17 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
   onPeriod: (next: InsightPeriod) => void; onKind: (next: HistoryKind) => void; onOpen?: (ticker: string) => void; onClearFilter?: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  const [source, setSource] = useState<TradeSource | null>(null);
   const currency = data.fills.find((item) => item.accountCurrency)?.accountCurrency ?? "EUR";
   const m = (value: number | undefined, signed = false) => money(value, currency, locale, { signed });
-  const fills = data.fills.filter((item) => matches(filter, item.ticker, item.name, book));
-  const unfilled = (data.unfilled ?? []).filter((item) => matches(filter, item.ticker, item.name, book));
-  const filtering = filter.trim() !== "";
+  // The sources the window's trades came from; a choice among them narrows the fills listed, as the filter box does.
+  // A split or another corporate action was not placed from anywhere: only trades count.
+  const traded = (item: TradeFill) => !item.fillType || item.fillType.toUpperCase() === "TRADE";
+  const sources = TRADE_SOURCES.filter((key) => (data.totals?.bySource?.[key] ?? 0) > 0 || data.fills.some((item) => traded(item) && tradeSource(item.initiatedFrom) === key));
+  const shownSource = source && sources.includes(source) ? source : null;
+  const fills = data.fills.filter((item) => matches(filter, item.ticker, item.name, book) && (!shownSource || (traded(item) && tradeSource(item.initiatedFrom) === shownSource)));
+  const unfilled = (data.unfilled ?? []).filter((item) => matches(filter, item.ticker, item.name, book) && (!shownSource || tradeSource(item.initiatedFrom) === shownSource));
+  const filtering = filter.trim() !== "" || shownSource !== null;
   // A result from before the server added up the whole window (a host's saved one) is added up here.
   const totals = useMemo(() => (filtering || !data.totals ? totalsOf(fills) : data.totals), [filtering, fills, data.totals]);
   const count = filtering ? fills.length : data.count ?? data.fills.length;
@@ -179,8 +193,19 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
       </section>
       <section className="dataPanel">
         <div className="pieHeader"><h2>{t("historyFillsTitle")}</h2>{data.fills.length > 0 && <FilterBox value={filter} onChange={setFilter} label={t("historyFilterInstrument")} clearLabel={t("historyClearFilter")} />}</div>
-        {fills.length === 0 ? (filter && data.fills.length > 0
-          ? <EmptyState text={t("historyNoMatch")} action={{ label: t("historyClearFilter"), onClick: () => setFilter(""), focus: ".historyFilter input" }} />
+        {/* Kept while a source is chosen, so another period that leaves only that one can still clear it. */}
+        {(sources.length > 1 || shownSource !== null) && (
+          <div className="filterChips" role="radiogroup" onKeyDown={radioKeys} aria-label={t("historySource")}>
+            {[null, ...sources].map((key) => (
+              <button key={key ?? "all"} type="button" role="radio" aria-checked={shownSource === key} tabIndex={radioTab(shownSource === key)} className={shownSource === key ? "active" : ""} onClick={() => setSource(key)}>
+                {/* The window's count of each, while nothing narrows the page's own list. */}
+                {key === null ? t("historyAll") : `${t(SOURCE_KEYS[key])}${!filter.trim() && data.totals?.bySource?.[key] ? ` ${data.totals.bySource[key]}` : ""}`}
+              </button>
+            ))}
+          </div>
+        )}
+        {fills.length === 0 ? (filtering && data.fills.length > 0
+          ? <EmptyState text={t("historyNoMatch")} action={{ label: t("historyClearFilter"), onClick: () => { setFilter(""); setSource(null); }, focus: ".historyFilter input" }} />
           : <EmptyState text={t("historyNoFills")} action={allTimeAction(period, onPeriod, t, busy)} />) : byDay(fills, (item) => item.filledAt).map((group) => (
           <div key={group.day} className="historyDay">
             <h3 className="historyDayTitle">{group.day ? dayLabel(group.day, locale, { weekday: true }) : "—"}</h3>
@@ -202,6 +227,7 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
                             ? <><b className="orderSide action">{isSplitType(item.fillType) ? t("fillSplit") : t("fillCorporateAction")}</b>{` ${sell ? "−" : "+"}${qty(Math.abs(item.quantity ?? 0), locale)}${item.price ? ` × ${amount(item.price, item.priceCurrency, locale, { digits: 4 })}` : ""}`}</>
                             : <><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b>{` ${qty(Math.abs(item.quantity ?? 0), locale)} × ${amount(item.price, item.priceCurrency, locale, { digits: 4 })}`}</>}
                           {item.filledAt ? ` · ${time(item.filledAt, locale)}` : ""}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}
+                          {tradeSource(item.initiatedFrom) ? ` · ${t(SOURCE_KEYS[tradeSource(item.initiatedFrom)!])}` : ""}
                         </small>
                       </div>
                     </div>

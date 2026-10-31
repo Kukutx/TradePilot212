@@ -743,6 +743,7 @@ export default function App() {
           ...(scope?.window ? { ...(scope.window.from ? { from: scope.window.from } : {}), to: scope.window.to } : custom ? { from: custom.exact?.from ?? custom.from, to: custom.exact?.to ?? custom.to } : { period: range }),
           ...(scope?.filter?.ticker ? { ticker: scope.filter.ticker } : {}),
           ...(kind === "cash_history" && scope?.filter?.types ? { types: scope.filter.types } : {}),
+          ...(kind === "trade_history" && scope?.filter?.source ? { source: scope.filter.source } : {}),
           ...(kind === "journal_review" && journalFilter ? { tag: journalFilter } : {}),
           ...(kind === "performance" && compareWith ? { benchmark: compareWith } : {}),
           // Every fill the page can list, and the orders that never filled.
@@ -785,6 +786,7 @@ export default function App() {
       ...(current.period.from ? { from: current.period.from } : {}), to: current.period.to,
       ...(current.filter?.ticker ? { ticker: current.filter.ticker } : {}),
       ...(current.kind === "cash_history" && current.filter?.types ? { types: current.filter.types } : {}),
+      ...(current.kind === "trade_history" && current.filter?.source ? { source: current.filter.source } : {}),
       ...(current.maxPages ? { maxPages: current.maxPages } : {}),
       limit: kind === "trade_history" ? 200 : 500,
       offset: (current.offset ?? 0) + listed,

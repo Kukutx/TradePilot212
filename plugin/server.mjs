@@ -34291,11 +34291,11 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     if (then === void 0) return now;
     return round(now + (then - now) * Math.min(1, Math.max(0, (started - Date.parse(at)) / (400 * 864e5))), 6);
   };
-  const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++) => {
+  const addHistory = (ticker, quantity, price, at, realisedProfitLoss = 0, id = nextId++, initiatedFrom = "API") => {
     const currency = instrumentOf(ticker)?.currencyCode ?? "EUR";
     const rate = rateOn(currency, at);
     history.unshift({
-      order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
+      order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", initiatedFrom, quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: rate, netValue: round(Math.abs(quantity) * price * rate), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } }
     });
   };
@@ -34303,7 +34303,8 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   for (let index = 13; index >= 0; index--) {
     const instrument = traded[index % traded.length];
     const sell = index % 4 === 3;
-    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
+    const source = instrument.ticker === "VUSAl_EQ" ? "AUTOINVEST" : sell ? "WEB" : index % 3 === 0 ? "API" : "IOS";
+    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0, nextId++, source);
   }
   const dividends = [];
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]]) {
@@ -38271,6 +38272,19 @@ var TradingService = class {
   }
 };
 
+// src/shared/history.ts
+var TRADE_SOURCES = ["app", "web", "api", "autoinvest", "system", "other"];
+function tradeSource(initiatedFrom) {
+  const value = initiatedFrom?.trim().toUpperCase();
+  if (!value) return void 0;
+  if (value === "IOS" || value === "ANDROID") return "app";
+  if (value === "WEB") return "web";
+  if (value === "API") return "api";
+  if (value === "AUTOINVEST" || value === "INSTRUMENT_AUTOINVEST") return "autoinvest";
+  if (value === "SYSTEM") return "system";
+  return "other";
+}
+
 // src/shared/drawdown.ts
 var round4 = (value) => Math.round(value * 1e6) / 1e6 || 0;
 var MIN_FALL = 5e-4;
@@ -40176,7 +40190,7 @@ var InsightsService = class {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   }
-  async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false, from = 0) {
+  async tradeHistory(environment, window, ticker, limit = 50, maxPages, includeUnfilled = false, from = 0, source) {
     let exact2;
     if (ticker?.trim()) {
       try {
@@ -40188,7 +40202,7 @@ var InsightsService = class {
     const collected = await this.collect(environment, "orders", window, maxPages, exact2);
     const wanted = ticker?.trim().toUpperCase();
     const matches = (value) => exact2 ? value === exact2.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
-    const inWindow3 = collected.items.filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => {
+    const inWindow3 = collected.items.filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase())).filter((item) => !source || (!item.fill?.type || item.fill.type.toUpperCase() === "TRADE") && tradeSource(item.order?.initiatedFrom) === source).filter((item) => {
       const time3 = itemTime("orders", item);
       return Number.isFinite(time3) && time3 <= window.to.getTime() && (!window.from || time3 >= window.from.getTime());
     });
@@ -40247,12 +40261,14 @@ var InsightsService = class {
         totals.buys += 1;
         totals.bought += value;
       }
+      const placed = trade ? tradeSource(item.order?.initiatedFrom) : void 0;
+      if (placed) (totals.bySource ??= {})[placed] = (totals.bySource[placed] ?? 0) + 1;
       totals.realised += impact?.realisedProfitLoss ?? 0;
       totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
       totals.currency ??= impact?.currency;
     }
     for (const key of ["bought", "sold", "realised", "costs"]) totals[key] = Math.round(totals[key] * 100) / 100;
-    const filter = ticker?.trim() ? { filter: { ticker: exact2 ?? ticker.trim() } } : {};
+    const filter = ticker?.trim() || source ? { filter: { ...ticker?.trim() ? { ticker: exact2 ?? ticker.trim() } : {}, ...source ? { source } : {} } } : {};
     return {
       kind: "trade_history",
       environment,
@@ -41402,7 +41418,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.88.0",
+  version: "2.89.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42395,16 +42411,20 @@ function tradeHistory(data) {
   const all = data.count ?? fills.length;
   const offset = data.offset ?? 0;
   const partial2 = all > fills.length;
+  const narrowed = [data.filter?.ticker ? `ticker ${data.filter.ticker}` : "", data.filter?.source ? `source ${data.filter.source}` : ""].filter(Boolean).join(", ");
   return [
+    ...narrowed ? [`Only fills matching ${narrowed}; ask for the next page with the same filter.`] : [],
     ...all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num2(totals.bought)}, ${totals.sells} sells ${num2(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num2(totals.costs)}.`] : ["No fills in this window."],
+    ...totals.bySource && Object.keys(totals.bySource).length ? [`Placed from: ${Object.entries(totals.bySource).map(([source, count]) => `${SOURCE_TEXT[source] ?? source} ${count}`).join(", ")}.`] : [],
     ...fees.size ? [`Fees by kind${partial2 ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount2]) => `${name} ${num2(amount2)}`).join(", ")}.`] : [],
     ...!partial2 ? [] : offset && !fills.length ? [`No fills past the first ${offset} of ${all}.`] : offset ? [`Fills ${offset + 1}\u2013${offset + fills.length} of ${all}, newest first, are listed below${offset + fills.length < all ? `; offset ${offset + fills.length} lists the next` : ""}.`] : [`The newest ${fills.length} of ${all} fills are listed below; offset ${fills.length}, with this window's period.from and period.to as from and to, lists the next, or a shorter window fewer.`],
-    ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
+    ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num2(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : ` = ${num2(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num2(fill.costs)}` : ""}${tradeSource(fill.initiatedFrom) ? `, via ${SOURCE_TEXT[tradeSource(fill.initiatedFrom)]}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== void 0 && !order.quantity ? `value ${num2(Math.abs(order.value))}` : num2(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}${order.limitPrice === void 0 ? "" : ` limit ${num2(order.limitPrice, 6)}`}${order.stopPrice === void 0 ? "" : ` stop ${num2(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== void 0 || order.stopPrice !== void 0) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : [],
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
     ...data.truncated ? ["History was truncated at the page limit; older fills are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : []
   ];
 }
+var SOURCE_TEXT = { app: "app", web: "web", api: "API", autoinvest: "auto-invest", system: "Trading 212", other: "other" };
 function orderStatus(data) {
   const filled = data.fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0);
   const value = data.fills.reduce((sum, fill) => sum + Math.abs(fill.netValue ?? 0), 0);
@@ -44466,11 +44486,12 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_trade_history",
     {
       title: "Trade History",
-      description: "List executed fills with their order id, price, quantity, net value, realized P/L, FX rate and costs, newest first, and the trade journal notes on those orders (why each was made, and any review). Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
+      description: "List executed fills with their order id, price, quantity, net value, realized P/L, FX rate, costs and where the order was placed (app, web, API, auto-invest), newest first, and the trade journal notes on those orders (why each was made, and any review). Optionally filter by ticker, symbol, name or ISIN (filtered by Trading 212, so older trades of one instrument are found), by where the orders were placed (`source`), and include orders that closed without a fill (cancelled, rejected, expired). Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ticker: external_exports.string().min(1).optional(),
         includeUnfilled: external_exports.boolean().default(false).describe("Also list orders that were cancelled, rejected or expired without a fill"),
+        source: external_exports.enum(TRADE_SOURCES).optional().describe("Only orders placed from here: app (Trading 212's iOS or Android app), web, api, autoinvest (a Pie's or the account's auto-invest, or one instrument's recurring buy), system (Trading 212 itself), other. totals.bySource counts the window's trades by source"),
         limit: external_exports.number().int().min(1).max(200).default(50),
         offset: external_exports.number().int().min(0).max(1e6).default(0).describe("Fills to pass over, newest first, for the next page: the number already listed. Ask for the same window as the first page (its period.from as `from`, its period.to as `to`) and the same maxPages, so the pages count the same fills"),
         ...windowSchema
@@ -44478,9 +44499,9 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       annotations: readOnly,
       _meta: { ui: { resourceUri: WIDGET_URI } }
     },
-    async ({ environment, ticker, includeUnfilled, limit, offset, period, from, to, maxPages }) => {
+    async ({ environment, ticker, includeUnfilled, source, limit, offset, period, from, to, maxPages }) => {
       try {
-        const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled, offset);
+        const history = await insights.tradeHistory(environment, parseWindow({ period, ...from ? { from } : {}, ...to ? { to } : {} }), ticker, limit, maxPages, includeUnfilled, offset, source);
         const orderIds = [...history.fills, ...history.unfilled ?? []].flatMap((item) => item.orderId ? [item.orderId] : []);
         const notes = orderIds.length ? await journal.list(environment, { orderIds }).catch(() => []) : [];
         const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...history, ...notes.length ? { journal: notes } : {} };

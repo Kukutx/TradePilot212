@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "./config.js";
+import { tradeSource } from "../shared/history.js";
 import { InsightsService, parseWindow } from "./insights-service.js";
 import { resetLimits } from "./rate-limit.js";
 import { HistoryLedgers, MAX_CHUNKS } from "./history-ledger.js";
@@ -87,6 +88,28 @@ describe("history collection", () => {
     });
     const history = await service.tradeHistory("demo", { from: new Date("2026-10-09T00:00:00Z"), to: new Date("2026-10-10T00:00:00Z") });
     expect(history.fills[0]).toMatchObject({ ticker: "AAPL_US_EQ", name: "Apple", price: 230 });
+  });
+
+  it("counts the trades by where they were placed, and lists those of one source", async () => {
+    const placed = ["IOS", "ANDROID", "API", "AUTOINVEST", "WEB", undefined];
+    const orders = placed.map((initiatedFrom, index) => ({ order: { id: 20 - index, side: "BUY", ticker: "AAPL_US_EQ", ...(initiatedFrom ? { initiatedFrom } : {}) }, fill: { filledAt: `2026-10-0${9 - index}T14:00:00Z`, quantity: 1, price: 200, walletImpact: { netValue: -200 } } }));
+    // A split is not a trade: it counts for no source.
+    orders.push({ order: { id: 9, side: "BUY", ticker: "AAPL_US_EQ", initiatedFrom: "SYSTEM" }, fill: { filledAt: "2026-10-02T14:00:00Z", quantity: 3, price: 0, walletImpact: { netValue: 0 }, type: "STOCK_SPLIT" } as never });
+    const service = new InsightsService({
+      config,
+      instruments: async () => [],
+      fetcher: fetcherFor({ "https://demo.test/api/v0/equity/history/orders?limit=50": { items: orders } }, []),
+    });
+    const window = { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-10T00:00:00Z") };
+    const all = await service.tradeHistory("demo", window);
+    expect(all.totals.bySource).toEqual({ app: 2, api: 1, autoinvest: 1, web: 1 });
+    const app = await service.tradeHistory("demo", window, undefined, 50, undefined, false, 0, "app");
+    expect(app.fills.map((fill) => fill.orderId)).toEqual(["20", "19"]);
+    expect(app).toMatchObject({ count: 2, totals: { buys: 2, bySource: { app: 2 } }, filter: { source: "app" } });
+    expect(["IOS", "ANDROID", "WEB", "API", "AUTOINVEST", "INSTRUMENT_AUTOINVEST", "SYSTEM", "NEW_ONE", ""].map(tradeSource))
+      .toEqual(["app", "app", "web", "api", "autoinvest", "autoinvest", "system", "other", undefined]);
+    // The split placed by Trading 212 is no trade of its.
+    expect((await service.tradeHistory("demo", window, undefined, 50, undefined, false, 0, "system")).count).toBe(0);
   });
 
   it("lists a window's fills and cash movements a page at a time, newest first", async () => {

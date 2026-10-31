@@ -17,8 +17,10 @@ import type {
   TaxYearSummary,
   TradeHistory,
   FillTotals,
+  TradeSource,
   ValuePoint,
 } from "../shared/history.js";
+import { tradeSource } from "../shared/history.js";
 import {
   analyzeAllocation, currentTaxYear, DEFAULT_ALLOCATION_LIMITS, marketStatus, parseYearStart, summarizeIncome, summarizePerformance, summarizeTaxYear,
   taxYearWindow, validTimeZone, type AllocationLimits, type HistoryWindow,
@@ -524,7 +526,7 @@ export class InsightsService {
     };
   }
 
-  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false, from = 0): Promise<TradeHistory> {
+  async tradeHistory(environment: TradingEnvironment, window: HistoryWindow, ticker?: string, limit = 50, maxPages?: number, includeUnfilled = false, from = 0, source?: TradeSource): Promise<TradeHistory> {
     // A name or symbol resolves to the exact ticker, which Trading 212 filters on its side, so a rarely
     // traded instrument is not lost past the page limit. One it no longer lists falls back to a prefix match.
     let exact: string | undefined;
@@ -540,6 +542,8 @@ export class InsightsService {
     const matches = (value: string) => exact ? value === exact.toUpperCase() : value === wanted || value.startsWith(`${wanted}_`);
     const inWindow = collected.items
       .filter((item) => !wanted || matches((item.order?.ticker ?? item.order?.instrument?.ticker ?? "").toUpperCase()))
+      // A source is where a trade was placed: a split or another corporate action has none to match.
+      .filter((item) => !source || ((!item.fill?.type || item.fill.type.toUpperCase() === "TRADE") && tradeSource(item.order?.initiatedFrom) === source))
       .filter((item) => {
         const time = itemTime("orders", item);
         return Number.isFinite(time) && time <= window.to.getTime() && (!window.from || time >= window.from.getTime());
@@ -602,12 +606,14 @@ export class InsightsService {
       const trade = !item.fill?.type || item.fill.type.toUpperCase() === "TRADE";
       const sell = String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0;
       if (trade && sell) { totals.sells += 1; totals.sold += value; } else if (trade) { totals.buys += 1; totals.bought += value; }
+      const placed = trade ? tradeSource(item.order?.initiatedFrom) : undefined;
+      if (placed) (totals.bySource ??= {})[placed] = (totals.bySource[placed] ?? 0) + 1;
       totals.realised += impact?.realisedProfitLoss ?? 0;
       totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
       totals.currency ??= impact?.currency;
     }
     for (const key of ["bought", "sold", "realised", "costs"] as const) totals[key] = Math.round(totals[key] * 100) / 100;
-    const filter = ticker?.trim() ? { filter: { ticker: exact ?? ticker.trim() } } : {};
+    const filter = ticker?.trim() || source ? { filter: { ...(ticker?.trim() ? { ticker: exact ?? ticker.trim() } : {}), ...(source ? { source } : {}) } } : {};
     return {
       kind: "trade_history" as const, environment, period: periodOfWindow(window), fills, count: filled.length, limit: max, ...(offset ? { offset } : {}), ...(maxPages ? { maxPages } : {}), totals, ...(unfilled ? { unfilled } : {}), ...filter,
       truncated: collected.truncated, timestamp: new Date().toISOString(),
