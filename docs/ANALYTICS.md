@@ -81,6 +81,8 @@ The Performance tab's **Investment goal** panel, and `manage_goal`, measure the 
 - The range is not a forecast. Growth is taken as lognormal: the median yearly log growth is ln(1 + return) less half the variance, and the **low** and **high** lines are its 10th and 90th percentiles over each horizon (the volatility over √years either side), so 8 in 10 outcomes fall between them: the spread of the yearly growth narrows as the horizon lengthens, while the spread of the money it makes widens. Each month's addition grows at the same rate from the end of its month. The chart has one point a month, or a quarter beyond ten years, with what is added and no growth as a dashed line and the target across it.
 - The **chance of reaching it** is the probability, under the same assumptions, that the yearly growth over the whole horizon is at or above the one that just reaches the target. A goal the account has already reached counts as reached.
 - **Monthly for the middle line** is what would have to be added each month for the middle line to reach the target by the date.
+- The dashboard shows the goal under the account value: its name, the share of the target and a short bar, which opens the goal on the Performance tab.
+- The scheduler says when the value first reaches 25%, 50%, 75% and 100% of the target ([AUTOMATION.md](./AUTOMATION.md#goal-milestones)), and the weekly and monthly reports say how far along it is.
 - Costs, taxes, inflation and changes in what is added are left out. The same sums run in the widget and on the server (`src/shared/goal.ts`), and `get_portfolio_performance` returns the saved goal as `goal`.
 
 ## Risk

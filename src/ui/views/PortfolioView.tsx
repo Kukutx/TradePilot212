@@ -7,6 +7,7 @@ import { AssetIdentity, Metric, SectionHeader } from "../components/common";
 import { Select } from "../components/select";
 import { Sparkline } from "../components/charts";
 import { DayCell, DayTotal, type TodayState } from "../components/day";
+import { GoalProgressLine } from "../components/goal";
 import { HoldingsMap, mapDayKnown } from "../components/holdings-map";
 import { FxPart, fxShown, ResultSplitBars } from "../components/result-split";
 import { resultSplit, resultSplitOf } from "../../shared/result-split";
@@ -37,6 +38,7 @@ export function PortfolioView({
   onOpen,
   onProtectAll,
   today,
+  onGoal,
 }: {
   payload: DashboardPayload;
   book?: InstrumentBook;
@@ -51,6 +53,8 @@ export function PortfolioView({
   onProtectAll?: () => void;
   /** The day's moves, read after the dashboard; none when they are not asked for. */
   today?: TodayState;
+  /** Opens the Performance tab at the investment goal. */
+  onGoal?: () => void;
 }) {
   const currency = payload.account?.currency ?? "EUR";
   const pnl = payload.account?.investments?.unrealizedProfitLoss;
@@ -94,6 +98,7 @@ export function PortfolioView({
           {pnl !== undefined && fxShown(fx) && <ResultSplitBars price={pnl - fx} fx={fx} currency={currency} locale={locale} t={t} />}
           {today && <DayTotal today={today} currency={currency} locale={locale} t={t} />}
           {payload.valueTrend && payload.valueTrend.length >= 2 && <ValueTrend points={payload.valueTrend} currency={currency} locale={locale} t={t} />}
+          {payload.goal && <GoalProgressLine goal={payload.goal} {...(payload.account?.totalValue === undefined ? {} : { value: payload.account.totalValue })} currency={currency} locale={locale} t={t} {...(onGoal ? { onOpen: onGoal } : {})} />}
         </div>
         <div className="metricGrid">
           <Metric label={t("availableCash")} value={money(payload.account?.cash?.availableToTrade, currency, locale)} />

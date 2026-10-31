@@ -48,6 +48,15 @@ describe("weekly and monthly reports", () => {
       .toBe("上月，2026-10-26 至 2026-11-01 · 时间加权收益 +2.34% · 没有交易 · 历史记录读到页数上限被截断，数字可能偏低");
   });
 
+  it("says how far the goal is at the period's last recorded value", () => {
+    const period = { first: "2026-10-26", last: "2026-11-01" };
+    const goal = { environment: "demo" as const, target: 50_000, by: "2036-12-31", monthly: 200, expectedReturn: 0.06, volatility: 0.15, name: "House", createdAt: "", updatedAt: "" };
+    expect(reportText("weekly", period, summary(), "en", goal).split(" · ")).toContain('goal "House" 21.5% of 50,000.00 EUR by 2036-12-31');
+    expect(reportText("weekly", period, summary(), "zh-CN", { ...goal, name: undefined }).split(" · ")).toContain("投资目标完成 21.5%（50,000.00 EUR，截止 2036-12-31）");
+    // No value recorded in the period: nothing to measure it against.
+    expect(reportText("weekly", period, summary({ valueHistory: [] }), "en", goal)).not.toContain("goal");
+  });
+
   it("sends each period's report once, from the digest's hour, and on later days while no endpoint has taken it", async () => {
     const env: RuntimeEnv = { T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s", NOTIFY_WEBHOOK_URL: "https://hooks.example/t", DIGEST_HOUR: "8", TIMEZONE: "Europe/London", REPORTS: "weekly,monthly", NOTIFY_LOCALE: "zh-CN" };
     const store = new MemoryStateStore();

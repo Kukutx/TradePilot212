@@ -111,7 +111,7 @@ export function createServices(input: ServiceDependencies) {
   /** Alerts on the account's value, cash and day's move; the day's move is the one get_portfolio_today adds up. */
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
   const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
-  const goals = new Goals({ config: deps.config, store: deps.store });
+  const goals = new Goals({ config: deps.config, store: deps.store, trading });
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
     // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
@@ -123,9 +123,10 @@ export function createServices(input: ServiceDependencies) {
     config: deps.config, store: deps.store, trading,
     performance: (environment, window) => insights.performance(environment, window, undefined, (account) =>
       values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) })),
+    goal: (environment) => goals.get(environment),
     ...(notify ? { notify } : {}),
   });
-  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price, account and listing alerts, target drift and the daily digest. */
+  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record and the goal measured against it, due plans, price, account and listing alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -135,19 +136,24 @@ export function createServices(input: ServiceDependencies) {
       return [];
     }
   };
-  const tick = async () => ({
-    links: await stage("protective links", () => links.reconcile()),
-    orders: await stage("order watch", () => orders.check()),
-    values: await stage("value history", () => values.snapshot()),
-    plans: await stage("plans", () => automation.runDuePlans()),
-    alerts: await stage("alerts", () => alerts.check()),
-    accountAlerts: await stage("account alerts", () => accountAlerts.check()),
-    listings: await stage("listing alerts", () => listings.check()),
-    targets: await stage("targets", () => targets.check()),
-    digest: await stage("digest", () => digest.run()),
-    reports: await stage("reports", () => reports.run()),
-    notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([])),
-  });
+  const tick = async () => {
+    const settled = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
+    const recorded = await stage("value history", () => values.snapshot());
+    return {
+      ...settled,
+      values: recorded,
+      // The goal is measured against the value just recorded: no read of its own.
+      goals: await stage("goals", () => goals.check(recorded)),
+      plans: await stage("plans", () => automation.runDuePlans()),
+      alerts: await stage("alerts", () => alerts.check()),
+      accountAlerts: await stage("account alerts", () => accountAlerts.check()),
+      listings: await stage("listing alerts", () => listings.check()),
+      targets: await stage("targets", () => targets.check()),
+      digest: await stage("digest", () => digest.run()),
+      reports: await stage("reports", () => reports.run()),
+      notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([])),
+    };
+  };
   // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
   let running: ReturnType<typeof tick> | undefined;
   const runScheduled = () => (running ??= tick().finally(() => { running = undefined; }));

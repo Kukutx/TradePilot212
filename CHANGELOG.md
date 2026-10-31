@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.93.0
+
+- Goal milestones: when the account value first reaches 25%, 50%, 75% or 100% of the investment goal's target, the scheduler writes a `goal_milestone` activity event and sends it to the webhook, in `NOTIFY_LOCALE`'s language. It measures the value it records each hour and reads nothing more. Progress made before a goal is set or its target changed is not announced, and a milestone is said once even if the value falls back and climbs again.
+- The weekly and monthly reports say how far the account is towards the goal at the period's last recorded value.
+- The dashboard shows the goal under the account value, with the share of the target and a short bar; it opens the goal on the Performance tab. `get_portfolio_dashboard` returns the goal as `goal`, and its text summary gives the share.
+- The goal is a resource too: `tradepilot://<demo|live>/goal`.
+
 ## 2.92.0
 
 - Investment goal: an amount to reach by a date, measured against the account on the Performance tab.

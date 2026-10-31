@@ -1488,7 +1488,8 @@ export default function App() {
             {base?.kind === "portfolio" && tab === "holdings" && (
               <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
                 {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
-                {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})} />
+                {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})}
+                {...(connected ? { onGoal: () => void selectTab("performance") } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />

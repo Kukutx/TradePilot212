@@ -206,6 +206,11 @@ stdio 服务还需要 `TRADEPILOT_ALLOW_WRITES=true`。没有它，即使设置�
 
 调度器每个账户最多每小时读一次标的列表。Trading 212 标注的上架日期（`addedOn`）在最近 14 天内、且提醒以前没见过的标的，就算新上架；所以上架日期比第一次读到它的时间稍早的标的也不会漏掉。开启提醒时已经列出的标的算作见过。每次发现新标的，都会写一条 `new_listings` 动态，列出新上架的标的（太多时截断并注明还有多少个），并发到通知地址。读取失败会在下一次调度时重试。每个账户一个提醒。它不会下单。
 
+<a id="goal-milestones"></a>
+## 目标进度提醒
+
+账户设了投资目标（`manage_goal`，或“收益”标签页的目标面板；见 [ANALYTICS.md](./ANALYTICS.md#investment-goal)）时，调度器每次记录账户市值（大约每小时一次）都会顺便衡量目标进度，不额外读取。市值第一次达到目标的 25%、50%、75% 或 100% 时，写一条 `goal_milestone` 动态（按 `NOTIFY_LOCALE` 的语言），并发到通知地址。设定目标或修改目标金额时已经完成的进度算作已知，不会通知。跌回某个节点以下不通知，之后再涨回来也不会重复通知；一下子越过两个节点时只说较高的那个。它不会下单。
+
 <a id="quotes-for-instruments-you-do-not-hold"></a>
 ## 未持有标的的报价
 
@@ -245,7 +250,7 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 
 `NOTIFY_LOCALE=zh-CN` 让通知用中文书写（默认 `en`）：事件名称、买入或卖出、股数，数字按中文习惯书写，成交金额带币种（€1,303.75）。
 
-默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`new_listings`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
+默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`new_listings`、`goal_milestone`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
 
 每个请求最多等 5 秒。某个地址没有接收的通知，会由定时任务在 1 分钟后重试，之后依次隔 5、15、60、180 分钟，仍失败就放弃（记入日志）；其他已经收到的地址不会重复发送。没有任何地址接收的每日摘要交给摘要自己的重试（每 15 分钟一次）。等待中的通知保存在服务器的存储里，最多 200 条、最长 30 小时。
 
@@ -263,7 +268,7 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 <a id="weekly-and-monthly-reports"></a>
 ### 周报和月报
 
-设置 `REPORTS=weekly`、`monthly` 或 `weekly,monthly`，并同时设置 `DIGEST_HOUR`（或 `DIGEST_HOUR_UTC`），就会在摘要的时间收到报告：每周一发上一周七天的，每月 1 日发上个月的，日期按摘要的时区计算。每份报告包括：期初和期末的账户市值（TradePilot 记录的）及其变化；这段时间的时间加权收益（不计入金和出金）；净入金；股息和利息；买入、卖出笔数和成交额；已实现盈亏；费用。数据和 `get_portfolio_performance` 读的是同样的历史记录。历史记录读到页数上限被截断时，报告会说明数字可能偏低。报告不受 `NOTIFY_EVENTS` 限制，静默时段也按时发送；没有任何地址接收时，从摘要的时间起每 15 分钟重试一次，之后几天也会继续：周一没送出的周报会在周二送出，直到下一周结束（总是发送最近一个已结束的周期，所以周中才开启时会先补发上一周的）。期初市值取周期第一个午夜之前最后一次记录的值，因此第一天的涨跌也算在内。每份报告在操作记录里记一次（`weekly_report`、`monthly_report`）。报告只读取，不交易。
+设置 `REPORTS=weekly`、`monthly` 或 `weekly,monthly`，并同时设置 `DIGEST_HOUR`（或 `DIGEST_HOUR_UTC`），就会在摘要的时间收到报告：每周一发上一周七天的，每月 1 日发上个月的，日期按摘要的时区计算。每份报告包括：期初和期末的账户市值（TradePilot 记录的）及其变化；这段时间的时间加权收益（不计入金和出金）；净入金；股息和利息；买入、卖出笔数和成交额；已实现盈亏；费用；设了投资目标时，还有按周期内最后一次记录的市值计算的目标进度。数据和 `get_portfolio_performance` 读的是同样的历史记录。历史记录读到页数上限被截断时，报告会说明数字可能偏低。报告不受 `NOTIFY_EVENTS` 限制，静默时段也按时发送；没有任何地址接收时，从摘要的时间起每 15 分钟重试一次，之后几天也会继续：周一没送出的周报会在周二送出，直到下一周结束（总是发送最近一个已结束的周期，所以周中才开启时会先补发上一周的）。期初市值取周期第一个午夜之前最后一次记录的值，因此第一天的涨跌也算在内。每份报告在操作记录里记一次（`weekly_report`、`monthly_report`）。报告只读取，不交易。
 
 <a id="seeing-what-runs"></a>
 ## 查看在运行的内容

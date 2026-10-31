@@ -1,10 +1,16 @@
 // The account's investment goal, one per account, kept by TradePilot: Trading 212 has none. Saving one reads nothing.
+// Each hour the scheduler records the account value, and the goal is measured against it: when the value first
+// reaches 25%, 50%, 75% or 100% of the target, a goal_milestone activity event says so (and goes to the webhook).
+// The progress already made when a goal is set, or its target changed, is taken as known and not announced.
 
 import type { TradingEnvironment } from "../shared/contracts.js";
-import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, MAX_GOAL_YEARS, type InvestmentGoal } from "../shared/goal.js";
+import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, goalMilestone, MAX_GOAL_YEARS, type InvestmentGoal } from "../shared/goal.js";
+import type { ValuePoint } from "../shared/history.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { fail } from "./errors.js";
+import type { NotifyLocale } from "./notify.js";
 import type { StateStore } from "./state-store.js";
+import type { TradingService } from "./trading-service.js";
 
 const goalKey = (environment: TradingEnvironment) => `goal:${environment}`;
 
@@ -19,8 +25,35 @@ export interface GoalInput {
   currency?: string;
 }
 
+export interface GoalReport {
+  environment: TradingEnvironment;
+  /** "seeded": first measured, nothing said; "reached": a new milestone; "none": no new one. */
+  action: "seeded" | "reached" | "none";
+  milestone: number;
+  message: string;
+}
+
+const MILESTONE_WORDS = {
+  en: (goal: string, mark: number, value: string, target: string, by: string) => mark >= 100
+    ? `${goal} reached: ${value} against a target of ${target} by ${by}.`
+    : `${goal} is ${mark}% of the way: ${value} of ${target} by ${by}.`,
+  "zh-CN": (goal: string, mark: number, value: string, target: string, by: string) => mark >= 100
+    ? `${goal}已达成：市值 ${value}，目标 ${target}，截止 ${by}。`
+    : `${goal}已完成 ${mark}%：${value} / ${target}，截止 ${by}。`,
+} as const;
+
+/** What the scheduler says when a milestone is reached, in NOTIFY_LOCALE's language. */
+export function milestoneText(goal: InvestmentGoal, mark: number, value: number, currency: string | undefined, locale: NotifyLocale = "en"): string {
+  const money = (amount: number) => {
+    const text = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(amount);
+    return currency ? `${text} ${currency}` : text;
+  };
+  const name = goal.name ? (locale === "zh-CN" ? `目标「${goal.name}」` : `The goal "${goal.name}"`) : (locale === "zh-CN" ? "投资目标" : "The investment goal");
+  return MILESTONE_WORDS[locale](name, mark, money(value), money(goal.target), goal.by);
+}
+
 export class Goals {
-  constructor(private readonly deps: { config: RuntimeConfig; store: StateStore }) {}
+  constructor(private readonly deps: { config: RuntimeConfig; store: StateStore; trading?: Pick<TradingService, "recordActivity"> }) {}
 
   get(environment: TradingEnvironment): Promise<InvestmentGoal | undefined> {
     return this.deps.store.get<InvestmentGoal>(goalKey(environment));
@@ -42,9 +75,11 @@ export class Goals {
     if (!(volatility >= 0 && volatility <= 1)) fail("INVALID_INPUT", "The yearly volatility is between 0 and 100%, as a fraction", { field: "volatility" });
     const name = input.name === undefined ? current?.name : input.name.trim().slice(0, 80) || undefined;
     const currency = input.currency ?? current?.currency;
+    // A new target is measured afresh: its progress so far is taken as known at the next check.
+    const milestone = current && current.target === input.target ? current.milestone : undefined;
     const goal: InvestmentGoal = {
       environment: input.environment, target: input.target, by: input.by, monthly, expectedReturn, volatility,
-      ...(currency ? { currency } : {}), ...(name ? { name } : {}),
+      ...(currency ? { currency } : {}), ...(name ? { name } : {}), ...(milestone === undefined ? {} : { milestone }),
       createdAt: current?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(),
     };
     await this.deps.store.put(goalKey(input.environment), goal);
@@ -55,5 +90,36 @@ export class Goals {
     const had = !!(await this.get(environment));
     await this.deps.store.delete(goalKey(environment));
     return had;
+  }
+
+  /**
+   * Measure each account's goal against the value the scheduler just recorded for it. The first measure only notes the
+   * milestone reached; after that, each higher one writes a goal_milestone event. A fall below a milestone is not
+   * announced, and the milestone is kept, so a value that hovers around it is announced once.
+   */
+  async check(points: Array<{ environment: TradingEnvironment; point: ValuePoint }>): Promise<GoalReport[]> {
+    const reports: GoalReport[] = [];
+    for (const { environment, point } of points) {
+      const goal = await this.get(environment);
+      if (!goal) continue;
+      const mark = goalMilestone(point.totalValue, goal.target);
+      const known = goal.milestone;
+      if (known !== undefined && mark <= known) {
+        reports.push({ environment, action: "none", milestone: known, message: "No new milestone." });
+        continue;
+      }
+      // Saved before the event, so a failed write cannot announce it twice; read again so a save in between wins.
+      const current = await this.get(environment);
+      if (!current || current.updatedAt !== goal.updatedAt) continue;
+      await this.deps.store.put(goalKey(environment), { ...current, milestone: mark });
+      if (known === undefined || !this.deps.trading) {
+        reports.push({ environment, action: "seeded", milestone: mark, message: `Seeded at ${mark}%.` });
+        continue;
+      }
+      const message = milestoneText(current, mark, point.totalValue, current.currency, this.deps.config.notifyLocale);
+      await this.deps.trading.recordActivity("goal_milestone", environment, { outcome: message });
+      reports.push({ environment, action: "reached", milestone: mark, message });
+    }
+    return reports;
   }
 }

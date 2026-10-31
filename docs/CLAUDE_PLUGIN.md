@@ -54,7 +54,7 @@ Claude also picks these skills up automatically when your request matches.
 
 The server offers the same skills as MCP prompts, so a client without plugin skills (Claude Desktop, Claude.ai through the Worker, or another MCP host) can still run them. Each prompt (`daily-brief`, `portfolio-review`, `risk-check`, `trade-journal`, `order-followup`, `tax-year`, `rebalance`) takes `environment` (`demo` or `live`, completed as you type), an optional `request` in the user's words, and, for `trade-journal` and `order-followup`, an `instrument` that completes from the tickers the account holds, has orders on, or watches.
 
-It also offers four JSON resources per account with keys, for a host to attach to a conversation (`live` in place of `demo` for the Live account):
+It also offers five JSON resources per account with keys, for a host to attach to a conversation (`live` in place of `demo` for the Live account):
 
 | Resource | What it holds |
 |---|---|
@@ -62,6 +62,7 @@ It also offers four JSON resources per account with keys, for a host to attach t
 | `tradepilot://demo/journal` | Every trade journal note |
 | `tradepilot://demo/targets` | The saved target allocation, or `null` |
 | `tradepilot://demo/watchlist` | The watched instruments with their notes |
+| `tradepilot://demo/goal` | The investment goal and the milestone it has reached, or `null` |
 
 The prompts are generated from `skills/*/SKILL.md` into `src/core/skill-prompts.ts`, since the Worker and the bundled plugin cannot read `skills/` at run time. After changing a skill, run `pnpm build:prompts` (`pnpm build:plugin` runs it too); a test fails while the two differ.
 

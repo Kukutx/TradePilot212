@@ -200,14 +200,17 @@ export function createMcpServer(
   }, instructions ? { instructions } : {});
   const preferences: Preferences = { ...(config.timeZone ? { timeZone: config.timeZone } : {}), taxYearStart: config.taxYearStart };
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist, closes };
-  /** The dashboard, with the last 30 days of the recorded account value for its trend line. */
+  /** The dashboard, with the last 30 days of the recorded account value for its trend line and the investment goal. */
   const dashboard = async (environment: TradingEnvironment) => {
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
     // Only the days of the account on screen: after a switch of keys, the old account's days are left out.
     const account = data.account?.id;
-    const trend = await values.points(environment, { from, ...(typeof account === "number" ? { account } : {}) }).catch(() => []);
-    return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}), preferences };
+    const [trend, goal] = await Promise.all([
+      values.points(environment, { from, ...(typeof account === "number" ? { account } : {}) }).catch(() => []),
+      goals.get(environment).catch(() => undefined),
+    ]);
+    return { ...data, writeEnabled: canWrite, ...(trend.length >= 2 ? { valueTrend: trend } : {}), ...(goal ? { goal } : {}), preferences };
   };
 
   /**
@@ -249,7 +252,7 @@ export function createMcpServer(
     }),
   );
 
-  registerPromptsAndResources(server, { trading, journal, targets: targetAllocations, watchlist }, config);
+  registerPromptsAndResources(server, { trading, journal, targets: targetAllocations, watchlist, goals }, config);
 
   registerAppTool(
     server,
@@ -257,7 +260,7 @@ export function createMcpServer(
     {
       title: "Trading 212 Portfolio Dashboard",
       description:
-        "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Each position's walletImpact gives its value, cost and unrealized P/L in the account currency, and fxImpact the part of that P/L the exchange rate made since it was bought; the text splits the account's unrealized P/L into prices and exchange rates. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
+        "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Each position's walletImpact gives its value, cost and unrealized P/L in the account currency, and fxImpact the part of that P/L the exchange rate made since it was bought; the text splits the account's unrealized P/L into prices and exchange rates. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). When an investment goal is set, goal gives it (manage_goal projects it). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
       inputSchema: z.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } },

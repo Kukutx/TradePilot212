@@ -1,12 +1,14 @@
 // Weekly and monthly account reports (REPORTS=weekly,monthly), sent at the digest's hour: on Monday for the seven days
 // before, on the 1st for the month before. Each says what the account's value did over the period, its time-weighted
 // return when TradePilot recorded the days, the money put in or taken out, dividends and interest, the trades and
-// realized gains, and the costs, in NOTIFY_LOCALE's language. They only read; a period counts as reported only once a
-// notification endpoint accepted it, and is tried again every 15 minutes from the digest's hour until then, on later
-// days too while it is still the latest period that ended: a week missed on Monday goes out on Tuesday.
+// realized gains, the costs, and how far the investment goal is at the period's end, in NOTIFY_LOCALE's language. They
+// only read; a period counts as reported only once a notification endpoint accepted it, and is tried again every 15
+// minutes from the digest's hour until then, on later days too while it is still the latest period that ended: a week
+// missed on Monday goes out on Tuesday.
 
 import { REPORT_KINDS, type ReportKind } from "../shared/automation.js";
 import type { TradingEnvironment } from "../shared/contracts.js";
+import type { InvestmentGoal } from "../shared/goal.js";
 import type { PerformanceSummary } from "../shared/history.js";
 import { localDay, localHour, localMidnight } from "../shared/time-zone.js";
 import type { HistoryWindow } from "./analytics.js";
@@ -62,6 +64,7 @@ const REPORT_WORDS = {
     realized: (value: string) => `realized ${value}`,
     costs: (value: string) => `costs ${value}`,
     short: "history cut short at the page limit: figures may be low",
+    goal: (name: string | undefined, share: string, target: string, by: string) => `${name ? `goal "${name}"` : "goal"} ${share} of ${target} by ${by}`,
   },
   "zh-CN": {
     period: (kind: ReportKind, first: string, last: string) => `${kind === "weekly" ? "上周" : "上月"}，${first} 至 ${last}`,
@@ -75,11 +78,12 @@ const REPORT_WORDS = {
     realized: (value: string) => `已实现盈亏 ${value}`,
     costs: (value: string) => `费用 ${value}`,
     short: "历史记录读到页数上限被截断，数字可能偏低",
+    goal: (name: string | undefined, share: string, target: string, by: string) => `${name ? `目标「${name}」` : "投资目标"}完成 ${share}（${target}，截止 ${by}）`,
   },
 } as const;
 
 /** The report as " · " parts, as the digest is: each part is a line where the service lays out lines. */
-export function reportText(kind: ReportKind, period: { first: string; last: string }, summary: PerformanceSummary, locale: NotifyLocale = "en"): string {
+export function reportText(kind: ReportKind, period: { first: string; last: string }, summary: PerformanceSummary, locale: NotifyLocale = "en", goal?: InvestmentGoal): string {
   const words = REPORT_WORDS[locale];
   const currency = summary.accountCurrency;
   const money = (value: number, sign = false) => {
@@ -93,6 +97,8 @@ export function reportText(kind: ReportKind, period: { first: string; last: stri
   const flows = summary.contributions.net;
   const { dividends, interest } = summary.income;
   const { buys, sells, turnover } = summary.trades;
+  // The goal against the value at the period's end, the last recorded in it.
+  const goalValue = end?.totalValue;
   return [
     words.period(kind, period.first, period.last),
     start && end && start !== end ? words.value(money(end.totalValue), money(start.totalValue), money(end.totalValue - start.totalValue, true)) : undefined,
@@ -103,6 +109,7 @@ export function reportText(kind: ReportKind, period: { first: string; last: stri
     buys || sells ? words.trades(buys, sells, money(turnover)) : words.noTrades,
     Math.abs(summary.realizedProfitLoss) >= 0.005 ? words.realized(money(summary.realizedProfitLoss, true)) : undefined,
     Math.abs(summary.costs.total) >= 0.005 ? words.costs(money(summary.costs.total)) : undefined,
+    goal && goalValue !== undefined ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(goalValue / goal.target), money(goal.target), goal.by) : undefined,
     summary.coverage.truncated ? words.short : undefined,
   ].filter(Boolean).join(" · ");
 }
@@ -112,6 +119,8 @@ export class PeriodicReports {
     config: RuntimeConfig; store: StateStore; trading: TradingService; notify?: Notifier;
     /** The account's performance over a window, with the values TradePilot recorded in it. */
     performance: (environment: TradingEnvironment, window: HistoryWindow) => Promise<PerformanceSummary>;
+    /** The account's investment goal, said against the period's last recorded value. */
+    goal?: (environment: TradingEnvironment) => Promise<InvestmentGoal | undefined>;
   }) {}
 
   /**
@@ -140,7 +149,8 @@ export class PeriodicReports {
           // From the period's first local midnight to just before the next period's: what is stamped at that midnight is the next period's.
           const window: HistoryWindow = { from: new Date(midnight(period.first, digest.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest.timeZone) - 1), endsNow: false };
           const summary = await this.deps.performance(environment, window);
-          const text = reportText(kind, period, summary, this.deps.config.notifyLocale);
+          const goal = await this.deps.goal?.(environment).catch(() => undefined);
+          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal);
           const type = kind === "weekly" ? "weekly_report" as const : "monthly_report" as const;
           const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type, outcome: text };
           if (!(await this.deps.notify(event, { force: true }))) {

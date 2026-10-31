@@ -27,8 +27,22 @@ export interface InvestmentGoal {
   /** The account currency when it was saved. */
   currency?: string;
   name?: string;
+  /**
+   * The highest milestone (25, 50, 75 or 100, in % of the target) the account value has reached since the goal was
+   * set or its target changed; 0 for none. Absent until the scheduler has measured the goal once.
+   */
+  milestone?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The share of the target, in %, at which the scheduler says how far the account has come. */
+export const GOAL_MILESTONES = [25, 50, 75, 100] as const;
+
+/** The highest milestone a value has reached against a target: 0 below the first. */
+export function goalMilestone(value: number, target: number): number {
+  if (!(target > 0) || !Number.isFinite(value)) return 0;
+  return GOAL_MILESTONES.filter((mark) => value >= (target * mark) / 100).at(-1) ?? 0;
 }
 
 export type GoalInputs = Pick<InvestmentGoal, "target" | "by" | "monthly" | "expectedReturn" | "volatility">;

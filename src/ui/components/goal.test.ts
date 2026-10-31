@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { projectGoal, type InvestmentGoal } from "../../shared/goal";
 import { createTranslator } from "../i18n";
-import { defaultGoal, GoalChart, GoalPanel, monthEnd } from "./goal";
+import { defaultGoal, GoalChart, GoalPanel, GoalProgressLine, monthEnd } from "./goal";
 
 const t = createTranslator("en");
 const now = new Date("2026-10-31T12:00:00Z");
@@ -58,5 +58,15 @@ describe("the investment goal panel", () => {
     expect(html).toContain('class="goalTarget"');
     expect(html).toContain("Target €100,000");
     for (const name of ["Middle", "Likely range", "Added, no growth", "Target"]) expect(html).toContain(`</svg>${name}</li>`.replace("</svg>Likely range", "</span>Likely range"));
+  });
+
+  it("puts the goal's share of the target under the dashboard's value, opening the goal when it can", () => {
+    const html = renderToStaticMarkup(createElement(GoalProgressLine, { goal, value: 25_000, currency: "EUR", locale: "en", t, onOpen: () => {} }));
+    expect(html).toContain('<button type="button" class="goalLine" aria-label="Retirement: 25.0% of €100,000 by Dec 31, 2036. Open the goal">');
+    expect(html).toContain("<b>Retirement</b> 25.0% of €100,000");
+    expect(html).toContain('style="width:25.0%"');
+    // Without a way to open it, it is not a button; without the value, there is no line.
+    expect(renderToStaticMarkup(createElement(GoalProgressLine, { goal, value: 25_000, currency: "EUR", locale: "zh-CN", t: createTranslator("zh-CN") }))).toContain('<div class="goalLine" role="group"');
+    expect(renderToStaticMarkup(createElement(GoalProgressLine, { goal, currency: "EUR", locale: "en", t }))).toBe("");
   });
 });
