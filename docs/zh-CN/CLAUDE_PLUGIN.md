@@ -35,7 +35,7 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 
 插件自带预先构建好的服务（`plugin/server.mjs`），只需要 `PATH` 里有 `node` 22+。状态和审计日志保存在插件数据目录中，插件更新后依然保留。
 
-插件会忽略你打开 Claude Code 的那个文件夹里的 `.env` 文件，这样其他项目的设置无法改变它的规则。上面没有对应选项的设置，例如 `POLICY_*` 规则、`TIMEZONE`、`TAX_YEAR_START`、`DIGEST_HOUR`、`BENCHMARK` 或 `NOTIFY_WEBHOOK_SECRET`，请写进插件数据目录里的 `.env.local`。上面的选项优先于它。
+插件会忽略你打开 Claude Code 的那个文件夹里的 `.env` 文件，这样其他项目的设置无法改变它的规则。上面没有对应选项的设置，例如 `POLICY_*` 规则、`TIMEZONE`、`TAX_YEAR_START`、`DIGEST_HOUR`、`BENCHMARK`、`NOTIFY_QUIET_HOURS` 或 `NOTIFY_WEBHOOK_SECRET`，请写进插件数据目录里的 `.env.local`。上面的选项优先于它。
 
 <a id="skills-included"></a>
 ### 附带的 skill

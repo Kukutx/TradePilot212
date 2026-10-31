@@ -223,7 +223,28 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 <a id="notifications"></a>
 ## 通知
 
-把 `NOTIFY_WEBHOOK_URL` 设为一个 HTTPS 地址，就能在对话之外收到通知。每个值得注意的操作记录事件都会以 JSON 发送，包含 `text`（Slack、Mattermost）、`content`（Discord）和原始的 `event`。默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。投递尽力而为，超时 5 秒，不重试。
+把 `NOTIFY_WEBHOOK_URL` 设为一个或多个 HTTPS 地址（用空格或逗号分隔），就能在对话之外收到通知。每个地址会按它所属的服务排版，服务按地址识别：
+
+| 服务 | 地址 | 发送的内容 |
+|---|---|---|
+| Slack | `https://hooks.slack.com/services/…` | 标题加纯文本详情，ticker 里的下划线不会被当成斜体 |
+| Discord | `https://discord.com/api/webhooks/…` | 加粗标题加详情，转义 markdown，不会提醒任何人 |
+| Telegram | `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>` | 加粗标题加详情（HTML）；所有查询参数都放进请求体 |
+| ntfy | `https://ntfy.sh/<topic>`，或 `ntfy:https://你的服务器/<topic>` | 标题、正文，需要你立即处理的事件优先级更高 |
+| Bark | `https://api.day.app/<key>` | 标题和正文，分组为 TradePilot，需要你立即处理的事件设为时效性通知 |
+| 其他 | 任意 HTTPS 地址 | 和以前一样的 JSON：`text`（Slack、Mattermost）、`content`（Discord）和原始的 `event` |
+
+在地址前加格式（`slack:`、`discord:`、`telegram:`、`ntfy:`、`bark:`、`raw:`），可以为自建服务或中转指定格式。含令牌的地址（Telegram 的、Bark 的 key、Slack hook）不会写进日志或存储；关于它的错误只说它在列表中的位置，不重复地址本身。
+
+`NOTIFY_LOCALE=zh-CN` 让通知用中文书写（默认 `en`）：事件名称、买入或卖出、股数，数字按中文习惯书写，成交金额带币种（€1,303.75）。每日摘要里的数字说明暂时仍是英文。
+
+默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
+
+每个请求最多等 5 秒。某个地址没有接收的通知，会由定时任务在 1 分钟后重试，之后依次隔 5、15、60、180 分钟，仍失败就放弃（记入日志）；其他已经收到的地址不会重复发送。没有任何地址接收的每日摘要交给摘要自己的重试（每 15 分钟一次）。等待中的通知保存在服务器的存储里，最多 200 条、最长 30 小时。
+
+`NOTIFY_QUIET_HOURS=22-07`（按 `TIMEZONE` 的整点，未设置时按 UTC；也可以写 `22:00-07:00`）会在这段时间里暂存通知，结束时按时间先后合成一条消息发送。需要你立即处理的事件照常发送：结果不明的订单、撤单或 Pie 修改，需要处理的保护单，以及被拒绝的撤单。每日摘要按它自己的时间发送。
+
+小组件“自动化”页上的 **发送测试**，或 `test_notifications` 工具，会立即向每个地址发一条测试消息（静默时段也照发），并告诉你每个地址的回应，只显示它的类型和主机名。“自动化”页会显示通知发往哪里、用什么语言，以及静默时段。
 
 <a id="daily-digest"></a>
 ### 每日摘要
