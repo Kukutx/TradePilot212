@@ -120,7 +120,7 @@ export function GoalChart({ projection, target, currency, locale, t }: {
             )}
           </svg>
           {point && active !== null && (
-            <div className="lineTip withCompare goalTip" role="status" style={{ left: `${Math.min(width - 200, Math.max(0, x(active) - 100))}px` }}>
+            <div className="lineTip withCompare goalTip" role="status" style={{ left: `${Math.min(width - 236, Math.max(0, x(active) - 118))}px` }}>
               <span>{day(point.date)}</span>
               <span className="tipSeries"><i className="swatch main" aria-hidden="true" />{t("goalMiddle")}<strong>{m(point.mid)}</strong></span>
               <span className="tipSeries"><i className="swatch band" aria-hidden="true" />{t("goalRange")}<strong>{m(point.low)} – {m(point.high)}</strong></span>
@@ -290,7 +290,7 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
           <div className="metricGrid">
             <Metric label={t("goalChance")} value={projection.reached ? t("goalReached") : pct(projection.chance, locale, 0)} />
             <Metric label={fill(t("goalMiddleBy"), { date: dayLabel(shown.by, locale, { year: true }) })} value={m(projection.final.mid)} />
-            <Metric label={t("goalRange")} value={`${m(projection.final.low)} – ${m(projection.final.high)}`} />
+            <Metric label={t("goalRange")} tone="goalRangeValue" value={<><span className="noWrap">{m(projection.final.low)}</span> – <span className="noWrap">{m(projection.final.high)}</span></>} />
             <Metric label={t("goalNeeded")} value={projection.reached ? "—" : m(projection.neededMonthly)} />
           </div>
           {projection.months > 0 && <GoalChart projection={projection} target={shown.target} currency={currency} locale={locale} t={t} />}

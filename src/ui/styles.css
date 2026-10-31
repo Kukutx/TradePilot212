@@ -924,7 +924,11 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 /* The target is in the text colour with a short dash, apart from the dashed grey of what is added. */
 .goalTarget { stroke: var(--tp-text); stroke-width: 1.5; stroke-dasharray: 2 3; opacity: .75; }
 .goalTargetLabel { fill: var(--tp-text); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--tp-bg); stroke-width: 3px; stroke-linejoin: round; }
-.lineTip.goalTip { width: 200px; }
+.lineTip.goalTip { width: 236px; }
+.goalTip .tipSeries { white-space: nowrap; }
+/* The range wraps between its two ends on a narrow card rather than being cut short. */
+.metric strong.goalRangeValue { white-space: normal; }
+.metric strong.goalRangeValue span { display: inline; margin: 0; color: inherit; font-size: inherit; font-weight: inherit; }
 .swatch.band { height: 8px; background: color-mix(in srgb, var(--tp-chart) 30%, transparent); }
 .goalChart .chartTable th:not(:first-child), .goalChart .chartTable td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 
