@@ -34,6 +34,7 @@ import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
 import { LISTING_WATCH_DAYS, MAX_LISTING_DAYS, MAX_LISTINGS, MAX_WATCH_FILTERS, type NewListingsView } from "../shared/listings.js";
 import { newListings } from "./new-listings.js";
+import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, projectGoal, type GoalView } from "../shared/goal.js";
 import { toolCallWatch, watchingReads } from "./request-context.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
@@ -179,7 +180,7 @@ function listedRange(listed: number, offset: number | undefined, count: number):
 }
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, accountAlerts, listings: listingWatches, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
+  { trading, insights, automation, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -405,7 +406,7 @@ export function createMcpServer(
     {
       title: "Portfolio Performance",
       description:
-        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and, from 60 stretches, the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
+        "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and, from 60 stretches, the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. goal is the account's investment goal when one is saved (manage_goal), with its projection in the text. Read-only.",
       inputSchema: z.object({
         environment: environmentWithDefault,
         ...windowSchema,
@@ -428,7 +429,8 @@ export function createMcpServer(
           readAttribution({ config, trading, insights, priceHistory, ...(history ? { history } : {}) }, environment, window, maxPages)
             .catch((error: unknown) => ({ attributionMissing: "data" as const, attributionProblem: asStructuredError(error).message })),
         ]);
-        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary, ...compared, ...attributed };
+        const goal = await goals.get(environment);
+        const data = { credentials: credentialStatus(config), writeEnabled: canWrite, ...summary, ...compared, ...attributed, ...(goal ? { goal } : {}) };
         return result(data, `Realized P/L ${num(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding) => `${holding.ticker} ${holding.gain >= 0 ? "+" : ""}${num(holding.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error) {
         return toolError(error);
@@ -1199,6 +1201,65 @@ export function createMcpServer(
         }
         const alert = await accountAlerts.rearm(input.alertId);
         return result({ kind: "account_alert", alert }, `Re-armed account alert ${alert.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // A goal is TradePilot's own note on the account, so it works without order tools.
+  registerAppTool(
+    server,
+    "manage_goal",
+    {
+      title: "Investment Goal",
+      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. It is a range from assumptions, not a forecast: it leaves out costs, taxes and inflation. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
+      inputSchema: z.object({
+        action: z.enum(["get", "set", "remove"]).default("get"),
+        environment: environmentWithDefault,
+        target: z.number().positive().optional().describe("Required for set"),
+        by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Required for set"),
+        monthly: z.number().min(0).optional(),
+        expectedReturn: z.number().min(-0.5).max(0.3).optional().describe("A fraction: 0.06 is 6% a year"),
+        volatility: z.number().min(0).max(1).optional().describe("A fraction: 0.15 is 15% a year"),
+        name: z.string().max(80).optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async (input) => {
+      try {
+        const { environment } = input;
+        if (input.action === "remove") {
+          const had = await goals.remove(environment);
+          const data: GoalView = { kind: "goal", environment, credentials: credentialStatus(config), timestamp: new Date().toISOString() };
+          return result(data, had ? `Removed the ${environment.toUpperCase()} goal.` : `There was no ${environment.toUpperCase()} goal.`);
+        }
+        requireCredentials(config, environment);
+        const account = await trading.accountSummary(environment).catch(() => undefined);
+        let goal = await goals.get(environment);
+        if (input.action === "set") {
+          const target = input.target ?? goal?.target;
+          const by = input.by ?? goal?.by;
+          if (target === undefined || by === undefined) return toolError(new Error("target and by are required to set a goal"));
+          goal = await goals.set({
+            environment, target, by,
+            ...(input.monthly === undefined ? {} : { monthly: input.monthly }),
+            ...(input.expectedReturn === undefined ? {} : { expectedReturn: input.expectedReturn }),
+            ...(input.volatility === undefined ? {} : { volatility: input.volatility }),
+            ...(input.name === undefined ? {} : { name: input.name }),
+            ...(account?.currency ? { currency: account.currency } : {}),
+          });
+        }
+        const value = account?.totalValue;
+        const now = new Date();
+        const data: GoalView = {
+          kind: "goal", environment, credentials: credentialStatus(config),
+          ...(goal ? { goal } : {}), ...(value === undefined ? {} : { value }), ...(account?.currency ?? goal?.currency ? { currency: account?.currency ?? goal?.currency } : {}),
+          ...(goal && value !== undefined ? { projection: projectGoal(goal, value, now) } : {}),
+          timestamp: now.toISOString(),
+        };
+        return result(data, goal ? `${input.action === "set" ? "Saved the" : "The"} ${environment.toUpperCase()} goal: ${num(goal.target)}${data.currency ? ` ${data.currency}` : ""} by ${goal.by}.` : `There is no ${environment.toUpperCase()} goal; set one with target and by.`);
       } catch (error) {
         return toolError(error);
       }

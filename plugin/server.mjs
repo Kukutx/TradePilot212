@@ -36123,6 +36123,7 @@ var TOOL_OUTPUT = {
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
   list_new_instruments: payload("new_listings", "environment:s days:n from:s listings:a total:n types:o catalogue:n undated:n timestamp:s credentials:o"),
   manage_listing_alert: payload("listing_alert", "environment:s watch:u webhook:b timestamp:s"),
+  manage_goal: payload("goal", "environment:s value:n currency:s goal:o projection:o timestamp:s credentials:o"),
   show_daily_trade_plan: payload("trade_plan", plan),
   test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s")
 };
@@ -41428,11 +41429,83 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.91.0",
+  version: "2.92.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
 var APP_ICON_DATA_URI = `data:image/svg+xml;base64,${btoa(APP_ICON_SVG)}`;
+
+// src/shared/goal.ts
+var DEFAULT_GOAL_RETURN = 0.06;
+var DEFAULT_GOAL_VOLATILITY = 0.15;
+var MAX_GOAL_YEARS = 50;
+var Z90 = 1.2815515655446004;
+var BRACKET_LIMIT = 768;
+function normalCdf(z2) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z2) / Math.SQRT2);
+  const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z2 * z2) / 2);
+  return z2 >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+var isoDay2 = (date5) => date5.toISOString().slice(0, 10);
+function monthsUntil(by, now) {
+  const end = /* @__PURE__ */ new Date(`${by}T00:00:00Z`);
+  if (!Number.isFinite(end.getTime())) return 0;
+  const months = (end.getUTCFullYear() - now.getUTCFullYear()) * 12 + end.getUTCMonth() - now.getUTCMonth() + (end.getUTCDate() > now.getUTCDate() ? 1 : 0);
+  return Math.max(0, months);
+}
+function grown(value, monthly, growth, months) {
+  const step = Math.exp(growth / 12);
+  const lump = value * step ** months;
+  const annuity = Math.abs(step - 1) < 1e-12 ? months : (step ** months - 1) / (step - 1);
+  return lump + monthly * annuity;
+}
+function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
+  const months = monthsUntil(inputs.by, now);
+  const sigma = Math.max(0, inputs.volatility);
+  const median = Math.log(1 + Math.max(-0.99, inputs.expectedReturn)) - sigma * sigma / 2;
+  const at = (m, z2) => m === 0 ? value : grown(value, inputs.monthly, median + z2 * sigma / Math.sqrt(m / 12), m);
+  const step = months > 120 ? 3 : 1;
+  const points3 = [];
+  const marks = /* @__PURE__ */ new Set([0, months]);
+  for (let m = step; m < months; m += step) marks.add(m);
+  for (const m of [...marks].sort((a, b) => a - b)) {
+    const date5 = m === 0 ? isoDay2(now) : m === months ? inputs.by : isoDay2(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + m, Math.min(now.getUTCDate(), 28))));
+    points3.push({ date: date5, low: at(m, -Z90), mid: at(m, 0), high: at(m, Z90), added: value + inputs.monthly * m });
+  }
+  const last = points3[points3.length - 1];
+  const reached = value >= inputs.target;
+  let chance;
+  if (reached && inputs.monthly >= 0) chance = 1;
+  else if (months === 0) chance = reached ? 1 : 0;
+  else {
+    let low = -3;
+    let high = 3;
+    while (high < BRACKET_LIMIT && grown(value, inputs.monthly, high, months) < inputs.target) high *= 2;
+    while (low > -BRACKET_LIMIT && grown(value, inputs.monthly, low, months) >= inputs.target) low *= 2;
+    if (grown(value, inputs.monthly, high, months) < inputs.target) chance = 0;
+    else if (grown(value, inputs.monthly, low, months) >= inputs.target) chance = 1;
+    else {
+      for (let index = 0; index < 80; index++) {
+        const middle2 = (low + high) / 2;
+        if (grown(value, inputs.monthly, middle2, months) >= inputs.target) high = middle2;
+        else low = middle2;
+      }
+      chance = sigma > 0 ? 1 - normalCdf((high - median) / (sigma / Math.sqrt(months / 12))) : high <= median ? 1 : 0;
+    }
+  }
+  const lumpMid = months ? grown(value, 0, median, months) : value;
+  const perMonth = months ? grown(0, 1, median, months) : 0;
+  const neededMonthly = reached || lumpMid >= inputs.target || !perMonth ? 0 : (inputs.target - lumpMid) / perMonth;
+  return {
+    months,
+    points: points3,
+    final: { low: last.low, mid: last.mid, high: last.high },
+    added: inputs.monthly * months,
+    chance: Math.min(1, Math.max(0, chance)),
+    neededMonthly,
+    reached
+  };
+}
 
 // src/shared/holding-risk.ts
 var MIN_WEEKS = 26;
@@ -42243,6 +42316,7 @@ function performance(data) {
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num2(item.dividends)}, costs ${num2(item.costs)}`)),
     ...data.coverage.truncated ? ["History was truncated at the page limit; older records are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : [],
+    ...data.goal ? goalLines(data.goal, data.currentValue, c, new Date(data.timestamp)) : [],
     ...data.notes
   ];
 }
@@ -42669,6 +42743,20 @@ function newListingLines(data) {
     ...data.watch ? [`Listing alert: on for ${[data.watch.types.join("/") || "any type", data.watch.currencies.join("/") || "any currency"].join(", ")}${data.watch.lastFoundAt ? `; last found ${data.watch.lastFound} on ${data.watch.lastFoundAt.slice(0, 10)}` : ""}${data.webhook ? "" : "; no NOTIFY_WEBHOOK_URL, so finds are only logged"}.`] : []
   ];
 }
+function goalLines(goal, value, currency, now) {
+  const money4 = (amount2) => `${num2(amount2)}${currency ? ` ${currency}` : ""}`;
+  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money4(goal.target)} by ${goal.by}, adding ${money4(goal.monthly)} a month, assuming ${num2(goal.expectedReturn * 100, 1)}% a year with ${num2(goal.volatility * 100, 1)}% volatility.`;
+  if (value === void 0) return [head, "The account value could not be read, so there is no projection."];
+  const projection = projectGoal(goal, value, now);
+  return [
+    head,
+    `Now ${money4(value)} (${num2(value / goal.target * 100, 1)}% of the target)${projection.reached ? ", at or above it already" : ""}.`,
+    ...projection.months ? [
+      `By ${goal.by}: ${money4(projection.final.low)} to ${money4(projection.final.high)} (10th to 90th percentile), ${money4(projection.final.mid)} in the middle; ${money4(projection.added)} of it added from now.`,
+      `Chance of reaching it under these assumptions: ${num2(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money4(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: costs, taxes and inflation are left out.`
+    ] : [`The date has passed.`]
+  ];
+}
 function describePayload(data) {
   if (!data || typeof data !== "object") return "";
   const payload2 = data;
@@ -42704,6 +42792,11 @@ function describePayload(data) {
     case "new_listings":
       lines = newListingLines(payload2);
       break;
+    case "goal": {
+      const view = payload2;
+      lines = [...credentialsLine(view.environment, view.credentials), ...view.goal ? goalLines(view.goal, view.value, view.currency, new Date(view.timestamp)) : []];
+      break;
+    }
     case "basket_draft":
       lines = basketDraft(payload2);
       break;
@@ -42973,7 +43066,7 @@ var LAG_WINDOW_MS = 6 * 36e5;
 var DAY_ORDER_PAGES = 2;
 var DASHBOARD_REUSE_MS = 15e3;
 var round15 = (value, digits = 6) => Math.round(value * 10 ** digits) / 10 ** digits;
-var isoDay2 = (time3) => new Date(time3).toISOString().slice(0, 10);
+var isoDay3 = (time3) => new Date(time3).toISOString().slice(0, 10);
 function sessionOf(events, now, extendedHours = false) {
   const sorted = (events ?? []).map((event) => ({ type: event.type, time: Date.parse(event.date) })).filter((event) => Number.isFinite(event.time)).sort((a, b) => a.time - b.time);
   const at = now.getTime();
@@ -42984,14 +43077,14 @@ function sessionOf(events, now, extendedHours = false) {
   const early = extendedHours && lastEvent && (lastEvent.type === "PRE_MARKET_OPEN" || lastEvent.type === "OVERNIGHT_OPEN");
   const open2 = early && nextOpen ? nextOpen.time : lastOpen?.time;
   if (open2 === void 0) return void 0;
-  const day2 = isoDay2(open2);
-  const previous = opens.filter((event) => isoDay2(event.time) < day2).pop();
+  const day2 = isoDay3(open2);
+  const previous = opens.filter((event) => isoDay3(event.time) < day2).pop();
   const closed = sorted.filter((event) => event.type === "CLOSE" && event.time < open2).pop();
   const following = opens.find((event) => event.time > open2)?.time ?? Infinity;
   const ending = sorted.filter((event) => event.time > open2 && event.time < following && (event.type === "CLOSE" || extendedHours && event.type === "AFTER_HOURS_CLOSE")).pop();
   return {
     day: day2,
-    ...previous ? { previous: isoDay2(previous.time) } : {},
+    ...previous ? { previous: isoDay3(previous.time) } : {},
     ...closed ? { previousClose: closed.time } : {},
     ...ending && ending.time <= at ? { ended: ending.time } : {}
   };
@@ -42999,7 +43092,7 @@ function sessionOf(events, now, extendedHours = false) {
 function fallbackDay(now) {
   const weekday2 = now.getUTCDay();
   const back = weekday2 === 6 ? 1 : weekday2 === 0 ? 2 : 0;
-  return isoDay2(now.getTime() - back * DAY_MS10);
+  return isoDay3(now.getTime() - back * DAY_MS10);
 }
 function inCloseUnit(price, close) {
   const ratio2 = price / close;
@@ -44316,7 +44409,7 @@ function listedRange(listed, offset, count) {
   if (!offset) return `${listed} of ${count}`;
   return listed ? `${offset + 1}\u2013${offset + listed} of ${count}` : `none past ${offset} of ${count}`;
 }
-function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, listings: listingWatches, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -44516,7 +44609,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "get_portfolio_performance",
     {
       title: "Portfolio Performance",
-      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and, from 60 stretches, the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. Read-only.",
+      description: "Summarize realized P/L, unrealized P/L, deposits and withdrawals, dividend and interest income, trading costs (commissions, FX fees, stamp duty and other taxes), trade counts and per-ticker contribution from Trading 212 history. All-time windows also include a simple return on net contributions. When TradePilot has recorded the account value on two days or more in the window, valueHistory gives the value per day (it includes deposits and withdrawals) and timeWeighted the time-weighted return over those days, which takes deposits and withdrawals out and so works for any period, such as 1m or 3m. timeWeighted.drawdown gives its deepest fall from a high as a negative fraction (max, with the high and low days, and the day it was made up if it was) and how far below its high it ends (current); timeWeighted.months and timeWeighted.years its return in each calendar month and year (partial when only part of it was recorded); timeWeighted.risk, from 20 stretches between readings (counted in weekdays, up to yesterday), its volatility a year, best and worst days, days up and down, and from a year of readings its return a year and that over the volatility. With timeWeighted, benchmark gives an index fund's return (and drawdown, and in risk its volatility and, from 60 stretches, the return's beta and correlation to it, fitted to the fund's day before, same day and day after) over the same days from the quote provider's closes (S&P 500 through SPY by default; set BENCHMARK or pass benchmark), in the fund's own currency. attribution gives each instrument's gain over the period in the account currency: its value now less its value at the start (the shares held then at the quote provider's close before the period's first day, at today's exchange rate), less what its buys took, plus what its sells paid and its dividends, largest first, with instruments it could not value listed in missing; over all history (basis: cost) it is Trading 212's realised plus unrealised P/L plus dividends. goal is the account's investment goal when one is saved (manage_goal), with its projection in the text. Read-only.",
       inputSchema: external_exports.object({
         environment: environmentWithDefault,
         ...windowSchema,
@@ -44543,7 +44636,8 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           // Gains by instrument are optional: a read that fails leaves them out and says why.
           readAttribution({ config: config3, trading, insights, priceHistory, ...history ? { history } : {} }, environment, window, maxPages).catch((error62) => ({ attributionMissing: "data", attributionProblem: asStructuredError(error62).message }))
         ]);
-        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared, ...attributed };
+        const goal = await goals.get(environment);
+        const data = { credentials: credentialStatus(config3), writeEnabled: canWrite, ...summary, ...compared, ...attributed, ...goal ? { goal } : {} };
         return result(data, `Realized P/L ${num2(data.realizedProfitLoss)} ${data.accountCurrency}, income ${num2(data.income.dividends + data.income.interest)} ${data.accountCurrency}, costs ${num2(data.costs.total)} ${data.accountCurrency}${data.timeWeighted ? `, time-weighted return ${data.timeWeighted.return >= 0 ? "+" : ""}${num2(data.timeWeighted.return * 100, 1)}% from ${data.timeWeighted.from} to ${data.timeWeighted.to}${data.benchmark ? ` (${data.benchmark.shortName ?? data.benchmark.ticker} ${data.benchmark.return >= 0 ? "+" : ""}${num2(data.benchmark.return * 100, 1)}%)` : ""}` : ""}${data.attribution?.holdings.length ? `; by instrument ${data.attribution.total >= 0 ? "+" : ""}${num2(data.attribution.total)} ${data.accountCurrency} (${[...data.attribution.holdings].sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain)).slice(0, 3).map((holding3) => `${holding3.ticker} ${holding3.gain >= 0 ? "+" : ""}${num2(holding3.gain)}`).join(", ")})` : ""}${data.coverage.truncated ? " (history truncated)" : ""}.`);
       } catch (error62) {
         return toolError(error62);
@@ -45296,6 +45390,69 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         }
         const alert = await accountAlerts.rearm(input2.alertId);
         return result({ kind: "account_alert", alert }, `Re-armed account alert ${alert.id}.`);
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  registerAppTool(
+    server2,
+    "manage_goal",
+    {
+      title: "Investment Goal",
+      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. It is a range from assumptions, not a forecast: it leaves out costs, taxes and inflation. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
+      inputSchema: external_exports.object({
+        action: external_exports.enum(["get", "set", "remove"]).default("get"),
+        environment: environmentWithDefault,
+        target: external_exports.number().positive().optional().describe("Required for set"),
+        by: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Required for set"),
+        monthly: external_exports.number().min(0).optional(),
+        expectedReturn: external_exports.number().min(-0.5).max(0.3).optional().describe("A fraction: 0.06 is 6% a year"),
+        volatility: external_exports.number().min(0).max(1).optional().describe("A fraction: 0.15 is 15% a year"),
+        name: external_exports.string().max(80).optional()
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async (input2) => {
+      try {
+        const { environment } = input2;
+        if (input2.action === "remove") {
+          const had = await goals.remove(environment);
+          const data2 = { kind: "goal", environment, credentials: credentialStatus(config3), timestamp: (/* @__PURE__ */ new Date()).toISOString() };
+          return result(data2, had ? `Removed the ${environment.toUpperCase()} goal.` : `There was no ${environment.toUpperCase()} goal.`);
+        }
+        requireCredentials(config3, environment);
+        const account = await trading.accountSummary(environment).catch(() => void 0);
+        let goal = await goals.get(environment);
+        if (input2.action === "set") {
+          const target = input2.target ?? goal?.target;
+          const by = input2.by ?? goal?.by;
+          if (target === void 0 || by === void 0) return toolError(new Error("target and by are required to set a goal"));
+          goal = await goals.set({
+            environment,
+            target,
+            by,
+            ...input2.monthly === void 0 ? {} : { monthly: input2.monthly },
+            ...input2.expectedReturn === void 0 ? {} : { expectedReturn: input2.expectedReturn },
+            ...input2.volatility === void 0 ? {} : { volatility: input2.volatility },
+            ...input2.name === void 0 ? {} : { name: input2.name },
+            ...account?.currency ? { currency: account.currency } : {}
+          });
+        }
+        const value = account?.totalValue;
+        const now = /* @__PURE__ */ new Date();
+        const data = {
+          kind: "goal",
+          environment,
+          credentials: credentialStatus(config3),
+          ...goal ? { goal } : {},
+          ...value === void 0 ? {} : { value },
+          ...account?.currency ?? goal?.currency ? { currency: account?.currency ?? goal?.currency } : {},
+          ...goal && value !== void 0 ? { projection: projectGoal(goal, value, now) } : {},
+          timestamp: now.toISOString()
+        };
+        return result(data, goal ? `${input2.action === "set" ? "Saved the" : "The"} ${environment.toUpperCase()} goal: ${num2(goal.target)}${data.currency ? ` ${data.currency}` : ""} by ${goal.by}.` : `There is no ${environment.toUpperCase()} goal; set one with target and by.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -46330,6 +46487,54 @@ var ListingWatches = class {
   }
 };
 
+// src/core/goals.ts
+var goalKey = (environment) => `goal:${environment}`;
+var Goals = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  get(environment) {
+    return this.deps.store.get(goalKey(environment));
+  }
+  async set(input2, now = /* @__PURE__ */ new Date()) {
+    requireCredentials(this.deps.config, input2.environment);
+    if (!(input2.target > 0) || !Number.isFinite(input2.target)) fail("INVALID_INPUT", "The target is an amount above 0, in the account currency", { field: "target" });
+    const by = /* @__PURE__ */ new Date(`${input2.by}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input2.by) || !Number.isFinite(by.getTime()) || by.toISOString().slice(0, 10) !== input2.by) fail("INVALID_INPUT", "The date is YYYY-MM-DD", { field: "by" });
+    if (by.getTime() <= now.getTime()) fail("INVALID_INPUT", "The date is in the future", { field: "by" });
+    if (by.getUTCFullYear() - now.getUTCFullYear() > MAX_GOAL_YEARS) fail("INVALID_INPUT", `The date is at most ${MAX_GOAL_YEARS} years away`, { field: "by" });
+    const current = await this.get(input2.environment);
+    const monthly = input2.monthly ?? current?.monthly ?? 0;
+    const expectedReturn = input2.expectedReturn ?? current?.expectedReturn ?? DEFAULT_GOAL_RETURN;
+    const volatility = input2.volatility ?? current?.volatility ?? DEFAULT_GOAL_VOLATILITY;
+    if (!(monthly >= 0) || !Number.isFinite(monthly)) fail("INVALID_INPUT", "The monthly amount is 0 or more", { field: "monthly" });
+    if (!(expectedReturn >= -0.5 && expectedReturn <= 0.3)) fail("INVALID_INPUT", "The yearly return is between -50% and 30%, as a fraction", { field: "expectedReturn" });
+    if (!(volatility >= 0 && volatility <= 1)) fail("INVALID_INPUT", "The yearly volatility is between 0 and 100%, as a fraction", { field: "volatility" });
+    const name = input2.name === void 0 ? current?.name : input2.name.trim().slice(0, 80) || void 0;
+    const currency = input2.currency ?? current?.currency;
+    const goal = {
+      environment: input2.environment,
+      target: input2.target,
+      by: input2.by,
+      monthly,
+      expectedReturn,
+      volatility,
+      ...currency ? { currency } : {},
+      ...name ? { name } : {},
+      createdAt: current?.createdAt ?? now.toISOString(),
+      updatedAt: now.toISOString()
+    };
+    await this.deps.store.put(goalKey(input2.environment), goal);
+    return goal;
+  }
+  async remove(environment) {
+    const had = !!await this.get(environment);
+    await this.deps.store.delete(goalKey(environment));
+    return had;
+  }
+};
+
 // src/core/journal.ts
 var MAX_JOURNAL_ENTRIES = 2e3;
 var entryKey = (id) => `journal:${id}`;
@@ -47169,6 +47374,7 @@ function createServices(input2) {
   }, environment, now);
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
   const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
+  const goals = new Goals({ config: deps.config, store: deps.store });
   const digest2 = new DailyDigest({
     config: deps.config,
     store: deps.store,
@@ -47269,7 +47475,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, listings, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

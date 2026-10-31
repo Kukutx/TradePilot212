@@ -196,6 +196,8 @@ async function seedSample(): Promise<void> {
     ["manage_watchlist", { action: "add", instrument: "EUNL" }],
     // A listing alert on stocks, so the new-listings panel shows one on.
     ["manage_listing_alert", { action: "set", types: ["STOCK"] }],
+    // A goal fifteen years out, so the performance tab shows its progress and range.
+    ["manage_goal", { action: "set", name: "Retirement pot", target: 150_000, by: `${new Date().getUTCFullYear() + 15}-12-31`, monthly: 500 }],
     ["manage_price_alerts", { action: "create", instrument: "TSLA", condition: "above", price: 260, note: "Breakout" }],
     ["manage_price_alerts", { action: "create", instrument: "ASML", condition: "below", price: 600 }],
   ];

@@ -1,5 +1,6 @@
 import { PriceAlerts } from "../core/alerts.js";
 import { ListingWatches } from "../core/listing-watch.js";
+import { Goals } from "../core/goals.js";
 import { AccountAlerts } from "../core/account-alerts.js";
 import { AutomationService } from "../core/automation.js";
 import { credentialStatus, type RuntimeConfig } from "../core/config.js";
@@ -110,6 +111,7 @@ export function createServices(input: ServiceDependencies) {
   /** Alerts on the account's value, cash and day's move; the day's move is the one get_portfolio_today adds up. */
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
   const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
+  const goals = new Goals({ config: deps.config, store: deps.store });
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
     // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
@@ -209,5 +211,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, listings, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }

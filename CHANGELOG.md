@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.92.0
+
+- Investment goal: an amount to reach by a date, measured against the account on the Performance tab.
+  - The **Investment goal** panel shows how far the account is towards the target, the chance of reaching it, the middle value and likely range by the date, and the monthly amount the middle line needs. A fan chart draws the range from now to the date around the middle line, with what is added and no growth, and the target across it; it has a hover readout, arrow keys and a table view.
+  - The form takes the target, the month (chosen from the project's own lists, dated the month's last day), what is added each month, and the yearly return and volatility assumed (6% and 15% by default). The range redraws as it is typed.
+  - The range is lognormal, the 10th to 90th percentile, and is said to be from assumptions, not a forecast; costs, taxes and inflation are left out.
+- `manage_goal` gets, sets or removes the account's goal and returns it with the value now and the projection; a change opens the Performance tab. `get_portfolio_performance` returns the saved goal as `goal`, and its text summary says how far along it is.
+- The preview's sample account has a goal fifteen years out.
+
 ## 2.91.0
 
 - Listing alerts: be told when Trading 212 lists new instruments of the types and currencies you choose, or any.

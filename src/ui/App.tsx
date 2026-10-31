@@ -1,5 +1,7 @@
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { ListingWatch, NewListingsView } from "../shared/listings";
+import type { GoalView, InvestmentGoal } from "../shared/goal";
+import type { GoalRequest } from "./components/goal";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -137,7 +139,7 @@ const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "h
  * Tool results shown on a page the widget already has, read for that page: the automation page for alerts, plans and
  * the trading rules, the allocation for targets, and the account, with its activity, for recent activity.
  */
-const ROUTES = { price_alerts: "automation", investment_plans: "automation", trading_policy: "automation", target_allocation: "allocation", activity: "holdings", new_listings: "watchlist" } as const;
+const ROUTES = { price_alerts: "automation", investment_plans: "automation", trading_policy: "automation", target_allocation: "allocation", activity: "holdings", new_listings: "watchlist", goal: "performance" } as const;
 type RoutedPayload = {
   kind: keyof typeof ROUTES; environment?: TradingEnvironment; defaultEnvironment?: TradingEnvironment; timestamp?: string; targets?: unknown;
   alerts?: Array<{ environment?: TradingEnvironment }>; plans?: Array<{ environment?: TradingEnvironment }>;
@@ -1012,6 +1014,26 @@ export default function App() {
     return true;
   }
 
+  /**
+   * Save or remove the investment goal; nothing trades. The performance read shown keeps the goal as saved, so the
+   * tab shows it again unchanged. A failure is handed to the goal panel, which says it beside the form.
+   */
+  async function changeGoal(env: TradingEnvironment, input: { action: "set" | "remove" } & Partial<GoalRequest>): Promise<InvestmentGoal | undefined> {
+    let goal: InvestmentGoal | undefined;
+    try {
+      ({ goal } = await callTool<GoalView>("manage_goal", { environment: env, ...input }));
+    } catch (error) {
+      throw new Error(problemFrom("errorTitleGoal", error).message);
+    }
+    setInsights((shown) => {
+      const performance = shown.performance;
+      if (!performance || performance.environment !== env) return shown;
+      const { goal: _old, ...rest } = performance;
+      return { ...shown, performance: goal ? { ...rest, goal } : rest };
+    });
+    return goal;
+  }
+
   /** Trading 212's instruments matching a query, best first, for the watchlist's and the target form's search. */
   async function searchInstruments(query: string, env: TradingEnvironment = environment): Promise<Instrument[]> {
     return (await callTool<{ instruments: Instrument[] }>("search_trading212_instruments", { environment: env, query, limit: 8 })).instruments ?? [];
@@ -1490,7 +1512,9 @@ export default function App() {
             {portfolioLike && tab === "performance" && insights.performance && (
               <PerformanceView data={insights.performance} book={book} locale={locale} t={t} period={customRange ? null : period} busy={loading} onPeriod={(next) => void changePeriod(next)}
                 onOpen={(ticker) => void openHolding(ticker)}
-                onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)} />
+                onBenchmark={(choice) => void loadInsight("performance", environment, period, undefined, choice)}
+                onGoal={(request) => changeGoal(environment, { action: "set", ...request })}
+                onRemoveGoal={async () => { await changeGoal(environment, { action: "remove" }); return true; }} />
             )}
             {portfolioLike && tab === "income" && insights.income && (
               <IncomeView data={insights.income} book={book} locale={locale} t={t} period={customRange ? null : period} busy={loading} onPeriod={(next) => void changePeriod(next)} />
