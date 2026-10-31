@@ -32,4 +32,5 @@ export const HOST_STYLES = {
   "--border-radius-xl": "16px",
   "--border-radius-full": "9999px",
   "--shadow-hairline": "0 0 0 1px rgba(31, 30, 28, .04), 0 1px 2px rgba(31, 30, 28, .05)",
+  // McpUiStyles names every variable as required; a host gives the ones it has, as this one does.
 } as Partial<McpUiStyles> as McpUiStyles;

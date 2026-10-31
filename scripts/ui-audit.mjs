@@ -2,7 +2,7 @@
 // style variables and in one that gives none, in a headless browser and
 // checks what tests on the markup cannot see: the widget scrolling sideways, a box sticking out of the frame, text cut
 // off with nothing showing the rest, text under 12px, low contrast, a control too small to tap, a control with no
-// focus ring or focused out of view, a form control left with the browser's own look, a broken image, a failed
+// focus ring, focused out of view or under something else, a form control left with the browser's own look, a broken image, a failed
 // request or a script error. Each view is checked as it opens, again with
 // everything folded opened (charts shown as tables, "show all" lists, collapsed sections, the date-range panel), and
 // after each choice of every switch and tab list in it. With --shots it also saves pictures, to look over by eye.
@@ -175,18 +175,20 @@ function inspect(host = []) {
   for (const item of [...tiny].slice(0, 5)) problems.push(`too small to tap: ${item}`);
 
   // Text against what is behind it: 4.5:1, or 3:1 for large text (WCAG 1.4.3), in what CSS writes in a field too (its
-  // value or placeholder) and in chart labels. Disabled controls are exempt; text under a picture is left alone, as
-  // what is behind it cannot be read off the styles (a gradient or an icon over a solid colour is measured against
-  // the colour).
+  // value or placeholder) and in chart labels. Disabled controls are exempt; text under a picture or a gradient is left
+  // alone, as what is behind it cannot be read off the styles; an inline SVG icon over a solid colour is measured
+  // against the colour.
   const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   const parse = (value) => {
-    if (!value || value === "transparent") return [0, 0, 0, 0];
+    if (!value || value === "transparent" || value === "none") return [0, 0, 0, 0];
+    // A paint server (a gradient or pattern) is no one colour.
+    if (value.startsWith("url(")) return null;
     const rgb = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+))?\)$/.exec(value);
     if (rgb) return [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255, rgb[4] === undefined ? 1 : Number(rgb[4])];
     const srgb = /^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/.exec(value);
     if (srgb) return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])];
     // Any other colour space (oklch, lab, display-p3) as the browser draws it in sRGB.
-    if (!canvas) return null;
+    if (!canvas || !CSS.supports("color", value)) return null;
     canvas.clearRect(0, 0, 1, 1);
     canvas.fillStyle = "#000";
     canvas.fillStyle = value;
@@ -211,14 +213,17 @@ function inspect(host = []) {
       const own = getComputedStyle(node);
       const pictures = own.backgroundImage === "none" ? [] : own.backgroundImage.split(/,(?![^(]*\))/).map((item) => item.trim());
       const background = parse(own.backgroundColor) ?? [0, 0, 0, 0];
-      if (pictures.some((item) => item.startsWith("url(") && !item.startsWith('url("data:image/svg+xml'))) return null;
+      // A picture or gradient paints over the colour, so what is behind the text is not known; an inline SVG is an icon.
+      if (pictures.some((item) => !item.startsWith('url("data:image/svg+xml'))) return null;
       if (pictures.length && background[3] < 1) return null;
       const behind = node instanceof SVGElement && node.tagName.toLowerCase() !== "svg" ? under : over(background, under);
       const own0 = index === 0 && beneath ? over(beneath, behind) : behind;
       const inner = index === 0 ? { text: over(colour, own0), back: own0 } : draw(index - 1, behind);
       if (!inner) return null;
       const opacity = Number(own.opacity);
-      return opacity >= 1 ? inner : { text: mix(under, inner.text, opacity), back: mix(under, inner.back, opacity), faded: (inner.faded ?? 1) * opacity };
+      // Text with its own opacity fades into what is right behind it: a tag's rect, where it has one.
+      const ground = index === 0 && beneath ? over(beneath, under) : under;
+      return opacity >= 1 ? inner : { text: mix(ground, inner.text, opacity), back: mix(ground, inner.back, opacity), faded: (inner.faded ?? 1) * opacity };
     };
     return draw(chain.length - 1, hostColour);
   };
@@ -239,9 +244,13 @@ function inspect(host = []) {
     if (element.closest("svg")) {
       if ((tag === "text" || tag === "tspan") && ownText(element)) {
         const fill = parse(style.fill);
-        // A label on a tag (a <g> holding a rect and its text): the rect is what is behind it.
-        const group = element.parentElement?.tagName.toLowerCase() === "g" ? [...element.parentElement.children] : [];
-        const shape = group.slice(0, group.indexOf(element)).reverse().find((item) => item.tagName.toLowerCase() === "rect");
+        // A label on a tag (a <g> holding a rect and its text): the rect drawn before it and under all of it is what is
+        // behind it. A tspan is placed by its text.
+        const label = element.closest("text") ?? element;
+        const group = label.parentElement?.tagName.toLowerCase() === "g" ? [...label.parentElement.children] : [];
+        const inside = (outer, inner) => outer.left <= inner.left + 0.5 && outer.top <= inner.top + 0.5 && outer.right >= inner.right - 0.5 && outer.bottom >= inner.bottom - 0.5;
+        const shape = group.slice(0, group.indexOf(label)).reverse()
+          .find((item) => item.tagName.toLowerCase() === "rect" && inside(item.getBoundingClientRect(), element.getBoundingClientRect()));
         const shapeFill = shape ? parse(getComputedStyle(shape).fill) : null;
         const beneath = shapeFill ? [shapeFill[0], shapeFill[1], shapeFill[2], shapeFill[3] * Number(getComputedStyle(shape).fillOpacity)] : undefined;
         if (fill) measure(element, [fill[0], fill[1], fill[2], fill[3] * Number(style.fillOpacity)], parseFloat(style.fontSize), Number(style.fontWeight), describe(element), beneath);
@@ -351,6 +360,9 @@ async function audit(context, base, run) {
     const walk = async (prefix) => {
       await frame.evaluate(() => {
         for (const element of document.querySelectorAll("[data-audit-visited]")) element.removeAttribute("data-audit-visited");
+        window.__auditLast = undefined;
+        // Transitions off everywhere, pseudo-elements too, so each look read is the one a control settles to.
+        if (!document.getElementById("audit-calm")) document.head.append(Object.assign(document.createElement("style"), { id: "audit-calm", textContent: "*, *::before, *::after { transition: none !important; }" }));
         document.body.tabIndex = -1;
         document.body.focus();
         document.body.removeAttribute("tabindex");
@@ -362,25 +374,35 @@ async function audit(context, base, run) {
         const stop = await frame.evaluate(() => {
           const element = document.activeElement;
           if (!element || element === document.body) return { done: true };
+          // Tab inside a date field steps through its parts on the same element: that is not the walk coming round.
+          if (element === window.__auditLast) return { again: true };
+          window.__auditLast = element;
           if (element.hasAttribute("data-audit-visited")) return { done: true };
           element.setAttribute("data-audit-visited", "");
           const name = `${element.tagName.toLowerCase()}${typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/)[0]}` : ""} "${(element.getAttribute("aria-label") || element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30)}"`;
           // The ring: on the control, on a box around it (:focus-within) or its label, on its ::before or ::after, or,
           // for a control that is not drawn itself (a switch's input), on what draws it after it. An outline, shadow or
           // border it does not have unfocused, read with transitions off so the resting look is the one it settles to.
-          const drawn = getComputedStyle(element).opacity !== "0" && element.getBoundingClientRect().width > 2;
+          // A colour change alone is no ring, nor a border of no width or a shadow that draws nothing.
+          const style0 = getComputedStyle(element);
+          const drawn = style0.opacity !== "0" && element.getBoundingClientRect().width > 2;
           const parts = [element, element.parentElement, element.parentElement?.parentElement, element.closest("label"), drawn ? null : element.nextElementSibling].filter(Boolean);
+          const clear = (colour) => /rgba\([^)]*, 0\)|transparent/.test(colour);
+          const shadow = (value) => value === "none" ? "none" : value.split(/,(?![^(]*\))/).filter((layer) => {
+            const lengths = (layer.replace(/rgba?\([^)]*\)|color\([^)]*\)|oklch\([^)]*\)/g, "").match(/-?[\d.]+px/g) ?? []).map(parseFloat);
+            return !clear(layer) && (Math.abs(lengths[2] ?? 0) > 0 || Math.abs(lengths[3] ?? 0) > 0);
+          }).join(",") || "none";
           const look = () => parts.flatMap((item) => [null, "::before", "::after"].map((pseudo) => {
             const style = getComputedStyle(item, pseudo);
-            const outline = style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && !/rgba\([^)]*, 0\)|transparent/.test(style.outlineColor);
-            return `${outline ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}` : "none"}|${style.boxShadow}|${style.borderColor}|${style.borderWidth}`;
+            const outline = style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && !clear(style.outlineColor);
+            const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderRightWidth) + parseFloat(style.borderBottomWidth) + parseFloat(style.borderLeftWidth) > 0 && style.borderStyle !== "none"
+              ? `${style.borderColor} ${style.borderWidth}` : "none";
+            return `${outline ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}` : "none"}|${shadow(style.boxShadow)}|${border}`;
           }));
-          const calm = parts.map((item) => { const before = item.style.transition; item.style.transition = "none"; return () => { item.style.transition = before; }; });
           const focused = look();
           element.blur();
           const resting = look();
           element.focus({ focusVisible: true });
-          for (const undo of calm) undo();
           const ringed = focused.some((item, index) => item !== resting[index]);
           const box = element.getBoundingClientRect();
           let hidden = false;
@@ -392,9 +414,12 @@ async function audit(context, base, run) {
           }
           // Under a sticky bar: the control's middle is drawn by something else.
           const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-          const under = top && top !== element && !element.contains(top) && !top.closest("label")?.contains(element) && getComputedStyle(element).opacity !== "0";
+          // A control not drawn itself (a switch's input, a visually hidden one) or that takes no pointer is exempt.
+          const under = drawn && style0.pointerEvents !== "none" && top && top !== element && !element.contains(top) && !top.closest("label")?.contains(element)
+            && !top.closest(".tabScroll")?.contains(element);
           return { name, problems: [ringed ? "" : `no focus ring: ${name}`, hidden ? `focused out of view: ${name}` : "", under ? `focused under something else: ${name}` : ""].filter(Boolean) };
         });
+        if (stop.again) continue;
         if (stop.done) break;
         for (const problem of stop.problems) if (!seen.has(problem)) { seen.add(problem); problems.push(`${prefix}${problem}`); }
       }

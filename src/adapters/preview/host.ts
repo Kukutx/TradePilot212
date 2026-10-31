@@ -229,6 +229,8 @@ async function mount(): Promise<void> {
   iframe.sandbox.add("allow-scripts", "allow-forms", "allow-popups", "allow-popups-to-escape-sandbox");
   iframe.style.width = `${frameWidth()}px`;
   iframe.style.height = "640px";
+  // A host that gives its styles draws the widget on its own page colour, so what shows through is the host's.
+  if (state.host === "given") iframe.style.background = HOST_STYLES["--color-background-primary"] ?? "";
   $("frame").appendChild(iframe);
 
   const bridge = new AppBridge(null, { name: "tradepilot-preview", version: "1.0.0" }, { openLinks: {}, serverTools: {}, logging: {} }, { hostContext: hostContext() });

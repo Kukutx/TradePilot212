@@ -1,9 +1,9 @@
 :root {
-  /* The host's type when it gives one (--font-sans, with its @font-face), else Inter where it is installed. */
-  font-family: var(--font-sans, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-  /* Figures line up in columns everywhere, in any of those faces; Inter's open digits and single-storey a read cleaner
-     at small sizes (the two features do nothing in a face without them). */
-  font-feature-settings: "tnum" 1, "cv11" 1, "ss01" 1;
+  /* The host's type when it gives one (--font-sans, with its @font-face), else Inter where it is installed; the
+     system's sans after either, so a host face still loading, or one family alone, never falls back to serif. */
+  font-family: var(--font-sans, Inter), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Figures line up in columns everywhere, in any of those faces. */
+  font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   color: var(--color-text-primary, #171717);
   background: transparent;
@@ -83,6 +83,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   color: var(--tp-text);
   container-type: inline-size;
 }
+/* Inter's open digits and single-storey a read cleaner at small sizes: only in the widget's own face, as a host face may
+   have other glyphs under the same features. The host sets its variables on the root's style. */
+:root:not([style*="--font-sans"]) { font-feature-settings: "tnum" 1, "cv11" 1, "ss01" 1; }
+/* Fills with text or a knob on them: the widget's own colours, as a host's status colours are inks, light in a dark
+   theme, and white or dark text on them would be faint. */
+.appShell { --tp-fill-good: #127f4c; --tp-fill-bad: #b82f35; --tp-fill-warn: #9a6512; --tp-fill-info: #2e65d1; --tp-fill-muted: #63686f; --tp-fill-ink: #fff; --tp-switch-on: #127f4c; }
+:root[data-theme="dark"] .appShell { --tp-fill-good: #3fbf7f; --tp-fill-bad: #f0646a; --tp-fill-warn: #e0a43c; --tp-fill-info: #7aa6ff; --tp-fill-muted: #a3a7ae; --tp-fill-ink: #111214; --tp-switch-on: #23905a; }
 .appShell.mode-fullscreen { max-width: 1320px; padding: 24px 28px 36px; }
 
 .appHeader {
@@ -319,7 +326,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .orderList { display: grid; }
 .holdingOpen { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 44px; margin: -6px 0; padding: 6px 4px 6px 0; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .holdingOpen:hover .assetIdentity strong { text-decoration: underline; text-underline-offset: 3px; }
-.holdingOpen:focus-visible { outline: 2px solid var(--tp-chart); outline-offset: 2px; }
+.holdingOpen:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 2px; }
 .holdingOpen .assetIdentity { flex: 1 1 auto; }
 .holdingOpenChevron { flex: none; color: var(--tp-muted); font-size: 18px; line-height: 1; }
 .positionCardHeader .holdingOpen { flex: 1 1 auto; width: auto; }
@@ -595,7 +602,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .toggleField input { position: absolute; opacity: 0; pointer-events: none; }
 .toggleTrack { width: 32px; height: 19px; padding: 2px; display: inline-flex; align-items: center; border-radius: 999px; background: var(--tp-border-strong); transition: background .16s ease; }
 .toggleTrack > span { width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform .16s ease; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
-.toggleField input:checked + .toggleTrack { background: var(--tp-green); }
+.toggleField input:checked + .toggleTrack { background: var(--tp-switch-on); }
 /* The box itself is hidden, so the track shows the keyboard focus. */
 .toggleField input:focus-visible + .toggleTrack { outline: 2px solid var(--tp-ring); outline-offset: 2px; }
 .toggleField input:checked + .toggleTrack > span { transform: translateX(13px); }
@@ -857,7 +864,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .chartFigure:has(.columnChart) { padding-bottom: 20px; }
 .lineChart { position: relative; width: 100%; }
 .lineChart svg { display: block; overflow: visible; touch-action: pan-y; }
-.lineChart svg:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: 4px; border-radius: 6px; }
+.lineChart svg:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 4px; border-radius: 6px; }
 .lineGrid line { stroke: var(--tp-border); stroke-width: 1; }
 .lineGrid text, .lineAxis { fill: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .lineArea { fill: color-mix(in srgb, var(--tp-chart) 12%, transparent); }
@@ -906,13 +913,15 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .priceLevel.stop, .priceTag.stop, .legendLine.stop { --level: var(--tp-red); }
 .priceLevel.limit, .priceTag.limit, .legendLine.limit { --level: var(--tp-green); }
 .priceLevel.alert, .priceTag.alert, .legendLine.alert { --level: var(--tp-amber); }
+/* A tag's text sits on its fill, so the fill is the widget's own colour, not the host's ink. */
+.priceTag.stop { --level: var(--tp-fill-bad); }
+.priceTag.limit { --level: var(--tp-fill-good); }
+.priceTag.alert { --level: var(--tp-fill-warn); }
 .priceTag.last { --level: color-mix(in srgb, var(--tp-chart) 86%, #000); }
 :root[data-theme="dark"] .priceTag.last { --level: var(--tp-chart); }
 .priceTag rect { fill: var(--level, var(--tp-muted)); }
 .priceTag line { stroke: var(--level, var(--tp-muted)); stroke-width: 1; }
-.priceTag text { fill: var(--tp-bg); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; }
-/* Dark on the dark theme's light tags whatever the host's page colour, which may be lighter than the widget's own. */
-:root[data-theme="dark"] .priceTag text { fill: #111214; }
+.priceTag text { fill: var(--tp-fill-ink); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; }
 .tradeMark { stroke: var(--tp-bg); stroke-width: 2; stroke-linejoin: round; paint-order: stroke; }
 .tradeMark.buy { fill: var(--tp-green); }
 .tradeMark.sell { fill: var(--tp-red); }
@@ -950,7 +959,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 
 .flagList { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .flagList li { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 11px; background: var(--tp-amber-soft); color: var(--tp-amber-text); font-size: 13px; }
-.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-amber); color: var(--tp-bg); font-size: 13px; font-weight: 800; }
+.flagIcon { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--tp-fill-warn); color: var(--tp-fill-ink); font-size: 13px; font-weight: 800; }
 
 .factList { display: grid; gap: 2px; }
 .factList > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--tp-border) 70%, transparent); font-size: 13px; }
@@ -972,18 +981,18 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .policyTitle { display: block; color: var(--tp-muted); font-size: 12px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
 .policyList { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .policyCheck { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 7px 9px; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg-soft); font-size: 12px; line-height: 1.4; }
-.policyGlyph { width: 17px; height: 17px; flex: 0 0 auto; display: inline-grid; place-items: center; border-radius: 50%; background: var(--tp-muted); color: #fff; font-size: 12px; font-weight: 800; line-height: 1; }
+.policyGlyph { width: 17px; height: 17px; flex: 0 0 auto; display: inline-grid; place-items: center; border-radius: 50%; background: var(--tp-fill-muted); color: var(--tp-fill-ink); font-size: 12px; font-weight: 800; line-height: 1; }
 .policyCopy { display: grid; gap: 2px; min-width: 0; }
 .policyCopy strong { font-weight: 720; }
 .policyCopy span { color: var(--tp-muted); overflow-wrap: anywhere; }
-.policyCheck.pass .policyGlyph { background: var(--tp-green); }
+.policyCheck.pass .policyGlyph { background: var(--tp-fill-good); }
 .policyCheck.warn { background: var(--tp-amber-soft); border-color: color-mix(in srgb, var(--tp-amber) 22%, transparent); color: var(--tp-amber-text); }
-.policyCheck.warn .policyGlyph { background: var(--tp-amber); }
+.policyCheck.warn .policyGlyph { background: var(--tp-fill-warn); }
 .policyCheck.block { background: var(--tp-red-soft); border-color: color-mix(in srgb, var(--tp-red) 25%, transparent); color: var(--tp-red); }
-.policyCheck.block .policyGlyph { background: var(--tp-red); }
+.policyCheck.block .policyGlyph { background: var(--tp-fill-bad); }
 .policyCheck.skip .policyGlyph { background: var(--tp-border-strong); color: var(--tp-text); }
 .policyPassed > summary { display: inline-flex; align-items: center; gap: 7px; width: fit-content; min-height: 40px; color: var(--tp-muted); font-size: 12px; font-weight: 680; cursor: pointer; }
-.policyPassed > summary .policyGlyph { background: var(--tp-green); }
+.policyPassed > summary .policyGlyph { background: var(--tp-fill-good); }
 .policyPassed[open] > summary { margin-bottom: 5px; }
 
 /* ---- Order baskets ---- */
@@ -1292,7 +1301,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .mapTile.down { background: color-mix(in srgb, var(--tp-heat-down) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
 .mapTile.none { background: var(--tp-map-none); }
 button.mapTile:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tp-text) 55%, transparent); }
-button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: -2px; }
+button.mapTile:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: -2px; }
 .mapName { max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .mapMove { font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .mapAmount { font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -1438,8 +1447,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .corrTable thead th { text-align: center; }
 .corrTable tbody th { text-align: left; }
 .corrTable td { height: 28px; padding: 0; border-radius: 5px; color: var(--tp-text); text-align: center; }
-.corrTable td.together { background: color-mix(in srgb, var(--tp-amber) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
-.corrTable td.apart { background: color-mix(in srgb, var(--tp-blue) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
+.corrTable td.together { background: color-mix(in srgb, var(--tp-fill-warn) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
+.corrTable td.apart { background: color-mix(in srgb, var(--tp-fill-info) calc(var(--corr) * var(--corr-max)), var(--tp-bg-soft)); }
 .corrTable td.corrSelf { color: var(--tp-muted); }
 .corrLegend { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .corrScale { flex: 0 1 160px; height: 8px; border: 1px solid var(--tp-border); border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--tp-blue) var(--corr-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-amber) var(--corr-max), var(--tp-bg-soft))); }
@@ -1551,7 +1560,7 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 
 .targetFieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .targetEditor .panelTitle:focus { outline: none; }
-.targetEditor .panelTitle:focus-visible { outline: 2px solid var(--tp-focus, var(--tp-chart)); outline-offset: 3px; border-radius: 4px; }
+.targetEditor .panelTitle:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 3px; border-radius: 4px; }
 .targetEditor .alertFormActions { flex-wrap: wrap; }
 
 /* ---- Native controls, drawn in the widget's own style ----
