@@ -38078,6 +38078,7 @@ var TradingService = class {
     const since = options.since ? Date.parse(options.since) : NaN;
     let path3;
     for (let page = 0; page < (options.maxPages ?? 4); page++) {
+      if (page > 0 && readCancelled()) break;
       const result2 = await client.getHistoryPage("orders", path3);
       readWatch()?.page?.();
       let oldest = Infinity;
@@ -38141,6 +38142,7 @@ var TradingService = class {
     let order;
     let path3;
     for (let page = 0; page < maxPages; page++) {
+      if (page > 0 && readCancelled()) break;
       const result2 = await client.getHistoryPage("orders", path3);
       readWatch()?.page?.();
       for (const item of result2.items) {
@@ -39568,6 +39570,7 @@ var InsightsService = class {
     const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached2 = this.historyCache.get(key);
     if (cached2 && cached2.expiresAt > Date.now()) return cached2.value;
+    if (readCancelled()) return { items: [], truncated: true };
     const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);
     const ledgers = this.deps.ledgers;
