@@ -41581,7 +41581,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.97.0",
+  version: "2.98.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -43454,6 +43454,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     closings.set(day2, before === null || ended2 === void 0 ? null : Math.max(before ?? 0, ended2));
   }
   const ended = Object.fromEntries([...closings].filter((entry) => entry[1] !== null));
+  const known = items.map(({ ticker }) => session(ticker)).filter((item) => !item.guessed);
   const invested = dashboard2.account?.investments?.currentValue;
   return {
     kind: "portfolio_today",
@@ -43464,6 +43465,7 @@ async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date(
     ...fillsProblem ? { fillsProblem } : {},
     ...invested !== void 0 && Number.isFinite(invested) ? { invested } : {},
     ...Object.keys(ended).length ? { ended } : {},
+    ...known.length ? { open: known.some((item) => item.ended === void 0) } : {},
     timestamp: now.toISOString()
   };
 }
