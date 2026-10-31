@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.99.0
+
+- The investment goal's form has a slider under the monthly amount, the yearly return, the volatility and the inflation. The widget draws it (`role="slider"`, never the browser's range input): drag it with a mouse or a finger, or use the arrow keys, Page Up and Page Down, Home and End. The range redraws as it moves. A vertical swipe over it still scrolls the page. The box beside it is still where an exact figure goes.
+- **Use my account's figures** fills in the yearly return and volatility of the account's own time-weighted return over the period shown, once that covers a year or more of recorded values. Otherwise it is greyed out and says what it needs.
+- Editing a saved goal says "Changed, not saved" until it is saved.
+- `pnpm audit:ui` opens the goal form, and fails on a slider smaller than 24px or one without a name or value text.
+
 ## 2.98.0
 
 - The dashboard reads itself again while you look at it: every minute while a market of one of your holdings is open (by Trading 212's schedules, extended hours included for an instrument traded in them), every ten minutes otherwise. It waits while the widget is in a background tab or scrolled out of view, while an order, cancellation or basket is being reviewed and while anything else loads. A dashboard shown again in an old chat is not read until you refresh it. Each read is the dashboard's own, shared with any other read for five seconds, so it adds at most one request a minute to Trading 212's account summary, positions and orders.
