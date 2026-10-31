@@ -362,7 +362,7 @@ export function createMcpServer(
         // The value TradePilot recorded each day; Trading 212 itself has no value history.
         let history: AttributionDeps["history"];
         const summary = await insights.performance(environment, window, maxPages, (account) =>
-          values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), ...(account === undefined ? {} : { account }) }),
+          values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) }),
         (read) => { history = read; });
         const [compared, attributed] = await Promise.all([
           compareWithBenchmark({ config, trading, watchlist, priceHistory }, environment, summary, benchmark),

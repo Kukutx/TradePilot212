@@ -165,7 +165,9 @@ export type ActivityType =
   | "price_alert_triggered"
   | "account_alert_triggered"
   | "allocation_drift"
-  | "daily_digest";
+  | "daily_digest"
+  | "weekly_report"
+  | "monthly_report";
 
 export interface ActivityEvent {
   id: string;

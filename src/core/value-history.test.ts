@@ -51,6 +51,9 @@ describe("value history", () => {
     // A date-time bound compares when each value was read, as the transaction history does.
     expect((await values.points("demo", { from: "2026-09-01T21:00:00Z", to: "2026-09-15T20:00:00Z" })).map((point) => point.date)).toEqual(["2026-09-15"]);
     expect((await values.points("demo", { from: "2026-08-31T12:00:00Z", to: "2026-09-01T12:00:00Z" })).map((point) => point.date)).toEqual(["2026-08-31"]);
+    // With its start: the last reading before the window, within a week, is the value it starts from.
+    expect((await values.points("demo", { from: "2026-09-01T21:00:00Z", to: "2026-09-15T20:00:00Z", withStart: true })).map((point) => point.date)).toEqual(["2026-09-01", "2026-09-15"]);
+    expect((await values.points("demo", { from: "2026-09-10T00:00:00Z", to: "2026-09-15T20:00:00Z", withStart: true })).map((point) => point.date)).toEqual(["2026-09-15"]);
     // One key per month keeps each stored value small.
     expect((await store.list("value-history:demo:")).map((entry) => entry.key).sort()).toEqual(["value-history:demo:2026-08", "value-history:demo:2026-09", "value-history:demo:2026-10"]);
     account.value = undefined;

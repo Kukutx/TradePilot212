@@ -8,6 +8,7 @@ import type { PricePoint } from "../shared/prices.js";
 import { InsightsService } from "../core/insights-service.js";
 import { TradeJournal } from "../core/journal.js";
 import { DailyDigest } from "../core/digest.js";
+import { PeriodicReports } from "../core/reports.js";
 import { createNotifications } from "../core/notify.js";
 import { OrderWatch } from "../core/order-watch.js";
 import { PiesService } from "../core/pies.js";
@@ -113,6 +114,13 @@ export function createServices(input: ServiceDependencies) {
     dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
     ...(notify ? { notify } : {}),
   });
+  /** Weekly and monthly reports: the period's performance with the values recorded in it, as get_portfolio_performance reads them. */
+  const reports = new PeriodicReports({
+    config: deps.config, store: deps.store, trading,
+    performance: (environment, window) => insights.performance(environment, window, undefined, (account) =>
+      values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) })),
+    ...(notify ? { notify } : {}),
+  });
   /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price and account alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
@@ -132,6 +140,7 @@ export function createServices(input: ServiceDependencies) {
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run()),
+    reports: await stage("reports", () => reports.run()),
     notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([])),
   });
   // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
@@ -188,6 +197,7 @@ export function createServices(input: ServiceDependencies) {
           },
         } : {}),
         digestHour: deps.config.digest?.hour ?? null,
+        ...(deps.config.reports.length ? { reports: deps.config.reports } : {}),
         ...(deps.config.digest ? { digestTimeZone: deps.config.digest.timeZone } : {}),
         ...(deps.config.timeZone ? { timeZone: deps.config.timeZone } : {}),
         taxYearStart: deps.config.taxYearStart,

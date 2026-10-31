@@ -43,6 +43,8 @@ NOTIFY_EVENTS=
 # DIGEST_HOUR_UTC in UTC (set one, not both). Empty turns it off.
 DIGEST_HOUR=
 DIGEST_HOUR_UTC=
+# A weekly report on Monday and/or a monthly one on the 1st, at the digest's hour: weekly, monthly or both.
+REPORTS=
 # The IANA time zone days are counted in (daily order limits, the digest, the tax year); empty is UTC.
 TIMEZONE=
 # The tax year's first day as MM-DD (04-06 for the UK); empty is 01-01.

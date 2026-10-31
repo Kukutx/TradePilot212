@@ -211,6 +211,7 @@ function config(): RuntimeConfig {
     orderWatch: true,
     notifyTargets: [],
     notifyLocale: "en",
+    reports: [],
     notifyWebhookSecret: "",
     notifyEvents: [],
     quoteProvider: "none",
