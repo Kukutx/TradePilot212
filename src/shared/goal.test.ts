@@ -73,4 +73,16 @@ describe("goal projection", () => {
     expect(goalPace({ ...goal, start: undefined }, 11_500, now)).toBeUndefined();
     expect(projectGoal(goal, 10_500, now).pace?.difference).toBe(-500);
   });
+
+  it("finds the chance of a short goal that needs growth far beyond ±300% a year", () => {
+    // 30% in a month is likely enough at 100% volatility.
+    const up = projectGoal({ target: 130, by: "2026-11-30", monthly: 0, expectedReturn: 0.3, volatility: 1 }, 100, now);
+    expect(up.chance).toBeCloseTo(0.164, 2);
+    expect(up.final.high).toBeGreaterThan(130);
+    // What is added reaches it whatever the growth: certain.
+    expect(projectGoal({ target: 500, by: "2026-11-30", monthly: 1_000, expectedReturn: 0, volatility: 1 }, 0, now).chance).toBe(1);
+    const halfway = projectGoal({ target: 150, by: "2026-11-30", monthly: 0, expectedReturn: 0, volatility: 1 }, 100, now);
+    expect(halfway.chance).toBeGreaterThan(0.05);
+    expect(halfway.chance).toBeLessThan(0.2);
+  });
 });
