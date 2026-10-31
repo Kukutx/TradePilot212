@@ -34224,7 +34224,12 @@ var INSTRUMENTS = [
   { ticker: "EUNLd_EQ", name: "iShares Core MSCI World UCITS ETF (Acc)", shortName: "EUNL", currencyCode: "EUR", isin: "IE00B4L5Y983", type: "ETF", price: 98.42, workingScheduleId: 3 },
   // Not held and never traded: something to watch.
   { ticker: "AMZN_US_EQ", name: "Amazon", shortName: "AMZN", currencyCode: "USD", isin: "US0231351067", type: "STOCK", price: 186.4, extendedHours: true, workingScheduleId: 1 },
-  { ticker: "ASMLa_EQ", name: "ASML Holding", shortName: "ASML", currencyCode: "EUR", isin: "NL0010273215", type: "STOCK", price: 642.3, workingScheduleId: 3 }
+  { ticker: "ASMLa_EQ", name: "ASML Holding", shortName: "ASML", currencyCode: "EUR", isin: "NL0010273215", type: "STOCK", price: 642.3, workingScheduleId: 3 },
+  // Added lately, for the new-listings panel.
+  { ticker: "KLAR_US_EQ", name: "Klarna Group", shortName: "KLAR", currencyCode: "USD", type: "STOCK", price: 38.6, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 3 },
+  { ticker: "WDEFd_EQ", name: "WisdomTree Europe Defence UCITS ETF (Acc)", shortName: "WDEF", currencyCode: "EUR", type: "ETF", price: 41.25, workingScheduleId: 3, addedDaysAgo: 12 },
+  { ticker: "FIG_US_EQ", name: "Figma", shortName: "FIG", currencyCode: "USD", type: "STOCK", price: 52.3, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 24 },
+  { ticker: "CRCL_US_EQ", name: "Circle Internet Group", shortName: "CRCL", currencyCode: "USD", type: "STOCK", price: 118.4, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 61 }
 ];
 var EUR_PER_UNIT = { EUR: 1, USD: 0.92, GBX: 0.0118 };
 var EUR_PER_UNIT_BOUGHT = { USD: 0.95, GBX: 0.0114 };
@@ -34310,7 +34315,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]]) {
     for (let quarter = 0; quarter < 4; quarter++) {
       const paidOn = daysAgo(firstDay + quarter * 91);
-      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
+      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin?.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
     }
   }
   dividends.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
@@ -34408,7 +34413,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       const order = pending.find((item) => String(item.id) === path3.split("/").pop());
       return order ? json2(order) : json2({ code: "OrderNotFound" }, 404);
     }
-    if (method === "GET" && path3 === "/equity/metadata/instruments") return json2(INSTRUMENTS.map(({ price, ...meta3 }) => ({ ...meta3, maxOpenQuantity: 1e4, addedOn: "2019-01-01T00:00:00.000Z" })));
+    if (method === "GET" && path3 === "/equity/metadata/instruments") return json2(INSTRUMENTS.map(({ price, addedDaysAgo, ...meta3 }) => ({ ...meta3, maxOpenQuantity: 1e4, addedOn: addedDaysAgo === void 0 ? "2019-01-01T00:00:00.000Z" : daysAgo(addedDaysAgo) })));
     if (method === "GET" && path3 === "/equity/metadata/exchanges") {
       const now = /* @__PURE__ */ new Date();
       return json2([
@@ -36113,6 +36118,7 @@ var TOOL_OUTPUT = {
   review_trading212_order: payload("order_draft", "draft:o resolvedInstrument:o credentials:o writeEnabled:b"),
   review_trading212_order_intent: payload("order_draft", "draft:o resolvedInstrument:o resolution:o note:s credentials:o writeEnabled:b"),
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
+  list_new_instruments: payload("new_listings", "environment:s days:n from:s listings:a total:n types:o catalogue:n undated:n timestamp:s credentials:o"),
   show_daily_trade_plan: payload("trade_plan", plan),
   test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s")
 };
@@ -41418,7 +41424,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.89.0",
+  version: "2.90.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42648,6 +42654,16 @@ var WITHHOLDING_BASIS = {
   gross: "The report's per-share figures are before withholding (its Totals show it).",
   assumed: "The report's per-share figures are taken as after withholding, as Trading 212's reports have been seen to give them; the file could not confirm it."
 };
+function newListingLines(data) {
+  const kinds = Object.entries(data.types).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    `Window: added from ${data.from.slice(0, 10)} to ${data.timestamp.slice(0, 10)}${data.currency ? `, priced in ${data.currency}` : ""}${kinds.length ? `; by type: ${kinds.map(([kind, count]) => `${kind} ${count}`).join(", ")}` : ""}.`,
+    ...data.listings.map((item) => `- ${item.addedOn.slice(0, 10)} ${item.name} (${item.ticker}${item.type ? `, ${item.type}` : ""}, ${item.currencyCode})`),
+    ...data.total > data.listings.length ? [`${data.total - data.listings.length} more match; ask with a higher limit or a narrower type or currency.`] : [],
+    ...data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : []
+  ];
+}
 function describePayload(data) {
   if (!data || typeof data !== "object") return "";
   const payload2 = data;
@@ -42679,6 +42695,9 @@ function describePayload(data) {
       break;
     case "trade_history":
       lines = tradeHistory(payload2);
+      break;
+    case "new_listings":
+      lines = newListingLines(payload2);
       break;
     case "basket_draft":
       lines = basketDraft(payload2);
@@ -44127,6 +44146,55 @@ async function readHoldingRisk(deps, _environment, holdings, read, now = /* @__P
   };
 }
 
+// src/shared/listings.ts
+var MAX_LISTING_DAYS = 365;
+var MAX_LISTINGS = 100;
+
+// src/core/new-listings.ts
+var DAY_MS17 = 864e5;
+var AHEAD_MS = DAY_MS17;
+function newListings(instruments, query, now = /* @__PURE__ */ new Date()) {
+  const days = Math.min(MAX_LISTING_DAYS, Math.max(1, Math.round(query.days)));
+  const limit = Math.min(MAX_LISTINGS, Math.max(1, Math.round(query.limit ?? 50)));
+  const start = now.getTime() - days * DAY_MS17;
+  const type = query.type?.trim().toUpperCase();
+  const currency = query.currency?.trim().toUpperCase();
+  let undated = 0;
+  const types = {};
+  const matched = [];
+  for (const item of instruments) {
+    const at = item.addedOn ? Date.parse(item.addedOn) : Number.NaN;
+    if (!Number.isFinite(at)) {
+      undated += 1;
+      continue;
+    }
+    if (at < start || at > now.getTime() + AHEAD_MS) continue;
+    if (currency && item.currencyCode?.toUpperCase() !== currency) continue;
+    const kind = item.type?.toUpperCase() || "OTHER";
+    types[kind] = (types[kind] ?? 0) + 1;
+    if (type && kind !== type) continue;
+    matched.push({ item, at });
+  }
+  matched.sort((a, b) => b.at - a.at || (a.item.name ?? "").localeCompare(b.item.name ?? "") || a.item.ticker.localeCompare(b.item.ticker));
+  return {
+    from: new Date(start).toISOString(),
+    listings: matched.slice(0, limit).map(({ item }) => ({
+      ticker: item.ticker,
+      name: item.name || item.shortName || item.ticker,
+      ...item.shortName ? { shortName: item.shortName } : {},
+      currencyCode: item.currencyCode,
+      ...item.type ? { type: item.type } : {},
+      ...item.isin ? { isin: item.isin } : {},
+      addedOn: item.addedOn,
+      ...item.extendedHours ? { extendedHours: true } : {}
+    })),
+    total: matched.length,
+    types,
+    catalogue: instruments.length,
+    undated
+  };
+}
+
 // src/core/mcp.ts
 var WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 var SAMPLE_INSTRUCTIONS = "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212.";
@@ -44356,6 +44424,48 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           { kind: "instrument_search", environment, query, credentials: credentialStatus(config3), instruments },
           !configured ? `${environment.toUpperCase()} credentials are not configured, so instruments cannot be searched.` : instruments.length ? `Found ${instruments.length} Trading 212 instrument match(es) for "${query}".` : `No Trading 212 instrument matches "${query}".`
         );
+      } catch (error62) {
+        return toolError(error62);
+      }
+    }
+  );
+  registerAppTool(
+    server2,
+    "list_new_instruments",
+    {
+      title: "New On Trading 212",
+      description: "List the instruments Trading 212 added in the last `days` (default 30, up to 365), newest first, from the date its instrument list gives each one (addedOn): name, ticker, type, currency and when it was added, with how many of each type were added in the window. Narrow by `type` (as Trading 212 writes it, e.g. STOCK or ETF) and `currency` (e.g. USD). Renders the watchlist tab with the new listings open, where each can be added to the watchlist. Read-only: it reads the instrument list (kept ten minutes) and places nothing.",
+      inputSchema: external_exports.object({
+        environment: environmentWithDefault,
+        days: external_exports.number().int().min(1).max(MAX_LISTING_DAYS).default(30),
+        type: external_exports.string().trim().min(1).max(20).optional(),
+        currency: external_exports.string().trim().length(3).optional(),
+        limit: external_exports.number().int().min(1).max(MAX_LISTINGS).default(50)
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } }
+    },
+    async ({ environment, days, type, currency, limit }) => {
+      try {
+        requireCredentials(config3, environment);
+        const now = /* @__PURE__ */ new Date();
+        const found = newListings(await trading.instruments(environment), { days, type, currency, limit }, now);
+        const data = {
+          kind: "new_listings",
+          environment,
+          credentials: credentialStatus(config3),
+          days,
+          from: found.from,
+          ...type ? { type: type.toUpperCase() } : {},
+          ...currency ? { currency: currency.toUpperCase() } : {},
+          listings: found.listings,
+          total: found.total,
+          types: found.types,
+          catalogue: found.catalogue,
+          undated: found.undated,
+          timestamp: now.toISOString()
+        };
+        return result(data, `${data.total ? `Found ${data.total}` : "Found no"} instrument(s) Trading 212 added on ${environment.toUpperCase()} in the last ${days} day(s)${data.type || data.currency ? ` (${[data.type, data.currency].filter(Boolean).join(", ")})` : ""}.`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -46208,13 +46318,13 @@ function symbolFromTicker(ticker) {
 // src/core/order-watch.ts
 var ORDER_WATCH_INTERVAL_MS = 5 * 6e4;
 var MAX_MISSING_CHECKS = 3;
-var DAY_MS17 = 864e5;
+var DAY_MS18 = 864e5;
 var watchKey2 = (environment) => `order-watch:${environment}`;
 var fillsKey = (environment) => `order-fills:${environment}`;
 var MAX_FILL_TIMES = 2e3;
 async function recentFillCount(store2, environment, now = /* @__PURE__ */ new Date()) {
   const times = await store2.get(fillsKey(environment)) ?? [];
-  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS17).length;
+  return times.filter((time3) => Date.parse(time3) > now.getTime() - DAY_MS18).length;
 }
 var ORDER_TYPES = { MARKET: "market", LIMIT: "limit", STOP: "stop", STOP_LIMIT: "stop_limit" };
 var amount = (value) => String(Math.round(value * 1e8) / 1e8);
@@ -46321,7 +46431,7 @@ var OrderWatch = class {
       outcome: found.message.slice(0, 200)
     });
     if (filled) {
-      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS17);
+      const times = (await this.deps.store.get(fillsKey(environment)) ?? []).filter((time3) => Date.parse(time3) > now.getTime() - 2 * DAY_MS18);
       await this.deps.store.put(fillsKey(environment), [...times, now.toISOString()].slice(-MAX_FILL_TIMES));
     }
     return { environment, orderId: order.id, ticker: order.ticker, result: found.result, message: found.message };
@@ -46329,16 +46439,16 @@ var OrderWatch = class {
 };
 
 // src/core/digest.ts
-var DAY_MS18 = 864e5;
+var DAY_MS19 = 864e5;
 var round20 = (value) => Math.round(value * 100) / 100;
 var signed2 = (value) => `${value >= 0 ? "+" : ""}${round20(value)}`;
 var signedPct2 = (value) => `${value >= 0 ? "+" : ""}${round20(value * 100)}%`;
 var MOVERS = 3;
 var EXPECTED_DIVIDENDS = 3;
 var RECEIVED_DIVIDENDS = 5;
-var WEEK_MS = 7 * DAY_MS18;
-var LATE_DIVIDEND_MS = 3 * DAY_MS18;
-var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS18;
+var WEEK_MS = 7 * DAY_MS19;
+var LATE_DIVIDEND_MS = 3 * DAY_MS19;
+var MAX_DIVIDEND_LOOKBACK_MS = 31 * DAY_MS19;
 var dividendKey = (item) => item.reference ?? `${item.ticker ?? item.instrument?.ticker}|${item.paidOn}|${item.amount}`;
 function dividendsSince(mark, now) {
   const time3 = (value) => typeof value === "string" ? Date.parse(value) : Number.NaN;
@@ -46347,7 +46457,7 @@ function dividendsSince(mark, now) {
   const oldest = now.getTime() - MAX_DIVIDEND_LOOKBACK_MS;
   if (Number.isFinite(at)) return { since: Math.max(at - LATE_DIVIDEND_MS, oldest), known: true };
   if (from <= now.getTime()) return { since: Math.max(from, oldest), known: true };
-  return { since: now.getTime() - DAY_MS18, known: false };
+  return { since: now.getTime() - DAY_MS19, known: false };
 }
 function dividendMark(dividends, now) {
   const from = now.getTime() - LATE_DIVIDEND_MS;
@@ -46479,7 +46589,7 @@ var DailyDigest = class {
       const attempt = await this.deps.store.increment(`digest-try:${environment}:${day2}`, RETRY_MS, now.getTime());
       if (attempt.count > 1) continue;
       const claimKey2 = `digest:${environment}:${day2}`;
-      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS18, now.getTime());
+      const claim2 = await this.deps.store.increment(claimKey2, 2 * DAY_MS19, now.getTime());
       if (claim2.count > 1) continue;
       let delivered = false;
       try {
@@ -46495,7 +46605,7 @@ var DailyDigest = class {
         }
         const previous = await this.deps.store.get(`digest-value:${environment}`);
         const plans = (await this.deps.store.list("plan:")).map((entry) => entry.value).filter((plan2) => plan2.environment === environment && !plan2.paused && Date.parse(plan2.nextRunAt) <= now.getTime());
-        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS18;
+        const recent = (time3) => time3 !== void 0 && Date.parse(time3) > now.getTime() - DAY_MS19;
         const alerts = [...await this.deps.store.list("alert:"), ...await this.deps.store.list("account-alert:")].map((entry) => entry.value).filter((alert) => alert.environment === environment && (recent(alert.triggeredAt) || recent(alert.lastTriggeredAt)));
         const filledOrders = await recentFillCount(this.deps.store, environment, now);
         const totalValue = account.totalValue ?? 0;
@@ -46550,8 +46660,8 @@ var DailyDigest = class {
 };
 
 // src/core/reports.ts
-var DAY_MS19 = 864e5;
-var DONE_MS = 40 * DAY_MS19;
+var DAY_MS20 = 864e5;
+var DONE_MS = 40 * DAY_MS20;
 var RETRY_MS2 = 15 * 6e4;
 var addDays = (day2, days) => {
   const [year, month, date5] = day2.split("-").map(Number);

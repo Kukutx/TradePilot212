@@ -2,6 +2,7 @@
 // terminals) show the model only a tool's text, so every result carries the facts needed to answer
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
+import type { NewListingsView } from "../shared/listings.js";
 import type { ExportSummary } from "./export-csv.js";
 import type { HoldingDetail } from "../shared/holding.js";
 import { equalRiskTargets, marketScenarios, PARITY_MIN_VOLATILITY } from "../shared/holding-risk.js";
@@ -988,6 +989,17 @@ const WITHHOLDING_BASIS: Record<NonNullable<ExportSummary["withholdingBasis"]>, 
 };
 
 /** Extra lines for a tool payload, or nothing when the summary already says it all. */
+function newListingLines(data: NewListingsView): string[] {
+  const kinds = Object.entries(data.types).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return [
+    ...credentialsLine(data.environment, data.credentials),
+    `Window: added from ${data.from.slice(0, 10)} to ${data.timestamp.slice(0, 10)}${data.currency ? `, priced in ${data.currency}` : ""}${kinds.length ? `; by type: ${kinds.map(([kind, count]) => `${kind} ${count}`).join(", ")}` : ""}.`,
+    ...data.listings.map((item) => `- ${item.addedOn.slice(0, 10)} ${item.name} (${item.ticker}${item.type ? `, ${item.type}` : ""}, ${item.currencyCode})`),
+    ...(data.total > data.listings.length ? [`${data.total - data.listings.length} more match; ask with a higher limit or a narrower type or currency.`] : []),
+    ...(data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : []),
+  ];
+}
+
 export function describePayload(data: unknown): string {
   if (!data || typeof data !== "object") return "";
   const payload = data as Record<string, unknown> & { kind?: string };
@@ -1002,6 +1014,7 @@ export function describePayload(data: unknown): string {
     case "holding": lines = holding(payload as unknown as HoldingDetail); break;
     case "target_allocation": lines = targetAllocation(payload as unknown as Parameters<typeof targetAllocation>[0]); break;
     case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
+    case "new_listings": lines = newListingLines(payload as unknown as NewListingsView); break;
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;
     case "basket_preview": lines = basketPreview(payload as unknown as BasketPreview); break;
     case "basket_execution": lines = basketExecution(payload as unknown as BasketExecutionResult); break;

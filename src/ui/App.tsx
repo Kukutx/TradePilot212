@@ -1,4 +1,5 @@
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
+import type { NewListingsView } from "../shared/listings";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -136,7 +137,7 @@ const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "h
  * Tool results shown on a page the widget already has, read for that page: the automation page for alerts, plans and
  * the trading rules, the allocation for targets, and the account, with its activity, for recent activity.
  */
-const ROUTES = { price_alerts: "automation", investment_plans: "automation", trading_policy: "automation", target_allocation: "allocation", activity: "holdings" } as const;
+const ROUTES = { price_alerts: "automation", investment_plans: "automation", trading_policy: "automation", target_allocation: "allocation", activity: "holdings", new_listings: "watchlist" } as const;
 type RoutedPayload = {
   kind: keyof typeof ROUTES; environment?: TradingEnvironment; defaultEnvironment?: TradingEnvironment; timestamp?: string; targets?: unknown;
   alerts?: Array<{ environment?: TradingEnvironment }>; plans?: Array<{ environment?: TradingEnvironment }>;
@@ -355,6 +356,8 @@ export default function App() {
   const [route, setRoute] = useState<RoutedPayload | null>(null);
   /** A saved routed result, whose page opens when asked. */
   const [laterRoute, setLaterRoute] = useState<RoutedPayload | null>(null);
+  /** New listings the host read: the watchlist tab shows them open. */
+  const [listings, setListings] = useState<NewListingsView | undefined>(undefined);
   // The dashboard a holding was opened from, so Back returns to it without a new read.
   const [holdingFrom, setHoldingFrom] = useState<DashboardPayload | null>(null);
   // The view a holding was opened from, such as the journal, and its account, so Back returns to it.
@@ -440,8 +443,10 @@ export default function App() {
       createdApp.ontoolresult = (toolResult) => {
         const payload = toolResult.structuredContent as unknown as BasePayload | RoutedPayload | undefined;
         if (!payload) return;
-        if (isRouted(payload)) setRoute(payload);
-        else showPayload(payload);
+        if (isRouted(payload)) {
+          if (payload.kind === "new_listings") setListings(payload as unknown as NewListingsView);
+          setRoute(payload);
+        } else showPayload(payload);
       };
     },
   });
@@ -1502,7 +1507,9 @@ export default function App() {
                 onRemove={(ticker) => void changeWatch(environment, { action: "remove", instrument: ticker })}
                 onNote={(ticker, note) => changeWatch(environment, { action: "note", instrument: ticker, note })}
                 onSearch={searchInstruments}
-                onRefresh={() => void loadInsight("watchlist")} />
+                onRefresh={() => void loadInsight("watchlist")}
+                listings={listings?.environment === environment ? listings : undefined}
+                onListings={(read) => callTool<NewListingsView>("list_new_instruments", { environment, ...read, limit: 50 })} />
             )}
             {base?.kind === "trade_plan" && (
               <TradePlanView
