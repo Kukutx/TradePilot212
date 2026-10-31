@@ -697,8 +697,9 @@ function tradeHistory(data: { fills: TradeFill[]; count?: number; offset?: numbe
   return [
     ...(all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num(totals.bought)}, ${totals.sells} sells ${num(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num(totals.costs)}.`] : ["No fills in this window."]),
     ...(fees.size ? [`Fees by kind${partial ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")}.`] : []),
-    ...(!partial ? [] : offset ? [`Fills ${offset + 1}–${offset + fills.length} of ${all}, newest first, are listed below${offset + fills.length < all ? `; offset ${offset + fills.length} lists the next` : ""}.`]
-      : [`The newest ${fills.length} of ${all} fills are listed below; offset ${fills.length} (with this window's period.to as to) lists the next, or a shorter window fewer.`]),
+    ...(!partial ? [] : offset && !fills.length ? [`No fills past the first ${offset} of ${all}.`]
+      : offset ? [`Fills ${offset + 1}–${offset + fills.length} of ${all}, newest first, are listed below${offset + fills.length < all ? `; offset ${offset + fills.length} lists the next` : ""}.`]
+      : [`The newest ${fills.length} of ${all} fills are listed below; offset ${fills.length}, with this window's period.from and period.to as from and to, lists the next, or a shorter window fewer.`]),
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}`
       + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`
@@ -727,8 +728,8 @@ function cashHistory(data: { items: Array<{ date: string; type: string; amount: 
     Object.keys(data.totals).length ? `Totals${data.currency ? ` (${data.currency})` : ""}: ${Object.entries(data.totals).map(([type, total]) => `${type.toLowerCase()} ${signed(total)}`).join(", ")}.` : "No entries in this window.",
     ...rows(data.items, (item) => `${day(item.date)} ${item.type}${item.ticker ? ` ${item.ticker}` : ""}${item.name ? ` (${item.name})` : ""} ${signed(item.amount)} ${item.currency}`.trimEnd()
       + `${item.quantity === undefined ? "" : `, ${num(item.quantity, 8)} shares`}${item.grossPerShare === undefined ? "" : ` × ${num(item.grossPerShare, 6)} ${item.perShareCurrency ?? ""} gross`.trimEnd()}`, 60),
-    ...(offset ? [`Entries ${offset + 1}–${next} of ${data.count}, newest first.`] : []),
-    ...(data.count > next ? [`${data.count - next} more not shown; offset ${next} (with this window's period.to as to) lists the next.`] : []),
+    ...(offset && !data.items.length ? [`No entries past the first ${offset} of ${data.count}.`] : offset ? [`Entries ${offset + 1}–${next} of ${data.count}, newest first.`] : []),
+    ...(data.count > next ? [`${data.count - next} more not shown; offset ${next}, with this window's period.from and period.to as from and to, lists the next.`] : []),
     ...(data.truncated ? ["History was truncated at the page limit; older entries are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : []),
   ];
 }

@@ -178,7 +178,7 @@ describe("history ledger runs", () => {
 
   it("keeps a recent fill of an old order when the oldest records go", async () => {
     const store = new MemoryStateStore();
-    const ledgers = new HistoryLedgers(store);
+    const ledgers = new HistoryLedgers(store, { maxRecords: 10_000 });
     const place = (item: HistoryOrderItem) => Math.min(Date.parse(item.order!.createdAt!), Date.parse(item.fill!.filledAt!));
     const times = { time: (item: HistoryOrderItem) => Date.parse(item.fill!.filledAt!), place };
     const records: HistoryOrderItem[] = Array.from({ length: 10_000 }, (_, index) => ({ order: { id: index, ticker: "X", createdAt: iso(T0 - (index + 1) * 3_600_000) }, fill: { id: index * 10, filledAt: iso(T0 - (index + 1) * 3_600_000) } }));
@@ -193,5 +193,15 @@ describe("history ledger runs", () => {
     const loaded = await ledgers.load("p:", "orders", times);
     expect(loaded!.meta.segments[0]!.complete).toBe(false);
     expect(Date.parse(loaded!.meta.segments[0]!.bottom!)).toBeGreaterThan(T0 - 10_000 * 3_600_000);
+
+    // A higher limit set since opens the way back: the floor goes, and so does the run that stopped at it, so the
+    // next read walks down past it; the records stay.
+    const roomier = new HistoryLedgers(store, { maxRecords: 25_000 });
+    const before = await roomier.load("p:", "orders", times);
+    const fresh = { order: { id: 100_000, ticker: "Z", createdAt: iso(T0) }, fill: { id: 2, filledAt: iso(T0) } };
+    const reopened = await roomier.add("p:", "orders", before, [fresh], { segments: before!.meta.segments, pending: [] }, times);
+    expect(await store.get("p:floor")).toBeUndefined();
+    expect(reopened.meta.segments).toEqual([]);
+    expect(reopened.items.length).toBe(items.length + 1);
   });
 });

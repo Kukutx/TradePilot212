@@ -24,10 +24,11 @@ import type { HistoryKind } from "./trading212-client.js";
 export type LedgerItem = HistoryOrderItem | HistoryDividendItem | HistoryTransactionItem;
 
 /**
- * Records kept of one kind by default (HISTORY_MAX_RECORDS), some years of an account that buys every week: past it the
- * oldest go, down to nine tenths of it, and with them the way back. 0 keeps every record.
+ * Records kept of one kind by default (HISTORY_MAX_RECORDS), some years of an account that buys every week, and about
+ * 17 MB of orders, which a Durable Object hands back in one read: past it the oldest go, down to nine tenths of it,
+ * and with them the way back. 0 keeps every record.
  */
-export const MAX_RECORDS = 50_000;
+export const MAX_RECORDS = 25_000;
 /** Past this many chunks, the next read merges them. */
 export const MAX_CHUNKS = 24;
 /** A chunk is kept under this much JSON: a Durable Object holds 2 MB in one value at most. */
@@ -161,6 +162,14 @@ export class HistoryLedgers {
     let items = union(kind, [...added, ...(ledger?.items ?? [])], times.time);
     const capped = this.maxRecords > 0 && items.length > this.maxRecords;
     let floor = await this.floor(prefix);
+    let segments = meta.segments;
+    // A floor left by a lower limit than the one set now: the way back opens again, and the runs that stopped at it
+    // go, so later reads walk down past it (their records stay).
+    if (floor !== undefined && !capped && (this.maxRecords === 0 || items.length < this.maxRecords * 0.8)) {
+      await this.store.delete(`${prefix}floor`);
+      floor = undefined;
+      segments = segments.filter((segment) => segment.next !== null || segment.complete);
+    }
     if (capped) {
       // The lowest placed go, so every record placed above the lowest kept is still kept and the segments can stop
       // there; one placed lower but in the history later (an old order filled since) stays too.
@@ -176,15 +185,17 @@ export class HistoryLedgers {
     const chunks = ledger?.chunks ?? [];
     const still = new Set(items);
     const fresh = added.filter((item) => still.has(item));
-    if (capped || chunks.length + split(fresh).length > MAX_CHUNKS) {
+    // Merged past MAX_CHUNKS more than the records need, so a large ledger is not written again on every read.
+    const freshChunks = split(fresh);
+    if (capped || (chunks.length + freshChunks.length > MAX_CHUNKS && chunks.length + freshChunks.length > split(items).length + MAX_CHUNKS)) {
       for (const chunk of split(items)) await this.store.put(chunkKey(prefix), chunk);
       for (const key of chunks) await this.store.delete(key);
     } else {
-      for (const chunk of split(fresh)) await this.store.put(chunkKey(prefix), chunk);
+      for (const chunk of freshChunks) await this.store.put(chunkKey(prefix), chunk);
     }
     const kept: LedgerMeta = {
       version: 3,
-      segments: fewest(within(meta.segments, items, times.place, floor)),
+      segments: fewest(within(segments, items, times.place, floor)),
       pending: meta.pending,
       updatedAt: new Date().toISOString(),
     };
@@ -199,8 +210,12 @@ export class HistoryLedgers {
  * another process): it stops at the lowest kept, with no way further back.
  */
 function within<T extends LedgerItem>(segments: LedgerSegment[], items: T[], place: (item: T) => number, trimmed?: number): LedgerSegment[] {
-  const placed = items.map(place).filter(Number.isFinite);
-  const lowest = placed.length ? Math.min(...placed) : undefined;
+  // A loop, not Math.min(...): a spread of a hundred thousand values overflows the stack.
+  let lowest: number | undefined;
+  for (const item of items) {
+    const value = place(item);
+    if (Number.isFinite(value) && (lowest === undefined || value < lowest)) lowest = value;
+  }
   const floor = trimmed === undefined ? lowest : Math.max(trimmed, lowest ?? trimmed);
   return segments.flatMap((segment) => {
     if (segment.bottom === undefined || floor === undefined || Date.parse(segment.bottom) >= floor) return [segment];

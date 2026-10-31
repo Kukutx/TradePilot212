@@ -1284,6 +1284,7 @@ export const en = {
   historyAll: "All",
   historyNoCash: "No cash movements in this period.",
   historyLoadMore: "Show older ({count} left)",
+  historyShowingFrom: "Entries {from} to {to} of {count} are listed; the totals cover all of them.",
   historyShowingNewest: "The newest {shown} of {count} are listed; the totals cover all of them.",
   historyShowingNewestFiltered: "The newest {shown} of {count} are listed; with a filter typed, the totals are of the listed ones that match.",
   historyFilteredBy: "Only",
