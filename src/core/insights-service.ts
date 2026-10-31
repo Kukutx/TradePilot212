@@ -184,6 +184,8 @@ export class InsightsService {
     const key = `${environment}:${kind}:${start?.toISOString() ?? "all"}:${pages}:${ticker ?? ""}`;
     const cached = this.historyCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value as Collected<HistoryItemOf<K>>;
+    // A call cancelled during an earlier read reads nothing more: its answer is not sent, and is not kept.
+    if (readCancelled()) return { items: [], truncated: true };
 
     const generation = this.historyGeneration.get(environment) ?? 0;
     const client = this.client(environment);

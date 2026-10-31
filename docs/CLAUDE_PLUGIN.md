@@ -67,7 +67,7 @@ The prompts are generated from `skills/*/SKILL.md` into `src/core/skill-prompts.
 
 ### Progress, cancelling and the server's name
 
-A long history read (a year of trades, a tax year, the dividends of every holding) can take a while, since Trading 212 allows few history reads a minute. A client that asks for progress on a tool call (a `progressToken` in its `_meta`) gets a `notifications/progress` for each page of 50 records read. A client that cancels the call stops the read at its next page. What it read is kept in the history ledger, so the next read goes on from there, and nothing is sent back.
+A long history read (a year of trades, a tax year, the dividends of every holding) can take a while, since Trading 212 allows few history reads a minute. A client that asks for progress on a tool call (a `progressToken` in its `_meta`) gets a `notifications/progress` for each page of 50 records read. Over stdio (this plugin, or Claude Desktop running the server locally), a client that cancels the call stops the read before its next page, and the call reads no other history after it. What it read is kept in the history ledger, so the next read goes on from there, and nothing is sent back. The HTTP server (the Worker, `pnpm start`) answers each request on its own, so a cancel sent as another request does not reach the call: it reads to the end as before, and its answer is dropped.
 
 The server names itself `TradePilot 212`, with its icon and this repository as its website, for a host that lists its connections.
 

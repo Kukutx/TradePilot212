@@ -52,6 +52,11 @@ describe("read watch", () => {
     const cut = await watchingReads({ signal: controller.signal, page: () => { if (calls.length === 2) controller.abort(); } }, () => other.collect("demo", "transactions", { to: new Date() }, 10));
     expect(cut.items).toHaveLength(2);
     expect(cut.truncated).toBe(true);
+    // Cancelled, the call reads no other history either.
+    calls.length = 0;
+    const after = await watchingReads({ signal: controller.signal }, () => other.collect("demo", "dividends", { to: new Date() }, 10));
+    expect(after).toEqual({ items: [], truncated: true });
+    expect(calls).toHaveLength(0);
     // Not kept: read again, it reads every page.
     calls.length = 0;
     expect((await other.collect("demo", "transactions", { to: new Date() }, 10)).items).toHaveLength(5);
