@@ -36,6 +36,7 @@ import { LISTING_WATCH_DAYS, MAX_LISTING_DAYS, MAX_LISTINGS, MAX_WATCH_FILTERS, 
 import { newListings } from "./new-listings.js";
 import { DEFAULT_GOAL_INFLATION, DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, projectGoal, type GoalView } from "../shared/goal.js";
 import { toolCallWatch, watchingReads } from "./request-context.js";
+import { confirmInHost } from "./order-confirm.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 
@@ -49,6 +50,7 @@ const ORDER_INSTRUCTIONS = [
   "Where it is not shown (a terminal or another text-only host), show the user the draft from the tool's text.",
   "If they want it sent, call the matching app_prepare_* tool to validate it (this sends nothing), show them its summary with the amount, notes and policy checks,",
   "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
+  "A host that can show forms asks the user in its own form before app_execute_* sends anything; a declined form sends nothing (CONFIRMATION_DECLINED), so do not call it again unless the user asks.",
   "Never resend an order whose result is unknown; check it with app_verify_unknown_execution.",
 ].join(" ");
 
@@ -1857,9 +1859,11 @@ export function createMcpServer(
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "order"), config.notifyLocale);
+          if (!asked.send) return asked.ask;
+          const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -1917,9 +1921,11 @@ export function createMcpServer(
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged });
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "cancel"), config.notifyLocale);
+          if (!asked.send) return asked.ask;
+          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged || asked.liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -1970,9 +1976,11 @@ export function createMcpServer(
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "basket"), config.notifyLocale);
+          if (!asked.send) return asked.ask;
+          const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
@@ -2010,9 +2018,11 @@ export function createMcpServer(
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } },
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked = await confirmInHost(server, ctx, token, () => pies.describePieChange(token), config.notifyLocale);
+          if (!asked.send) return asked.ask;
+          const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);
