@@ -1015,8 +1015,8 @@ export default function App() {
   }
 
   /**
-   * Save or remove the investment goal; nothing trades. The performance read shown keeps the goal as saved, so the
-   * tab shows it again unchanged. A failure is handed to the goal panel, which says it beside the form.
+   * Save or remove the investment goal; nothing trades. The performance read and the dashboard shown keep the goal as
+   * saved, so either shows it again unchanged. A failure is handed to the goal panel, which says it beside the form.
    */
   async function changeGoal(env: TradingEnvironment, input: { action: "set" | "remove" } & Partial<GoalRequest>): Promise<InvestmentGoal | undefined> {
     let goal: InvestmentGoal | undefined;
@@ -1030,6 +1030,12 @@ export default function App() {
       if (!performance || performance.environment !== env) return shown;
       const { goal: _old, ...rest } = performance;
       return { ...shown, performance: goal ? { ...rest, goal } : rest };
+    });
+    // The dashboard's goal line too, which Holdings shows again without reading the account.
+    setBase((current) => {
+      if (current?.kind !== "portfolio" || current.environment !== env) return current;
+      const { goal: _old, ...rest } = current;
+      return goal ? { ...rest, goal } : rest;
     });
     return goal;
   }
@@ -1488,7 +1494,8 @@ export default function App() {
             {base?.kind === "portfolio" && tab === "holdings" && (
               <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
                 {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
-                {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})} />
+                {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})}
+                {...(connected ? { onGoal: () => void selectTab("performance") } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />

@@ -127,6 +127,8 @@ src/
 
 `ListingWatches`（`listing-watch.ts`）随后运行：开启了上架提醒的每个账户最多每小时读一次标的列表（`TradingService.instruments`，缓存十分钟），把 Trading 212 标注在最近 14 天上架的代码记在 `listing-seen:<environment>` 下，对其中没见过且符合条件的写一条 `new_listings` 事件。读取失败的账户等下一次调度再试。
 
+`Goals`（`goals.ts`）按环境保存一个投资目标。它在定时检查中紧跟在市值记录之后，使用刚记下的市值，所以不额外读取：第一次衡量某个目标（或修改过的目标金额）时只记下已达到的节点，之后每达到更高的节点就写一条 `goal_milestone` 事件。它从不向券商写入。
+
 `TargetAllocations`（`targets.ts`）按环境保存目标权重。它在定时检查中排在提醒之后，但每个环境每小时最多读一次账户，用纯函数 `allocationDrift` 比较权重；偏离超过阈值期间，每天最多写一条 `allocation_drift` 事件。同样的偏离也会附在 `analyze_portfolio_allocation` 的结果里。它从不向券商写入。
 
 `OrderWatch`（`order-watch.ts`）在定时检查中紧接联动保护单之后运行，每个环境最多每 5 分钟一次。它把上一次检查时的挂单保存在存储里。对已经离开订单簿的订单，它用 `recentOrderOutcomes` 读一次订单历史（现在也会返回成交均价和成交金额），把成交记录逐行相加，并按成交时间翻页。历史里找不到、或者还没有最终结果的订单，最多再保留三次检查。之后每笔订单得到一条 `order_filled`、`order_partly_filled`、`order_closed` 或 `order_outcome_unknown` 事件，成交信息作为字段附上，方便组件显示。成交时间还会保存在 `order-fills:<env>` 下，供每日摘要使用。它从不向券商写入。`ORDER_WATCH=false` 可以关闭它。

@@ -35462,6 +35462,7 @@ var DEFAULT_NOTIFY_EVENTS = [
   "price_alert_triggered",
   "account_alert_triggered",
   "new_listings",
+  "goal_milestone",
   "allocation_drift",
   "daily_digest",
   "weekly_report",
@@ -35498,6 +35499,7 @@ var LABELS = {
     price_alert_triggered: "Price alert",
     account_alert_triggered: "Account alert",
     new_listings: "New on Trading 212",
+    goal_milestone: "Goal milestone",
     allocation_drift: "Allocation has drifted from your targets",
     daily_digest: "Daily digest",
     weekly_report: "Weekly report",
@@ -35523,6 +35525,7 @@ var LABELS = {
     price_alert_triggered: "\u4EF7\u683C\u63D0\u9192",
     account_alert_triggered: "\u8D26\u6237\u63D0\u9192",
     new_listings: "Trading 212 \u65B0\u4E0A\u67B6",
+    goal_milestone: "\u76EE\u6807\u8FDB\u5EA6",
     allocation_drift: "\u6301\u4ED3\u914D\u7F6E\u5DF2\u504F\u79BB\u76EE\u6807",
     daily_digest: "\u6BCF\u65E5\u6458\u8981",
     weekly_report: "\u5468\u62A5",
@@ -36180,7 +36183,7 @@ var TITLES = {
   "trade-journal": "Trade journal"
 };
 var ABOUT_INSTRUMENT = /* @__PURE__ */ new Set(["order-followup", "trade-journal"]);
-function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2 }, config3) {
+function registerPromptsAndResources(server2, { trading, journal, targets, watchlist: watchlist2, goals }, config3) {
   const environmentOf = (value) => {
     const named = (value ?? "").trim().toLowerCase();
     if (named === "") return config3.defaultTradingEnvironment;
@@ -36239,6 +36242,7 @@ ${skill.body}` } }] };
   });
   perAccount("journal", "Trade journal", "Every trade journal note on the account: the reason for a trade, any look back and its tags.", async (environment) => ({ environment, entries: await journal.list(environment) }));
   perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: await targets.get(environment) ?? null }));
+  perAccount("goal", "Investment goal", "The saved investment goal: the target, the date, what is added each month, the return and volatility assumed and the milestone reached; null when none is set.", async (environment) => ({ environment, goal: await goals.get(environment) ?? null }));
   perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist2.list(environment) }));
 }
 
@@ -41429,7 +41433,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.92.0",
+  version: "2.93.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -41441,6 +41445,11 @@ var DEFAULT_GOAL_VOLATILITY = 0.15;
 var MAX_GOAL_YEARS = 50;
 var Z90 = 1.2815515655446004;
 var BRACKET_LIMIT = 768;
+var GOAL_MILESTONES = [25, 50, 75, 100];
+function goalMilestone(value, target) {
+  if (!(target > 0) || !Number.isFinite(value)) return 0;
+  return GOAL_MILESTONES.filter((mark) => value >= target * mark / 100).at(-1) ?? 0;
+}
 function normalCdf(z2) {
   const t = 1 / (1 + 0.3275911 * Math.abs(z2) / Math.SQRT2);
   const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z2 * z2) / 2);
@@ -42144,6 +42153,7 @@ function portfolio(data) {
     ...data.account ? [accountLine(data.environment, data.account)] : [],
     ...resultSplitLines(data),
     ...valueHistoryLines(data.valueTrend),
+    ...data.goal && data.account ? [goalProgressLine(data.goal, data.account.totalValue, data.account.currency)] : [],
     ...data.today ? todayLines(data.today) : [],
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
     ...protectionLines(holdings, data.orders, data.account?.currency),
@@ -42742,6 +42752,10 @@ function newListingLines(data) {
     ...data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : [],
     ...data.watch ? [`Listing alert: on for ${[data.watch.types.join("/") || "any type", data.watch.currencies.join("/") || "any currency"].join(", ")}${data.watch.lastFoundAt ? `; last found ${data.watch.lastFound} on ${data.watch.lastFoundAt.slice(0, 10)}` : ""}${data.webhook ? "" : "; no NOTIFY_WEBHOOK_URL, so finds are only logged"}.`] : []
   ];
+}
+function goalProgressLine(goal, value, currency) {
+  const money4 = (amount2) => `${num2(amount2)}${currency ? ` ${currency}` : ""}`;
+  return `Goal${goal.name ? ` "${goal.name}"` : ""}: ${value === void 0 ? "value not known" : `${num2(value / goal.target * 100, 1)}%`} of ${money4(goal.target)} by ${goal.by}.`;
 }
 function goalLines(goal, value, currency, now) {
   const money4 = (amount2) => `${num2(amount2)}${currency ? ` ${currency}` : ""}`;
@@ -44429,8 +44443,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     const data = await trading.getDashboard(environment);
     const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
     const account = data.account?.id;
-    const trend = await values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []);
-    return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {}, preferences };
+    const [trend, goal] = await Promise.all([
+      values.points(environment, { from, ...typeof account === "number" ? { account } : {} }).catch(() => []),
+      goals.get(environment).catch(() => void 0)
+    ]);
+    return { ...data, writeEnabled: canWrite, ...trend.length >= 2 ? { valueTrend: trend } : {}, ...goal ? { goal } : {}, preferences };
   };
   const allocationWithRisk = async (environment, limits = {}, { onCovariance, only, budgetMs, alongside, market } = {}) => {
     let read;
@@ -44459,13 +44476,13 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
       ]
     })
   );
-  registerPromptsAndResources(server2, { trading, journal, targets: targetAllocations, watchlist: watchlist2 }, config3);
+  registerPromptsAndResources(server2, { trading, journal, targets: targetAllocations, watchlist: watchlist2, goals }, config3);
   registerAppTool(
     server2,
     "get_portfolio_dashboard",
     {
       title: "Trading 212 Portfolio Dashboard",
-      description: "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Each position's walletImpact gives its value, cost and unrealized P/L in the account currency, and fxImpact the part of that P/L the exchange rate made since it was bought; the text splits the account's unrealized P/L into prices and exchange rates. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
+      description: "Read the user's Trading 212 Invest account summary, positions and pending orders and render the interactive dashboard. Each position's walletImpact gives its value, cost and unrealized P/L in the account currency, and fxImpact the part of that P/L the exchange rate made since it was bought; the text splits the account's unrealized P/L into prices and exchange rates. When TradePilot has recorded the account value on two days or more in the last 30 days, valueTrend gives the value per day (it includes deposits and withdrawals). When an investment goal is set, goal gives it (manage_goal projects it). Respect an explicitly requested Demo/Live environment; otherwise use this TradePilot instance's configured default environment.",
       inputSchema: external_exports.object({ environment: environmentWithDefault }),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: { ui: { resourceUri: WIDGET_URI } }
@@ -46489,13 +46506,31 @@ var ListingWatches = class {
 
 // src/core/goals.ts
 var goalKey = (environment) => `goal:${environment}`;
+var milestoneKey = (environment) => `goal-milestone:${environment}`;
+var belongs = (record2, goal) => !!record2 && record2.createdAt === goal.createdAt && record2.target === goal.target;
+var MILESTONE_WORDS = {
+  en: (goal, mark, value, target, by) => mark >= 100 ? `${goal} reached: ${value} against a target of ${target} by ${by}.` : `${goal} is ${mark}% of the way: ${value} of ${target} by ${by}.`,
+  "zh-CN": (goal, mark, value, target, by) => mark >= 100 ? `${goal}\u5DF2\u8FBE\u6210\uFF1A\u5E02\u503C ${value}\uFF0C\u76EE\u6807 ${target}\uFF0C\u622A\u6B62 ${by}\u3002` : `${goal}\u5DF2\u5B8C\u6210 ${mark}%\uFF1A${value} / ${target}\uFF0C\u622A\u6B62 ${by}\u3002`
+};
+function milestoneText(goal, mark, value, currency, locale = "en") {
+  const money4 = (amount2) => {
+    const text = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(amount2);
+    return currency ? `${text} ${currency}` : text;
+  };
+  const name = goal.name ? locale === "zh-CN" ? `\u76EE\u6807\u300C${goal.name}\u300D` : `The goal "${goal.name}"` : locale === "zh-CN" ? "\u6295\u8D44\u76EE\u6807" : "The investment goal";
+  return MILESTONE_WORDS[locale](name, mark, money4(value), money4(goal.target), goal.by);
+}
 var Goals = class {
   constructor(deps) {
     this.deps = deps;
   }
   deps;
-  get(environment) {
-    return this.deps.store.get(goalKey(environment));
+  /** The goal with the milestone its target has reached, when the scheduler has measured it. */
+  async get(environment) {
+    const [goal, record2] = await Promise.all([this.deps.store.get(goalKey(environment)), this.deps.store.get(milestoneKey(environment))]);
+    if (!goal) return void 0;
+    const { milestone: _stored, ...rest } = goal;
+    return belongs(record2, goal) ? { ...rest, milestone: record2.mark } : rest;
   }
   async set(input2, now = /* @__PURE__ */ new Date()) {
     requireCredentials(this.deps.config, input2.environment);
@@ -46526,12 +46561,40 @@ var Goals = class {
       updatedAt: now.toISOString()
     };
     await this.deps.store.put(goalKey(input2.environment), goal);
-    return goal;
+    return current?.milestone !== void 0 && current.target === goal.target ? { ...goal, milestone: current.milestone } : goal;
   }
   async remove(environment) {
     const had = !!await this.get(environment);
     await this.deps.store.delete(goalKey(environment));
+    await this.deps.store.delete(milestoneKey(environment));
     return had;
+  }
+  /**
+   * Measure each account's goal against the value the scheduler just recorded for it. The first measure only notes the
+   * milestone reached; after that, each higher one writes a goal_milestone event. A fall below a milestone is not
+   * announced, and the milestone is kept, so a value that hovers around it is announced once.
+   */
+  async check(points3) {
+    const reports2 = [];
+    for (const { environment, point } of points3) {
+      const goal = await this.get(environment);
+      if (!goal) continue;
+      const mark = goalMilestone(point.totalValue, goal.target);
+      const known = goal.milestone;
+      if (known !== void 0 && mark <= known) {
+        reports2.push({ environment, action: "none", milestone: known, message: "No new milestone." });
+        continue;
+      }
+      await this.deps.store.put(milestoneKey(environment), { createdAt: goal.createdAt, target: goal.target, mark });
+      if (known === void 0 || !this.deps.trading) {
+        reports2.push({ environment, action: "seeded", milestone: mark, message: `Seeded at ${mark}%.` });
+        continue;
+      }
+      const message = milestoneText(goal, mark, point.totalValue, goal.currency, this.deps.config.notifyLocale);
+      await this.deps.trading.recordActivity("goal_milestone", environment, { outcome: message });
+      reports2.push({ environment, action: "reached", milestone: mark, message });
+    }
+    return reports2;
   }
 };
 
@@ -47055,7 +47118,8 @@ var REPORT_WORDS = {
     noTrades: "no trades",
     realized: (value) => `realized ${value}`,
     costs: (value) => `costs ${value}`,
-    short: "history cut short at the page limit: figures may be low"
+    short: "history cut short at the page limit: figures may be low",
+    goal: (name, share4, target, by) => `${name ? `goal "${name}"` : "goal"} ${share4} of ${target} by ${by}`
   },
   "zh-CN": {
     period: (kind, first, last) => `${kind === "weekly" ? "\u4E0A\u5468" : "\u4E0A\u6708"}\uFF0C${first} \u81F3 ${last}`,
@@ -47068,10 +47132,11 @@ var REPORT_WORDS = {
     noTrades: "\u6CA1\u6709\u4EA4\u6613",
     realized: (value) => `\u5DF2\u5B9E\u73B0\u76C8\u4E8F ${value}`,
     costs: (value) => `\u8D39\u7528 ${value}`,
-    short: "\u5386\u53F2\u8BB0\u5F55\u8BFB\u5230\u9875\u6570\u4E0A\u9650\u88AB\u622A\u65AD\uFF0C\u6570\u5B57\u53EF\u80FD\u504F\u4F4E"
+    short: "\u5386\u53F2\u8BB0\u5F55\u8BFB\u5230\u9875\u6570\u4E0A\u9650\u88AB\u622A\u65AD\uFF0C\u6570\u5B57\u53EF\u80FD\u504F\u4F4E",
+    goal: (name, share4, target, by) => `${name ? `\u76EE\u6807\u300C${name}\u300D` : "\u6295\u8D44\u76EE\u6807"}\u5B8C\u6210 ${share4}\uFF08${target}\uFF0C\u622A\u6B62 ${by}\uFF09`
   }
 };
-function reportText(kind, period, summary, locale = "en") {
+function reportText(kind, period, summary, locale = "en", goal, goalValue) {
   const words = REPORT_WORDS[locale];
   const currency = summary.accountCurrency;
   const money4 = (value, sign = false) => {
@@ -47085,6 +47150,7 @@ function reportText(kind, period, summary, locale = "en") {
   const flows = summary.contributions.net;
   const { dividends, interest } = summary.income;
   const { buys, sells, turnover } = summary.trades;
+  const measured = end?.totalValue ?? goalValue;
   return [
     words.period(kind, period.first, period.last),
     start && end && start !== end ? words.value(money4(end.totalValue), money4(start.totalValue), money4(end.totalValue - start.totalValue, true)) : void 0,
@@ -47094,6 +47160,7 @@ function reportText(kind, period, summary, locale = "en") {
     buys || sells ? words.trades(buys, sells, money4(turnover)) : words.noTrades,
     Math.abs(summary.realizedProfitLoss) >= 5e-3 ? words.realized(money4(summary.realizedProfitLoss, true)) : void 0,
     Math.abs(summary.costs.total) >= 5e-3 ? words.costs(money4(summary.costs.total)) : void 0,
+    goal && measured !== void 0 ? words.goal(goal.name, new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(measured / goal.target), money4(goal.target), goal.by) : void 0,
     summary.coverage.truncated ? words.short : void 0
   ].filter(Boolean).join(" \xB7 ");
 }
@@ -47125,7 +47192,9 @@ var PeriodicReports = class {
         try {
           const window = { from: new Date(midnight(period.first, digest2.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest2.timeZone) - 1), endsNow: false };
           const summary = await this.deps.performance(environment, window);
-          const text = reportText(kind, period, summary, this.deps.config.notifyLocale);
+          const goal = await this.deps.goal?.(environment).catch(() => void 0);
+          const goalValue = goal && !summary.valueHistory?.length ? await this.deps.lastValue?.(environment, window).catch(() => void 0) : void 0;
+          const text = reportText(kind, period, summary, this.deps.config.notifyLocale, goal, goalValue);
           const type = kind === "weekly" ? "weekly_report" : "monthly_report";
           const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type, outcome: text };
           if (!await this.deps.notify(event, { force: true })) {
@@ -47374,7 +47443,7 @@ function createServices(input2) {
   }, environment, now);
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
   const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
-  const goals = new Goals({ config: deps.config, store: deps.store });
+  const goals = new Goals({ config: deps.config, store: deps.store, trading });
   const digest2 = new DailyDigest({
     config: deps.config,
     store: deps.store,
@@ -47390,6 +47459,8 @@ function createServices(input2) {
     store: deps.store,
     trading,
     performance: (environment, window) => insights.performance(environment, window, void 0, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), withStart: true, ...account === void 0 ? {} : { account } })),
+    goal: (environment) => goals.get(environment),
+    lastValue: async (environment, window) => (await values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString() })).at(-1)?.totalValue,
     ...notify ? { notify } : {}
   });
   const stage = async (name, run) => {
@@ -47400,19 +47471,24 @@ function createServices(input2) {
       return [];
     }
   };
-  const tick2 = async () => ({
-    links: await stage("protective links", () => links.reconcile()),
-    orders: await stage("order watch", () => orders.check()),
-    values: await stage("value history", () => values.snapshot()),
-    plans: await stage("plans", () => automation3.runDuePlans()),
-    alerts: await stage("alerts", () => alerts.check()),
-    accountAlerts: await stage("account alerts", () => accountAlerts.check()),
-    listings: await stage("listing alerts", () => listings.check()),
-    targets: await stage("targets", () => targets.check()),
-    digest: await stage("digest", () => digest2.run()),
-    reports: await stage("reports", () => reports2.run()),
-    notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([]))
-  });
+  const tick2 = async () => {
+    const settled3 = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
+    const recorded = await stage("value history", () => values.snapshot());
+    return {
+      ...settled3,
+      values: recorded,
+      // The goal is measured against the value just recorded: no read of its own.
+      goals: await stage("goals", () => goals.check(recorded)),
+      plans: await stage("plans", () => automation3.runDuePlans()),
+      alerts: await stage("alerts", () => alerts.check()),
+      accountAlerts: await stage("account alerts", () => accountAlerts.check()),
+      listings: await stage("listing alerts", () => listings.check()),
+      targets: await stage("targets", () => targets.check()),
+      digest: await stage("digest", () => digest2.run()),
+      reports: await stage("reports", () => reports2.run()),
+      notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([]))
+    };
+  };
   let running;
   const runScheduled = () => running ??= tick2().finally(() => {
     running = void 0;

@@ -301,3 +301,23 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
     </section>
   );
 }
+
+/** The goal's progress under the dashboard's value: a short bar and the share of the target, opening the goal panel. */
+export function GoalProgressLine({ goal, value, currency, locale, t, onOpen }: {
+  goal: InvestmentGoal; value?: number; currency: string; locale: SupportedLocale; t: Translator;
+  /** Opens the Performance tab, where the goal is. */
+  onOpen?: () => void;
+}) {
+  if (value === undefined) return null;
+  const share = value / goal.target;
+  const label = fill(t("goalLine"), { name: goal.name ?? t("goalTitle"), share: pct(share, locale, 1), target: money(goal.target, currency, locale, { digits: 0 }), date: dayLabel(goal.by, locale) });
+  const body = (
+    <>
+      <span className="goalLineText"><b>{goal.name ?? t("goalTitle")}</b> {fill(t("goalLineShare"), { share: pct(share, locale, 1), target: money(goal.target, currency, locale, { digits: 0 }) })}</span>
+      <span className="goalBar small" aria-hidden="true"><i style={{ width: `${(Math.min(1, Math.max(0, share)) * 100).toFixed(1)}%` }} /></span>
+    </>
+  );
+  return onOpen
+    ? <button type="button" className="goalLine" aria-label={label} onClick={onOpen}>{body}</button>
+    : <div className="goalLine" role="group" aria-label={label}>{body}</div>;
+}

@@ -57,7 +57,7 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 
 服务器把同样的 skill 作为 MCP prompt 提供，所以不支持插件 skill 的客户端（Claude Desktop、通过 Worker 使用的 Claude.ai，或其他 MCP 宿主）也能运行它们。每个 prompt（`daily-brief`、`portfolio-review`、`risk-check`、`trade-journal`、`order-followup`、`tax-year`、`rebalance`）接受 `environment`（`demo` 或 `live`，输入时自动补全）、一个可选的 `request`（用户自己的原话）；`trade-journal` 和 `order-followup` 还接受 `instrument`，它会从账户持有、有挂单或在自选列表里的 ticker 中自动补全。
 
-它还为每个配置了密钥的账户提供四个 JSON 资源，供宿主附加到对话中（Live 账户把 `demo` 换成 `live`）：
+它还为每个配置了密钥的账户提供五个 JSON 资源，供宿主附加到对话中（Live 账户把 `demo` 换成 `live`）：
 
 | 资源 | 内容 |
 |---|---|
@@ -65,6 +65,7 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 | `tradepilot://demo/journal` | 全部交易日志记录 |
 | `tradepilot://demo/targets` | 保存的目标配置，或 `null` |
 | `tradepilot://demo/watchlist` | 自选列表中的标的及其备注 |
+| `tradepilot://demo/goal` | 投资目标及已达到的进度节点，或 `null` |
 
 这些 prompt 由 `skills/*/SKILL.md` 生成到 `src/core/skill-prompts.ts`，因为 Worker 和打包后的插件在运行时读不到 `skills/`。修改 skill 后，运行 `pnpm build:prompts`（`pnpm build:plugin` 也会运行它）；两者不一致时会有测试失败。
 

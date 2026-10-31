@@ -289,6 +289,7 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "price_alert_triggered": return t("activityPriceAlert");
     case "account_alert_triggered": return t("activityAccountAlert");
     case "new_listings": return t("activityNewListings");
+    case "goal_milestone": return t("activityGoalMilestone");
     case "allocation_drift": return t("activityAllocationDrift");
     case "daily_digest": return t("activityDailyDigest");
     case "weekly_report": return t("activityWeeklyReport");

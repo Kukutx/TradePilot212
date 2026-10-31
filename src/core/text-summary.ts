@@ -253,6 +253,7 @@ function portfolio(data: PortfolioSnapshot): string[] {
     ...(data.account ? [accountLine(data.environment, data.account)] : []),
     ...resultSplitLines(data),
     ...valueHistoryLines(data.valueTrend),
+    ...(data.goal && data.account ? [goalProgressLine(data.goal, data.account.totalValue, data.account.currency)] : []),
     ...(data.today ? todayLines(data.today) : []),
     ...section(`Holdings (${holdings.length})`, rows(holdings, positionLine)),
     ...protectionLines(holdings, data.orders, data.account?.currency),
@@ -1004,6 +1005,12 @@ function newListingLines(data: NewListingsView): string[] {
 }
 
 /** The goal, how far along it is, and its projection under the assumptions saved with it. */
+/** The goal in one line, beside the dashboard's value: no projection, which manage_goal gives. */
+function goalProgressLine(goal: InvestmentGoal, value: number | undefined, currency: string | undefined): string {
+  const money = (amount: number) => `${num(amount)}${currency ? ` ${currency}` : ""}`;
+  return `Goal${goal.name ? ` "${goal.name}"` : ""}: ${value === undefined ? "value not known" : `${num(value / goal.target * 100, 1)}%`} of ${money(goal.target)} by ${goal.by}.`;
+}
+
 function goalLines(goal: InvestmentGoal, value: number | undefined, currency: string | undefined, now: Date): string[] {
   const money = (amount: number) => `${num(amount)}${currency ? ` ${currency}` : ""}`;
   const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money(goal.target)} by ${goal.by}, adding ${money(goal.monthly)} a month, assuming ${num(goal.expectedReturn * 100, 1)}% a year with ${num(goal.volatility * 100, 1)}% volatility.`;

@@ -65,7 +65,7 @@ describe("account resources", () => {
   it("lists each document for the accounts with keys and reads it as JSON", async () => {
     const { client, services } = await connect();
     const listed = (await client.listResources()).resources.map((resource) => resource.uri);
-    expect(listed).toEqual(expect.arrayContaining(["tradepilot://demo/holdings", "tradepilot://demo/journal", "tradepilot://demo/targets", "tradepilot://demo/watchlist"]));
+    expect(listed).toEqual(expect.arrayContaining(["tradepilot://demo/holdings", "tradepilot://demo/journal", "tradepilot://demo/targets", "tradepilot://demo/watchlist", "tradepilot://demo/goal"]));
     // No keys for Live on the sample account: nothing for it.
     expect(listed.some((uri) => uri.startsWith("tradepilot://live/"))).toBe(false);
 
@@ -80,6 +80,9 @@ describe("account resources", () => {
     await services.watchlist.add("demo", "MSFT", "Cloud");
     expect((await read("tradepilot://demo/watchlist")).items).toEqual([expect.objectContaining({ ticker: "MSFT_US_EQ", note: "Cloud" })]);
     expect((await read("tradepilot://demo/journal")).entries).toEqual([]);
+    expect(await read("tradepilot://demo/goal")).toEqual({ environment: "demo", goal: null });
+    await services.goals.set({ environment: "demo", target: 50_000, by: "2040-12-31", monthly: 100 });
+    expect((await read("tradepilot://demo/goal")).goal).toMatchObject({ target: 50_000, by: "2040-12-31", monthly: 100 });
     await expect(client.readResource({ uri: "tradepilot://live/holdings" })).rejects.toThrow();
   });
 });

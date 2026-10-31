@@ -930,6 +930,14 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .metric strong.goalRangeValue { white-space: normal; }
 .metric strong.goalRangeValue span { display: inline; margin: 0; color: inherit; font-size: inherit; font-weight: inherit; }
 .swatch.band { height: 8px; background: color-mix(in srgb, var(--tp-chart) 30%, transparent); }
+/* The goal's line under the dashboard's value: the share of the target and a short bar, opening the goal. */
+.goalLine { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; margin-top: 10px; padding: 0; border: 0; background: none; color: var(--tp-muted); font: inherit; font-size: 12px; text-align: left; }
+button.goalLine { min-height: 28px; cursor: pointer; border-radius: 6px; }
+button.goalLine:hover .goalLineText b { text-decoration: underline; text-underline-offset: 2px; }
+button.goalLine:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 3px; }
+.goalLineText { min-width: 0; font-variant-numeric: tabular-nums; }
+.goalLineText b { color: var(--tp-text); font-weight: 650; }
+.goalBar.small { flex: 1 1 120px; max-width: 220px; height: 6px; }
 .goalChart .chartTable th:not(:first-child), .goalChart .chartTable td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Price chart on the holding page: levels and trades in the colours of the price ladder below it. */

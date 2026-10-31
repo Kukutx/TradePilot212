@@ -25,9 +25,9 @@ const TITLES: Record<string, string> = {
 /** The prompts about one instrument take it as an argument. */
 const ABOUT_INSTRUMENT = new Set(["order-followup", "trade-journal"]);
 
-type PromptDeps = Pick<Services, "trading" | "journal" | "targets" | "watchlist">;
+type PromptDeps = Pick<Services, "trading" | "journal" | "targets" | "watchlist" | "goals">;
 
-export function registerPromptsAndResources(server: McpServer, { trading, journal, targets, watchlist }: PromptDeps, config: RuntimeConfig): void {
+export function registerPromptsAndResources(server: McpServer, { trading, journal, targets, watchlist, goals }: PromptDeps, config: RuntimeConfig): void {
   /** The account named, in any case; this server's default when none is (a form sends an empty field as ""). */
   const environmentOf = (value: string | undefined): TradingEnvironment => {
     const named = (value ?? "").trim().toLowerCase();
@@ -92,5 +92,6 @@ export function registerPromptsAndResources(server: McpServer, { trading, journa
   });
   perAccount("journal", "Trade journal", "Every trade journal note on the account: the reason for a trade, any look back and its tags.", async (environment) => ({ environment, entries: await journal.list(environment) }));
   perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: (await targets.get(environment)) ?? null }));
+  perAccount("goal", "Investment goal", "The saved investment goal: the target, the date, what is added each month, the return and volatility assumed and the milestone reached; null when none is set.", async (environment) => ({ environment, goal: (await goals.get(environment)) ?? null }));
   perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist.list(environment) }));
 }
