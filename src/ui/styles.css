@@ -456,6 +456,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .orderSide { font-weight: 760; }
 .orderSide.buy { color: var(--tp-green); }
 .orderSide.sell { color: var(--tp-red); }
+.orderSide.action { color: var(--tp-muted); }
 .orderQuantity { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .activityPanel details > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; margin: -6px 0; list-style: none; cursor: pointer; font-size: 15px; font-weight: 730; }
 .activityPanel details > summary::-webkit-details-marker { display: none; }

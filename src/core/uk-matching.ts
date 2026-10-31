@@ -2,11 +2,13 @@
 // the same day, then with shares bought in the 30 days after it (earliest first), and only then with the "section
 // 104" pool of everything bought before, at its average cost (TCGA 1992 s.104–106A). Trading 212's realised P/L is
 // against the average price of what is held, so the two differ when shares are bought back within 30 days, or bought
-// and sold on one day. An estimate: amounts are Trading 212's in the account currency, and corporate actions (splits,
-// mergers), transfers in and shares bought before the history read are not seen; they are found by setting each
-// instrument's fills against the shares held now.
+// and sold on one day. An estimate: amounts are Trading 212's in the account currency. A split is the same holding in
+// other units (s.127): the fills before it are counted in today's units (shared/splits.ts). Other corporate actions
+// (mergers, distributions), transfers in and shares bought before the history read are not seen; they are found by
+// setting each instrument's fills against the shares held now.
 
 import type { HistoryOrderItem, UkMatching, UkMatchingTicker } from "../shared/history.js";
+import { restateSplits } from "../shared/splits.js";
 import { localDay } from "../shared/time-zone.js";
 
 const UK_ZONE = "Europe/London";
@@ -175,9 +177,17 @@ export function ukShareMatching(input: {
   const keyOf = keysBy(input.orders, input.holdings ?? []);
   const held = new Map<string, number>();
   for (const holding of input.holdings ?? []) held.set(keyOf(holding.ticker), (held.get(keyOf(holding.ticker)) ?? 0) + holding.quantity);
-  const { instruments, unnamed } = byInstrument(input.orders, keyOf);
+  // Today's shares tell a split listed as the shares it added alone, whenever the history starts; without them, only
+  // fills read from the first buy do.
+  const restated = restateSplits(input.orders, keyOf, input.holdings ? { held: (key) => held.get(key) ?? 0 } : { fromStart: input.complete });
+  const splitsOf = new Map<string, Array<{ on: string; ratio: number }>>();
+  for (const split of restated.splits) {
+    const key = keyOf(split.ticker);
+    splitsOf.set(key, [...(splitsOf.get(key) ?? []), { on: localDay(Date.parse(split.at), UK_ZONE), ratio: split.ratio }]);
+  }
+  const { instruments, unnamed } = byInstrument(restated.items, keyOf);
   const rows: UkMatchingTicker[] = [];
-  let gains = 0, losses = 0, unmatched = 0, unvalued = 0, unreconciled = 0, notTrades = 0;
+  let gains = 0, losses = 0, unmatched = 0, unvalued = 0, unreconciled = 0, notTrades = 0, split = 0;
   for (const [key, instrument] of instruments) {
     const days = [...instrument.days.values()].sort((a, b) => a.day.localeCompare(b.day));
     matchDays(days);
@@ -209,6 +219,8 @@ export function ukShareMatching(input: {
     const off = input.holdings && input.complete && Math.abs(instrument.net - holding) > Math.max(1e-6, Math.abs(holding) * 1e-6);
     if (off) unreconciled++;
     if (instrument.notTrades) notTrades++;
+    const splits = splitsOf.get(key);
+    if (splits) split++;
     rows.push({
       ...row,
       quantity: shares(row.quantity), sameDay: shares(row.sameDay), thirtyDay: shares(row.thirtyDay), pool: shares(row.pool), unmatched: shares(row.unmatched),
@@ -216,6 +228,7 @@ export function ukShareMatching(input: {
       ...(rowUnvalued ? { unvalued: true as const } : {}),
       ...(off ? { reconciliation: { held: shares(holding), fills: shares(instrument.net) } } : {}),
       ...(instrument.notTrades ? { notTrades: instrument.notTrades } : {}),
+      ...(splits ? { splits } : {}),
     });
   }
   rows.sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain));
@@ -230,6 +243,7 @@ export function ukShareMatching(input: {
   if (unmatched > EPSILON) notes.push("Some shares sold could not be matched with any purchase read (bought before the history read, or transferred in); their gain is left out.");
   if (unvalued) notes.push(`${unvalued} sale(s) or the purchases matched with them had no account-currency value from Trading 212; their gain is left out.`);
   if (unreconciled) notes.push(`For ${unreconciled} instrument(s) the fills read do not add up to the shares held now (see reconciliation): shares came or went another way (a transfer in or out, a split, a corporate action), so their matching is not reliable.`);
+  if (split) notes.push(`${split} instrument(s) had a split or consolidation (see splits): as HMRC treats it, it is the same holding in other units, so the shares bought and sold before it are counted in today's units, at the same cost, and the quantities here are today's.`);
   if (notTrades) notes.push(`${notTrades} instrument(s) have fills that were not trades (see notTrades), such as a split or a corporate action: they were matched as purchases and sales, which may not be how HMRC treats them.`);
   if (unnamed) notes.push(`${unnamed} fill(s) named no instrument and are left out.`);
   if (provisional) notes.push("Sales in the year's last 30 days are matched with buys up to 30 days after them, and those days are not all past: the figures can still change.");

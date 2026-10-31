@@ -5,6 +5,7 @@ import type { HoldingDetail, HoldingFill } from "../../shared/holding";
 import type { JournalEntry } from "../../shared/journal";
 import { stopOutcome, stopProtection, suggestedStop } from "../../shared/protection";
 import { resultSplit } from "../../shared/result-split";
+import { chartFactor, isSplitType } from "../../shared/splits";
 import type { SupportedLocale } from "../i18n";
 import { AlertActions, AlertForm, type AlertRequest } from "../components/alerts";
 import { Metric, SectionHeader } from "../components/common";
@@ -91,14 +92,20 @@ export const MISSING_KEYS: Record<PricesMissing, MessageKey> = {
   sample: "pricesMissingSample",
 };
 
-/** The fills as chart markers, each saying what was traded at what price. */
-export function chartTrades(fills: HoldingFill[], currency: string | undefined, t: Translator, locale: SupportedLocale): ChartTrade[] {
+/**
+ * The fills as chart markers, each saying what was traded at what price. A split's or another corporate action's
+ * fills are not trades and are left out; `factorOf` is what a fill's price is divided by to sit on the closes (the splits after it they are
+ * adjusted for), and a marker moved so says it was before a split, at the price it was traded at.
+ */
+export function chartTrades(fills: HoldingFill[], currency: string | undefined, t: Translator, locale: SupportedLocale, factorOf: (time: number) => number = () => 1): ChartTrade[] {
   return fills.flatMap((item, index) => {
     const time = item.filledAt ? Date.parse(item.filledAt) : Number.NaN;
-    if (!Number.isFinite(time) || !item.price || !(item.price > 0)) return [];
+    if (!Number.isFinite(time) || !item.price || !(item.price > 0) || (item.fillType && item.fillType.toUpperCase() !== "TRADE")) return [];
     const sell = String(item.side ?? "").toUpperCase() === "SELL" || (item.quantity ?? 0) < 0;
-    const text = fill(t(sell ? "priceSold" : "priceBought"), { quantity: qty(Math.abs(item.quantity ?? 0), locale), price: amount(item.price, item.priceCurrency ?? currency, locale) });
-    return [{ key: `${item.orderId ?? "fill"}-${index}`, time, price: item.price, side: sell ? "sell" as const : "buy" as const, text }];
+    const factor = factorOf(time);
+    const traded = fill(t(sell ? "priceSold" : "priceBought"), { quantity: qty(Math.abs(item.quantity ?? 0), locale), price: amount(item.price, item.priceCurrency ?? currency, locale) });
+    const text = factor === 1 ? traded : fill(t("priceBeforeSplit"), { trade: traded });
+    return [{ key: `${item.orderId ?? "fill"}-${index}`, time, price: item.price / factor, side: sell ? "sell" as const : "buy" as const, text }];
   });
 }
 
@@ -254,7 +261,7 @@ export function HoldingView({
 
       {data.prices && data.prices.points.length >= 2 ? (
         <section className="dataPanel">
-          <PriceChart prices={data.prices} trades={chartTrades([...fills, ...(data.history?.olderFills ?? [])], quote, t, locale)} levels={levels.filter((level): level is PriceLevel & ChartLevel => level.kind !== "last")}
+          <PriceChart prices={data.prices} trades={chartTrades([...fills, ...(data.history?.olderFills ?? [])], quote, t, locale, (time) => chartFactor(data.history?.splits, data.prices!.points, time))} levels={levels.filter((level): level is PriceLevel & ChartLevel => level.kind !== "last")}
             {...(quote ? { currency: quote } : {})} locale={locale} t={t} />
         </section>
       ) : data.pricesMissing && (
@@ -411,16 +418,20 @@ function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, o
         <ul className="historyList">
           {fills.map((item, index) => {
             const sell = String(item.side ?? "").toUpperCase() === "SELL" || (item.quantity ?? 0) < 0;
+            // A split or another corporate action moved the shares: not a trade, so neither a buy nor a sell.
+            const action = item.fillType ? (isSplitType(item.fillType) ? t("fillSplit") : t("fillCorporateAction")) : undefined;
             const note = item.orderId ? notes.get(item.orderId) : undefined;
             const writing = index === formAt;
             const text = note?.thesis ?? note?.review;
             return (
               <li key={`${item.filledAt}-${index}`} className={note || writing ? "withNote" : undefined}>
                 <div>
-                  <strong><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b> {qty(Math.abs(item.quantity ?? 0), locale)} · {amount(item.price, item.priceCurrency, locale)}</strong>
+                  <strong>{action
+                    ? <><b className="orderSide action">{action}</b> {sell ? "−" : "+"}{qty(Math.abs(item.quantity ?? 0), locale)}{item.price ? ` · ${amount(item.price, item.priceCurrency, locale)}` : ""}</>
+                    : <><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b> {qty(Math.abs(item.quantity ?? 0), locale)} · {amount(item.price, item.priceCurrency, locale)}</>}</strong>
                   <small>
                     {item.filledAt ? dayLabel(item.filledAt, locale) : "—"}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}
-                    {!note && !writing && item.orderId && <>{" · "}<button type="button" className="inlineLink" disabled={busy} aria-label={`${t("journalAdd")}: ${sell ? t("sell") : t("buy")} ${qty(Math.abs(item.quantity ?? 0), locale)}${item.filledAt ? `, ${dayLabel(item.filledAt, locale)}` : ""}`} onClick={() => onAddNote(item.orderId!)}>{t("journalAdd")}</button></>}
+                    {!note && !writing && item.orderId && <>{" · "}<button type="button" className="inlineLink" disabled={busy} aria-label={`${t("journalAdd")}: ${action ?? (sell ? t("sell") : t("buy"))} ${qty(Math.abs(item.quantity ?? 0), locale)}${item.filledAt ? `, ${dayLabel(item.filledAt, locale)}` : ""}`} onClick={() => onAddNote(item.orderId!)}>{t("journalAdd")}</button></>}
                   </small>
                 </div>
                 <div className="historyAmount">

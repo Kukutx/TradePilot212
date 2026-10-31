@@ -5,6 +5,7 @@
 
 import type { HoldingDetail } from "./holding.js";
 import type { PricePoint } from "./prices.js";
+import { adjustCloses, isSplitType, splitFactor } from "./splits.js";
 
 export interface PositionFill {
   at: string;
@@ -97,18 +98,24 @@ const MAX_READ_FILLS = 200;
 export function holdingPositionHistory(data: HoldingDetail): PositionHistory | PositionProblem | undefined {
   const history = data.history;
   if (!data.prices || data.prices.points.length < 2 || !history) return undefined;
-  if (history.fillsUnpriced || history.fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price))) return "fills";
-  // A split or a distribution comes as a fill that is not a trade: shares with no price paid.
+  // A distribution or a merger comes as a fill that is not a trade: shares with no price paid. A split read is the
+  // same holding in other units: its own fills are left out, and the fills and closes before it counted in today's.
   if (history.fillsNotTrades) return "split";
+  const traded = history.fills.filter((fill) => !isSplitType(fill.fillType));
+  if (history.fillsUnpriced || traded.some((fill) => fill.quantity && (!fill.filledAt || !fill.price))) return "fills";
+  const today = (at: string, quantity: number, price: number): PositionFill => {
+    const factor = splitFactor(history.splits, Date.parse(at));
+    return { at, quantity: quantity * factor, price: price / factor };
+  };
   const fills: PositionFill[] = [
-    ...history.fills.flatMap((fill) => {
+    ...traded.flatMap((fill) => {
       if (!fill.filledAt || !fill.price || !fill.quantity) return [];
       const sell = String(fill.side ?? "").toUpperCase() === "SELL" || fill.quantity < 0;
-      return [{ at: fill.filledAt, quantity: sell ? -Math.abs(fill.quantity) : Math.abs(fill.quantity), price: fill.price }];
+      return [today(fill.filledAt, sell ? -Math.abs(fill.quantity) : Math.abs(fill.quantity), fill.price)];
     }),
-    ...(history.olderFills ?? []).map((fill) => ({ at: fill.filledAt, quantity: fill.side === "SELL" ? -fill.quantity : fill.quantity, price: fill.price })),
+    ...(history.olderFills ?? []).map((fill) => today(fill.filledAt, fill.side === "SELL" ? -fill.quantity : fill.quantity, fill.price)),
   ];
-  let closes = data.prices.points;
+  let closes = adjustCloses(data.prices.points, history.splits);
   const shortened = history.fillsTruncated || history.fills.length + (history.olderFills?.length ?? 0) >= MAX_READ_FILLS;
   if (shortened) {
     if (!fills.length) return "fills";
@@ -124,7 +131,7 @@ export function holdingPositionHistory(data: HoldingDetail): PositionHistory | P
   } else if (data.accountRate && data.accountRate > 0) {
     rate = data.accountRate;
   } else {
-    const rated = history.fills.filter((fill) => fill.price && fill.quantity && fill.netValue);
+    const rated = traded.filter((fill) => fill.price && fill.quantity && fill.netValue);
     const local = rated.reduce((sum, fill) => sum + Math.abs(fill.quantity! * fill.price!), 0);
     const account = rated.reduce((sum, fill) => sum + Math.abs(fill.netValue!), 0);
     if (local > 0 && account > 0) [rate, fillRates] = [local / account, true];

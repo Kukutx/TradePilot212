@@ -5,6 +5,7 @@
 import type { Instrument, Position, TradingEnvironment } from "../shared/contracts.js";
 import type { GainAttribution, HistoryDividendItem, HistoryOrderItem, HoldingGain, PerformanceSummary } from "../shared/history.js";
 import type { PricePoint } from "../shared/prices.js";
+import { isTradeFill } from "../shared/splits.js";
 import type { HistoryWindow } from "./analytics.js";
 import { asStructuredError } from "./errors.js";
 import { knownFxRates, type FxRates } from "./fx.js";
@@ -44,9 +45,11 @@ export interface HoldingFlows {
   anchors: PriceAnchor[];
   /** Trading 212's realised P/L on the sells. */
   realized: number;
+  /** Fills of a split or another corporate action: shares that changed without a trade, left out of the rest. */
+  notTrades: number;
 }
 
-const emptyFlows = (): HoldingFlows => ({ boughtQuantity: 0, soldQuantity: 0, bought: 0, sold: 0, dividends: 0, boughtLocal: 0, soldLocal: 0, rated: { local: 0, account: 0 }, anchors: [], realized: 0 });
+const emptyFlows = (): HoldingFlows => ({ boughtQuantity: 0, soldQuantity: 0, bought: 0, sold: 0, dividends: 0, boughtLocal: 0, soldLocal: 0, rated: { local: 0, account: 0 }, anchors: [], realized: 0, notTrades: 0 });
 
 /** Each instrument's fills and dividends from `from` (all history without it) to `to`. */
 export function holdingFlows(orders: HistoryOrderItem[], dividends: HistoryDividendItem[], from: number | undefined, to: number): Map<string, HoldingFlows> {
@@ -68,6 +71,7 @@ export function holdingFlows(orders: HistoryOrderItem[], dividends: HistoryDivid
     if (!(quantity > 0)) continue;
     const sell = (item.order?.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
     const entry = of(ticker);
+    if (!isTradeFill(item)) { entry.notTrades += 1; continue; }
     const net = fill.walletImpact?.netValue;
     const local = fill.price && fill.price > 0 ? quantity * fill.price : undefined;
     if (sell) entry.soldQuantity += quantity; else entry.boughtQuantity += quantity;
@@ -157,6 +161,11 @@ export function attributeGains(input: {
     const quantity = position?.quantity ?? 0;
     let startQuantity = quantity - flows.boughtQuantity + flows.soldQuantity;
     if (Math.abs(startQuantity) < NO_SHARES) startQuantity = 0;
+    // Across a split the shares at the start are in other units than today's, and its close may be either.
+    if (flows.notTrades) {
+      missing.push({ ticker, reason: "quantity", problem: `${ticker} had a split or another corporate action since the start (${flows.notTrades} fill(s) that were not trades), so its shares then and now are not in the same units.` });
+      continue;
+    }
     if (startQuantity < 0) {
       missing.push({ ticker, reason: "quantity", problem: `${ticker}'s shares do not add up: ${quantity} now, ${flows.boughtQuantity} bought and ${flows.soldQuantity} sold since the start. A split, or shares moved in or out, changes the count without a fill.` });
       continue;

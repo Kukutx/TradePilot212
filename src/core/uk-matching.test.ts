@@ -14,6 +14,30 @@ const year = { from: new Date("2025-04-05T23:00:00Z"), to: new Date("2026-04-05T
 const match = (orders: HistoryOrderItem[], extra: Partial<Parameters<typeof ukShareMatching>[0]> = {}) => ukShareMatching({ ...year, currency: "GBP", complete: true, orders, ...extra });
 
 describe("UK share matching", () => {
+  it("counts the shares before a split in today's units, at the same cost, and matches across it", () => {
+    const result = match([
+      fill("NVDA", "BUY", 100, 1150, "2025-06-20T14:00:00Z"),
+      fill("NVDA", "BUY", 200, 0, "2025-06-10T08:00:00Z", { type: "STOCK_SPLIT" }),
+      fill("NVDA", "SELL", 20, 0, "2025-06-10T08:00:00Z", { type: "STOCK_SPLIT" }),
+      // Sold before the split, bought back after it within 30 days: 10 then are 100 now.
+      fill("NVDA", "SELL", 10, 1200, "2025-06-01T14:00:00Z", { realised: 200 }),
+      fill("NVDA", "BUY", 30, 3000, "2025-01-10T10:00:00Z"),
+    ], { holdings: [{ ticker: "NVDA", quantity: 300 }] });
+    expect(result.byTicker).toEqual([{ ticker: "NVDA", disposals: 1, quantity: 100, proceeds: 1200, cost: 1150, gain: 50, sameDay: 0, thirtyDay: 100, pool: 0, unmatched: 0, realizedProfitLoss: 200, splits: [{ on: "2025-06-10", ratio: 10 }] }]);
+    expect(result.complete).toBe(true);
+    expect(result.notes.join(" ")).toMatch(/1 instrument\(s\) had a split or consolidation/);
+  });
+
+  it("matches a split whose ratio cannot be told as before, and says so", () => {
+    const result = match([
+      fill("Z", "SELL", 5, 60, "2025-07-01T14:00:00Z"),
+      fill("Z", "BUY", 30, 0, "2025-06-10T08:00:00Z", { type: "STOCK_SPLIT" }),
+    ]);
+    expect(result.byTicker[0]).toMatchObject({ notTrades: 1 });
+    expect(result.byTicker[0]!.splits).toBeUndefined();
+    expect(result.complete).toBe(false);
+  });
+
   it("matches a sale with the same day's buys, then the next 30 days', then the pool at its average cost", () => {
     const result = match([
       fill("VOD_EQ", "BUY", 100, 1000, "2025-01-10T10:00:00Z"),
@@ -130,10 +154,14 @@ describe("UK share matching", () => {
     expect(off.complete).toBe(false);
     expect(off.byTicker[0]).toMatchObject({ reconciliation: { held: 16, fills: 6 } });
     expect(off.notes.join(" ")).toMatch(/do not add up to the shares held now/);
+    const distributed = match([...orders, fill("A", "BUY", 6, 0, "2025-07-01T10:00:00Z", { type: "STOCK_DISTRIBUTION" })], { holdings: [{ ticker: "A", quantity: 12 }] });
+    expect(distributed.complete).toBe(false);
+    expect(distributed.byTicker[0]).toMatchObject({ notTrades: 1 });
+    expect(distributed.byTicker[0]!.reconciliation).toBeUndefined();
+    // A split of the same shares is the same holding in other units: 4 sold then are 8 now.
     const split = match([...orders, fill("A", "BUY", 6, 0, "2025-07-01T10:00:00Z", { type: "STOCK_SPLIT" })], { holdings: [{ ticker: "A", quantity: 12 }] });
-    expect(split.complete).toBe(false);
-    expect(split.byTicker[0]).toMatchObject({ notTrades: 1 });
-    expect(split.byTicker[0]!.reconciliation).toBeUndefined();
+    expect(split.complete).toBe(true);
+    expect(split.byTicker[0]).toMatchObject({ quantity: 8, pool: 8, cost: 40, gain: 20, splits: [{ on: "2025-07-01", ratio: 2 }] });
   });
 
   it("leaves out sales outside the year, and says what it could not match or value", () => {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.86.0
+
+- Splits and consolidations among the fills (Trading 212's `STOCK_SPLIT`) are read as what they are: the same holding in other units, at the same cost.
+  - Each split's ratio comes from the shares it closed and opened. A split listed as the shares it added alone has its ratio worked back from the shares held now. When neither tells, it is left as before and marked.
+  - The UK matching on the tax year page counts the shares bought and sold before a split in today's units, as HMRC treats a split. A sale before a split and a buy back after it within 30 days are matched like for like. Each instrument says which splits it had, as "3-for-2 split on 10 Jun 2025".
+  - A holding's page draws its position's history across a split, on closes adjusted for it or not, where it used to leave the chart out. The price chart marks a fill before a split at its price in today's units when the closes are adjusted, and its label says so.
+  - The fills lists on a holding's page and the Trades page label a split, or another corporate action, as such: not as a buy or a sell.
+- A split or another corporate action is no longer counted as a trade:
+  - the trade history's buy and sell totals leave it out;
+  - so do the performance page's buys, sells and turnover;
+  - so does the day's move;
+  - the tax year's disposals leave out the shares a split took away.
+- Gain by instrument lists an instrument with a split in the period as not counted, as its shares then and now are in other units. It used to value them as if they were the same.
+
 ## 2.85.0
 
 - A long history read reports its progress. A client that asks for progress on a tool call gets a notification for each page of 50 records read. Trading 212 allows few history reads a minute, so a year of trades or a tax year can take a while, and the host can show how far it has got.

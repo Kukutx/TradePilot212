@@ -16,6 +16,7 @@ import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverv
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
 import type { DayMove, PortfolioToday } from "../shared/today.js";
 import { fxShown, resultSplit, resultSplitOf } from "../shared/result-split.js";
+import { splitTerms } from "../shared/splits.js";
 import { WATCH_PERIODS, type WatchLevel, type WatchlistView, type WatchRow } from "../shared/watchlist.js";
 import type { OrderStatusReport } from "./trading-service.js";
 
@@ -616,12 +617,19 @@ function holding(data: HoldingDetail): string[] {
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...(history
       ? [
-          ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+          ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.fillType ? `${fill.fillType} ${(fill.quantity ?? 0) < 0 || String(fill.side).toUpperCase() === "SELL" ? "-" : "+"}` : `${fill.side ?? "?"} `}${num(Math.abs(fill.quantity ?? 0), 8)} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === undefined ? "" : `, ${money(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+          ...(history.splits?.length ? [`Splits: ${history.splits.map((split) => `${split.at.slice(0, 10)} ${splitLabel(split.ratio)}`).join("; ")}. Fills before one are listed as traded; the position's history counts them in today's units.`] : []),
           `Dividends since ${(history.dividendsFrom ?? history.from).slice(0, 10)}: ${money(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
           ...(history.nextDividends ? [`Expected next dividends${history.dividendFrequency ? ` (${FREQUENCY_TEXT[history.dividendFrequency]})` : ""}, at today's quantity, dates approximate: ${history.nextDividends.slice(0, 4).map((payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`} ${money(payment.amount, c)}`).join("; ")}.`] : []),
         ]
       : [`History not read: ${data.historyProblem ?? "unknown error"}.`]),
   ];
+}
+
+/** "3-for-2" for a split, "10-into-1" for a consolidation, in lowest terms. */
+function splitLabel(ratio: number): string {
+  const terms = splitTerms(ratio) ?? (ratio >= 1 ? { after: ratio, before: 1 } : { after: 1, before: 1 / ratio });
+  return ratio >= 1 ? `${num(terms.after, 8)}-for-${num(terms.before, 8)}` : `${num(terms.before, 8)}-into-${num(terms.after, 8)}`;
 }
 
 function taxYear(data: TaxYearSummary): string[] {

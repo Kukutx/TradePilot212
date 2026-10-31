@@ -97,6 +97,20 @@ describe("holding position history", () => {
     expect(holdingPositionHistory(detail({ position: held as never, history: { fillsUnpriced: true } }))).toBe("fills");
     expect(holdingPositionHistory(detail({ position: held as never, history: { fillsNotTrades: true } }))).toBe("split");
   });
+
+  it("counts the fills before a split in today's units, on closes adjusted for it or not", () => {
+    // 2-for-1 on the 3rd: 5 bought at 216 on the 2nd are 10 at 108 now; the split's own fill is left out.
+    const fills = [
+      { filledAt: "2026-09-03T08:00:00Z", side: "BUY", quantity: 5, price: 0, fillType: "STOCK_SPLIT" },
+      { filledAt: "2026-09-02T15:00:00Z", side: "BUY", quantity: 5, price: 216 },
+    ];
+    const splits = [{ at: "2026-09-03T08:00:00.000Z", ratio: 2 }];
+    const adjusted = holdingPositionHistory(detail({ position: held as never, history: { fills, splits } }));
+    expect(adjusted).toMatchObject({ startShares: 0, days: [{ shares: 0 }, { shares: 10 }, { shares: 10 }, { shares: 10 }] });
+    // Closes as they were traded: those before the split halved.
+    const raw = closes.map((point) => (point.date < "2026-09-03" ? { ...point, close: point.close * 2 } : point));
+    expect(holdingPositionHistory(detail({ position: held as never, prices: { source: "sample", points: raw } as never, history: { fills, splits } }))).toEqual(adjusted);
+  });
 });
 
 const round = (value: number) => Math.round(value * 100) / 100;

@@ -167,6 +167,27 @@ describe("holding detail", () => {
     expect(describePayload(detail)).toMatch(/Fills since \d{4}-\d{2}-\d{2} \(newest 20 of 26\)/);
   });
 
+  it("reads a split among the fills from the shares held now, and labels its fills", async () => {
+    const services = sample();
+    const trades = services.insights.tradeHistory.bind(services.insights);
+    let held = 0;
+    services.insights.tradeHistory = async (...args) => {
+      const read = await trades(...args);
+      const one = read.fills.find((item) => item.ticker === "NVDA_US_EQ")!;
+      // A 2-for-1 split listed as the shares it added, 300 days ago: as many as were held right after it, halved.
+      const at = new Date(Date.now() - 300 * 86_400_000).toISOString();
+      const after = read.fills.filter((item) => item.ticker === "NVDA_US_EQ" && (item.filledAt ?? "") > at);
+      const traded = after.reduce((sum, item) => sum + (String(item.side).toUpperCase() === "SELL" || (item.quantity ?? 0) < 0 ? -1 : 1) * Math.abs(item.quantity ?? 0), 0);
+      const split = { ...one, orderId: "900", filledAt: at, side: "BUY", quantity: (held - traded) / 2, price: 0, fillType: "STOCK_SPLIT" };
+      return { ...read, fills: [...read.fills.filter((item) => (item.filledAt ?? "") > at), split] };
+    };
+    held = (await holdingDetail(sample(), "demo", "NVDA_US_EQ")).position!.quantity;
+    const detail = await holdingDetail(services, "demo", "NVDA_US_EQ");
+    expect(detail.history?.splits?.map((item) => item.ratio)).toEqual([2]);
+    expect(detail.history).not.toHaveProperty("fillsNotTrades");
+    expect(detail.history?.fills.find((item) => item.orderId === "900")).toMatchObject({ fillType: "STOCK_SPLIT" });
+  });
+
   it("leaves out a quote in another unit, also when the closes did not come", async () => {
     // TSLA has a buy limit at 215; a quote a hundred times under it is in another unit.
     for (const read of [{ missing: "data" as const, problem: "Stooq took more than 3 seconds." }, { missing: "unit" as const, problem: "Stooq's closes look like another unit." }]) {

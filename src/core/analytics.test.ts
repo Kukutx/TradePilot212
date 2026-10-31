@@ -259,6 +259,15 @@ describe("tax year summary", () => {
     expect(result.notes.join(" ")).toMatch(/still running/);
   });
 
+  it("counts the shares a split took away as no disposal", () => {
+    const yearStart = parseYearStart("04-06");
+    const closed = fill("AAPL_US_EQ", "SELL", "2026-06-10T08:00:00Z", 900, 0, 0);
+    const opened = fill("AAPL_US_EQ", "BUY", "2026-06-10T08:00:00Z", 900, 0, 0);
+    const split = [closed, opened].map((item) => ({ ...item, fill: { ...item.fill, type: "STOCK_SPLIT" } }));
+    const result = summarizeTaxYear({ environment: "demo", accountCurrency: "GBP", orders: [...orders, ...split], dividends, transactions, year: 2026, yearStart, truncated: false, now: new Date("2026-10-01T00:00:00Z") });
+    expect(result.disposals).toEqual({ count: 1, proceeds: 500, gains: 80, losses: 0, net: 80 });
+  });
+
   it("covers a finished calendar year", () => {
     const result = summarizeTaxYear({ environment: "demo", accountCurrency: "GBP", orders, dividends, transactions, year: 2026, yearStart: parseYearStart(undefined), truncated: false, now: new Date("2027-02-01T00:00:00Z") });
     expect(result.ended).toBe(true);
