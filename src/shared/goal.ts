@@ -11,6 +11,8 @@ export const DEFAULT_GOAL_VOLATILITY = 0.15;
 export const MAX_GOAL_YEARS = 50;
 /** The 90th percentile of the standard normal: the low and high lines are this many deviations either side. */
 const Z90 = 1.2815515655446004;
+/** The widest yearly log growth the chance looks for, either way: beyond it the target is out of reach (or certain). */
+const BRACKET_LIMIT = 768;
 
 export interface InvestmentGoal {
   environment: TradingEnvironment;
@@ -131,9 +133,12 @@ export function projectGoal(inputs: GoalInputs, value: number, now = new Date())
   if (reached && inputs.monthly >= 0) chance = 1;
   else if (months === 0) chance = reached ? 1 : 0;
   else {
-    // The yearly growth that just reaches the target, found by halving; the chance is of growing faster than it.
+    // The yearly growth that just reaches the target, found by halving; the chance is of growing faster than it. Over a
+    // month or two the growth needed can be far from ±3 a year and still likely, so the bracket widens until it holds it.
     let low = -3;
     let high = 3;
+    while (high < BRACKET_LIMIT && grown(value, inputs.monthly, high, months) < inputs.target) high *= 2;
+    while (low > -BRACKET_LIMIT && grown(value, inputs.monthly, low, months) >= inputs.target) low *= 2;
     if (grown(value, inputs.monthly, high, months) < inputs.target) chance = 0;
     else if (grown(value, inputs.monthly, low, months) >= inputs.target) chance = 1;
     else {

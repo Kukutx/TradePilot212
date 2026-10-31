@@ -179,7 +179,8 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
   const submit = () => {
     setTouched(true);
     if (!valid || busy) return;
-    onSave({ target, by, monthly, expectedReturn, volatility, ...(name.trim() ? { name: name.trim() } : {}) });
+    // An empty name is sent too: it clears the one saved.
+    onSave({ target, by, monthly, expectedReturn, volatility, name: name.trim() });
   };
   return (
     <form className="alertForm goalForm" noValidate onSubmit={(event) => { event.preventDefault(); submit(); }}>
