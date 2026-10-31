@@ -41444,6 +41444,7 @@ var DEFAULT_GOAL_RETURN = 0.06;
 var DEFAULT_GOAL_VOLATILITY = 0.15;
 var MAX_GOAL_YEARS = 50;
 var Z90 = 1.2815515655446004;
+var BRACKET_LIMIT = 768;
 var GOAL_MILESTONES = [25, 50, 75, 100];
 function goalMilestone(value, target) {
   if (!(target > 0) || !Number.isFinite(value)) return 0;
@@ -41488,6 +41489,8 @@ function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
   else {
     let low = -3;
     let high = 3;
+    while (high < BRACKET_LIMIT && grown(value, inputs.monthly, high, months) < inputs.target) high *= 2;
+    while (low > -BRACKET_LIMIT && grown(value, inputs.monthly, low, months) >= inputs.target) low *= 2;
     if (grown(value, inputs.monthly, high, months) < inputs.target) chance = 0;
     else if (grown(value, inputs.monthly, low, months) >= inputs.target) chance = 1;
     else {
