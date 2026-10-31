@@ -1,4 +1,5 @@
-// Opens every view of the preview (sample account) at each host width, theme and language in a headless browser and
+// Opens every view of the preview (sample account) at each host width, theme and language, in a host that gives its
+// style variables and in one that gives none, in a headless browser and
 // checks what tests on the markup cannot see: the widget scrolling sideways, a box sticking out of the frame, text cut
 // off with nothing showing the rest, text under 12px, low contrast, a control too small to tap, a control with no
 // focus ring or focused out of view, a form control left with the browser's own look, a broken image, a failed
@@ -6,8 +7,9 @@
 // everything folded opened (charts shown as tables, "show all" lists, collapsed sections, the date-range panel), and
 // after each choice of every switch and tab list in it. With --shots it also saves pictures, to look over by eye.
 //
-//   pnpm audit:ui                          every view, 375/720/1040 px, light and dark, English and Chinese
-//   pnpm audit:ui -- --views=income,pies --widths=375 --themes=dark --langs=zh-CN --shots=ui-audit
+//   pnpm audit:ui                          every view, 375/720/1040 px, light and dark, English and Chinese, with and
+//                                          without the host's styles
+//   pnpm audit:ui -- --views=income,pies --widths=375 --themes=dark --langs=zh-CN --hosts=given --shots=ui-audit
 //
 // It exits 0 when nothing is wrong, 1 when it found problems and 2 when it could not check (a wrong option, no
 // Playwright, the preview not starting). It needs Playwright with Chromium (`pnpm add -D playwright && pnpm exec
@@ -34,6 +36,8 @@ const list = (name, fallback, allowed) => {
 const widths = list("widths", "375,720,1040", ["375", "720", "1040"]);
 const themes = list("themes", "light,dark", ["light", "dark"]);
 const langs = list("langs", "en,zh-CN", ["en", "zh-CN"]);
+// The host's style variables: none (the widget's own fallbacks) or the preview's sample host's.
+const hosts = list("hosts", "none,given", ["none", "given"]);
 const shots = option("shots", "");
 const parallel = Math.max(1, Number(option("parallel", "4")) || 4);
 
@@ -314,7 +318,7 @@ async function audit(context, base, run) {
   });
   try {
     await page.setViewportSize({ width: Number(run.width) + 140, height: 1400 });
-    await page.goto(`${base}/#view=${run.view}&lang=${run.lang}&width=${run.width}&theme=${run.theme}`);
+    await page.goto(`${base}/#view=${run.view}&lang=${run.lang}&width=${run.width}&theme=${run.theme}&host=${run.host}`);
     // The preview's own bar stays at the top of a tall picture and would cover the widget's.
     if (shots) await page.addStyleTag({ content: "header { position: static !important; }" });
     // An empty or still loading widget has nothing wrong to find, so it is a problem of its own.
@@ -322,7 +326,7 @@ async function audit(context, base, run) {
     const frame = page.frames().find((item) => item !== page.mainFrame());
     const picture = async (state) => {
       if (!shots) return;
-      const file = path.join(shots, `${run.view}-${run.lang}-${run.theme}-${run.width}${state}.png`);
+      const file = path.join(shots, `${run.view}-${run.lang}-${run.theme}-${run.width}${run.host === "given" ? "-host" : ""}${state}.png`);
       await (await frame.frameElement()).screenshot({ path: file }).catch(() => page.screenshot({ path: file, fullPage: true }));
     };
     const seen = new Set();
@@ -465,7 +469,7 @@ if (!known.length) { await browser.close(); stop(); fail("The preview listed no 
 const views = option("views", "") ? list("views", "", known) : known;
 if (shots) await fs.mkdir(shots, { recursive: true });
 
-const runs = views.flatMap((view) => widths.flatMap((width) => themes.flatMap((theme) => langs.map((lang) => ({ view, width, theme, lang })))));
+const runs = views.flatMap((view) => widths.flatMap((width) => themes.flatMap((theme) => langs.flatMap((lang) => hosts.map((host) => ({ view, width, theme, lang, host }))))));
 const found = [];
 let next = 0;
 await Promise.all(Array.from({ length: Math.min(parallel, runs.length) }, async () => {
@@ -477,16 +481,16 @@ await Promise.all(Array.from({ length: Math.min(parallel, runs.length) }, async 
 await browser.close();
 stop();
 
-// The same problem in several themes or languages is one problem.
+// The same problem in several themes, languages or hosts is one problem.
 const grouped = new Map();
 for (const item of found) {
   const key = `${item.view} ${item.width}px: ${item.problem}`;
-  grouped.set(key, [...(grouped.get(key) ?? []), `${item.lang}/${item.theme}`]);
+  grouped.set(key, [...(grouped.get(key) ?? []), `${item.lang}/${item.theme}${item.host === "given" ? "/host" : ""}`]);
 }
 for (const [key, where] of grouped) console.log(`✗ ${key}  [${where.join(", ")}]`);
 // Why the preview turned a request down, from its own terminal.
 const failures = previewLog.split("\n").filter((line, index, lines) => line.startsWith("Preview request failed") || lines[index - 1]?.startsWith("Preview request failed"));
 if (failures.length) console.log(`The preview said:\n${failures.slice(0, 10).join("\n")}`);
-console.log(`${grouped.size === 0 ? "✓" : "✗"} UI audit: ${views.length} views × ${widths.length} widths × ${themes.length} themes × ${langs.length} languages, ${grouped.size} problem${grouped.size === 1 ? "" : "s"}${shots ? `; pictures in ${shots}` : ""}`);
+console.log(`${grouped.size === 0 ? "✓" : "✗"} UI audit: ${views.length} views × ${widths.length} widths × ${themes.length} themes × ${langs.length} languages × ${hosts.length} hosts, ${grouped.size} problem${grouped.size === 1 ? "" : "s"}${shots ? `; pictures in ${shots}` : ""}`);
 const crashed = found.some((item) => item.problem.startsWith("the audit could not finish"));
 process.exit(crashed ? 2 : grouped.size === 0 ? 0 : 1);

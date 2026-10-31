@@ -121,4 +121,14 @@ describe("native controls", () => {
     expect(app).toContain("aria-disabled={busy && !active ? true : undefined}");
     expect(app).not.toContain("disabled={busy && !active}");
   });
+
+  it("reads the MCP Apps host's style variables, each with the widget's own value to fall back on", () => {
+    const root = css.slice(0, css.indexOf("* { box-sizing"));
+    for (const name of ["--font-sans", "--color-border-primary", "--color-border-secondary", "--shadow-hairline", "--border-radius-xl", "--color-ring-primary",
+      "--color-text-success", "--color-background-success", "--color-text-danger", "--color-text-warning", "--color-text-info"]) {
+      expect(root).toMatch(new RegExp(`var\\(${name}, [^)]`));
+    }
+    // A name the spec does not have (an older host's) is only read after the spec's own.
+    expect(css.split("var(--color-border-light").length).toBe(css.split("var(--color-border-primary, var(--color-border-light").length);
+  });
 });

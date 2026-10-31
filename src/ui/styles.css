@@ -1,6 +1,8 @@
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  /* Figures line up in columns everywhere; Inter's open digits and single-storey a read cleaner at small sizes. */
+  /* The host's type when it gives one (--font-sans, with its @font-face), else Inter where it is installed. */
+  font-family: var(--font-sans, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  /* Figures line up in columns everywhere, in any of those faces; Inter's open digits and single-storey a read cleaner
+     at small sizes (the two features do nothing in a face without them). */
   font-feature-settings: "tnum" 1, "cv11" 1, "ss01" 1;
   -webkit-font-smoothing: antialiased;
   color: var(--color-text-primary, #171717);
@@ -10,23 +12,26 @@
   --tp-bg-muted: color-mix(in srgb, var(--color-background-secondary, #f6f7f8) 72%, transparent);
   --tp-text: var(--color-text-primary, #171717);
   --tp-muted: var(--color-text-secondary, #63686f);
-  --tp-border: var(--color-border-light, #e1e3e6);
-  --tp-border-strong: color-mix(in srgb, var(--color-text-secondary, #777) 22%, transparent);
+  /* The MCP Apps host's border and shadow variables (--color-border-primary is its hairline; -light was an older
+     host's name for it), its corner radius and its status colours, each falling back to the widget's own. */
+  --tp-border: var(--color-border-primary, var(--color-border-light, #e1e3e6));
+  --tp-border-strong: var(--color-border-secondary, color-mix(in srgb, var(--color-text-secondary, #777) 22%, transparent));
   --tp-shadow: 0 18px 48px rgba(0, 0, 0, .08);
   /* Raised surfaces: a hairline and a soft, short shadow, as cards sit just above the page. */
-  --tp-elevation: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px -2px rgba(16, 24, 40, .06);
+  --tp-elevation: var(--shadow-hairline, 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px -2px rgba(16, 24, 40, .06));
   --tp-accent: #2f6fed;
   --tp-brand: linear-gradient(140deg, #0e9f6e 0%, #1d6fd8 62%, #4f46e5 100%);
-  --tp-green: #127f4c;
-  --tp-green-soft: #e9f7ef;
-  --tp-red: #b82f35;
-  --tp-red-soft: #faecec;
-  --tp-amber: #9a6512;
-  --tp-amber-soft: #fff4db;
-  --tp-blue: #2e65d1;
-  --tp-blue-soft: #edf3ff;
-  --tp-radius: 20px;
-  --tp-amber-text: #79500e;
+  --tp-green: var(--color-text-success, #127f4c);
+  --tp-green-soft: var(--color-background-success, #e9f7ef);
+  --tp-red: var(--color-text-danger, #b82f35);
+  --tp-red-soft: var(--color-background-danger, #faecec);
+  --tp-amber: var(--color-text-warning, #9a6512);
+  --tp-amber-soft: var(--color-background-warning, #fff4db);
+  --tp-blue: var(--color-text-info, #2e65d1);
+  --tp-blue-soft: var(--color-background-info, #edf3ff);
+  --tp-radius: var(--border-radius-xl, 20px);
+  --tp-amber-text: var(--color-text-warning, #79500e);
+  --tp-ring: var(--color-ring-primary, color-mix(in srgb, var(--tp-blue) 70%, transparent));
   --tp-primary-bg: #191a1c;
   --tp-primary-text: #ffffff;
   --tp-buy-bg: #18241e;
@@ -41,22 +46,22 @@
   --tp-bg-muted: color-mix(in srgb, var(--color-background-secondary, #26282c) 72%, transparent);
   --tp-text: var(--color-text-primary, #ececed);
   --tp-muted: var(--color-text-secondary, #a3a7ae);
-  --tp-border: var(--color-border-light, #34363b);
-  --tp-border-strong: color-mix(in srgb, var(--color-text-secondary, #a3a7ae) 30%, transparent);
-  --tp-green: #3fbf7f;
-  --tp-green-soft: #12301f;
-  --tp-red: #f0646a;
-  --tp-red-soft: #3a1618;
-  --tp-amber: #e0a43c;
-  --tp-amber-soft: #352710;
-  --tp-amber-text: #f0c46e;
-  --tp-blue: #7aa6ff;
-  --tp-blue-soft: #18243d;
+  --tp-border: var(--color-border-primary, var(--color-border-light, #34363b));
+  --tp-border-strong: var(--color-border-secondary, color-mix(in srgb, var(--color-text-secondary, #a3a7ae) 30%, transparent));
+  --tp-green: var(--color-text-success, #3fbf7f);
+  --tp-green-soft: var(--color-background-success, #12301f);
+  --tp-red: var(--color-text-danger, #f0646a);
+  --tp-red-soft: var(--color-background-danger, #3a1618);
+  --tp-amber: var(--color-text-warning, #e0a43c);
+  --tp-amber-soft: var(--color-background-warning, #352710);
+  --tp-amber-text: var(--color-text-warning, #f0c46e);
+  --tp-blue: var(--color-text-info, #7aa6ff);
+  --tp-blue-soft: var(--color-background-info, #18243d);
   --tp-primary-bg: #ececed;
   --tp-primary-text: #141517;
   --tp-buy-bg: #1f6b45;
   --tp-danger-bg: #c4343b;
-  --tp-elevation: 0 1px 0 rgba(255, 255, 255, .03) inset;
+  --tp-elevation: var(--shadow-hairline, 0 1px 0 rgba(255, 255, 255, .03) inset);
   --tp-accent: #6f9cff;
 }
 
@@ -68,7 +73,7 @@ small { font-size: max(12px, .85em); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled, .segmented button[aria-disabled="true"], .linkButton[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--tp-ring); outline-offset: 2px; }
 
 .appShell {
   width: 100%;
@@ -570,7 +575,7 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .toggleTrack > span { width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: transform .16s ease; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
 .toggleField input:checked + .toggleTrack { background: var(--tp-green); }
 /* The box itself is hidden, so the track shows the keyboard focus. */
-.toggleField input:focus-visible + .toggleTrack { outline: 2px solid color-mix(in srgb, var(--tp-blue) 70%, transparent); outline-offset: 2px; }
+.toggleField input:focus-visible + .toggleTrack { outline: 2px solid var(--tp-ring); outline-offset: 2px; }
 .toggleField input:checked + .toggleTrack > span { transform: translateX(13px); }
 .transactionFooter {
   display: flex;
@@ -884,6 +889,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .priceTag rect { fill: var(--level, var(--tp-muted)); }
 .priceTag line { stroke: var(--level, var(--tp-muted)); stroke-width: 1; }
 .priceTag text { fill: var(--tp-bg); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; }
+/* Dark on the dark theme's light tags whatever the host's page colour, which may be lighter than the widget's own. */
+:root[data-theme="dark"] .priceTag text { fill: #111214; }
 .tradeMark { stroke: var(--tp-bg); stroke-width: 2; stroke-linejoin: round; paint-order: stroke; }
 .tradeMark.buy { fill: var(--tp-green); }
 .tradeMark.sell { fill: var(--tp-red); }
@@ -1231,9 +1238,11 @@ h2[tabindex="-1"]:focus { outline: none; }
 }
 
 /* ---- Holdings: table or map, and their order ---- */
-.appShell { --tp-map-max: 70%; --tp-map-none: repeating-linear-gradient(135deg, var(--tp-bg-soft) 0 6px, var(--tp-border) 6px 7px); }
+/* The heat fills are the widget's own green and red, not a host's status colours: those are chosen for text, and a
+   lighter one (as a dark host's) under the tiles' light text took it under 4.5:1. */
+.appShell { --tp-map-max: 70%; --tp-heat-up: #127f4c; --tp-heat-down: #b82f35; --tp-map-none: repeating-linear-gradient(135deg, var(--tp-bg-soft) 0 6px, var(--tp-border) 6px 7px); }
 /* Darker tiles under light text: the strongest colour stays at 4.5:1 or more against it. */
-:root[data-theme="dark"] .appShell { --tp-map-max: 50%; }
+:root[data-theme="dark"] .appShell { --tp-map-max: 50%; --tp-heat-up: #3fbf7f; --tp-heat-down: #f0646a; }
 
 .holdingsToolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .holdingsToolbar .segmented button { min-height: 32px; padding: 0 12px; }
@@ -1249,7 +1258,7 @@ h2[tabindex="-1"]:focus { outline: none; }
 .holdingsMapWrap { display: grid; gap: 10px; }
 .mapLegend { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; margin: 0; color: var(--tp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .mapScale { width: 112px; height: 10px; border: 1px solid var(--tp-border); border-radius: 5px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--tp-red) var(--tp-map-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-green) var(--tp-map-max), var(--tp-bg-soft))); }
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tp-heat-down) var(--tp-map-max), var(--tp-bg-soft)), var(--tp-bg-soft) 50%, color-mix(in srgb, var(--tp-heat-up) var(--tp-map-max), var(--tp-bg-soft))); }
 .mapMissing { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; }
 .mapMissing i { width: 14px; height: 10px; border: 1px solid var(--tp-border); border-radius: 3px; background: var(--tp-map-none); }
 .mapSize { margin-left: 4px; }
@@ -1257,8 +1266,8 @@ h2[tabindex="-1"]:focus { outline: none; }
 .mapCell { position: absolute; display: flex; }
 .mapTile { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: safe center; gap: 1px; padding: 6px 9px; line-height: 1.2; overflow: hidden; border: 0; border-radius: 6px;
   background: var(--tp-bg-soft); color: var(--tp-text); font: inherit; text-align: left; }
-.mapTile.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
-.mapTile.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.mapTile.up { background: color-mix(in srgb, var(--tp-heat-up) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.mapTile.down { background: color-mix(in srgb, var(--tp-heat-down) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
 .mapTile.none { background: var(--tp-map-none); }
 button.mapTile:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tp-text) 55%, transparent); }
 button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset: -2px; }
@@ -1322,8 +1331,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 /* The year stays in view while the months scroll. */
 .monthlyTable tbody th { position: sticky; left: 0; z-index: 1; padding: 0 6px 0 0; background: var(--tp-bg); color: var(--tp-text); font-weight: 700; text-align: left; }
 .monthlyCell { height: 34px; padding: 0 2px; border-radius: 6px; background: var(--tp-bg-soft); color: var(--tp-text); font-weight: 650; text-align: center; white-space: nowrap; }
-.monthlyCell.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
-.monthlyCell.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyCell.up { background: color-mix(in srgb, var(--tp-heat-up) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyCell.down { background: color-mix(in srgb, var(--tp-heat-down) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
 .monthlyCell.empty { background: transparent; }
 /* In the text's colour, so it shows on the strongest tint too. */
 .monthlyCell.partial { outline: 1px dashed color-mix(in srgb, var(--tp-text) 70%, transparent); outline-offset: -3px; }
@@ -1338,8 +1347,8 @@ button.mapTile:focus-visible { outline: 2px solid var(--tp-blue); outline-offset
 .monthlyYear + .monthlyYear { margin-top: 12px; }
 .monthlyYear h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 14px; font-weight: 730; }
 .monthlyYearTotal { padding: 2px 8px; border-radius: 6px; background: var(--tp-bg-soft); font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; }
-.monthlyYearTotal.up { background: color-mix(in srgb, var(--tp-green) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
-.monthlyYearTotal.down { background: color-mix(in srgb, var(--tp-red) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyYearTotal.up { background: color-mix(in srgb, var(--tp-heat-up) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
+.monthlyYearTotal.down { background: color-mix(in srgb, var(--tp-heat-down) calc(var(--tp-map-max) * var(--tile-strength, 0)), var(--tp-bg-soft)); }
 .monthlyYearTotal.partial { outline: 1px dashed color-mix(in srgb, var(--tp-text) 70%, transparent); outline-offset: -3px; }
 .monthlyGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 0; padding: 0; list-style: none; }
 .monthlyGrid .monthlyCell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; height: 44px; font-size: 13px; font-variant-numeric: tabular-nums; }
