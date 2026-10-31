@@ -35253,10 +35253,10 @@ function localDay(instant, timeZone2) {
 function localMidnight(year, month, day2, timeZone2) {
   const guess = Date.UTC(year, month - 1, day2);
   const first = guess - zoneOffset(guess, timeZone2);
-  const midnight = guess - zoneOffset(first, timeZone2);
+  const midnight2 = guess - zoneOffset(first, timeZone2);
   const target = new Date(guess).toISOString().slice(0, 10);
-  if (localDay(midnight, timeZone2) >= target) return midnight;
-  return midnight + zoneOffset(midnight + 6 * 36e5, timeZone2) - zoneOffset(midnight, timeZone2);
+  if (localDay(midnight2, timeZone2) >= target) return midnight2;
+  return midnight2 + zoneOffset(midnight2 + 6 * 36e5, timeZone2) - zoneOffset(midnight2, timeZone2);
 }
 function localHourStart(day2, hour, timeZone2) {
   const [year, month, date5] = day2.split("-").map(Number);
@@ -35274,6 +35274,10 @@ var TAX_YEAR_ZONES = { "04-06": "Europe/London" };
 function taxYearZone(yearStart) {
   return yearStart ? TAX_YEAR_ZONES[yearStart] : void 0;
 }
+
+// src/shared/automation.ts
+var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
+var REPORT_KINDS = ["weekly", "monthly"];
 
 // src/core/notify.ts
 var DEFAULT_NOTIFY_EVENTS = [
@@ -35295,8 +35299,11 @@ var DEFAULT_NOTIFY_EVENTS = [
   "price_alert_triggered",
   "account_alert_triggered",
   "allocation_drift",
-  "daily_digest"
+  "daily_digest",
+  "weekly_report",
+  "monthly_report"
 ];
+var SCHEDULED_EVENTS = /* @__PURE__ */ new Set(["daily_digest", "weekly_report", "monthly_report"]);
 var URGENT_EVENTS = /* @__PURE__ */ new Set([
   "order_status_unknown",
   "order_outcome_unknown",
@@ -35327,7 +35334,9 @@ var LABELS = {
     price_alert_triggered: "Price alert",
     account_alert_triggered: "Account alert",
     allocation_drift: "Allocation has drifted from your targets",
-    daily_digest: "Daily digest"
+    daily_digest: "Daily digest",
+    weekly_report: "Weekly report",
+    monthly_report: "Monthly report"
   },
   "zh-CN": {
     order_submitted: "\u8BA2\u5355\u5DF2\u53D1\u9001",
@@ -35349,7 +35358,9 @@ var LABELS = {
     price_alert_triggered: "\u4EF7\u683C\u63D0\u9192",
     account_alert_triggered: "\u8D26\u6237\u63D0\u9192",
     allocation_drift: "\u6301\u4ED3\u914D\u7F6E\u5DF2\u504F\u79BB\u76EE\u6807",
-    daily_digest: "\u6BCF\u65E5\u6458\u8981"
+    daily_digest: "\u6BCF\u65E5\u6458\u8981",
+    weekly_report: "\u5468\u62A5",
+    monthly_report: "\u6708\u62A5"
   }
 };
 var WORDS = {
@@ -35399,7 +35410,7 @@ function figures(event, locale) {
 function notificationMessage(event, locale = "en") {
   const label = LABELS[locale][event.type] ?? LABELS.en[event.type] ?? event.type;
   const details = figures(event, locale);
-  const outcome = event.outcome ? event.type === "daily_digest" ? event.outcome.split(" \xB7 ") : [event.outcome] : [];
+  const outcome = event.outcome ? SCHEDULED_EVENTS.has(event.type) ? event.outcome.split(" \xB7 ") : [event.outcome] : [];
   return {
     title: `TradePilot \xB7 ${WORDS[locale].env[event.environment]} \xB7 ${label}`,
     lines: [...details.length ? [details.join(" \xB7 ")] : [], ...outcome],
@@ -35572,7 +35583,7 @@ var Notifications = class {
     const keys = await this.targetKeys();
     const now = this.now();
     const quiet = this.deps.config.notifyQuietHours;
-    if (quiet && this.deps.store && !URGENT_EVENTS.has(event.type) && event.type !== "daily_digest" && inQuietHours(quiet, now, this.zone)) {
+    if (quiet && this.deps.store && !URGENT_EVENTS.has(event.type) && !SCHEDULED_EVENTS.has(event.type) && inQuietHours(quiet, now, this.zone)) {
       const dueAt = quietHoursEnd(quiet, now, this.zone);
       try {
         await Promise.all(keys.map((target) => this.keep({ event, target, attempts: 0, dueAt, held: true })));
@@ -35585,7 +35596,7 @@ var Notifications = class {
     const text = notificationText(event, this.deps.config.notifyLocale);
     const results = await Promise.all(this.targets.map((target) => this.deliver(target, message, text, [event])));
     const accepted = results.some((result2) => result2.ok);
-    if (event.type !== "daily_digest" || accepted) {
+    if (!SCHEDULED_EVENTS.has(event.type) || accepted) {
       await Promise.all(results.map((result2, index) => result2.ok ? void 0 : this.keep({ event, target: keys[index], attempts: 1, dueAt: now + RETRY_DELAYS_MS[0] }).catch(() => {
       })));
     }
@@ -35722,6 +35733,13 @@ function taxYearStart(env2) {
   if (start.text !== raw) throw new Error("TAX_YEAR_START must be a real month and day as MM-DD, such as 04-06 for the UK");
   return start.text;
 }
+function reports(env2, digestSet) {
+  const wanted = (env2.REPORTS ?? "").split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+  const unknown2 = wanted.filter((item) => !REPORT_KINDS.includes(item));
+  if (unknown2.length) throw new Error("REPORTS must list weekly, monthly or both");
+  if (wanted.length && !digestSet) throw new Error("REPORTS are sent at the digest's hour: set DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC too");
+  return REPORT_KINDS.filter((kind) => wanted.includes(kind));
+}
 function digest(env2, zone) {
   const read = (name) => {
     const raw = (env2[name] ?? "").trim();
@@ -35782,6 +35800,7 @@ function createConfig(env2, requestOrigin) {
     quoteSymbols: parseSymbolMap(env2.QUOTE_SYMBOLS ?? ""),
     benchmark: benchmark(env2, sampleData),
     ...digest(env2, timeZone(env2)) ? { digest: digest(env2, timeZone(env2)) } : {},
+    reports: reports(env2, digest(env2, timeZone(env2)) !== void 0),
     ...timeZone(env2) ? { timeZone: timeZone(env2) } : {},
     taxYearStart: taxYearStart(env2),
     sampleData,
@@ -36047,9 +36066,6 @@ ${skill.body}` } }] };
   perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: await targets.get(environment) ?? null }));
   perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist2.list(environment) }));
 }
-
-// src/shared/automation.ts
-var BASKET_ORDER_NOTE = "Orders are sent one at a time, sells first. If a result is uncertain, the remaining orders are not sent.";
 
 // src/shared/protection.ts
 function stopOutcome(position, guard) {
@@ -39903,9 +39919,9 @@ var InsightsService = class {
     const timeFrom = (window.from ?? new Date(window.to.getTime() - 365 * 864e5)).toISOString();
     const timeTo = window.to.toISOString();
     const client = this.client(environment);
-    const reports = await client.listExports();
+    const reports2 = await client.listExports();
     const whole = (report) => ["includeDividends", "includeInterest", "includeOrders", "includeTransactions"].every((flag2) => report.dataIncluded?.[flag2] === true);
-    const same = reports.find((report) => !/fail|cancel/i.test(report.status ?? "") && whole(report) && report.timeFrom && report.timeTo && Date.parse(report.timeFrom) <= Date.parse(timeFrom) && Date.parse(report.timeTo) >= Date.parse(timeTo) - REUSE_SLACK_MS);
+    const same = reports2.find((report) => !/fail|cancel/i.test(report.status ?? "") && whole(report) && report.timeFrom && report.timeTo && Date.parse(report.timeFrom) <= Date.parse(timeFrom) && Date.parse(report.timeTo) >= Date.parse(timeTo) - REUSE_SLACK_MS);
     if (same) return { reportId: same.reportId, reused: same };
     return client.requestExport({
       timeFrom,
@@ -39921,8 +39937,8 @@ var InsightsService = class {
   async readExport(environment, reportId) {
     const kept = reportId !== void 0 ? this.exportReads.get(`${environment}:${reportId}`) : void 0;
     if (kept) return kept;
-    const reports = await this.client(environment).listExports();
-    const report = reportId !== void 0 ? reports.find((item) => item.reportId === reportId) : [...reports].sort((a, b) => b.reportId - a.reportId)[0];
+    const reports2 = await this.client(environment).listExports();
+    const report = reportId !== void 0 ? reports2.find((item) => item.reportId === reportId) : [...reports2].sort((a, b) => b.reportId - a.reportId)[0];
     if (!report) fail("INVALID_INPUT", reportId !== void 0 ? `Trading 212 has no report ${reportId}.` : "Trading 212 has no report yet: request one, then read it once it is finished.");
     if (!/finish|complete|ready/i.test(report.status ?? "") || !report.downloadLink) return { report };
     const key = `${environment}:${report.reportId}`;
@@ -40120,7 +40136,7 @@ var TargetAllocations = class {
    */
   async check(now = /* @__PURE__ */ new Date()) {
     const credentials = credentialStatus(this.deps.config);
-    const reports = [];
+    const reports2 = [];
     for (const environment of ["demo", "live"]) {
       if (!credentials[environment]) continue;
       const saved = await this.get(environment);
@@ -40135,9 +40151,9 @@ var TargetAllocations = class {
         await this.deps.store.put(targetKey(environment), { ...current, lastNotifiedAt: now.toISOString() });
         await this.deps.trading.recordActivity("allocation_drift", environment, { outcome: driftSummary(drift).slice(0, 200) });
       }
-      reports.push({ environment, maxDrift: drift.maxDrift, notified: due });
+      reports2.push({ environment, maxDrift: drift.maxDrift, notified: due });
     }
-    return reports;
+    return reports2;
   }
 };
 
@@ -40488,14 +40504,14 @@ var AutomationService = class {
    * when its run lock expires, about every 10 minutes.
    */
   async runDuePlans(now = /* @__PURE__ */ new Date()) {
-    const reports = [];
+    const reports2 = [];
     for (const plan2 of await this.listPlans()) {
       if (plan2.paused || Date.parse(plan2.nextRunAt) > now.getTime()) continue;
       const unattended = plan2.autoExecute && plan2.environment === "demo" && this.deps.config.demoAutomationEnabled;
       if (!unattended) {
         const notice = await this.deps.store.increment(`plan-due:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS6, now.getTime());
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id });
-        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message: `"${plan2.label}" is due and waits for your confirmation.` });
+        reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message: `"${plan2.label}" is due and waits for your confirmation.` });
         continue;
       }
       const lock = await this.deps.store.increment(`plan-lock:${plan2.id}:${plan2.nextRunAt}`, RUN_LOCK_MS, now.getTime());
@@ -40506,7 +40522,7 @@ var AutomationService = class {
         const notice = await this.deps.store.increment(`plan-unclear:${plan2.id}:${plan2.nextRunAt}`, 40 * DAY_MS6, now.getTime());
         const message = `"${plan2.label}" may already have been sent for this due date, but the result was not recorded. Check Trading 212, then run or skip it yourself.`;
         if (notice.count === 1) await this.deps.trading.recordActivity("plan_due", plan2.environment, { planId: plan2.id, outcome: message.slice(0, 200) });
-        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message });
+        reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "awaiting_confirmation", message });
         continue;
       }
       let marked = false;
@@ -40514,7 +40530,7 @@ var AutomationService = class {
         const basket = await this.buildBasket(latest, now);
         if (!basket.drafts.length) {
           await this.skip(plan2, now, `Nothing to send: ${basket.skipped.join(" ")}`, true);
-          reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
+          reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message: basket.skipped.join(" ") });
           continue;
         }
         const preview = await this.deps.trading.prepareBasket(basket, { quiet: true });
@@ -40528,7 +40544,7 @@ var AutomationService = class {
         marked = true;
         const result2 = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan2.environment, { planId: plan2.id, legs: result2.legs.length, outcome: result2.status });
-        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "auto", message: result2.message, result: result2 });
+        reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "auto", message: result2.message, result: result2 });
       } catch (error62) {
         const { code, message } = asStructuredError(error62);
         if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
@@ -40536,10 +40552,10 @@ var AutomationService = class {
           if (current?.inFlightDueAt) await this.deps.store.put(planKey(plan2.id), settled2(current));
         }
         await this.skip(plan2, now, message, false);
-        reports.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message });
+        reports2.push({ planId: plan2.id, environment: plan2.environment, dueAt: plan2.nextRunAt, mode: "skipped", message });
       }
     }
-    return reports;
+    return reports2;
   }
   async skip(plan2, now, message, advance) {
     const current = await this.read(plan2.id);
@@ -40902,11 +40918,11 @@ var AccountAlerts = class {
     const read = (alert) => alert.lastCheckedAt !== void 0 && now.getTime() - Date.parse(alert.lastCheckedAt) < DAY_MOVE_EVERY_MS;
     const moveDue = new Set(listed.filter((alert) => alert.condition === "day_move" && !read(alert)).map((alert) => alert.environment));
     const credentials = credentialStatus(this.deps.config);
-    const reports = [];
+    const reports2 = [];
     const accounts = /* @__PURE__ */ new Map();
     const days = /* @__PURE__ */ new Map();
     const caught = (error62) => new Error(asStructuredError(error62).message);
-    const waiting = (alert, message) => reports.push({ alertId: alert.id, environment: alert.environment, action: "waiting", message });
+    const waiting = (alert, message) => reports2.push({ alertId: alert.id, environment: alert.environment, action: "waiting", message });
     for (const alert of due) {
       if (!credentials[alert.environment]) continue;
       let outcome;
@@ -40961,12 +40977,12 @@ var AccountAlerts = class {
           ...alert.condition !== "day_move" && outcome.value !== void 0 ? { value: round12(outcome.value), ...outcome.currency ? { valueCurrency: outcome.currency } : {} } : {},
           outcome: `${outcome.message}${alert.note ? ` ${alert.note}` : ""}`.slice(0, 200)
         });
-        reports.push({ alertId: alert.id, environment: alert.environment, action: "triggered", message: outcome.message });
+        reports2.push({ alertId: alert.id, environment: alert.environment, action: "triggered", message: outcome.message });
       } else {
         waiting(alert, outcome.message);
       }
     }
-    return reports;
+    return reports2;
   }
 };
 
@@ -40974,7 +40990,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.80.0"
+  version: "2.81.0"
 };
 
 // src/shared/holding-risk.ts
@@ -43889,7 +43905,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           environment,
           window,
           maxPages,
-          (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), ...account === void 0 ? {} : { account } }),
+          (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), withStart: true, ...account === void 0 ? {} : { account } }),
           (read) => {
             history = read;
           }
@@ -44104,8 +44120,8 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           const period2 = read.report.timeFrom ? ` of ${read.report.timeFrom.slice(0, 10)} to ${read.report.timeTo?.slice(0, 10) ?? "?"}` : "";
           return result(payload2, `Read report ${read.report.reportId}${period2}: ${read.summary.rows} row(s)${read.summary.first ? ` from ${read.summary.first} to ${read.summary.last}` : ""}.`);
         }
-        const reports = await insights.listExports(environment);
-        return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, reports }, `Found ${reports.length} report(s).`);
+        const reports2 = await insights.listExports(environment);
+        return result({ kind: "history_export", environment, credentials: credentialStatus(config3), writeEnabled: canWrite, reports: reports2 }, `Found ${reports2.length} report(s).`);
       } catch (error62) {
         return toolError(error62);
       }
@@ -45445,10 +45461,10 @@ var PriceAlerts = class {
     const due = (await this.list()).filter((alert) => !alert.triggeredAt || alert.condition === "day_move");
     if (!due.length) return [];
     const credentials = credentialStatus(this.deps.config);
-    const reports = [];
+    const reports2 = [];
     const positions = /* @__PURE__ */ new Map();
     const waitDay = (alert) => {
-      if (!alert.triggeredAt) reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: `${alert.ticker} fired for ${alert.triggeredDay} already; it counts from the next trading day.` });
+      if (!alert.triggeredAt) reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: `${alert.ticker} fired for ${alert.triggeredDay} already; it counts from the next trading day.` });
     };
     for (const alert of due) {
       if (!credentials[alert.environment]) continue;
@@ -45465,7 +45481,7 @@ var PriceAlerts = class {
       }
       const held = positions.get(alert.environment);
       if (held instanceof Error) {
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
+        reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: held.message });
         continue;
       }
       const holding3 = held.find((item) => item.instrument?.ticker.toUpperCase() === alert.ticker.toUpperCase());
@@ -45480,13 +45496,13 @@ var PriceAlerts = class {
         if (quoted2) {
           const quote = instrument ? await this.deps.trading.externalQuote(instrument) : void 0;
           if (!quote) {
-            reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
+            reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "no_price", message: `${alert.ticker} is not held and no external quote is available.` });
             continue;
           }
           position = { currentPrice: quote.price, averagePricePaid: 0 };
         }
       } catch (error62) {
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error62).message });
+        reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: asStructuredError(error62).message });
         continue;
       }
       const price = position.currentPrice;
@@ -45494,7 +45510,7 @@ var PriceAlerts = class {
       if (alert.condition === "day_move") {
         const read = !instrument ? { missing: "data", problem: `Trading 212 does not list ${alert.ticker} at the moment.` } : this.deps.dayClose ? await this.deps.dayClose(alert.environment, instrument, price, quoted2, now).catch((error62) => ({ missing: "data", problem: asStructuredError(error62).message })) : { missing: "provider", problem: "No quote provider is configured." };
         if ("missing" in read) {
-          reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: read.problem });
+          reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: read.problem });
           continue;
         }
         if (firedFor(alert, read.day)) {
@@ -45528,12 +45544,12 @@ var PriceAlerts = class {
           price,
           outcome: `${outcome.message}${alert.note ? ` ${alert.note}` : ""}`.slice(0, 200)
         });
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "triggered", message: outcome.message });
+        reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "triggered", message: outcome.message });
       } else {
-        reports.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: outcome.message });
+        reports2.push({ alertId: alert.id, environment: alert.environment, ticker: alert.ticker, action: "waiting", message: outcome.message });
       }
     }
-    return reports;
+    return reports2;
   }
 };
 
@@ -45741,7 +45757,7 @@ var OrderWatch = class {
   async check(now = /* @__PURE__ */ new Date()) {
     if (!this.deps.config.orderWatch) return [];
     const credentials = credentialStatus(this.deps.config);
-    const reports = [];
+    const reports2 = [];
     for (const environment of ["demo", "live"]) {
       if (!credentials[environment]) continue;
       const slot = await this.deps.store.increment(`order-watch-slot:${environment}`, ORDER_WATCH_INTERVAL_MS, now.getTime());
@@ -45761,7 +45777,7 @@ var OrderWatch = class {
         for (const order of outcomes ? gone : []) {
           const outcome = outcomes.get(order.id);
           if (outcome && isFinal(outcome)) {
-            reports.push(await this.report(environment, order, { ...describeOutcome(order, outcome), outcome }, now));
+            reports2.push(await this.report(environment, order, { ...describeOutcome(order, outcome), outcome }, now));
             continue;
           }
           if ((order.missing ?? 0) + 1 < MAX_MISSING_CHECKS) {
@@ -45769,12 +45785,12 @@ var OrderWatch = class {
             continue;
           }
           const seen = outcome ? `the order history still shows it as ${outcome.status || "open"}${outcome.filledQuantity > 0 ? ` with ${amount(outcome.filledQuantity)} filled` : ""}` : "the order history does not show how it ended";
-          reports.push(await this.report(environment, order, { result: "unclear", message: `Left the order book, but ${seen}. Check it in Trading 212.`, ...outcome ? { outcome } : {} }, now));
+          reports2.push(await this.report(environment, order, { result: "unclear", message: `Left the order book, but ${seen}. Check it in Trading 212.`, ...outcome ? { outcome } : {} }, now));
         }
       }
       await this.deps.store.put(watchKey2(environment), { orders: [...open2, ...kept], checkedAt: now.toISOString() });
     }
-    return reports;
+    return reports2;
   }
   async report(environment, order, found, now) {
     const type = { filled: "order_filled", partly_filled: "order_partly_filled", closed: "order_closed", unclear: "order_outcome_unknown" }[found.result];
@@ -45865,26 +45881,73 @@ function digestDay(today) {
     movers: counted.slice(0, MOVERS).map((move) => ({ name: move.shortName ?? move.ticker, ...move.change === void 0 ? {} : { change: move.change }, profitLoss: move.profitLoss }))
   };
 }
-function digestText(input2) {
-  const change = input2.previousTotalValue === void 0 ? "" : ` (${signed2(input2.totalValue - input2.previousTotalValue)} since the last digest)`;
-  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round20(item.value)}${item.profitLoss === void 0 ? "" : ` (${signed2(item.profitLoss)})`}`);
+var DIGEST_WORDS = {
+  en: {
+    total: (value, change) => `Total ${value}${change ? ` (${change} since the last digest)` : ""}`,
+    day: (amount2, change, days, part) => `day ${amount2}${change ? ` (${change})` : ""} on ${days}${part ? ` for ${part} instruments` : ""}`,
+    part: (counted, of) => `${counted} of ${of}`,
+    movers: (list2) => `movers: ${list2}`,
+    cash: (value) => `cash ${value}`,
+    unrealized: (value) => `unrealized ${value}`,
+    top: (list2) => `top: ${list2}`,
+    pending: (count) => `${count} pending order(s)`,
+    plans: (list2) => `due plans: ${list2}`,
+    alerts: (count) => `${count} alert(s) triggered in the last day`,
+    fills: (count) => `${count} order(s) filled in the last day`,
+    received: (sum, list2) => `dividends ${sum} in: ${list2}`,
+    expected: (list2) => `dividends expected this week: ${list2}`,
+    due: (on) => `due ${on}`,
+    drift: (points3) => `largest drift from targets ${points3} points`,
+    uncovered: (list2) => `no full stop-loss: ${list2}`,
+    join: ", ",
+    aside: (text) => ` (${text})`
+  },
+  "zh-CN": {
+    total: (value, change) => `\u603B\u503C ${value}${change ? `\uFF08\u8F83\u4E0A\u6B21\u6458\u8981 ${change}\uFF09` : ""}`,
+    day: (amount2, change, days, part) => `\u5F53\u65E5 ${amount2}${change ? `\uFF08${change}\uFF09` : ""}\uFF0C\u4EA4\u6613\u65E5 ${days}${part ? `\uFF0C\u6309 ${part} \u4E2A\u6807\u7684\u8BA1` : ""}`,
+    part: (counted, of) => `${counted}/${of}`,
+    movers: (list2) => `\u6DA8\u8DCC\u6700\u5927\uFF1A${list2}`,
+    cash: (value) => `\u73B0\u91D1 ${value}`,
+    unrealized: (value) => `\u672A\u5B9E\u73B0\u76C8\u4E8F ${value}`,
+    top: (list2) => `\u524D\u4E09\u5927\u6301\u4ED3\uFF1A${list2}`,
+    pending: (count) => `${count} \u7B14\u6302\u5355`,
+    plans: (list2) => `\u5230\u671F\u8BA1\u5212\uFF1A${list2}`,
+    alerts: (count) => `\u8FC7\u53BB\u4E00\u5929\u89E6\u53D1 ${count} \u4E2A\u63D0\u9192`,
+    fills: (count) => `\u8FC7\u53BB\u4E00\u5929\u6210\u4EA4 ${count} \u7B14\u8BA2\u5355`,
+    received: (sum, list2) => `\u6536\u5230\u80A1\u606F ${sum}\uFF1A${list2}`,
+    expected: (list2) => `\u672C\u5468\u9884\u8BA1\u80A1\u606F\uFF1A${list2}`,
+    due: (on) => `\u5E94\u4E8E ${on} \u5230\u8D26`,
+    drift: (points3) => `\u4E0E\u76EE\u6807\u7684\u6700\u5927\u504F\u79BB ${points3} \u4E2A\u767E\u5206\u70B9`,
+    uncovered: (list2) => `\u672A\u88AB\u6B62\u635F\u5B8C\u5168\u8986\u76D6\uFF1A${list2}`,
+    join: "\uFF0C",
+    aside: (text) => `\uFF08${text}\uFF09`
+  }
+};
+function digestText(input2, locale = "en") {
+  const words = DIGEST_WORDS[locale];
+  const change = input2.previousTotalValue === void 0 ? void 0 : signed2(input2.totalValue - input2.previousTotalValue);
+  const top = [...input2.positions].sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.ticker} ${round20(item.value)}${item.profitLoss === void 0 ? "" : words.aside(signed2(item.profitLoss))}`);
   const day2 = input2.day;
+  const more = (count, shown) => count > shown ? ` +${count - shown}` : "";
   return [
-    `Total ${round20(input2.totalValue)} ${input2.currency}${change}`,
-    day2 ? `day ${signed2(day2.profitLoss)}${day2.change === void 0 ? "" : ` (${signedPct2(day2.change)})`} on ${day2.days.join(", ")}${day2.counted < day2.of ? ` for ${day2.counted} of ${day2.of} instruments` : ""}` : void 0,
+    words.total(`${round20(input2.totalValue)} ${input2.currency}`, change),
+    day2 ? words.day(signed2(day2.profitLoss), day2.change === void 0 ? void 0 : signedPct2(day2.change), day2.days.join(words.join), day2.counted < day2.of ? words.part(day2.counted, day2.of) : void 0) : void 0,
     // One sold out on the day has no price to compare: its sells' amount instead.
-    day2?.movers.length ? `movers: ${day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(", ")}` : void 0,
-    `cash ${round20(input2.cash)}`,
-    input2.unrealized === void 0 ? void 0 : `unrealized ${signed2(input2.unrealized)}`,
-    top.length ? `top: ${top.join(", ")}` : void 0,
-    input2.pendingOrders ? `${input2.pendingOrders} pending order(s)` : void 0,
-    input2.duePlans.length ? `due plans: ${input2.duePlans.join(", ")}` : void 0,
-    input2.triggeredAlerts ? `${input2.triggeredAlerts} alert(s) triggered in the last day` : void 0,
-    input2.filledOrders ? `${input2.filledOrders} order(s) filled in the last day` : void 0,
-    input2.dividends?.received.length ? `dividends ${round20(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round20(item.amount)}`).join(", ")}${input2.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input2.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}` : void 0,
-    input2.dividends?.expected.length ? `dividends expected this week: ${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round20(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input2.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input2.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}` : void 0,
-    input2.maxDrift === void 0 ? void 0 : `largest drift from targets ${(input2.maxDrift * 100).toFixed(1)} points`,
-    input2.uncovered?.length ? `no full stop-loss: ${input2.uncovered.slice(0, 5).join(", ")}${input2.uncovered.length > 5 ? ` +${input2.uncovered.length - 5}` : ""}` : void 0
+    day2?.movers.length ? words.movers(day2.movers.map((mover) => `${mover.name} ${mover.change === void 0 ? `${signed2(mover.profitLoss)} ${input2.currency}`.trim() : signedPct2(mover.change)}`).join(words.join)) : void 0,
+    words.cash(String(round20(input2.cash))),
+    input2.unrealized === void 0 ? void 0 : words.unrealized(signed2(input2.unrealized)),
+    top.length ? words.top(top.join(words.join)) : void 0,
+    input2.pendingOrders ? words.pending(input2.pendingOrders) : void 0,
+    input2.duePlans.length ? words.plans(input2.duePlans.join(words.join)) : void 0,
+    input2.triggeredAlerts ? words.alerts(input2.triggeredAlerts) : void 0,
+    input2.filledOrders ? words.fills(input2.filledOrders) : void 0,
+    input2.dividends?.received.length ? words.received(
+      String(round20(input2.dividends.received.reduce((sum, item) => sum + item.amount, 0))),
+      `${input2.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round20(item.amount)}`).join(words.join)}${more(input2.dividends.received.length, RECEIVED_DIVIDENDS)}`
+    ) : void 0,
+    input2.dividends?.expected.length ? words.expected(`${input2.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round20(item.amount)} ${item.due ? words.due(item.on.slice(5)) : item.on.slice(5)}`).join(words.join)}${more(input2.dividends.expected.length, EXPECTED_DIVIDENDS)}`) : void 0,
+    input2.maxDrift === void 0 ? void 0 : words.drift((input2.maxDrift * 100).toFixed(1)),
+    input2.uncovered?.length ? words.uncovered(`${input2.uncovered.slice(0, 5).join(words.join)}${more(input2.uncovered.length, 5)}`) : void 0
   ].filter(Boolean).join(" \xB7 ");
 }
 var RETRY_MS = 15 * 6e4;
@@ -45951,7 +46014,7 @@ var DailyDigest = class {
           ...uncovered.length ? { uncovered } : {},
           ...day3 ? { day: day3 } : {},
           ...dividends ? { dividends } : {}
-        });
+        }, this.deps.config.notifyLocale);
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest", outcome: text };
         if (!await this.deps.notify(event, { force: true })) {
           await this.deps.store.delete(claimKey2);
@@ -45969,6 +46032,132 @@ var DailyDigest = class {
         if (!delivered) await this.deps.store.delete(claimKey2).catch(() => {
         });
         console.error(JSON.stringify({ message: "TradePilot digest failed", environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+    }
+    return sent;
+  }
+};
+
+// src/core/reports.ts
+var DAY_MS19 = 864e5;
+var DONE_MS = 40 * DAY_MS19;
+var RETRY_MS2 = 15 * 6e4;
+var addDays = (day2, days) => {
+  const [year, month, date5] = day2.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date5 + days)).toISOString().slice(0, 10);
+};
+var midnight = (day2, timeZone2) => {
+  const [year, month, date5] = day2.split("-").map(Number);
+  return localMidnight(year, month, date5, timeZone2);
+};
+function reportPeriod(kind, day2) {
+  const weekday2 = (/* @__PURE__ */ new Date(`${day2}T00:00:00Z`)).getUTCDay();
+  if (kind === "weekly") return weekday2 === 1 ? { first: addDays(day2, -7), last: addDays(day2, -1) } : void 0;
+  if (!day2.endsWith("-01")) return void 0;
+  const last = addDays(day2, -1);
+  return { first: `${last.slice(0, 8)}01`, last };
+}
+function latestPeriod(kind, day2) {
+  const sinceMonday = ((/* @__PURE__ */ new Date(`${day2}T00:00:00Z`)).getUTCDay() + 6) % 7;
+  return reportPeriod(kind, kind === "weekly" ? addDays(day2, -sinceMonday) : `${day2.slice(0, 8)}01`);
+}
+var REPORT_WORDS = {
+  en: {
+    period: (kind, first, last) => `${kind === "weekly" ? "Last week" : "Last month"}, ${first} to ${last}`,
+    value: (end, start, change) => `value ${end} (from ${start}, ${change})`,
+    twr: (value) => `time-weighted return ${value}`,
+    flows: (value) => `net deposits ${value}`,
+    income: (dividends, interest) => `dividends ${dividends}${interest ? `, interest ${interest}` : ""}`,
+    interest: (value) => `interest ${value}`,
+    trades: (buys, sells, turnover) => `${buys} buy(s), ${sells} sell(s), turnover ${turnover}`,
+    noTrades: "no trades",
+    realized: (value) => `realized ${value}`,
+    costs: (value) => `costs ${value}`,
+    short: "history cut short at the page limit: figures may be low"
+  },
+  "zh-CN": {
+    period: (kind, first, last) => `${kind === "weekly" ? "\u4E0A\u5468" : "\u4E0A\u6708"}\uFF0C${first} \u81F3 ${last}`,
+    value: (end, start, change) => `\u5E02\u503C ${end}\uFF08\u671F\u521D ${start}\uFF0C${change}\uFF09`,
+    twr: (value) => `\u65F6\u95F4\u52A0\u6743\u6536\u76CA ${value}`,
+    flows: (value) => `\u51C0\u5165\u91D1 ${value}`,
+    income: (dividends, interest) => `\u80A1\u606F ${dividends}${interest ? `\uFF0C\u5229\u606F ${interest}` : ""}`,
+    interest: (value) => `\u5229\u606F ${value}`,
+    trades: (buys, sells, turnover) => `\u4E70\u5165 ${buys} \u7B14\uFF0C\u5356\u51FA ${sells} \u7B14\uFF0C\u6210\u4EA4\u989D ${turnover}`,
+    noTrades: "\u6CA1\u6709\u4EA4\u6613",
+    realized: (value) => `\u5DF2\u5B9E\u73B0\u76C8\u4E8F ${value}`,
+    costs: (value) => `\u8D39\u7528 ${value}`,
+    short: "\u5386\u53F2\u8BB0\u5F55\u8BFB\u5230\u9875\u6570\u4E0A\u9650\u88AB\u622A\u65AD\uFF0C\u6570\u5B57\u53EF\u80FD\u504F\u4F4E"
+  }
+};
+function reportText(kind, period, summary, locale = "en") {
+  const words = REPORT_WORDS[locale];
+  const currency = summary.accountCurrency;
+  const money4 = (value, sign = false) => {
+    const text = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2, ...sign ? { signDisplay: "exceptZero" } : {} }).format(value);
+    return currency ? `${text} ${currency}` : text;
+  };
+  const percent = (value) => new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 2, signDisplay: "exceptZero" }).format(value);
+  const values = summary.valueHistory ?? [];
+  const start = values[0];
+  const end = values.at(-1);
+  const flows = summary.contributions.net;
+  const { dividends, interest } = summary.income;
+  const { buys, sells, turnover } = summary.trades;
+  return [
+    words.period(kind, period.first, period.last),
+    start && end && start !== end ? words.value(money4(end.totalValue), money4(start.totalValue), money4(end.totalValue - start.totalValue, true)) : void 0,
+    summary.timeWeighted ? words.twr(percent(summary.timeWeighted.return)) : void 0,
+    Math.abs(flows) >= 5e-3 ? words.flows(money4(flows, true)) : void 0,
+    Math.abs(dividends) >= 5e-3 ? words.income(money4(dividends), Math.abs(interest) >= 5e-3 ? money4(interest) : void 0) : Math.abs(interest) >= 5e-3 ? words.interest(money4(interest)) : void 0,
+    buys || sells ? words.trades(buys, sells, money4(turnover)) : words.noTrades,
+    Math.abs(summary.realizedProfitLoss) >= 5e-3 ? words.realized(money4(summary.realizedProfitLoss, true)) : void 0,
+    Math.abs(summary.costs.total) >= 5e-3 ? words.costs(money4(summary.costs.total)) : void 0,
+    summary.coverage.truncated ? words.short : void 0
+  ].filter(Boolean).join(" \xB7 ");
+}
+var PeriodicReports = class {
+  constructor(deps) {
+    this.deps = deps;
+  }
+  deps;
+  /**
+   * Each kind's latest ended period not yet reported, once per environment, at or after the digest's hour. Returns
+   * `kind:environment` for each sent.
+   */
+  async run(now = /* @__PURE__ */ new Date()) {
+    const { digest: digest2, reports: reports2 } = this.deps.config;
+    if (!digest2 || !reports2.length || !this.deps.notify || localHour(now.getTime(), digest2.timeZone) < digest2.hour) return [];
+    const day2 = localDay(now.getTime(), digest2.timeZone);
+    const credentials = credentialStatus(this.deps.config);
+    const sent = [];
+    for (const kind of reports2) {
+      const period = latestPeriod(kind, day2);
+      for (const environment of ["demo", "live"]) {
+        if (!credentials[environment]) continue;
+        const attempt = await this.deps.store.increment(`report-try:${kind}:${environment}:${period.first}`, RETRY_MS2, now.getTime());
+        if (attempt.count > 1) continue;
+        const claimKey2 = `report:${kind}:${environment}:${period.first}`;
+        const claim2 = await this.deps.store.increment(claimKey2, DONE_MS, now.getTime());
+        if (claim2.count > 1) continue;
+        let delivered = false;
+        try {
+          const window = { from: new Date(midnight(period.first, digest2.timeZone)), to: new Date(midnight(addDays(period.last, 1), digest2.timeZone) - 1), endsNow: false };
+          const summary = await this.deps.performance(environment, window);
+          const text = reportText(kind, period, summary, this.deps.config.notifyLocale);
+          const type = kind === "weekly" ? "weekly_report" : "monthly_report";
+          const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type, outcome: text };
+          if (!await this.deps.notify(event, { force: true })) {
+            await this.deps.store.delete(claimKey2);
+            continue;
+          }
+          delivered = true;
+          sent.push(`${kind}:${environment}`);
+          await this.deps.trading.recordActivity(type, environment, { outcome: text }, { notify: false }).catch(() => void 0);
+        } catch (error62) {
+          if (!delivered) await this.deps.store.delete(claimKey2).catch(() => {
+          });
+          console.error(JSON.stringify({ message: "TradePilot report failed", kind, environment, error: error62 instanceof Error ? error62.message : String(error62) }));
+        }
       }
     }
     return sent;
@@ -45993,7 +46182,7 @@ var ProtectiveLinks = class {
     if (!this.deps.config.protectiveLinking) return [];
     const links = await this.list();
     if (!links.length) return [];
-    const reports = [];
+    const reports2 = [];
     const credentials = credentialStatus(this.deps.config);
     const pendingByEnv = /* @__PURE__ */ new Map();
     const historyByEnv = /* @__PURE__ */ new Map();
@@ -46007,13 +46196,13 @@ var ProtectiveLinks = class {
         if (open2.length === 2) continue;
         if (open2.length === 0) {
           await this.drop(link, "Both protective orders have left the order book.");
-          reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: "Both orders are gone." });
+          reports2.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: "Both orders are gone." });
           continue;
         }
         const survivor = open2[0];
         halfOpen.push({ link, survivor, gone: link.orders.find((order) => order.orderId !== survivor.orderId) });
       } catch (error62) {
-        reports.push({ linkId: link.id, environment: link.environment, action: "waiting", message: error62 instanceof Error ? error62.message : String(error62) });
+        reports2.push({ linkId: link.id, environment: link.environment, action: "waiting", message: error62 instanceof Error ? error62.message : String(error62) });
       }
     }
     for (const { link, survivor, gone } of halfOpen) {
@@ -46031,30 +46220,30 @@ var ProtectiveLinks = class {
           const result2 = await this.deps.trading.cancelLinkedOrder(link.environment, survivor.orderId, reason, { quiet: attempts > 0 });
           if (result2 === "cancelled" || result2 === "gone") {
             await this.drop(link);
-            reports.push({ linkId: link.id, environment: link.environment, action: "cancelled_sibling", message: `${reason}; ${result2 === "cancelled" ? "cancelled" : "no longer pending:"} ${survivor.orderId}.` });
+            reports2.push({ linkId: link.id, environment: link.environment, action: "cancelled_sibling", message: `${reason}; ${result2 === "cancelled" ? "cancelled" : "no longer pending:"} ${survivor.orderId}.` });
           } else if (attempts + 1 >= MAX_CANCEL_ATTEMPTS) {
             await this.drop(link);
             await this.attention(link, `${reason}, but cancelling ${survivor.orderId} failed ${attempts + 1} times. Cancel it in Trading 212, or it may sell shares you buy later.`);
-            reports.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} kept failing. Check it in Trading 212.` });
+            reports2.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} kept failing. Check it in Trading 212.` });
           } else {
             await this.deps.store.put(`link:${link.id}`, { ...link, cancelAttempts: attempts + 1 }, Date.parse(link.createdAt) + LINK_TTL_MS2);
-            reports.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} did not clearly succeed and will be tried again.` });
+            reports2.push({ linkId: link.id, environment: link.environment, action: "cancel_unclear", message: `${reason}; cancelling ${survivor.orderId} did not clearly succeed and will be tried again.` });
           }
         } else if (partlyFilled(outcome)) {
           await this.drop(link);
           await this.attention(link, `${label} filled ${outcome.filledQuantity}${outcome.quantity ? ` of ${outcome.quantity}` : ""} and closed. ${survivor.orderId} still covers the original quantity; adjust it to what you hold.`);
-          reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} filled only partly; ${survivor.orderId} was left open for you to adjust.` });
+          reports2.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} filled only partly; ${survivor.orderId} was left open for you to adjust.` });
         } else if (isClosedWithoutFill(outcome)) {
           await this.drop(link, `${gone.orderId} was cancelled or rejected without a fill, so ${survivor.orderId} stays open.`);
-          reports.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} closed without a fill.` });
+          reports2.push({ linkId: link.id, environment: link.environment, action: "unlinked", message: `${gone.orderId} closed without a fill.` });
         } else {
-          reports.push({ linkId: link.id, environment: link.environment, action: "waiting", message: `${gone.orderId} is not in the recent history yet.` });
+          reports2.push({ linkId: link.id, environment: link.environment, action: "waiting", message: `${gone.orderId} is not in the recent history yet.` });
         }
       } catch (error62) {
-        reports.push({ linkId: link.id, environment: link.environment, action: "waiting", message: error62 instanceof Error ? error62.message : String(error62) });
+        reports2.push({ linkId: link.id, environment: link.environment, action: "waiting", message: error62 instanceof Error ? error62.message : String(error62) });
       }
     }
-    return reports;
+    return reports2;
   }
   async attention(link, note) {
     await this.deps.trading.recordActivity("protective_attention", link.environment, { ticker: link.ticker, outcome: note.slice(0, 200) });
@@ -46067,6 +46256,7 @@ var ProtectiveLinks = class {
 
 // src/core/value-history.ts
 var HOUR_MS2 = 36e5;
+var WEEK_MS2 = 7 * 864e5;
 var KEEP_MS2 = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
 var round21 = (value) => Math.round(value * 100) / 100;
@@ -46123,12 +46313,19 @@ var ValueHistory = class {
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
    * date-time bound compares when each value was read. Only one Trading 212 account's days are
-   * returned: `account` when given, otherwise the account of the newest point.
+   * returned: `account` when given, otherwise the account of the newest point. With `withStart`, a date-time `from`
+   * also brings the last reading before it, from the week before: the value the window starts from, so the window's
+   * first day has its move. A day's reading is its last, late in the UTC day, so in a zone at or west of UTC the
+   * evening before a window's first local midnight would otherwise be left out.
    */
   async points(environment, range = {}) {
     const stored = (await this.deps.store.list(`value-history:${this.series(environment)}:`)).flatMap((entry) => entry.value).sort((a, b) => a.date.localeCompare(b.date));
     const current = range.account ?? stored[stored.length - 1]?.account;
-    return stored.filter((point) => point.account === current && within2(point, range.from, "from") && within2(point, range.to, "to")).map(({ account: _account, ...point }) => point);
+    const mine = stored.filter((point) => point.account === current && within2(point, range.to, "to"));
+    const inside = mine.filter((point) => within2(point, range.from, "from"));
+    const start = range.withStart && range.from && !DATE_ONLY2.test(range.from) ? Date.parse(range.from) : NaN;
+    const before = Number.isFinite(start) ? mine.filter((point) => Date.parse(point.at) < start && Date.parse(point.at) >= start - WEEK_MS2).at(-1) : void 0;
+    return (before ? [before, ...inside] : inside).map(({ account: _account, ...point }) => point);
   }
 };
 
@@ -46204,6 +46401,13 @@ function createServices(input2) {
     dividends: (environment, from, now) => insights.collect(environment, "dividends", { from, to: now }),
     ...notify ? { notify } : {}
   });
+  const reports2 = new PeriodicReports({
+    config: deps.config,
+    store: deps.store,
+    trading,
+    performance: (environment, window) => insights.performance(environment, window, void 0, (account) => values.points(environment, { ...window.from ? { from: window.from.toISOString() } : {}, to: window.to.toISOString(), withStart: true, ...account === void 0 ? {} : { account } })),
+    ...notify ? { notify } : {}
+  });
   const stage = async (name, run) => {
     try {
       return await run();
@@ -46221,6 +46425,7 @@ function createServices(input2) {
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest2.run()),
+    reports: await stage("reports", () => reports2.run()),
     notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([]))
   });
   let running;
@@ -46276,6 +46481,7 @@ function createServices(input2) {
           }
         } : {},
         digestHour: deps.config.digest?.hour ?? null,
+        ...deps.config.reports.length ? { reports: deps.config.reports } : {},
         ...deps.config.digest ? { digestTimeZone: deps.config.digest.timeZone } : {},
         ...deps.config.timeZone ? { timeZone: deps.config.timeZone } : {},
         taxYearStart: deps.config.taxYearStart,
