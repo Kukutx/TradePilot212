@@ -134,3 +134,15 @@ export function intentForAccount(draft: OrderDraft, resolution: OrderResolution 
     ...(draft.thesis ? { thesis: draft.thesis } : {}),
   };
 }
+
+/**
+ * Why an open order can't be changed from the widget, or undefined when it can: a Market order fills at once, one
+ * placed by amount in the Trading 212 app has no quantity of its own, and one filled in part is open only for the rest.
+ * The server checks the same before it reviews a change.
+ */
+export function changeBlock(order: PendingOrder): "market" | "value" | "partly_filled" | undefined {
+  if (String(order.type ?? "").toUpperCase() === "MARKET") return "market";
+  if (String(order.strategy ?? "QUANTITY").toUpperCase() === "VALUE") return "value";
+  if (Math.abs(Number(order.filledQuantity ?? 0)) > 0) return "partly_filled";
+  return undefined;
+}

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.100.0
+
+- Change a pending order: **Change** beside **Review cancel** on a Limit, Stop or Stop-Limit order (the dashboard, a holding's page and an order's own page) opens an editor for its quantity, limit or stop price and validity. The confirmation shows the order as it is beside the order that replaces it, with what changed marked, the new order's checks and what it would change; Live needs the second confirmation.
+- Trading 212's API has no edit, so confirming reads the order again, cancels it, reads it about once a second until it shows cancelled, checks its history for any fill, and only then places the new order, once. If part of it filled, it changed since the review, or the cancel can't be confirmed, it stops before the new order, and the result says plainly "Old order cancelled, new order not placed" when it got that far. That event (`replace_stopped`) is sent even in quiet hours; `order_replaced` says a change went through.
+- The new order is checked with the shares a pending sell holds back, or the cash a pending buy holds back, counted as free, so lowering a limit or adding to a stop is not refused for the order's own reservation.
+- A protective pair keeps its link across a change: it waits while the change runs and then links the new order.
+- New tools: `review_order_change` (opens the change for review; never sends) and the app-only `app_prepare_replace` and `app_execute_replace`. A terminal host that can show a form asks before the change is sent, with the old and new order in the question.
+
 ## 2.99.0
 
 - The investment goal's form has a slider under the monthly amount, the yearly return, the volatility and the inflation. The widget draws it (`role="slider"`, never the browser's range input): drag it with a mouse or a finger, or use the arrow keys, Page Up and Page Down, Home and End. The range redraws as it moves. A vertical swipe over it still scrolls the page. The box beside it is still where an exact figure goes.

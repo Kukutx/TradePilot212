@@ -1,10 +1,11 @@
-import type { OrderStatusReport, TradingEnvironment } from "../../shared/contracts";
+import type { OrderStatusReport, PendingOrder, TradingEnvironment } from "../../shared/contracts";
 import type { ExportReport, ExportSummary, ExportTotals } from "../../shared/history";
 import { localeTag, type MessageKey, type SupportedLocale } from "../i18n";
 import { AssetAvatar, DetailRow, Metric } from "../components/common";
 import { amount, dateTime, dayLabel, money, pct, qty, signedClass } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderTypeLabel, plural, type Translator } from "../lib/messages";
+import { changeBlock } from "../lib/orders";
 
 // Pages for tools whose result is one thing to look at: an order looked up by id, and Trading 212's CSV reports.
 
@@ -36,9 +37,9 @@ function PageNav({ t, busy, onBack }: { t: Translator; busy: boolean; onBack?: (
 
 /** One order: where it stands, how much of it filled and at what prices, with a way to its holding and to cancel it while open. */
 /** `justCancelled`: a cancellation of this order was just sent, which Trading 212 may not show yet. */
-export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, justCancelled = false, onOpen, onCancel, onBack, onRefresh }: {
+export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, justCancelled = false, onOpen, onCancel, onChange, onBack, onRefresh }: {
   data: OrderStatusReport; book?: InstrumentBook; locale: SupportedLocale; t: Translator; busy: boolean; writeEnabled: boolean; justCancelled?: boolean;
-  onOpen?: (ticker: string) => void; onCancel?: (orderId: string) => void; onBack?: () => void; onRefresh?: () => void;
+  onOpen?: (ticker: string) => void; onCancel?: (orderId: string) => void; onChange?: (order: PendingOrder) => void; onBack?: () => void; onRefresh?: () => void;
 }) {
   const order = data.order;
   const ticker = order?.ticker;
@@ -112,6 +113,7 @@ export function OrderStatusView({ data, book, locale, t, busy, writeEnabled, jus
       )}
       <div className="toolActions">
         {onRefresh && <button type="button" className="secondaryButton" disabled={busy} onClick={onRefresh}>{t("orderCheckAgain")}</button>}
+        {open && writeEnabled && onChange && order && data.state === "open" && !changeBlock(order) && <button type="button" className="secondaryButton" disabled={busy} onClick={() => onChange({ ...order, id: order.id ?? data.orderId })}>{t("prepareChange")}</button>}
         {open && writeEnabled && onCancel && <button type="button" className="secondaryButton danger" disabled={busy} onClick={() => onCancel(data.orderId)}>{t("prepareCancel")}</button>}
       </div>
     </main>

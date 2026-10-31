@@ -116,7 +116,16 @@ A Stop buy is valued at its stop price when that is above the market, so `MAX_OR
 
 ## Following up an order
 
-`get_order_status` looks up one order by id: still open (and how much filled), or how it ended, with its fills. `review_order_cancel` opens a pending order's cancellation in the widget for you to confirm; the model cannot cancel by itself. `get_trade_history` with `includeUnfilled` also lists orders that were cancelled, rejected or expired.
+`get_order_status` looks up one order by id: still open (and how much filled), or how it ended, with its fills. `review_order_cancel` opens a pending order's cancellation in the widget for you to confirm; the model cannot cancel by itself.
+
+**Changing a pending order** (2.100). Beside **Review cancel**, a Limit, Stop or Stop-Limit order has **Change**, and `review_order_change` opens the same editor with a change the model proposes. You can change the quantity, the limit or stop price and the validity; the instrument, side and type stay. The new order is checked as any order is, with the shares a pending sell holds back, or the cash a pending buy holds back (at most what Trading 212 reports as held for orders), counted as free. The confirmation shows the order as it is beside the order that replaces it, with what changed marked; on Live it needs the second confirmation. Trading 212's API has no edit, so confirming:
+
+1. reads the order again, and stops with nothing changed if it filled in part, left the book or was changed in the app since the review, or if the new order no longer passes its checks;
+2. cancels it, and reads it about once a second until Trading 212 shows it cancelled;
+3. checks its history for any fill, and stops before the new order if part of it filled or the history does not show the cancel yet;
+4. places the new order, once.
+
+When it stops after the cancel, the result says plainly "Old order cancelled, new order not placed" and why; nothing is placed again on its own, and the event is sent to your notifications even in quiet hours. A protective pair keeps its link across the change: the pair waits while the change runs, then links the new order, or is checked as before if nothing replaced the old one. Market orders, orders placed by amount in the Trading 212 app and orders already filled in part can't be changed here. `get_trade_history` with `includeUnfilled` also lists orders that were cancelled, rejected or expired.
 
 ## Price and FX timestamps
 

@@ -151,6 +151,9 @@ export type ActivityType =
   | "cancel_submitted"
   | "cancel_rejected"
   | "cancel_status_unknown"
+  | "replace_prepared"
+  | "order_replaced"
+  | "replace_stopped"
   | "basket_prepared"
   | "basket_submitted"
   | "plan_due"
@@ -497,6 +500,63 @@ export interface CancelPreview {
   orderId: string;
   /** The order as Trading 212 reports it, so the confirmation can say what is being cancelled. */
   order?: PendingOrder;
+}
+
+/** What can change on an open order, from 2.100: the rest is the order's own (its instrument, side and type). */
+export interface ReplaceChanges {
+  quantity?: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  timeValidity?: TimeValidity;
+}
+
+/**
+ * An open order's change, reviewed: the order as it is and the one that replaces it, checked as a new order would be
+ * with the shares or cash the open one holds back counted as free. Trading 212 has no way to edit an order, so the
+ * confirmation cancels it and places the new one; nothing is sent until then.
+ */
+export interface ReplacePreview extends Omit<OrderPreview, "kind"> {
+  kind: "replace_preview";
+  environment: TradingEnvironment;
+  orderId: string;
+  /** The open order as Trading 212 reported it at the review. */
+  original: PendingOrder;
+}
+
+/**
+ * How a confirmed change came out. "replaced": the old order was cancelled and the new one placed. "unchanged": the
+ * old order is still as it was and nothing was placed (it filled or changed since the review, a check failed, or the
+ * cancel was refused). "cancelled_not_placed": the old order was cancelled but the new one was not placed, because
+ * the old one filled in part meanwhile, its end could not be confirmed, or Trading 212 refused the new one; it is
+ * never placed again on its own. "unknown": a request's answer was lost, so what Trading 212 holds now must be checked.
+ */
+export interface ReplaceExecutionResult {
+  kind: "replace_execution";
+  environment: TradingEnvironment;
+  orderId: string;
+  ok: boolean;
+  stage: "replaced" | "unchanged" | "cancelled_not_placed" | "unknown";
+  /** Why it stopped where it did, for the stages other than "replaced". */
+  reason?: "gone" | "filled" | "partly_filled" | "changed" | "check_failed" | "cancel_rejected" | "cancel_unknown" | "not_confirmed" | "placement_rejected" | "placement_unknown";
+  /** The order that replaced it, as Trading 212 returned it. */
+  order?: unknown;
+  newOrderId?: string;
+  draft: OrderDraft;
+  message: string;
+  error?: StructuredError;
+  verificationId?: string;
+}
+
+export interface ReplaceDraftPayload {
+  kind: "replace_draft";
+  environment: TradingEnvironment;
+  orderId: string;
+  /** The open order as Trading 212 lists it, when it is still open. */
+  order?: PendingOrder;
+  /** The change the model proposed, for the editor to start from. */
+  changes: ReplaceChanges;
+  credentials: CredentialStatus;
+  writeEnabled?: boolean;
 }
 
 export interface DashboardPayload extends PortfolioSnapshot {

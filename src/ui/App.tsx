@@ -18,7 +18,12 @@ import type {
   OrderPreview,
   OrderResolution,
   OrderStatusReport,
+  PendingOrder,
   Preferences,
+  ReplaceChanges,
+  ReplaceDraftPayload,
+  ReplaceExecutionResult,
+  ReplacePreview,
   StructuredError,
   TradeCandidate,
   TradePlanPayload,
@@ -38,6 +43,7 @@ import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bri
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
 import { cancelDescription, ConfirmModal, OrderConfirmation, OrderEditor } from "./views/OrderViews";
+import { replaceReasonText, ReplaceConfirmation, ReplaceEditor } from "./views/ReplaceViews";
 import { intentForAccount } from "./lib/orders";
 import { PortfolioView, type TodayState } from "./views/PortfolioView";
 import type { PortfolioToday } from "../shared/today";
@@ -76,6 +82,7 @@ type BasePayload =
   | BasketDraftView
   | PieChangeDraftPayload
   | CancelDraftPayload
+  | ReplaceDraftPayload
   | HoldingDetail
   | WithAccess<OrderStatusReport>
   | WithAccess<ExportPayload>
@@ -250,6 +257,9 @@ function candidateForRefresh(candidate: EnrichedTradeCandidate): TradeCandidate 
   };
 }
 
+/** A change that stopped because the order may no longer be working as it was: it left the book, or its cancel was refused. */
+const leftBook = (result: ReplaceExecutionResult) => result.reason === "gone" || result.reason === "cancel_rejected";
+
 function initialEnvironment(payload: BasePayload | null): TradingEnvironment {
   if (!payload) return "demo";
   // A missing API key names the environment that was asked for.
@@ -394,6 +404,10 @@ export default function App() {
   const [preview, setPreview] = useState<OrderPreview | null>(null);
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
   const [cancelDraftClosed, setCancelDraftClosed] = useState(false);
+  /** An open order being changed: the order, on which account, and the change it starts from (the model's, when it proposed one). */
+  const [changing, setChanging] = useState<{ environment: TradingEnvironment; order: PendingOrder; changes?: ReplaceChanges } | null>(null);
+  const [replacePreview, setReplacePreview] = useState<ReplacePreview | null>(null);
+  const [replaceResult, setReplaceResult] = useState<ReplaceExecutionResult | null>(null);
   const [execution, setExecution] = useState<OrderExecutionResult | null>(null);
   const [executionKind, setExecutionKind] = useState<ExecutionKind>("order");
   const [verification, setVerification] = useState<ExecutionVerificationResult | null>(null);
@@ -518,6 +532,12 @@ export default function App() {
       setCancelPreview(null);
       setExecution(null);
     }
+    // A change the model proposed opens in the editor, where the reader can still adjust it before the review.
+    if (payload.kind === "replace_draft") {
+      setReplacePreview(null);
+      setReplaceResult(null);
+      setChanging(payload.order && payload.writeEnabled !== false ? { environment: payload.environment, order: payload.order, changes: payload.changes } : null);
+    }
   }
 
   // Each dashboard read is followed by the day's moves of its holdings (previous closes come from the quote provider,
@@ -565,10 +585,10 @@ export default function App() {
 
   // Reviews stay inline: the widget never asks for fullscreen on its own, only from the Full view button.
   const cancelDraftActive = base?.kind === "cancel_draft" && !cancelDraftClosed;
-  const transactionActive = Boolean(draft || preview || cancelPreview || cancelDraftActive);
+  const transactionActive = Boolean(draft || preview || cancelPreview || cancelDraftActive || changing || replacePreview);
   const basketActive = (base?.kind === "basket_draft" || base?.kind === "pie_change_draft") && !transactionActive;
   const reviewing = transactionActive || basketActive;
-  const traded = Boolean(basketResult || pieResult || execution?.ok);
+  const traded = Boolean(basketResult || pieResult || execution?.ok || replaceResult?.ok);
 
   // What the host takes besides tool calls, as it said when the widget connected: text, for a message or context.
   const hostCan = app?.getHostCapabilities();
@@ -1152,6 +1172,9 @@ export default function App() {
     setVerification(null);
     setPreview(null);
     setCancelPreview(null);
+    setChanging(null);
+    setReplacePreview(null);
+    setReplaceResult(null);
     setBasketPreview(null);
     setBasketResult(null);
     setInsights({});
@@ -1349,6 +1372,59 @@ export default function App() {
     if (sent) await (base?.kind === "order_status" ? checkOrder(base.orderId, base.environment) : refresh(environment, "holdings"));
   }
 
+  /** Open the change of an open order in its editor; nothing is read or sent until it is reviewed. */
+  function startChange(order: PendingOrder, env = environment): void {
+    setProblem(null);
+    setExecution(null);
+    setReplaceResult(null);
+    setReplacePreview(null);
+    setChanging({ environment: env, order });
+  }
+
+  async function reviewChange(changes: ReplaceChanges): Promise<void> {
+    if (!changing) return;
+    const { environment: env, order } = changing;
+    // Back from the confirmation, the editor starts from what was reviewed.
+    setChanging({ ...changing, changes });
+    await run("errorTitleChangeCheck", async () => {
+      setReplacePreview(await callTool<ReplacePreview>("app_prepare_replace", { environment: env, orderId: String(order.id), ...changes }));
+    });
+  }
+
+  async function closeChange(): Promise<void> {
+    setChanging(null);
+    setReplacePreview(null);
+    setProblem(null);
+    if (base?.kind === "replace_draft") await refresh(environment, "holdings");
+  }
+
+  async function confirmChange(liveAcknowledged = false): Promise<void> {
+    if (!replacePreview) return;
+    const sent = await run("errorTitleChangeSend", async () => {
+      const confirmationCode = replacePreview["token"];
+      const result = await callTool<ReplaceExecutionResult>("app_execute_replace", { ["token"]: confirmationCode, ...(liveAcknowledged ? { liveAcknowledged: true } : {}) });
+      setReplaceResult(result);
+      setExecution(null);
+      setVerification(null);
+      setReplacePreview(null);
+      setChanging(null);
+      setHoldingFrom(null);
+      setInsights({});
+    });
+    // Whatever came of it, the order book changed or may have: it is read again, or the order's own page is.
+    if (sent) await (base?.kind === "order_status" ? checkOrder(base.orderId, base.environment) : refresh(environment, "holdings"));
+  }
+
+  async function verifyChange(): Promise<void> {
+    const verificationId = replaceResult?.verificationId;
+    if (!verificationId) return;
+    const checked = await run("errorTitleVerify", async () => {
+      setVerification(await callTool<ExecutionVerificationResult>("app_verify_unknown_execution", { verificationId }));
+      setHoldingFrom(null);
+    });
+    if (checked) await refresh(environment, "holdings");
+  }
+
   async function verifyUnknownExecution(): Promise<void> {
     if (!execution?.verificationId) return;
     const verificationId = execution.verificationId;
@@ -1363,6 +1439,8 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (cancelPreview || cancelDraftActive) void closeCancel();
+      else if (replacePreview && status !== "loading") setReplacePreview(null);
+      else if (changing && status !== "loading") void closeChange();
       else if (preview) setPreview(null);
       else if (basketPreview && status !== "loading") setBasketPreview(null);
       else if (piePreview && status !== "loading") setPiePreview(null);
@@ -1554,6 +1632,30 @@ export default function App() {
         </div>
       )}
 
+      {replaceResult && (
+        <div className={`notice executionNotice ${replaceResult.ok ? "success" : replaceResult.stage === "unknown" ? "warning" : "error"}`} role="status" aria-live="polite">
+          <div className="noticeCopy">
+            <strong>{t(replaceResult.stage === "replaced" ? "changeDone" : replaceResult.stage === "unchanged" ? (leftBook(replaceResult) ? "changeNotPlaced" : "changeUnchanged") : replaceResult.stage === "cancelled_not_placed" ? "changeCancelledNotPlaced" : "changeUnknown")}</strong>
+            <span>{replaceResult.stage === "replaced"
+              ? fill(t("changeDoneText"), { env: envLabel(replaceResult.environment, t), old: replaceResult.orderId, newId: replaceResult.newOrderId ? fill(t("changeDoneNewId"), { id: replaceResult.newOrderId }) : "" })
+              : replaceResult.stage === "unchanged" ? fill(t(leftBook(replaceResult) ? "changeNotPlacedText" : "changeUnchangedText"), { old: replaceResult.orderId })
+              : replaceResult.stage === "cancelled_not_placed" ? fill(t("changeCancelledNotPlacedText"), { old: replaceResult.orderId })
+              : t("changeUnknownText")}</span>
+            {!replaceResult.ok && (replaceReasonText(replaceResult.reason, t) || replaceResult.error) && (
+              <span>{replaceResult.reason === "check_failed" || replaceResult.reason === "cancel_rejected" || replaceResult.reason === "placement_rejected"
+                ? [replaceReasonText(replaceResult.reason, t), replaceResult.error ? formatProblem(replaceResult.error, t, locale) : ""].filter(Boolean).join(" ")
+                : replaceReasonText(replaceResult.reason, t) ?? (replaceResult.error ? formatProblem(replaceResult.error, t, locale) : replaceResult.message)}</span>
+            )}
+            {verification && replaceResult.stage === "unknown" && <span className="verificationResult">{verificationText(verification, t)}</span>}
+          </div>
+          {replaceResult.stage === "unknown" && replaceResult.verificationId && (
+            <button className="secondaryButton" type="button" disabled={loading} onClick={() => void verifyChange()}>
+              {loading ? t("verifying") : t("verifyExecution")}
+            </button>
+          )}
+        </div>
+      )}
+
       {!transactionActive && !basketActive && (
         missingCredentials ? (
           <SetupCard environment={environment} credentials={credentials} t={t} busy={loading} onSwitch={(next) => void switchEnvironment(next)} />
@@ -1562,7 +1664,7 @@ export default function App() {
             {base?.kind === "error" && <ErrorCard title={t("errorTitleLoad")} message={formatProblem(base.error, t, locale)} retryLabel={t("retry")} busy={loading} onRetry={() => void refresh(environment, "holdings")} />}
             {portfolioLike && <ViewTabs tab={tab} history={historyKind} busy={loading} t={t} onSelect={(next) => void selectTab(next)} />}
             {base?.kind === "portfolio" && tab === "holdings" && (
-              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onOpen={(ticker) => void openHolding(ticker)}
+              <PortfolioView payload={base} book={book} locale={locale} t={t} writeEnabled={writeEnabled} busy={loading} onCancel={(id) => void startCancel(id)} onChangeOrder={(order) => startChange(order)} onOpen={(ticker) => void openHolding(ticker)}
                 {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
                 {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})}
                 {...(connected ? { onGoal: () => void selectTab("performance") } : {})}
@@ -1661,6 +1763,7 @@ export default function App() {
                 onDeleteNote={(entryId) => void changeNote(base.environment, { action: "delete", entryId })}
                 onWatch={(watch) => void changeWatch(base.environment, { action: watch ? "add" : "remove", instrument: base.ticker })}
                 onCancel={(id) => void startCancel(id)}
+                onChangeOrder={(order) => startChange(order, base.environment)}
                 onTrade={(side) => {
                   // One share to start; the editor changes the size and type before anything is reviewed.
                   const available = base.position?.quantityAvailableForTrading ?? 0;
@@ -1707,12 +1810,17 @@ export default function App() {
                 } : {})} />
             )}
             {base?.kind === "order_draft" && !draft && (loading ? <SkeletonView label={t("refreshing")} /> : <div className="emptyState">{t("orderLoaded")}</div>)}
+            {base?.kind === "replace_draft" && (loading
+              ? <SkeletonView label={t("refreshing")} />
+              : base.order ? <EmptyRetry text={t("nothingLoaded")} retryLabel={t("retry")} onRetry={() => void refresh(environment, "holdings")} />
+              : <EmptyRetry text={fill(t("cancelOrderGone"), { id: base.orderId })} retryLabel={t("retry")} onRetry={() => void refresh(environment, "holdings")} />)}
             {base?.kind === "cancel_draft" && (loading
               ? <SkeletonView label={t("refreshing")} />
               : <EmptyRetry text={t("nothingLoaded")} retryLabel={t("retry")} onRetry={() => void refresh(environment, "holdings")} />)}
             {base?.kind === "order_status" && (
               <OrderStatusView data={base} book={book} locale={locale} t={t} busy={loading} writeEnabled={writeEnabled} justCancelled={executionKind === "cancel" && !!execution?.ok}
                 onOpen={(ticker) => void openHolding(ticker)} onCancel={(orderId) => void startCancel(orderId, base.environment)}
+                onChange={(order) => startChange(order, base.environment)}
                 onBack={() => void refresh(base.environment, "holdings")} onRefresh={() => void checkOrder(base.orderId, base.environment)} />
             )}
             {base?.kind === "history_export" && (
@@ -1789,6 +1897,35 @@ export default function App() {
           busy={loading}
           onBack={() => setPreview(null)}
           onConfirm={(liveAcknowledged) => void confirmOrder(liveAcknowledged)}
+        />
+      )}
+
+      {changing && !replacePreview && !cancelPreview && (
+        <ReplaceEditor
+          key={`change-${changing.environment}-${String(changing.order.id)}-${JSON.stringify(changing.changes ?? {})}`}
+          environment={changing.environment}
+          order={changing.order}
+          {...(changing.changes ? { initial: changing.changes } : {})}
+          positions={positions}
+          book={book}
+          locale={locale}
+          t={t}
+          busy={loading}
+          onClose={() => void closeChange()}
+          onReview={(changes) => void reviewChange(changes)}
+        />
+      )}
+
+      {replacePreview && !cancelPreview && (
+        <ReplaceConfirmation
+          preview={replacePreview}
+          positions={positions}
+          book={book}
+          locale={locale}
+          t={t}
+          busy={loading}
+          onBack={() => setReplacePreview(null)}
+          onConfirm={(liveAcknowledged) => void confirmChange(liveAcknowledged)}
         />
       )}
 

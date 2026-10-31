@@ -5,10 +5,11 @@
 
 import { getUiCapability } from "@modelcontextprotocol/ext-apps/server";
 import { inputRequired, inputResponse, type McpServer } from "@modelcontextprotocol/server";
-import type { OrderDraft } from "../shared/contracts.js";
+import type { OrderDraft, PendingOrder } from "../shared/contracts.js";
 import { fail } from "./errors.js";
 import type { NotifyLocale } from "./notify.js";
 import type { PendingDescription } from "./trading-service.js";
+import { orderSideOf, orderTypeOf } from "./order-replace.js";
 
 /** The key of the one question in the form, as it comes back on the retried call. */
 const CONFIRM_KEY = "confirm";
@@ -39,6 +40,9 @@ const WORDS = {
     order: (environment: string) => `Send this order to your Trading 212 ${environment} account?`,
     basket: (environment: string, title: string, count: number) => `Send the basket "${title}", ${count} order${count === 1 ? "" : "s"}, to your Trading 212 ${environment} account?`,
     cancel: (environment: string, orderId: string) => `Cancel order ${orderId} in your Trading 212 ${environment} account? If it is a stop-loss, the position is no longer protected.`,
+    replace: (environment: string, orderId: string) => `Change order ${orderId} in your Trading 212 ${environment} account? It is cancelled, and the new order is placed once Trading 212 shows nothing of it filled.`,
+    now: "Now:",
+    becomes: "Becomes:",
     pie: (environment: string, action: string, id: number | undefined, name: string | undefined) => {
       const account = `in your Trading 212 ${environment} account?`;
       if (action === "create") return `Create the pie "${name ?? ""}" ${account}`;
@@ -64,6 +68,9 @@ const WORDS = {
     order: (environment: string) => `把这笔订单发送到你的 Trading 212 ${environment}账户？`,
     basket: (environment: string, title: string, count: number) => `把篮子「${title}」的 ${count} 笔订单发送到你的 Trading 212 ${environment}账户？`,
     cancel: (environment: string, orderId: string) => `撤销你 Trading 212 ${environment}账户里的订单 ${orderId}？如果它是止损单，撤销后这笔持仓就不再受保护。`,
+    replace: (environment: string, orderId: string) => `修改你 Trading 212 ${environment}账户里的订单 ${orderId}？会先撤掉原单，等 Trading 212 显示原单没有任何成交后再下新单。`,
+    now: "原单：",
+    becomes: "新单：",
     pie: (environment: string, action: string, id: number | undefined, name: string | undefined) => {
       const account = `你 Trading 212 ${environment}账户里的`;
       if (action === "create") return `在你的 Trading 212 ${environment}账户里新建组合「${name ?? ""}」？`;
@@ -96,11 +103,25 @@ function legText(draft: OrderDraft, words: Words): string {
   return words.leg(words.side[draft.side], draft.quantity, draft.ticker, prices || words.market, draft.timeValidity === "GOOD_TILL_CANCEL");
 }
 
+/** An open order read as the draft that would place it, for the change's "now" line. */
+function asDraft(order: PendingOrder, environment: OrderDraft["environment"]): OrderDraft {
+  const given = (value: unknown) => value !== undefined && value !== null;
+  return {
+    environment, ticker: String(order.ticker ?? ""), side: orderSideOf(order), type: orderTypeOf(order) ?? "limit",
+    quantity: Math.abs(Number(order.quantity ?? 0)),
+    ...(given(order.stopPrice) ? { stopPrice: Number(order.stopPrice) } : {}),
+    ...(given(order.limitPrice) ? { limitPrice: Number(order.limitPrice) } : {}),
+    ...(String(order.timeInForce ?? order.timeValidity ?? "").toUpperCase() === "GOOD_TILL_CANCEL" ? { timeValidity: "GOOD_TILL_CANCEL" as const } : {}),
+  };
+}
+
 /** The form's message: what will be sent, one order per line. */
 export function confirmationMessage(pending: PendingDescription, locale: NotifyLocale = "en"): string {
   const words = WORDS[locale];
   const environment = pending.environment === "live" ? words.live : words.demo;
   if (pending.kind === "cancel") return words.cancel(environment, pending.orderId);
+  if (pending.kind === "replace")
+    return [words.replace(environment, pending.orderId), `${words.now} ${legText(asDraft(pending.original, pending.environment), words)}`, `${words.becomes} ${legText(pending.drafts[0], words)}`].join("\n");
   if (pending.kind === "pie") {
     const head = words.pie(environment, pending.action, pending.pieId, pending.name);
     const shares = Object.entries(pending.shares ?? {});

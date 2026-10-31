@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { PriceAlert } from "../../shared/automation";
-import type { Position } from "../../shared/contracts";
+import type { PendingOrder, Position } from "../../shared/contracts";
 import type { HoldingDetail, HoldingFill } from "../../shared/holding";
 import type { JournalEntry } from "../../shared/journal";
 import { stopOutcome, stopProtection, suggestedStop } from "../../shared/protection";
@@ -128,6 +128,7 @@ export function HoldingView({
   onTrade,
   onProtect,
   onCancel,
+  onChangeOrder,
   onSaveAlert,
   onDeleteAlert,
   onRearmAlert,
@@ -149,6 +150,8 @@ export function HoldingView({
   /** Opens the order editor with a sell stop for the uncovered shares; nothing is sent until reviewed and confirmed. */
   onProtect?: (stop: { quantity: number; stopPrice: number }) => void;
   onCancel: (orderId: string) => void;
+  /** Opens a change of an open order; nothing is sent until it is reviewed and confirmed. */
+  onChangeOrder?: (order: PendingOrder) => void;
   /** Resolves true once the alert is saved, so the form can close. */
   onSaveAlert: (request: AlertRequest) => Promise<boolean>;
   onDeleteAlert: (alertId: string) => void;
@@ -287,7 +290,7 @@ export function HoldingView({
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={data.orders.length} />
-        <PendingOrderList orders={data.orders} positions={position ? [position] : []} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} />
+        <PendingOrderList orders={data.orders} positions={position ? [position] : []} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} {...(onChangeOrder ? { onChange: onChangeOrder } : {})} />
       </section>
 
       <section className="dataPanel">

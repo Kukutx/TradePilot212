@@ -19,7 +19,7 @@ import { TRADE_SOURCES } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
 import { journalTagFilter, MAX_JOURNAL_TAG, MAX_JOURNAL_TAGS, MAX_JOURNAL_TEXT, MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalPayload } from "../shared/journal.js";
 import type { Services } from "../app/services.js";
-import type { CancelDraftPayload, Instrument, OrderDraft, OrderIntent, Position, Preferences, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
+import type { CancelDraftPayload, ReplaceChanges, ReplaceDraftPayload, Instrument, OrderDraft, OrderIntent, Position, Preferences, TradeCandidate, TradingEnvironment } from "../shared/contracts.js";
 import { APP_ICON_DATA_URI, APP_META } from "../shared/meta.js";
 import { asStructuredError } from "./errors.js";
 import { describePayload, num } from "./text-summary.js";
@@ -1671,6 +1671,37 @@ export function createMcpServer(
         }
       },
     );
+
+    registerAppTool(
+      server,
+      "review_order_change",
+      {
+        title: "Review an Order Change",
+        description: "Open a change to a pending Limit, Stop or Stop-Limit order (its quantity, limit or stop price, or validity) for the user to review and confirm in the widget. Review-only; never changes anything. Trading 212 cannot edit an order, so the confirmation cancels it and places the new one only once the cancel shows nothing of it filled; if anything filled meanwhile, the new order is not placed. The order's instrument, side and type stay as they are.",
+        inputSchema: z.object({
+          environment: environmentWithDefault,
+          orderId: z.string().min(1).max(24),
+          quantity: z.number().positive().optional().describe("The new number of shares"),
+          limitPrice: z.number().positive().optional().describe("The new limit price, in the instrument's currency (Limit and Stop-Limit orders)"),
+          stopPrice: z.number().positive().optional().describe("The new stop price, in the instrument's currency (Stop and Stop-Limit orders)"),
+          timeValidity: z.enum(["DAY", "GOOD_TILL_CANCEL"]).optional(),
+        }),
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+        _meta: { ui: { resourceUri: WIDGET_URI } },
+      },
+      async ({ environment, orderId, ...changes }) => {
+        try {
+          const order = await trading.openOrder(environment, orderId);
+          const proposed = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)) as ReplaceChanges;
+          return result(
+            { kind: "replace_draft", environment, orderId: orderId.trim(), ...(order ? { order } : {}), changes: proposed, credentials: credentialStatus(config), writeEnabled: true } satisfies ReplaceDraftPayload,
+            order ? "Order change opened for review. Nothing has been changed." : `Order ${orderId} is not open any more; use get_order_status to see how it ended.`,
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
   }
 
   // App-only tools: hidden from the model. The widget invokes these only after explicit user actions.
@@ -1926,6 +1957,56 @@ export function createMcpServer(
           const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "cancel"), config.notifyLocale);
           if (!asked.send) return asked.ask;
           const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged || asked.liveAcknowledged });
+          return result(data, data.message);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_prepare_replace",
+      {
+        title: "Prepare order change",
+        description: "App-only validation of a change to a pending order: the order that replaces it, checked as a new order with what the pending one holds back counted as free. Creates a short-lived one-time confirmation token; changes nothing.",
+        inputSchema: z.object({
+          environment: environmentEnum,
+          orderId: z.string().min(1).max(24),
+          quantity: z.number().positive().optional(),
+          limitPrice: z.number().positive().optional(),
+          stopPrice: z.number().positive().optional(),
+          timeValidity: z.enum(["DAY", "GOOD_TILL_CANCEL"]).optional(),
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ environment, orderId, ...changes }) => {
+        try {
+          const proposed = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)) as ReplaceChanges;
+          const data = await trading.prepareReplace(environment, orderId, proposed);
+          return result(data, "Order change validated. Explicit user confirmation is still required.");
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+
+    registerAppTool(
+      server,
+      "app_execute_replace",
+      {
+        title: "Execute confirmed order change",
+        description: "App-only destructive external write. Consumes a one-time token created by app_prepare_replace: cancels the pending order, waits until Trading 212 shows it cancelled with nothing filled, then places the new one. Stops before the new order on any doubt. Live changes need liveAcknowledged=true. Never retry automatically.",
+        inputSchema: z.object({ token: z.string().min(20), liveAcknowledged: z.boolean().optional().describe("Second confirmation that a Live write uses real money") }),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async ({ token, liveAcknowledged }, ctx) => {
+        try {
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "replace"), config.notifyLocale);
+          if (!asked.send) return asked.ask;
+          const data = await trading.executeReplace(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
         } catch (error) {
           return toolError(error);

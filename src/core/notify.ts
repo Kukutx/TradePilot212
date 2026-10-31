@@ -16,6 +16,8 @@ export const DEFAULT_NOTIFY_EVENTS: ActivityType[] = [
   "order_partly_filled",
   "order_outcome_unknown",
   "cancel_status_unknown",
+  "order_replaced",
+  "replace_stopped",
   "basket_submitted",
   "plan_due",
   "plan_auto_executed",
@@ -41,6 +43,8 @@ export const SCHEDULED_EVENTS = new Set<ActivityType>(["daily_digest", "weekly_r
 /** Events that need you now: sent during quiet hours too. */
 export const URGENT_EVENTS = new Set<ActivityType>([
   "order_status_unknown", "order_outcome_unknown", "cancel_status_unknown", "pie_status_unknown", "protective_attention", "cancel_rejected",
+  // An order cancelled for a change whose new order was not placed: the position may be left without it.
+  "replace_stopped",
 ]);
 
 export const NOTIFY_FORMATS = ["raw", "slack", "discord", "telegram", "ntfy", "bark"] as const;
@@ -59,6 +63,8 @@ const LABELS: Record<NotifyLocale, Partial<Record<ActivityType, string>>> = {
     order_closed: "Order closed",
     order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
     cancel_status_unknown: "Cancellation result unclear, check Trading 212",
+    order_replaced: "Order changed",
+    replace_stopped: "Order cancelled for a change, but the new order was not placed: check Trading 212",
     basket_submitted: "Basket sent",
     plan_due: "Investment plan is due and waits for your confirmation",
     plan_auto_executed: "Investment plan ran on Demo",
@@ -85,6 +91,8 @@ const LABELS: Record<NotifyLocale, Partial<Record<ActivityType, string>>> = {
     order_closed: "订单已结束",
     order_outcome_unknown: "有订单已离开挂单簿，结果不明，请到 Trading 212 查看",
     cancel_status_unknown: "撤单结果不明，请到 Trading 212 查看",
+    order_replaced: "订单已修改",
+    replace_stopped: "为改单撤掉了原单，但新单没有下：请到 Trading 212 查看",
     basket_submitted: "篮子订单已发送",
     plan_due: "定投计划已到期，等你确认",
     plan_auto_executed: "定投计划已在模拟账户执行",

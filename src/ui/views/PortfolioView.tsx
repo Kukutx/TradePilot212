@@ -18,7 +18,7 @@ import { nextSort, readHoldingsPrefs, saveHoldingsPrefs, SORT_CHOICES, sortFromI
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import type { MessageKey } from "../i18n";
 import { activityLabel, activityNeedsAttention, countText, envLabel, fill, type Translator } from "../lib/messages";
-import { stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
+import { changeBlock, stopCoverageText, stopGuardText, summarizeOrder } from "../lib/orders";
 import { radioKeys, radioTab } from "../lib/radio";
 
 export type { TodayState };
@@ -89,6 +89,7 @@ export function PortfolioView({
   writeEnabled,
   busy = false,
   onCancel,
+  onChangeOrder,
   onOpen,
   onProtectAll,
   today,
@@ -102,6 +103,8 @@ export function PortfolioView({
   writeEnabled: boolean;
   busy?: boolean;
   onCancel: (orderId: string) => void;
+  /** Opens a change of an open order; nothing is sent until it is reviewed and confirmed. */
+  onChangeOrder?: (order: PendingOrder) => void;
   /** Opens one holding's detail. */
   onOpen?: (ticker: string) => void;
   /** Drafts a stop for every holding without a full one, as a basket to review; nothing is sent from here. */
@@ -252,7 +255,7 @@ export function PortfolioView({
 
       <section className="dataPanel">
         <SectionHeader title={t("pendingOrders")} count={payload.orders.length} />
-        <PendingOrderList orders={payload.orders} positions={payload.positions} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} />
+        <PendingOrderList orders={payload.orders} positions={payload.positions} book={book} locale={locale} t={t} writeEnabled={writeEnabled} onCancel={onCancel} {...(onChangeOrder ? { onChange: onChangeOrder } : {})} />
       </section>
 
       <ActivityPanel activity={payload.activity ?? []} book={book} locale={locale} t={t} />
@@ -303,7 +306,7 @@ function ProtectionBar({ positions, orders, currency, locale, t, busy, onProtect
 }
 
 /** Pending orders with their prices, status and distance from the last price, each with a cancel button when writes are on. */
-export function PendingOrderList({ orders, positions, book, locale, t, writeEnabled, onCancel }: {
+export function PendingOrderList({ orders, positions, book, locale, t, writeEnabled, onCancel, onChange }: {
   orders: PendingOrder[];
   positions: Position[];
   book?: InstrumentBook;
@@ -311,6 +314,8 @@ export function PendingOrderList({ orders, positions, book, locale, t, writeEnab
   t: Translator;
   writeEnabled: boolean;
   onCancel: (orderId: string) => void;
+  /** Opens a change of the order (its quantity, prices or validity), for one that can be changed. */
+  onChange?: (order: PendingOrder) => void;
 }) {
   if (orders.length === 0) return <div className="emptyState compact">{t("noOrders")}</div>;
   return (
@@ -327,7 +332,12 @@ export function PendingOrderList({ orders, positions, book, locale, t, writeEnab
               {row.distance && <span className="orderDistance">{row.distance}</span>}
             </div>
             <div className="orderQuantity">{qty(row.quantity, locale)}</div>
-            {writeEnabled && <button className="secondaryButton danger" type="button" data-focus-id={`cancel-${id}`} disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>}
+            {writeEnabled && (
+              <div className="orderActions">
+                {onChange && id && !changeBlock(order) && <button className="secondaryButton" type="button" data-focus-id={`change-${id}`} aria-label={`${t("prepareChange")} · ${row.name}`} onClick={() => onChange(order)}>{t("prepareChange")}</button>}
+                <button className="secondaryButton danger" type="button" data-focus-id={`cancel-${id}`} disabled={!id} onClick={() => id && onCancel(id)}>{t("prepareCancel")}</button>
+              </div>
+            )}
           </div>
         );
       })}
