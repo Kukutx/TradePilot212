@@ -36722,6 +36722,35 @@ function addUsage(usage, accountNotional) {
   return { orders: usage.orders + 1, notional: usage.notional + (accountNotional && accountNotional > 0 ? accountNotional : 0) };
 }
 
+// src/core/request-context.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+var watches = new AsyncLocalStorage();
+function watchingReads(watch, run) {
+  return watches.run(watch, run);
+}
+function readWatch() {
+  return watches.getStore();
+}
+function readCancelled() {
+  return watches.getStore()?.signal?.aborted === true;
+}
+function toolCallWatch(ctx) {
+  const request = ctx?.mcpReq;
+  if (!request) return {};
+  const token = request._meta?.progressToken;
+  const notify = request.notify;
+  const watch = request.signal ? { signal: request.signal } : {};
+  if ((typeof token === "string" || typeof token === "number") && notify) {
+    let pages = 0;
+    watch.page = () => {
+      pages += 1;
+      if (request.signal?.aborted) return;
+      notify({ method: "notifications/progress", params: { progressToken: token, progress: pages, message: `Read ${pages} history page${pages === 1 ? "" : "s"}` } }).catch(() => void 0);
+    };
+  }
+  return watch;
+}
+
 // src/core/web-utils.ts
 function randomToken(bytes = 32) {
   const data = crypto.getRandomValues(new Uint8Array(bytes));
@@ -38050,6 +38079,7 @@ var TradingService = class {
     let path3;
     for (let page = 0; page < (options.maxPages ?? 4); page++) {
       const result2 = await client.getHistoryPage("orders", path3);
+      readWatch()?.page?.();
       let oldest = Infinity;
       for (const item of result2.items) {
         const created = Date.parse(item.fill?.filledAt ?? item.order?.createdAt ?? "");
@@ -38112,6 +38142,7 @@ var TradingService = class {
     let path3;
     for (let page = 0; page < maxPages; page++) {
       const result2 = await client.getHistoryPage("orders", path3);
+      readWatch()?.page?.();
       for (const item of result2.items) {
         if (String(item.order?.id) !== id) continue;
         order ??= item.order;
@@ -39557,6 +39588,11 @@ var InsightsService = class {
     let truncated = false;
     let limited = false;
     for (let page = 0; page < pages; page++) {
+      if (page > 0 && readCancelled()) {
+        truncated = true;
+        limited = true;
+        break;
+      }
       const result2 = await client.getHistoryPage(kind, next, ticker).catch((error62) => {
         if (page > 0 && error62 instanceof Trading212ApiError && error62.status === 429) return void 0;
         throw error62;
@@ -39566,6 +39602,7 @@ var InsightsService = class {
         limited = true;
         break;
       }
+      readWatch()?.page?.();
       items.push(...result2.items);
       const oldest = result2.items.length ? itemTime(kind, result2.items[result2.items.length - 1]) : NaN;
       const reachedStart = start !== void 0 && Number.isFinite(oldest) && oldest < start.getTime();
@@ -39608,9 +39645,15 @@ var InsightsService = class {
     let limited = false;
     const read = async (next, filter) => {
       const first = budget === pages;
+      if (!first && readCancelled()) {
+        limited = true;
+        return void 0;
+      }
       budget -= 1;
       try {
-        return await client.getHistoryPage(kind, next, filter);
+        const page = await client.getHistoryPage(kind, next, filter);
+        readWatch()?.page?.();
+        return page;
       } catch (error62) {
         if (first) throw error62;
         if (next && error62 instanceof Trading212ApiError && REFUSED.has(error62.status)) return "refused";
@@ -41071,8 +41114,11 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.84.0"
+  version: "2.85.0",
+  websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
+var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
+var APP_ICON_DATA_URI = `data:image/svg+xml;base64,${btoa(APP_ICON_SVG)}`;
 
 // src/shared/holding-risk.ts
 var MIN_WEEKS = 26;
@@ -43837,7 +43883,8 @@ var windowSchema = {
 };
 var registerAppTool = ((server2, name, config3, handler) => {
   const outputSchema = TOOL_OUTPUT[name];
-  return j(server2, name, outputSchema ? { ...config3, outputSchema } : config3, handler);
+  const watched = (...args) => watchingReads(toolCallWatch(args[args.length - 1]), () => handler(...args));
+  return j(server2, name, outputSchema ? { ...config3, outputSchema } : config3, watched);
 });
 function listedRange(listed, offset, count) {
   if (!offset) return `${listed} of ${count}`;
@@ -43850,7 +43897,13 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     config3.sampleData ? SAMPLE_INSTRUCTIONS : "",
     canWrite ? ORDER_INSTRUCTIONS : ""
   ].filter(Boolean).join("\n\n");
-  const server2 = new McpServer({ name: "tradepilot212", version: APP_META.version }, instructions ? { instructions } : {});
+  const server2 = new McpServer({
+    name: "tradepilot212",
+    title: APP_META.name,
+    version: APP_META.version,
+    websiteUrl: APP_META.websiteUrl,
+    icons: [{ src: APP_ICON_DATA_URI, mimeType: "image/svg+xml", sizes: ["any"] }]
+  }, instructions ? { instructions } : {});
   const preferences = { ...config3.timeZone ? { timeZone: config3.timeZone } : {}, taxYearStart: config3.taxYearStart };
   const holdingDeps = { trading, insights, alerts, journal, targets: targetAllocations, priceHistory, watchlist: watchlist2, closes: closes2 };
   const dashboard2 = async (environment) => {
