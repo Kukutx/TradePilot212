@@ -180,7 +180,7 @@ function WithholdingPanel({ summary, rows, locale, t }: { summary: ExportSummary
       <p className="panelNote">
         {[t(basis === "net" ? "withholdingBasisNet" : basis === "gross" ? "withholdingBasisGross" : "withholdingBasisAssumed"),
           summary.withholdingUnread ? plural(summary.withholdingUnread, locale, t("withholdingUnreadOne"), t("withholdingUnread")) : "",
-          t("withholdingNote")].filter(Boolean).join(" ")}
+          t("withholdingNote")].filter(Boolean).join(locale === "zh-CN" ? "" : " ")}
       </p>
     </section>
   );
