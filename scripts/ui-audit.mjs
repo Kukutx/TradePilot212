@@ -170,45 +170,90 @@ function inspect(host = []) {
   }
   for (const item of [...tiny].slice(0, 5)) problems.push(`too small to tap: ${item}`);
 
-  // Text against what is behind it: 4.5:1, or 3:1 for large text (WCAG 1.4.3). Disabled controls are exempt, and
-  // text over a picture or gradient is left alone, as what is behind it cannot be read off the styles.
+  // Text against what is behind it: 4.5:1, or 3:1 for large text (WCAG 1.4.3), in what CSS writes in a field too (its
+  // value or placeholder) and in chart labels. Disabled controls are exempt; text under a picture is left alone, as
+  // what is behind it cannot be read off the styles (a gradient or an icon over a solid colour is measured against
+  // the colour).
+  const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   const parse = (value) => {
+    if (!value || value === "transparent") return [0, 0, 0, 0];
     const rgb = /^rgba?\(([\d.]+),? ([\d.]+),? ([\d.]+)(?:,? \/? ?([\d.]+))?\)$/.exec(value);
     if (rgb) return [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255, rgb[4] === undefined ? 1 : Number(rgb[4])];
     const srgb = /^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/.exec(value);
-    return srgb ? [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])] : null;
+    if (srgb) return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3]), srgb[4] === undefined ? 1 : Number(srgb[4])];
+    // Any other colour space (oklch, lab, display-p3) as the browser draws it in sRGB.
+    if (!canvas) return null;
+    canvas.clearRect(0, 0, 1, 1);
+    canvas.fillStyle = "#000";
+    canvas.fillStyle = value;
+    canvas.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = canvas.getImageData(0, 0, 1, 1).data;
+    return [r / 255, g / 255, b / 255, a / 255];
   };
   const over = (top, bottom) => [0, 1, 2].map((index) => top[index] * top[3] + bottom[index] * (1 - top[3])).concat(1);
+  const mix = (under, top, amount) => [0, 1, 2].map((index) => under[index] * (1 - amount) + top[index] * amount).concat(1);
   const luminance = (color) => {
     const [r, g, b] = color.slice(0, 3).map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
-  const faint = new Set();
-  for (const element of all) {
-    if (!ownText(element) || element.closest("svg, :disabled, [aria-disabled=true]")) continue;
-    const style = getComputedStyle(element);
-    let text = parse(style.color);
-    if (!text) continue;
-    let fade = 1;
-    const layers = [];
-    let unknown = false;
-    for (let node = element; node; node = node.parentElement) {
+  const hostColour = host.map(parse).filter((layer) => layer && layer[3] > 0).reverse().reduce((under, layer) => over(layer, under), [1, 1, 1, 1]);
+  // The text's pixel and the pixel behind it, as painted: each box's background over what is under the box, and a
+  // box's opacity fading all it holds, text and backgrounds, into what is under it. Null when a picture is behind.
+  const paint = (element, colour, beneath) => {
+    const chain = [];
+    for (let node = element; node && node.nodeType === 1; node = node.parentElement) chain.push(node);
+    const draw = (index, under) => {
+      const node = chain[index];
       const own = getComputedStyle(node);
-      if (own.backgroundImage !== "none") { unknown = true; break; }
-      const background = parse(own.backgroundColor);
-      if (background && background[3] > 0) layers.push(background);
-      if (background?.[3] === 1) break;
-      if (layers.length === 0) fade *= Number(own.opacity);
-    }
-    if (unknown) continue;
-    if (layers.at(-1)?.[3] !== 1) layers.push(...host.map(parse).filter((layer) => layer && layer[3] > 0));
-    const behind = layers.reverse().reduce((under, layer) => over(layer, under), [1, 1, 1, 1]);
-    text = over([text[0], text[1], text[2], text[3] * fade], behind);
-    const [light, dark] = [luminance(text), luminance(behind)].sort((a, b) => b - a);
+      const pictures = own.backgroundImage === "none" ? [] : own.backgroundImage.split(/,(?![^(]*\))/).map((item) => item.trim());
+      const background = parse(own.backgroundColor) ?? [0, 0, 0, 0];
+      if (pictures.some((item) => item.startsWith("url(") && !item.startsWith('url("data:image/svg+xml'))) return null;
+      if (pictures.length && background[3] < 1) return null;
+      const behind = node instanceof SVGElement && node.tagName.toLowerCase() !== "svg" ? under : over(background, under);
+      const own0 = index === 0 && beneath ? over(beneath, behind) : behind;
+      const inner = index === 0 ? { text: over(colour, own0), back: own0 } : draw(index - 1, behind);
+      if (!inner) return null;
+      const opacity = Number(own.opacity);
+      return opacity >= 1 ? inner : { text: mix(under, inner.text, opacity), back: mix(under, inner.back, opacity), faded: (inner.faded ?? 1) * opacity };
+    };
+    return draw(chain.length - 1, hostColour);
+  };
+  const faint = new Set();
+  const measure = (element, colour, size, weight, what, beneath) => {
+    if (!colour || colour[3] === 0) return;
+    const pixel = paint(element, colour, beneath);
+    if (!pixel || (pixel.faded ?? 1) < 0.05) return;
+    const [light, dark] = [luminance(pixel.text), luminance(pixel.back)].sort((a, b) => b - a);
     const ratio = (light + 0.05) / (dark + 0.05);
-    const size = parseFloat(style.fontSize);
-    const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
-    if (ratio < (large ? 3 : 4.5) - 0.05) faint.add(`${describe(element)} ${ratio.toFixed(2)}:1`);
+    const large = size >= 24 || (size >= 18.66 && weight >= 700);
+    if (ratio < (large ? 3 : 4.5) - 0.005) faint.add(`${what} ${ratio.toFixed(2)}:1`);
+  };
+  for (const element of all) {
+    if (element.closest(":disabled, [aria-disabled=true]")) continue;
+    const tag = element.tagName.toLowerCase();
+    const style = getComputedStyle(element);
+    if (element.closest("svg")) {
+      if ((tag === "text" || tag === "tspan") && ownText(element)) {
+        const fill = parse(style.fill);
+        // A label on a tag (a <g> holding a rect and its text): the rect is what is behind it.
+        const group = element.parentElement?.tagName.toLowerCase() === "g" ? [...element.parentElement.children] : [];
+        const shape = group.slice(0, group.indexOf(element)).reverse().find((item) => item.tagName.toLowerCase() === "rect");
+        const shapeFill = shape ? parse(getComputedStyle(shape).fill) : null;
+        const beneath = shapeFill ? [shapeFill[0], shapeFill[1], shapeFill[2], shapeFill[3] * Number(getComputedStyle(shape).fillOpacity)] : undefined;
+        if (fill) measure(element, [fill[0], fill[1], fill[2], fill[3] * Number(style.fillOpacity)], parseFloat(style.fontSize), Number(style.fontWeight), describe(element), beneath);
+      }
+      continue;
+    }
+    if (["input", "textarea"].includes(tag) && !["checkbox", "radio", "range", "hidden"].includes(element.getAttribute("type") ?? "")) {
+      if (element.value) measure(element, parse(style.color), parseFloat(style.fontSize), Number(style.fontWeight), describe(element));
+      else if (element.placeholder) {
+        const placeholder = getComputedStyle(element, "::placeholder");
+        const colour = parse(placeholder.color);
+        if (colour) measure(element, [colour[0], colour[1], colour[2], colour[3] * Number(placeholder.opacity || 1)], parseFloat(style.fontSize), Number(style.fontWeight), `${describe(element)} placeholder "${element.placeholder.slice(0, 30)}"`);
+      }
+      continue;
+    }
+    if (ownText(element)) measure(element, parse(style.color), parseFloat(style.fontSize), Number(style.fontWeight), describe(element));
   }
   for (const item of [...faint].slice(0, 5)) problems.push(`low contrast: ${item}`);
 
@@ -298,44 +343,61 @@ async function audit(context, base, run) {
       ]));
       for (const problem of await frame.evaluate(inspect, host)) if (!seen.has(problem)) { seen.add(problem); problems.push(`${prefix}${problem}`); }
     };
+    // With the keyboard, from the first control to the last: each shows a focus ring and is in view when focused.
+    const walk = async (prefix) => {
+      await frame.evaluate(() => {
+        for (const element of document.querySelectorAll("[data-audit-visited]")) element.removeAttribute("data-audit-visited");
+        document.body.tabIndex = -1;
+        document.body.focus();
+        document.body.removeAttribute("tabindex");
+      });
+      for (let step = 0; ; step++) {
+        if (step === 200) { problems.push(`${prefix}the keyboard walk stopped after 200 controls`); break; }
+        await page.keyboard.press("Tab");
+        await page.waitForTimeout(60);
+        const stop = await frame.evaluate(() => {
+          const element = document.activeElement;
+          if (!element || element === document.body) return { done: true };
+          if (element.hasAttribute("data-audit-visited")) return { done: true };
+          element.setAttribute("data-audit-visited", "");
+          const name = `${element.tagName.toLowerCase()}${typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/)[0]}` : ""} "${(element.getAttribute("aria-label") || element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30)}"`;
+          // The ring: on the control, on a box around it (:focus-within) or its label, on its ::before or ::after, or,
+          // for a control that is not drawn itself (a switch's input), on what draws it after it. An outline, shadow or
+          // border it does not have unfocused, read with transitions off so the resting look is the one it settles to.
+          const drawn = getComputedStyle(element).opacity !== "0" && element.getBoundingClientRect().width > 2;
+          const parts = [element, element.parentElement, element.parentElement?.parentElement, element.closest("label"), drawn ? null : element.nextElementSibling].filter(Boolean);
+          const look = () => parts.flatMap((item) => [null, "::before", "::after"].map((pseudo) => {
+            const style = getComputedStyle(item, pseudo);
+            const outline = style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 && !/rgba\([^)]*, 0\)|transparent/.test(style.outlineColor);
+            return `${outline ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}` : "none"}|${style.boxShadow}|${style.borderColor}|${style.borderWidth}`;
+          }));
+          const calm = parts.map((item) => { const before = item.style.transition; item.style.transition = "none"; return () => { item.style.transition = before; }; });
+          const focused = look();
+          element.blur();
+          const resting = look();
+          element.focus({ focusVisible: true });
+          for (const undo of calm) undo();
+          const ringed = focused.some((item, index) => item !== resting[index]);
+          const box = element.getBoundingClientRect();
+          let hidden = false;
+          for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            const edge = parent.getBoundingClientRect();
+            if (style.overflowX !== "visible") hidden ||= box.left < edge.left - 1 || box.right > edge.right + 1;
+            if (style.overflowY !== "visible") hidden ||= box.top < edge.top - 1 || box.bottom > edge.bottom + 1;
+          }
+          // Under a sticky bar: the control's middle is drawn by something else.
+          const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          const under = top && top !== element && !element.contains(top) && !top.closest("label")?.contains(element) && getComputedStyle(element).opacity !== "0";
+          return { name, problems: [ringed ? "" : `no focus ring: ${name}`, hidden ? `focused out of view: ${name}` : "", under ? `focused under something else: ${name}` : ""].filter(Boolean) };
+        });
+        if (stop.done) break;
+        for (const problem of stop.problems) if (!seen.has(problem)) { seen.add(problem); problems.push(`${prefix}${problem}`); }
+      }
+    };
     await note("");
     await picture("");
-    // With the keyboard, from the first control to the last: each shows a focus ring and is scrolled into view.
-    await frame.evaluate(() => { document.body.tabIndex = -1; document.body.focus(); document.body.removeAttribute("tabindex"); });
-    const visited = new Set();
-    for (let step = 0; step < 120; step++) {
-      await page.keyboard.press("Tab");
-      await page.waitForTimeout(60);
-      const stop = await frame.evaluate(() => {
-        const element = document.activeElement;
-        if (!element || element === document.body) return { done: true };
-        const key = [...document.querySelectorAll("*")].indexOf(element);
-        const name = `${element.tagName.toLowerCase()}${typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/)[0]}` : ""} "${(element.getAttribute("aria-label") || element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 30)}"`;
-        // The ring is on the control, or, for a control drawn by what follows it (a switch), on that: an outline, or
-        // a shadow or border it does not have unfocused.
-        const parts = [element, element.nextElementSibling, element.closest("label")].filter(Boolean);
-        const look = () => parts.map((item) => {
-          const style = getComputedStyle(item);
-          return { outline: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0, rest: `${style.boxShadow}|${style.borderColor}` };
-        });
-        const focused = look();
-        element.blur();
-        const resting = look();
-        element.focus({ focusVisible: true });
-        const ringed = focused.some((item, index) => item.outline || item.rest !== resting[index].rest);
-        const box = element.getBoundingClientRect();
-        let hidden = false;
-        for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
-          if (getComputedStyle(parent).overflowX === "visible") continue;
-          const edge = parent.getBoundingClientRect();
-          hidden ||= box.left < edge.left - 1 || box.right > edge.right + 1;
-        }
-        return { key, name, problems: [ringed ? "" : `no focus ring: ${name}`, hidden ? `focused out of view: ${name}` : ""].filter(Boolean) };
-      });
-      if (stop.done || visited.has(stop.key)) break;
-      visited.add(stop.key);
-      for (const problem of stop.problems) if (!seen.has(problem)) { seen.add(problem); problems.push(problem); }
-    }
+    await walk("");
     // Everything folded, opened, twice for what the first round shows; the date-range panel last, as a click
     // elsewhere closes it.
     for (let round = 0; round < 2; round++) {
@@ -349,6 +411,7 @@ async function audit(context, base, run) {
     await settle(page, 20);
     await note("opened: ");
     await picture("-opened");
+    await walk("opened: ");
     // Each select's list open, one at a time, as a press opens it.
     const selects = await frame.evaluate(() => document.querySelectorAll(".selectBox:not(:disabled)").length);
     for (let index = 0; index < selects; index++) {

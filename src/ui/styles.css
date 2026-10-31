@@ -879,7 +879,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .priceLevel.stop, .priceTag.stop, .legendLine.stop { --level: var(--tp-red); }
 .priceLevel.limit, .priceTag.limit, .legendLine.limit { --level: var(--tp-green); }
 .priceLevel.alert, .priceTag.alert, .legendLine.alert { --level: var(--tp-amber); }
-.priceTag.last { --level: var(--tp-chart); }
+.priceTag.last { --level: color-mix(in srgb, var(--tp-chart) 86%, #000); }
+:root[data-theme="dark"] .priceTag.last { --level: var(--tp-chart); }
 .priceTag rect { fill: var(--level, var(--tp-muted)); }
 .priceTag line { stroke: var(--level, var(--tp-muted)); stroke-width: 1; }
 .priceTag text { fill: var(--tp-bg); font-size: 11.5px; font-weight: 720; font-variant-numeric: tabular-nums; }
