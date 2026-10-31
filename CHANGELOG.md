@@ -3,10 +3,12 @@
 ## 2.88.0
 
 - A Trading 212 report (`manage_history_export`, the Reports page) now gives the tax withheld from dividends by country:
-  - Each row counts the gross (shares × gross per share) and what was withheld, both in the paying currency, grouped by the country in the instrument's ISIN. Pence are counted as pounds. A row whose withholding is in another currency than its gross is left out.
+  - Each dividend row adds its payment and the tax withheld, in the paying currency, grouped by the country in the instrument's ISIN. Pence are counted as pounds, and returns of capital are left out.
+  - Trading 212 does not document whether a dividend row's per-share figure is before or after withholding, and users have reported it after. So the report's totals and exchange rates decide which it is. When they cannot tell, it is taken as after withholding, and the page says so. This has not been checked against a real report yet.
+  - A row whose tax is in another currency than its payment, or that misses a figure, is left out, and the page says how many were.
   - The Reports page lists each country with its rate, the tickers and the number of payments. The text summary lists them too.
-  - US dividends withheld at 25% or more are flagged. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%.
-- The sample account's report lists each row's ISIN, and its Irish-domiciled fund pays without withholding, as such funds do.
+  - US instruments withheld at 25% or more are named. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%. An ADR of a foreign company has a US ISIN but is withheld at its home country's rate, so it can be one of them.
+- The sample account's report lists each row's ISIN and gives dividends per share after withholding, with the exchange rate. Its Irish-domiciled fund pays without withholding, as such funds do.
 
 ## 2.87.0
 

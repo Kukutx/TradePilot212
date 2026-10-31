@@ -49,29 +49,63 @@ describe("CSV export", () => {
     expect(describePayload({ kind: "history_export", summary })).toContain("Currency conversion fee: 1.33 EUR");
   });
 
-  it("works out the tax withheld from dividends by the country of each ISIN", () => {
-    const csv = [
-      "Action,Time,ISIN,Ticker,No. of shares,Price / share,Currency (Price / share),Total,Currency (Total),Withholding tax,Currency (Withholding tax)",
-      "Dividend (Ordinary),2026-02-15 08:00:00,US0378331005,AAPL,10,0.25,USD,2.00,EUR,0.38,USD",
-      "Dividend (Ordinary),2026-03-01 08:00:00,US1912161007,KO,20,0.50,USD,6.40,EUR,3.00,USD",
-      "Dividend (Ordinary),2026-03-10 08:00:00,GB00B03MLX29,SHEL,100,25,GBX,25.00,EUR,,",
-      "Dividend (Dividend),2026-03-20 08:00:00,IE00B3XXRP09,VUSA,10,0.30,USD,2.80,EUR,,",
-      "Dividend (Ordinary),2026-03-25 08:00:00,NL0010273215,ASML,1,1.60,EUR,1.36,EUR,0.24,EUR",
-      "Dividend (Ordinary),2026-03-26 08:00:00,DE0007164600,SAP,1,2.00,EUR,1.50,EUR,0.50,USD",
-      "Market buy,2026-03-27 10:00:00,US0378331005,AAPL,1,200,USD,185,EUR,,",
+  it("works out the tax withheld from dividends by the country of each ISIN, reading the per-share figure as the file shows", () => {
+    // Per share after withholding, to 2 decimals, as Trading 212's users have seen; Totals in EUR at 1.10 USD per EUR.
+    const header = "Action,Time,ISIN,Ticker,No. of shares,Price / share,Currency (Price / share),Exchange rate,Total,Currency (Total),Withholding tax,Currency (Withholding tax)";
+    const net = [
+      header,
+      // AAPL: 10 × 0.2125 net (0.25 gross, 15% withheld) → 2.125 USD = 1.93 EUR.
+      "Dividend (Ordinary),2026-02-15 08:00:00,US0378331005,AAPL,10,0.2125,USD,1.10,1.93,EUR,0.375,USD",
+      // NVS, an ADR with a US ISIN, at the Swiss 35%: 20 × 0.65 net of 1.00.
+      "Dividend (Ordinary),2026-03-01 08:00:00,US66987V1098,NVS,20,0.65,USD,1.10,11.82,EUR,7.00,USD",
+      "Dividend (Ordinary),2026-03-10 08:00:00,GB00B03MLX29,SHEL,100,25,GBX,,25.00,GBP,,",
+      // Nothing withheld from a return of capital, and it is not income: left out.
+      "Dividend (Return of capital),2026-03-15 08:00:00,US0378331005,AAPL,10,3.00,USD,1.10,27.27,EUR,,",
+      "Dividend (Ordinary),2026-03-25 08:00:00,NL0010273215,ASML,1,1.36,EUR,1,1.36,EUR,0.24,EUR",
+      // The tax in another currency than the payment: not read, and counted.
+      "Dividend (Ordinary),2026-03-26 08:00:00,DE0007164600,SAP,1,1.50,EUR,1,1.50,EUR,0.50,USD",
+      "Market buy,2026-03-27 10:00:00,US0378331005,AAPL,1,200,USD,1.10,185,EUR,,",
     ].join("\n");
-    const { summary } = summarizeExport(csv);
+    const { summary } = summarizeExport(net);
+    expect(summary.withholdingBasis).toBe("net");
+    expect(summary.withholdingUnread).toBe(1);
     expect(summary.withholding).toEqual([
-      // US: 3.38 of 12.50, 27%: at or over 25%, so flagged.
-      { country: "US", currency: "USD", payments: 2, gross: 12.5, withheld: 3.38, rate: 0.2704, tickers: ["AAPL", "KO"], high: true },
+      // 7.375 of 22.5: 32.8%. NVS is the one at 25% or more, which is how an ADR shows.
+      { country: "US", currency: "USD", payments: 2, gross: 22.5, withheld: 7.375, rate: 0.328, tickers: ["AAPL", "NVS"], high: true, highTickers: ["NVS"] },
       { country: "NL", currency: "EUR", payments: 1, gross: 1.6, withheld: 0.24, rate: 0.15, tickers: ["ASML"] },
       // Pence counted as pounds; nothing withheld.
       { country: "GB", currency: "GBP", payments: 1, gross: 25, withheld: 0, rate: 0, tickers: ["SHEL"] },
-      { country: "IE", currency: "USD", payments: 1, gross: 3, withheld: 0, rate: 0, tickers: ["VUSA"] },
     ]);
     const text = describePayload({ kind: "history_export", summary });
-    expect(text).toContain("Withheld from dividends: US 27.04% (3.38 of 12.5 USD gross, 2 payments)");
-    expect(text).toContain("W-8BEN");
+    expect(text).toContain("Withheld from dividends: US 32.8% (7.38 of 22.5 USD gross, 2 payments)");
+    expect(text).toContain("US instruments withheld at 25% or more: NVS");
+    expect(text).toContain("1 dividend row");
+
+    // Payments with the per-share figure before withholding (the Totals show it), and the tax written as negative.
+    const gross = [header,
+      "Dividend (Ordinary),2026-02-15 08:00:00,US0378331005,AAPL,10,0.25,USD,1.10,1.93,EUR,-0.375,USD",
+      "Dividend (Ordinary),2026-03-01 08:00:00,US1912161007,KO,20,0.50,USD,1.10,7.73,EUR,-1.50,USD",
+    ].join("\n");
+    const read = summarizeExport(gross).summary;
+    expect(read.withholdingBasis).toBe("gross");
+    expect(read.withholding?.[0]).toMatchObject({ gross: 12.5, withheld: 1.875, rate: 0.15 });
+    expect(read.withholding?.[0]?.high).toBeUndefined();
+
+    // At 1.0846 USD per EUR (the square root of 1 / 0.85), a 15% withholding reads either way unless the orders
+    // show how the file quotes its rate.
+    const near = (order: string) => [header,
+      "Dividend (Ordinary),2026-02-15 08:00:00,US0378331005,AAPL,100,0.2125,USD,1.0846,19.59,EUR,3.75,USD",
+      order,
+    ].join("\n");
+    expect(summarizeExport(near("")).summary.withholdingBasis).toBe("assumed");
+    const shown = summarizeExport(near("Market buy,2026-03-27 10:00:00,US0378331005,AAPL,1,200,USD,1.0846,184.70,EUR,,")).summary;
+    expect(shown.withholdingBasis).toBe("net");
+    expect(shown.withholding?.[0]).toMatchObject({ gross: 25, rate: 0.15 });
+
+    // Without Totals to go by, the figure is taken as after withholding.
+    const bare = summarizeExport("Action,ISIN,Ticker,No. of shares,Price / share,Currency (Price / share),Withholding tax,Currency (Withholding tax)\nDividend (Ordinary),US0378331005,AAPL,10,0.2125,USD,0.375,USD").summary;
+    expect(bare.withholdingBasis).toBe("assumed");
+    expect(bare.withholding?.[0]).toMatchObject({ gross: 2.5, rate: 0.15 });
     // No withholding column: nothing to say.
     expect(summarizeExport("Action,Time,Total,Currency (Total)\nDeposit,2026-01-01 10:00:00,5,EUR").summary.withholding).toBeUndefined();
   });
