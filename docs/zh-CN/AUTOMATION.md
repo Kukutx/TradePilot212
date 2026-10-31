@@ -236,7 +236,7 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 
 在地址前加格式（`slack:`、`discord:`、`telegram:`、`ntfy:`、`bark:`、`raw:`），可以为自建服务或中转指定格式。含令牌的地址（Telegram 的、Bark 的 key、Slack hook）不会写进日志或存储；关于它的错误只说它在列表中的位置，不重复地址本身。
 
-`NOTIFY_LOCALE=zh-CN` 让通知用中文书写（默认 `en`）：事件名称、买入或卖出、股数，数字按中文习惯书写，成交金额带币种（€1,303.75）。每日摘要里的数字说明暂时仍是英文。
+`NOTIFY_LOCALE=zh-CN` 让通知用中文书写（默认 `en`）：事件名称、买入或卖出、股数，数字按中文习惯书写，成交金额带币种（€1,303.75）。
 
 默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
 
@@ -250,6 +250,13 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 ### 每日摘要
 
 设置 `DIGEST_HOUR`（0 到 23，按 `TIMEZONE`，未设置时按 UTC）或 `DIGEST_HOUR_UTC`（始终为 UTC；两者不能同时设置），并同时设置 `NOTIFY_WEBHOOK_URL`，每个环境每天就会收到一条简短消息（“一天”按该时区计算）：总值及其相对上一次摘要的变化，持仓在最近一个交易时段的涨跌以及涨跌最大的三个（与仪表盘一致；读不到行情源的收盘价时略去），现金，未实现盈亏，最大的三个持仓，待处理订单，过去一天成交的订单，到期的计划，过去一天触发的提醒，上一次摘要以来收到的分红（按标的列出最大的五笔，再说明还有多少笔）和未来七天预计的分红（按收入标签页的分红日历计算），然后是过去七天内到期但还没到账的分红（跨月末也算），标为已到期；有保存的目标时，还有相对目标的最大偏离。只要有任何持仓挂着卖出止损单，摘要还会列出没有被止损单完全覆盖的持仓。它只读。当日涨跌会向行情源请求每个持仓的日收盘价，和打开仪表盘时一样（缓存半小时，不会再变的前一收盘价当天一直保留）；如果套餐每日额度很小，比如 Alpha Vantage 免费的 25 次请求，那就是每个持仓每天一次请求。分红部分每次尝试都会读取一次 Trading 212 的分红历史，起点是一周前所在月份的第一天再往前推一年（这样上个月底到期的年度分红仍能看到；对大多数账户是一两页，最多十页，与收入标签页相同）。读不到分红的摘要会照常发出，只是不含分红，下一条摘要会说明漏掉了什么；比标注日期最多晚三天才出现在历史里的分红，会在它出现之后的下一条摘要中列出，同一笔分红不会列两次。间隔很久之后，已收到的分红最多回溯 31 天列出。当历史读到十页就停止时，预计分红会被略去，而不是显示一个偏少的数字。无论 `NOTIFY_EVENTS` 里列了什么，摘要都会发送；只有 webhook 接受之后，这一天才算完成；在此之前每 15 分钟重试一次。
+
+摘要用 `NOTIFY_LOCALE` 的语言书写。
+
+<a id="weekly-and-monthly-reports"></a>
+### 周报和月报
+
+设置 `REPORTS=weekly`、`monthly` 或 `weekly,monthly`，并同时设置 `DIGEST_HOUR`（或 `DIGEST_HOUR_UTC`），就会在摘要的时间收到报告：每周一发上一周七天的，每月 1 日发上个月的，日期按摘要的时区计算。每份报告包括：期初和期末的账户市值（TradePilot 记录的）及其变化；这段时间的时间加权收益（不计入金和出金）；净入金；股息和利息；买入、卖出笔数和成交额；已实现盈亏；费用。数据和 `get_portfolio_performance` 读的是同样的历史记录。历史记录读到页数上限被截断时，报告会说明数字可能偏低。报告不受 `NOTIFY_EVENTS` 限制，静默时段也按时发送；没有任何地址接收时，当天每 15 分钟重试一次，直到被接收。每份报告在操作记录里记一次（`weekly_report`、`monthly_report`）。报告只读取，不交易。
 
 <a id="seeing-what-runs"></a>
 ## 查看在运行的内容

@@ -289,6 +289,7 @@ NOTIFY_QUIET_HOURS=22-07      # 可选，夜间只推紧急事件（按 TIMEZONE
 NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
 NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
 DIGEST_HOUR=7                 # 可选，每天按 TIMEZONE 的 7 点推送账户摘要（或 DIGEST_HOUR_UTC=7）
+REPORTS=weekly,monthly        # 可选，每周一发周报、每月 1 日发月报，时间同摘要
 ```
 
 日期默认按 UTC 计算，税年默认从 1 月 1 日开始；可以设成你自己的：

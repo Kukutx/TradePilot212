@@ -281,6 +281,7 @@ NOTIFY_QUIET_HOURS=22-07      # optional, hold all but urgent events overnight (
 NOTIFY_WEBHOOK_SECRET=        # optional HMAC signature
 NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
 DIGEST_HOUR=7                 # optional daily digest at 07:00 in TIMEZONE (or DIGEST_HOUR_UTC=7)
+REPORTS=weekly,monthly        # optional, a weekly report on Monday and a monthly one on the 1st, at the digest's hour
 ```
 
 Days are counted in UTC unless you set your own zone; the tax year starts on 1 January unless you set its first day:
