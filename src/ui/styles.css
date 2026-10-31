@@ -622,6 +622,11 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .confirmationRows { overflow: hidden; border: 1px solid var(--tp-border); border-radius: 13px; }
 .confirmationRows > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border-bottom: 1px solid var(--tp-border); font-size: 12px; }
 .confirmationRows > div:last-child { border-bottom: 0; }
+.orderImpact { display: grid; gap: 8px; margin-top: 14px; }
+.orderImpact h3.sectionEyebrow { margin: 0; }
+.orderImpact .notice { margin-bottom: 0; }
+.confirmationRows .rowHint { display: block; margin-top: 2px; color: var(--tp-muted); font-size: 12px; font-weight: 400; }
+.impactFootnote { margin: 0; color: var(--tp-muted); font-size: 12px; line-height: 1.45; }
 .confirmationRows span { color: var(--tp-muted); }
 .confirmationRows strong { text-align: right; overflow-wrap: anywhere; }
 .expiryLine { margin-top: 12px; color: var(--tp-muted); font-size: 12px; }

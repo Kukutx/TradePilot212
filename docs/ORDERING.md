@@ -90,6 +90,19 @@ The order editor shows both the original sizing rule and the calculated quantity
 
 An order can carry a `thesis`, why you are making it. It is shown on the review and never sent to Trading 212; once the order is accepted it is saved to the trade journal with the order id ([JOURNAL.md](./JOURNAL.md)).
 
+### What the order would change
+
+The final confirmation shows, under **If it fills**, what the order would change, worked out from the holdings and cash the review read; nothing more is read for it. Every amount is in the account currency (`impact` in `app_prepare_order`'s result, and a line the model is told):
+
+- **Shares held**, before and after.
+- **Share of the account**: the holding's value over the account's, before and after. A buy adds what it pays; what is left after a sell keeps its value per share. The account's value moves only by the fee.
+- **Cash to trade**: what the buy takes or the sell adds, less the conversion fee. A buy in another currency passes the review with a little leeway, as its value is an estimate; one that would take the cash below zero says Trading 212 may refuse it.
+- **Realized gain or loss**, for a sell: the proceeds less the shares' part of the holding's cost, which is how Trading 212 counts it against its average price, before the conversion fee it reports apart. A Market sell is valued at the lower of its reference price and the last price, so neither its proceeds nor its gain is overstated.
+- **Conversion fee**, when the instrument trades in another currency than the account: `FX_FEE_RATE` of the amount at most, as a balance held in the instrument's currency converts nothing.
+- With `TAX_YEAR_START=04-06`, a sell notes the UK matching rules, which apply outside an ISA. Shares of the same company bought the same day or in the 30 days after a sale are matched with it first, at their own cost rather than the section 104 pool's average. If the sale is at a loss, the note says that buying back within 30 days means most of the loss may not count.
+
+These are estimates at the review's prices. The fill and Trading 212's statement decide.
+
 ## Price checks
 
 A Limit or Stop price ten times above or below the last price is blocked (`PRICE_OUT_OF_RANGE`), because that is almost always a unit slip, such as pounds typed for an instrument quoted in pence. Smaller surprises are notes on the review:

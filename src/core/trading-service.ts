@@ -24,6 +24,7 @@ import type { BasketDraftPayload, BasketExecutionResult, BasketPreview, BasketPu
 import { BASKET_ORDER_NOTE } from "../shared/automation.js";
 import { stopProtection, STOPS_BASKET_TITLE, suggestedStop, SUGGESTED_STOP_DROP } from "../shared/protection.js";
 import { journalText } from "../shared/journal.js";
+import { orderImpact } from "../shared/order-impact.js";
 import type { MarketStatus } from "../shared/history.js";
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
@@ -1139,6 +1140,16 @@ export class TradingService {
     const policy = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
+    // The order's value is checked against its limits at the higher of the prices known; a Market sell's proceeds are
+    // shown at the lower, so neither the cash it raises nor its gain is overstated by a reference price above the market.
+    const prices = [draft.referencePrice, current.position?.currentPrice].filter((value): value is number => value !== undefined && value > 0);
+    const valuedAt = current.estimatedNotional !== undefined ? current.estimatedNotional / draft.quantity : undefined;
+    const proceeds = draft.side === "sell" && draft.type === "market" && current.accountNotional !== undefined && valuedAt && prices.length
+      ? current.accountNotional * (Math.min(...prices) / valuedAt) : current.accountNotional;
+    const impact = orderImpact({
+      side: draft.side, quantity: draft.quantity, position: current.position, account: current.account, instrumentCurrency: current.instrument.currencyCode,
+      accountNotional: proceeds, fxFeeRate: this.deps.config.fxFeeRate, ukTaxYear: this.deps.config.taxYearStart === "04-06",
+    });
     const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
@@ -1155,6 +1166,7 @@ export class TradingService {
       ...(current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {}),
       notices,
       policy,
+      ...(impact ? { impact } : {}),
       warnings: notices.map((notice) => notice.message),
     };
   }

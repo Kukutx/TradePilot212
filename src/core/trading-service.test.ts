@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describePayload } from "./text-summary.js";
 import type { Instrument, OrderDraft } from "../shared/contracts.js";
 import { createConfig, type RuntimeConfig } from "./config.js";
 import type { QuoteProvider } from "./quotes.js";
@@ -333,6 +334,10 @@ describe("flexible order intent", () => {
     expect(activity[0]?.type).toBe("order_prepared");
     expect(activity[0]?.ticker).toBe("AAPL_US_EQ");
     expect(activity[0]?.quantity).toBe(1);
+    // What it would change comes with the review, and is told to the model with it.
+    expect(preview.impact).toMatchObject({ sharesAfter: expect.any(Number) });
+    expect(preview.impact!.sharesBefore - preview.impact!.sharesAfter).toBeCloseTo(1, 8);
+    expect(describePayload(preview as unknown as Record<string, unknown>)).toMatch(/If it fills, about: shares [\d.]+ to [\d.]+/);
   });
 
   it("warns that a Market order placed while the market is closed will be queued", async () => {

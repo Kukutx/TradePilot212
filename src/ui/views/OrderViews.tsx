@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import type { PolicyCheck } from "../../shared/automation";
-import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
+import type { CancelPreview, Instrument, OrderDraft, OrderImpact, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { MAX_JOURNAL_TEXT } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
 import { Choices, DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
-import { ambiguousComma, amount, dateTime, money, notional, parseAmount, qty, time } from "../lib/format";
+import { ambiguousComma, amount, dateTime, money, notional, parseAmount, pct, qty, signedClass, time } from "../lib/format";
 import { instrumentCurrency, type InstrumentBook } from "../lib/instruments";
 import { countText, envLabel, fill, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
 import { riskAtStop, summarizeOrder } from "../lib/orders";
@@ -246,6 +246,7 @@ export function OrderConfirmation({
           {draft.fxRateAt && <DetailRow label={t("fxAsOf")} value={dateTime(draft.fxRateAt, locale)} />}
           <DetailRow label={t("snapshotAsOf")} value={dateTime(preview.snapshotAt, locale)} />
         </div>
+        {preview.impact && <OrderImpactRows impact={preview.impact} locale={locale} t={t} />}
         {draft.thesis && <div className="journalText confirmationThesis"><span>{t("journalWhy")}</span><p>{draft.thesis}</p></div>}
         {(preview.notices ?? []).map((notice) => <div className="notice warning compactNotice" key={notice.code}>{noticeText(notice, t, locale)}</div>)}
         <PolicyList checks={preview.policy} t={t} locale={locale} />
@@ -254,6 +255,36 @@ export function OrderConfirmation({
         <div className="transactionFooter"><button type="button" className="secondaryButton" onClick={onBack}>{t("backToEdit")}</button><button type="button" className={live ? "dangerButton" : "primaryButton"} disabled={busy || (live && !acknowledged) || (preview.policy ?? []).some((check) => check.status === "block")} onClick={() => onConfirm(live && acknowledged)}>{busy ? t("submitting") : live ? t("confirmLive") : t("confirmDemo")}</button></div>
       </section>
     </main>
+  );
+}
+
+/** What the order would change once it fills, at the review's prices: each row from before to after. */
+export function OrderImpactRows({ impact, locale, t }: { impact: OrderImpact; locale: SupportedLocale; t: Translator }) {
+  const titleId = useId();
+  const change = (before: string, after: string) => `${before} → ${after}`;
+  const cash = (value: number | undefined) => money(value, impact.currency, locale);
+  return (
+    <section className="orderImpact" aria-labelledby={titleId}>
+      <h3 id={titleId} className="sectionEyebrow">{t("impactTitle")}</h3>
+      <div className="confirmationRows">
+        <DetailRow label={t("impactShares")} value={change(qty(impact.sharesBefore, locale), qty(impact.sharesAfter, locale))} />
+        {impact.weightBefore !== undefined && impact.weightAfter !== undefined && (
+          <DetailRow label={t("impactWeight")} value={change(pct(impact.weightBefore, locale), pct(impact.weightAfter, locale))} />
+        )}
+        {impact.cashBefore !== undefined && impact.cashAfter !== undefined && (
+          <DetailRow label={t("impactCash")} value={change(cash(impact.cashBefore), cash(impact.cashAfter))} tone={impact.cashAfter < 0 ? "negative" : undefined} />
+        )}
+        {impact.realized !== undefined && (
+          <div><span>{t("impactRealized")}<small className="rowHint">{t("impactRealizedHint")}</small></span><strong className={signedClass(impact.realized)}>{money(impact.realized, impact.currency, locale, { signed: true })}</strong></div>
+        )}
+        {impact.fxFee !== undefined && (
+          <div><span>{t("impactFxFee")}<small className="rowHint">{fill(t("impactFxFeeHint"), { rate: pct(impact.fxFeeRate, locale, 2) })}</small></span><strong>{fill(t("atMost"), { amount: cash(impact.fxFee) })}</strong></div>
+        )}
+      </div>
+      {impact.cashAfter !== undefined && impact.cashAfter < 0 && <div className="notice warning compactNotice">{t("impactCashShort")}</div>}
+      {impact.ukRule && <div className="notice compactNotice">{t(impact.ukRule === "sell_loss" ? "impactUkLoss" : "impactUkSale")}</div>}
+      <p className="impactFootnote">{t("impactFootnote")}</p>
+    </section>
   );
 }
 

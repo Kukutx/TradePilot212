@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.83.0
+
+- An order's final confirmation shows what it would change, under **If it fills**, from the holdings and cash its review read. Nothing more is read for it, and the confirmation is otherwise as before. All amounts are in the account currency:
+  - the shares held, before and after;
+  - the holding's share of the account, before and after (until now worked out only for a buy, and only when a weight limit was set);
+  - the cash left to trade;
+  - for a sell, the realized gain or loss as Trading 212 counts it against its average price, before the conversion fee it lists apart (a Market sell is valued at the lower of its reference and last prices, so its gain is not overstated);
+  - for an instrument in another currency, the conversion fee at most.
+- A buy that would take the cash below zero with the conversion fee says Trading 212 may refuse it.
+- With a UK tax year, a sell notes the matching rules, which apply outside an ISA. Shares of the same company bought the same day or in the 30 days after the sale are matched with it first, at their own cost. A sale at a loss also notes that buying back within 30 days means most of the loss may not count.
+- `app_prepare_order` returns these figures as `impact`, and the model is told them with the review.
+
 ## 2.82.0
 
 - The widget and the chat work together, where the host allows each. **Ask** in the header offers questions about the page in view (what stands out, and one for the page: which holdings need attention, how far the portfolio is from its targets, what this tax year's figures are for a return, what to know about this instrument) and sends the one you pick to the chat as your message. **Save** saves the holdings, the trades listed, the cash movements listed or the tax year (Trading 212's figures by instrument and, for a UK year, the matching beside them) as CSV, with a byte-order mark so Excel keeps Chinese names, and text a spreadsheet would run as a formula made plain; or as JSON, the data the page is about: no account number, pending orders, activity log, settings or journal notes, so a file made for an accountant holds only what its name says. A list read up to a limit says how many of the period's rows the file holds, and a history read cut short says so. A tax year whose UK matching is not complete or can still change says so on saving, and its CSV ends with the page's notes under the rows, since a file kept for a return is read without the page. A save the reader cancels says only that the file was not saved.

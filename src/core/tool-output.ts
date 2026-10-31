@@ -79,7 +79,7 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   app_list_pies: payload("pies", pies),
   app_prepare_basket: payload("basket_preview", "token:s expiresAt:s snapshotAt:s environment:s purpose:s title:s accountCurrency:s legs:a notes:a"),
   app_prepare_cancel: payload("cancel_preview", "token:s expiresAt:s environment:s orderId:s order:o"),
-  app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a warnings:a"),
+  app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a impact:o warnings:a"),
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),

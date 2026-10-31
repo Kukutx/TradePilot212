@@ -399,6 +399,32 @@ export interface OrderNotice {
   details?: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * What an order would change, in the account currency, at the review's prices: estimates from the holdings and cash
+ * read for it, from 2.83.
+ */
+export interface OrderImpact {
+  currency: string;
+  sharesBefore: number;
+  sharesAfter: number;
+  /** The holding's share of the account's value before and after; the account's value moves only by the fee. */
+  weightBefore?: number;
+  weightAfter?: number;
+  /** Cash available to trade, and after the order takes or adds its value, less the conversion fee. */
+  cashBefore?: number;
+  cashAfter?: number;
+  /** A sell's realized gain or loss as Trading 212 counts it: the proceeds less the shares' part of the holding's cost. */
+  realized?: number;
+  /** The conversion fee at most, when the instrument trades in another currency: nothing when paid from its own. */
+  fxFee?: number;
+  fxFeeRate?: number;
+  /**
+   * A UK tax year: shares of the same company bought the same day or in the 30 days after a sale are matched with
+   * it first, so a loss taken now is set against that rebuy ("sell_loss"), not left to stand.
+   */
+  ukRule?: "sell" | "sell_loss";
+}
+
 export interface OrderPreview {
   kind: "order_preview";
   token: string;
@@ -416,6 +442,8 @@ export interface OrderPreview {
   notices: OrderNotice[];
   /** Policy rules evaluated for this order; blocked orders never get a token. */
   policy?: PolicyCheck[];
+  /** What the order would change, when the account currency is known. */
+  impact?: OrderImpact;
   warnings?: string[];
 }
 

@@ -8,7 +8,7 @@ import { equalRiskTargets, marketScenarios, PARITY_MIN_VOLATILITY } from "../sha
 import { holdingPositionHistory } from "../shared/position-history.js";
 import { PRICE_RANGES, priceMove, pricesIn, rangeCovered } from "../shared/prices.js";
 import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPayload, type JournalReview, type JournalTagStats, type JournalTrade } from "../shared/journal.js";
-import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment } from "../shared/contracts.js";
+import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment, OrderImpact } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, MarketSensitivity, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
@@ -758,9 +758,27 @@ function orderPreview(data: OrderPreview): string[] {
     `Ready to send to ${env(data.draft.environment)}: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === undefined ? "" : ` ≈ ${money(data.estimatedNotional, data.estimatedNotionalCurrency)}`}${data.estimatedAccountNotional === undefined ? "" : ` (about ${money(data.estimatedAccountNotional, data.accountCurrency)})`}.`,
     ...(data.draft.thesis ? [`Why (saved to the journal once sent): ${quoted(data.draft.thesis)}.`] : []),
     ...(data.availableCash === undefined ? [] : [`Available cash ${money(data.availableCash, data.accountCurrency)}.`]),
+    ...(data.impact ? impactLines(data.impact) : []),
     ...noticesLines(data.notices),
     ...policyLines(data.policy),
     tokenLine(data.token, data.expiresAt, data.draft.environment),
+  ];
+}
+
+/** What the order would change, as estimates at the review's prices. */
+function impactLines(impact: OrderImpact): string[] {
+  const parts = [
+    `shares ${num(impact.sharesBefore, 8)} to ${num(impact.sharesAfter, 8)}`,
+    ...(impact.weightBefore === undefined || impact.weightAfter === undefined ? [] : [`${pct(impact.weightBefore)} to ${pct(impact.weightAfter)} of the account`]),
+    ...(impact.cashAfter === undefined ? [] : [`cash to trade ${money(impact.cashBefore)} to ${money(impact.cashAfter, impact.currency)}`]),
+    ...(impact.realized === undefined ? [] : [`realized ${signed(impact.realized)} ${impact.currency} against Trading 212's average price, before the conversion fee`]),
+    ...(impact.fxFee === undefined ? [] : [`conversion fee at most ${money(impact.fxFee, impact.currency)} (${pct(impact.fxFeeRate, 2)})`]),
+  ];
+  return [
+    `If it fills, about: ${parts.join("; ")}.`,
+    ...(impact.cashAfter !== undefined && impact.cashAfter < 0 ? ["The cash to trade would fall below zero with the conversion fee: Trading 212 may refuse the order for want of funds."] : []),
+    ...(impact.ukRule === "sell_loss" ? ["UK rules, outside an ISA: shares of the same company bought back today or within 30 days are matched with this sale first, at that rebuy's cost instead of the average cost, so most of this loss may not count."]
+      : impact.ukRule === "sell" ? ["UK rules, outside an ISA: shares of the same company bought today or within 30 days after this sale are matched with it first, at their own cost instead of the section 104 pool's average."] : []),
   ];
 }
 
