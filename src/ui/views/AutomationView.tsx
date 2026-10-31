@@ -2,7 +2,7 @@ import type { AutomationOverview, PriceAlert } from "../../shared/automation";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { AccountAlertList, type AccountAlertRequest } from "../components/account-alerts";
 import { AlertActions } from "../components/alerts";
-import { PlanList, type PlanRequest } from "../components/plans";
+import { PlanList, type PlanRequest, type PlanSaveResult } from "../components/plans";
 import { DetailRow, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -79,8 +79,8 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
   onDeleteAccountAlert?: (alertId: string) => void;
   onRearmAccountAlert?: (alertId: string) => void;
   /** Given where the account can be written to. */
-  onSavePlan?: (request: PlanRequest) => Promise<boolean>;
-  onChangePlan?: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }) => Promise<boolean>;
+  onSavePlan?: (request: PlanRequest) => Promise<PlanSaveResult>;
+  onChangePlan?: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => Promise<PlanSaveResult>;
   onDeletePlan?: (planId: string) => void;
   onReviewPlan?: (planId: string) => void;
 }) {

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { DcaPlan } from "../../shared/automation";
 import { createTranslator } from "../i18n";
-import { planChanges, planDraft, PlanForm, PlanList, planProblems, planRequest } from "./plans";
+import { planChanges, planDraft, PlanForm, PlanList, planProblems, planRequest, sameInstrument } from "./plans";
 
 const en = createTranslator("en");
 const noop = () => {};
@@ -32,7 +32,7 @@ describe("investment plans in the widget", () => {
 
   it("never sends unattended running for a Live plan, and invests by targets with an amount", () => {
     const draft = { ...planDraft(undefined), mode: "targets" as const, targetAmount: "500", autoExecute: true };
-    expect(planRequest(draft, "live")).toEqual({ label: "", targetAmount: 500, frequency: "monthly", dayOfMonth: 1, hourUtc: 15 });
+    expect(planRequest(draft, "live")).toEqual({ targetAmount: 500, frequency: "monthly", dayOfMonth: 1, hourUtc: 15 });
   });
 
   it("asks for an instrument and an amount above zero on each buy", () => {
@@ -46,11 +46,13 @@ describe("investment plans in the widget", () => {
     const readOnly = renderToStaticMarkup(createElement(PlanList, props));
     expect(readOnly).not.toContain("New plan");
     expect(readOnly).not.toContain("Open orders now");
-    const managed = renderToStaticMarkup(createElement(PlanList, { ...props, onSave: async () => true, onChange: async () => true, onDelete: noop, onReview: noop }));
+    const managed = renderToStaticMarkup(createElement(PlanList, { ...props, onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }));
     expect(managed).toContain('data-reveals="form">New plan</button>');
+    // Busy, the buttons stay focusable rather than disabled, so focus stays on the one pressed.
+    expect(renderToStaticMarkup(createElement(PlanList, { ...props, busy: true, onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }))).not.toContain("disabled=\"\"");
     for (const label of ["Open orders now", "Pause", "Change", "Delete"]) expect(managed).toContain(`>${label}</button>`);
     expect(managed).toContain("Monthly on day 5 · 15:00 UTC");
-    expect(renderToStaticMarkup(createElement(PlanList, { ...props, plans: [{ ...plan, paused: true }], onSave: async () => true, onChange: async () => true, onDelete: noop, onReview: noop }))).toContain(">Resume</button>");
+    expect(renderToStaticMarkup(createElement(PlanList, { ...props, plans: [{ ...plan, paused: true }], onSave: async () => true as const, onChange: async () => true as const, onDelete: noop, onReview: noop }))).toContain(">Resume</button>");
   });
 
   it("draws the form with the widget's own lists and switches, and the Demo-only unattended switch", () => {
@@ -61,5 +63,25 @@ describe("investment plans in the widget", () => {
     expect(html("demo")).toMatch(/Limit buy, up to 0\.50?% above the last price/);
     expect(html("demo")).toContain("Run unattended when due (Demo)");
     expect(html("live")).not.toContain("Run unattended");
+  });
+
+  it("keeps a leg's ticker and limit while it still names the same instrument, however typed", () => {
+    const book = { MSFT_US_EQ: { name: "Microsoft", shortName: "MSFT" } };
+    expect(sameInstrument(" msft ", "MSFT_US_EQ")).toBe(true);
+    expect(sameInstrument("VUSA", "VUSAl_EQ")).toBe(true);
+    expect(sameInstrument("Microsoft", "MSFT_US_EQ", book)).toBe(false);
+    const draft = planDraft(plan);
+    const retyped = { ...draft, legs: [draft.legs[0]!, { ...draft.legs[1]!, ticker: "msft" }] };
+    expect(planRequest(retyped, "demo", book).legs).toEqual(plan.legs);
+    expect(planChanges(plan, planRequest(retyped, "demo", book))).toEqual({});
+    const other = { ...draft, legs: [draft.legs[0]!, { ...draft.legs[1]!, ticker: "AAPL" }] };
+    expect(planRequest(other, "demo").legs?.[1]).toEqual({ ticker: "AAPL", amount: 100 });
+  });
+
+  it("names each amount by its buy, and says why a save failed inside the form", () => {
+    const html = (extra: object) => renderToStaticMarkup(createElement(PlanForm, { plan, environment: "demo", currency: "EUR", hasTargets: false, locale: "en", t: en, busy: false, onSave: noop, onCancel: noop, ...extra }));
+    expect(html({})).toContain('aria-label="Amount for instrument 2"');
+    expect(html({})).toContain('aria-label="Remove instrument 2 (MSFT_US_EQ)"');
+    expect(html({ error: "No matching instrument" })).toMatch(/role="alert".*No matching instrument/);
   });
 });

@@ -43,7 +43,7 @@ import { CashHistoryView, HISTORY_KINDS, TAX_RULES, TaxYearView, TradeHistoryVie
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
-import type { PlanRequest } from "./components/plans";
+import type { PlanRequest, PlanSaveResult } from "./components/plans";
 import { AutomationView } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
 import { JournalReviewView } from "./views/JournalView";
@@ -807,17 +807,27 @@ export default function App() {
    * Create, change, pause or delete an investment plan, then read the automation page again. Saving a plan places no
    * order. The plan is the automation page's account's, which can lag the switch while the other account's loads.
    */
-  async function changePlan(env: TradingEnvironment, input: Record<string, unknown>): Promise<boolean> {
+  async function changePlan(env: TradingEnvironment, input: Record<string, unknown>, inForm = false): Promise<PlanSaveResult> {
+    // A form's failure is said in the form, beside what was typed; the list's buttons report at the top as elsewhere.
+    let failure: string | undefined;
     const done = await run("errorTitlePlan", async () => {
-      await callTool("manage_investment_plans", { environment: env, ...input });
+      try {
+        await callTool("manage_investment_plans", { environment: env, ...input });
+      } catch (requestError) {
+        failure = problemFrom("errorTitlePlan", requestError).message;
+        if (!inForm) throw requestError;
+      }
     });
-    if (done) await loadInsight("automation", env);
-    return done;
+    if (!done || failure !== undefined) return failure ?? t("errorTitlePlan");
+    // The page is read again only while it still shows this account; one read under another would be stale.
+    if (tab === "automation" && environment === env) await loadInsight("automation", env);
+    else setInsights(({ automation: _old, ...rest }) => rest);
+    return true;
   }
 
   /** Open a plan's orders now, as a basket sized at today's prices, to review; nothing is sent until confirmed. */
   async function reviewPlan(planId: string): Promise<void> {
-    await run("errorTitlePlan", async () => {
+    await run("errorTitlePlanReview", async () => {
       showPayload(await callTool<BasePayload>("review_investment_plan", { planId }));
     }, () => void reviewPlan(planId));
   }
@@ -1409,9 +1419,9 @@ export default function App() {
                 onSaveAccountAlert={(request) => changeAccountAlert({ action: "create", ...request })}
                 onDeleteAccountAlert={(alertId) => void changeAccountAlert({ action: "delete", alertId })}
                 onRearmAccountAlert={(alertId) => void changeAccountAlert({ action: "rearm", alertId })}
-                {...(writeEnabled && connected ? {
-                  onSavePlan: (request: PlanRequest) => changePlan(insights.automation!.environment, { action: "create", ...request }),
-                  onChangePlan: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }) => changePlan(insights.automation!.environment, { action: "update", planId, ...changes }),
+                {...(writeEnabled && credentials[insights.automation.environment] ? {
+                  onSavePlan: (request: PlanRequest) => changePlan(insights.automation!.environment, { action: "create", ...request }, true),
+                  onChangePlan: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }, inForm?: boolean) => changePlan(insights.automation!.environment, { action: "update", planId, ...changes }, inForm),
                   onDeletePlan: (planId: string) => void changePlan(insights.automation!.environment, { action: "delete", planId }),
                   onReviewPlan: (planId: string) => void reviewPlan(planId),
                 } : {})} />
