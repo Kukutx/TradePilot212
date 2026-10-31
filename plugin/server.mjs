@@ -24441,6 +24441,29 @@ var inputRequired = Object.assign(buildInputRequired, {
     return { method: "roots/list" };
   }
 });
+function inputResponse(responses, key) {
+  if (responses === void 0 || typeof responses !== "object" || responses === null) return { kind: "missing" };
+  const entry = responses[key];
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return { kind: "missing" };
+  const candidate = entry;
+  if (candidate["action"] === "accept" || candidate["action"] === "decline" || candidate["action"] === "cancel") {
+    const content = candidate["content"];
+    return {
+      kind: "elicit",
+      action: candidate["action"],
+      ...content !== null && typeof content === "object" && !Array.isArray(content) && { content }
+    };
+  }
+  if (Array.isArray(candidate["roots"])) return {
+    kind: "roots",
+    roots: candidate["roots"]
+  };
+  if (typeof candidate["role"] === "string" && candidate["content"] !== void 0) return {
+    kind: "sampling",
+    result: candidate
+  };
+  return { kind: "missing" };
+}
 var REQUEST_STATE_ONLY_LEG_PACING_MS = 250;
 function inputRequiredRoundsExceededMessage(method, maxRounds) {
   return `Multi-round-trip request '${method}' still required input after ${maxRounds} rounds (inputRequired.maxRounds)`;
@@ -36015,6 +36038,11 @@ function j(B, Q, F, V) {
 function G(B, Q, F, V, q) {
   return B.registerResource(Q, F, { mimeType: L, ...V }, q);
 }
+var W = "io.modelcontextprotocol/ui";
+function H(B) {
+  if (!B) return;
+  return B.extensions?.[W];
+}
 
 // node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
 var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
@@ -37671,6 +37699,17 @@ var TradingService = class {
     const pending = await this.deps.store.consume(key);
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     return pending;
+  }
+  /**
+   * What a confirmation token would send, read without using it, for a host that asks the user itself before the
+   * send (order-confirm.ts). Nothing is checked here that the send does not check again.
+   */
+  async describePending(confirmationId, kind) {
+    const pending = await this.deps.store.get(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    if (pending.kind === "order") return { kind: "order", environment: pending.draft.environment, drafts: [pending.draft] };
+    if (pending.kind === "cancel") return { kind: "cancel", environment: pending.environment, orderId: pending.orderId };
+    return { kind: "basket", environment: pending.environment, title: pending.title, drafts: pending.drafts };
   }
   /** The environment a confirmation token belongs to, so its send can take that environment's lock. */
   async pendingEnvironment(confirmationId) {
@@ -41227,6 +41266,14 @@ var PiesService = class {
       notices
     };
   }
+  /** What a pie confirmation token would change, read without using it (order-confirm.ts). */
+  async describePieChange(token) {
+    const pending = await this.deps.store.get(`pie-confirm:${token}`);
+    if (!pending) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const name = pending.request?.name ?? pending.duplicate?.name;
+    const shares2 = pending.action === "create" || pending.action === "update" ? pending.request?.instrumentShares : void 0;
+    return { kind: "pie", environment: pending.environment, action: pending.action, ...pending.pieId === void 0 ? {} : { pieId: pending.pieId }, ...name ? { name } : {}, ...shares2 ? { shares: shares2 } : {} };
+  }
   /** Send a confirmed pie change once. Live changes need the second confirmation, as orders do. */
   async executePieChange(token, options = {}) {
     const key = `pie-confirm:${token}`;
@@ -41433,7 +41480,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.94.0",
+  version: "2.95.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -41480,7 +41527,8 @@ function goalPace(goal, value, now = /* @__PURE__ */ new Date()) {
   if (!Number.isFinite(since.getTime())) return void 0;
   const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 + now.getUTCMonth() - since.getUTCMonth() - (now.getUTCDate() < since.getUTCDate() ? 1 : 0);
   if (months < 1) return void 0;
-  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months);
+  const prices = goal.inflation && goal.inflation > 0 ? (1 + goal.inflation) ** (months / 12) : 1;
+  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months) * prices;
   return { since: goal.start.at, months, expected, difference: value - expected };
 }
 function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
@@ -44327,6 +44375,136 @@ function newListings(instruments, query, now = /* @__PURE__ */ new Date()) {
   };
 }
 
+// src/core/order-confirm.ts
+var CONFIRM_KEY = "confirm";
+var LISTED_LEGS = 10;
+var ASK_TTL_MS = 15 * 6e4;
+var asked = /* @__PURE__ */ new Map();
+function askedAbout(state, token, now = Date.now()) {
+  for (const [key, entry2] of asked) if (entry2.expires <= now) asked.delete(key);
+  if (typeof state !== "string") return false;
+  const entry = asked.get(state);
+  if (!entry || entry.token !== token) return false;
+  asked.delete(state);
+  return true;
+}
+var WORDS2 = {
+  en: {
+    side: { buy: "Buy", sell: "Sell" },
+    order: (environment) => `Send this order to your Trading 212 ${environment} account?`,
+    basket: (environment, title, count) => `Send the basket "${title}", ${count} order${count === 1 ? "" : "s"}, to your Trading 212 ${environment} account?`,
+    cancel: (environment, orderId) => `Cancel order ${orderId} in your Trading 212 ${environment} account? If it is a stop-loss, the position is no longer protected.`,
+    pie: (environment, action, id, name) => {
+      const account = `in your Trading 212 ${environment} account?`;
+      if (action === "create") return `Create the pie "${name ?? ""}" ${account}`;
+      if (action === "duplicate") return `Duplicate pie ${id}${name ? ` as "${name}"` : ""} ${account}`;
+      if (action === "delete") return `Delete pie ${id} ${account}`;
+      return `Change pie ${id} ${account}${name ? ` It will be named "${name}".` : ""}`;
+    },
+    shares: "Shares:",
+    more: (count) => `and ${count} more`,
+    at: { limit: "limit", stop: "stop" },
+    market: "at market",
+    join: ", ",
+    leg: (side, quantity, ticker, terms, gtc) => `${side} ${quantity} ${ticker}, ${terms}${gtc ? ", good till cancelled" : ""}`,
+    send: "Send it",
+    realMoney: "I understand this uses real money",
+    live: "LIVE",
+    demo: "DEMO",
+    declined: "Not sent: the confirmation was declined. The token stays valid until it expires.",
+    unticked: "Not sent: a Live write needs the real-money box ticked in the confirmation."
+  },
+  "zh-CN": {
+    side: { buy: "\u4E70\u5165", sell: "\u5356\u51FA" },
+    order: (environment) => `\u628A\u8FD9\u7B14\u8BA2\u5355\u53D1\u9001\u5230\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\uFF1F`,
+    basket: (environment, title, count) => `\u628A\u7BEE\u5B50\u300C${title}\u300D\u7684 ${count} \u7B14\u8BA2\u5355\u53D1\u9001\u5230\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\uFF1F`,
+    cancel: (environment, orderId) => `\u64A4\u9500\u4F60 Trading 212 ${environment}\u8D26\u6237\u91CC\u7684\u8BA2\u5355 ${orderId}\uFF1F\u5982\u679C\u5B83\u662F\u6B62\u635F\u5355\uFF0C\u64A4\u9500\u540E\u8FD9\u7B14\u6301\u4ED3\u5C31\u4E0D\u518D\u53D7\u4FDD\u62A4\u3002`,
+    pie: (environment, action, id, name) => {
+      const account = `\u4F60 Trading 212 ${environment}\u8D26\u6237\u91CC\u7684`;
+      if (action === "create") return `\u5728\u4F60\u7684 Trading 212 ${environment}\u8D26\u6237\u91CC\u65B0\u5EFA\u7EC4\u5408\u300C${name ?? ""}\u300D\uFF1F`;
+      if (action === "duplicate") return `\u590D\u5236${account}\u7EC4\u5408 ${id}${name ? `\uFF0C\u65B0\u7EC4\u5408\u540D\u4E3A\u300C${name}\u300D` : ""}\uFF1F`;
+      if (action === "delete") return `\u5220\u9664${account}\u7EC4\u5408 ${id}\uFF1F`;
+      return `\u4FEE\u6539${account}\u7EC4\u5408 ${id}\uFF1F${name ? `\u6539\u540D\u4E3A\u300C${name}\u300D\u3002` : ""}`;
+    },
+    shares: "\u5360\u6BD4\uFF1A",
+    more: (count) => `\u53E6\u6709 ${count} \u7B14`,
+    at: { limit: "\u9650\u4EF7", stop: "\u6B62\u635F\u4EF7" },
+    market: "\u5E02\u4EF7",
+    join: "\uFF0C",
+    leg: (side, quantity, ticker, terms, gtc) => `${side} ${quantity} \u80A1 ${ticker}\uFF0C${terms}${gtc ? "\uFF0C\u64A4\u9500\u524D\u6709\u6548" : ""}`,
+    send: "\u786E\u8BA4\u53D1\u9001",
+    realMoney: "\u6211\u660E\u767D\u8FD9\u4F1A\u4F7F\u7528\u771F\u5B9E\u8D44\u91D1",
+    live: "\u5B9E\u76D8",
+    demo: "\u6A21\u62DF",
+    declined: "\u672A\u53D1\u9001\uFF1A\u786E\u8BA4\u88AB\u62D2\u7EDD\u3002\u4EE4\u724C\u5728\u8FC7\u671F\u524D\u4ECD\u7136\u6709\u6548\u3002",
+    unticked: "\u672A\u53D1\u9001\uFF1A\u5B9E\u76D8\u64CD\u4F5C\u9700\u8981\u5728\u786E\u8BA4\u6846\u91CC\u52FE\u9009\u201C\u4F7F\u7528\u771F\u5B9E\u8D44\u91D1\u201D\u3002"
+  }
+};
+function legText(draft, words) {
+  const prices = [
+    draft.stopPrice === void 0 ? "" : `${words.at.stop} ${draft.stopPrice}`,
+    draft.limitPrice === void 0 ? "" : `${words.at.limit} ${draft.limitPrice}`
+  ].filter(Boolean).join(words.join);
+  return words.leg(words.side[draft.side], draft.quantity, draft.ticker, prices || words.market, draft.timeValidity === "GOOD_TILL_CANCEL");
+}
+function confirmationMessage(pending, locale = "en") {
+  const words = WORDS2[locale];
+  const environment = pending.environment === "live" ? words.live : words.demo;
+  if (pending.kind === "cancel") return words.cancel(environment, pending.orderId);
+  if (pending.kind === "pie") {
+    const head2 = words.pie(environment, pending.action, pending.pieId, pending.name);
+    const shares2 = Object.entries(pending.shares ?? {});
+    if (!shares2.length) return head2;
+    const listed = shares2.slice(0, LISTED_LEGS).map(([ticker, share4]) => `- ${ticker} ${Math.round(share4 * 1e4) / 100}%`);
+    if (shares2.length > LISTED_LEGS) listed.push(`- ${words.more(shares2.length - LISTED_LEGS)}`);
+    return [head2, words.shares, ...listed].join("\n");
+  }
+  const head = pending.kind === "order" ? words.order(environment) : words.basket(environment, pending.title ?? "", pending.drafts.length);
+  const legs = pending.drafts.slice(0, LISTED_LEGS).map((draft) => `- ${legText(draft, words)}`);
+  if (pending.drafts.length > LISTED_LEGS) legs.push(`- ${words.more(pending.drafts.length - LISTED_LEGS)}`);
+  return [head, ...legs].join("\n");
+}
+function asksInHost(server2) {
+  const capabilities = server2.server.getClientCapabilities();
+  if (!capabilities || H(capabilities)) return false;
+  const elicitation = capabilities.elicitation;
+  return !!elicitation && (elicitation.form !== void 0 || elicitation.url === void 0);
+}
+async function confirmInHost(server2, ctx, token, describe3, locale = "en") {
+  if (!asksInHost(server2)) return { send: true, liveAcknowledged: false };
+  const pending = await describe3();
+  const live = pending.environment === "live";
+  const words = WORDS2[locale];
+  const request = ctx?.mcpReq;
+  const answer = inputResponse(request?.inputResponses, CONFIRM_KEY);
+  if (answer.kind === "elicit" && askedAbout(request?.requestState?.(), token)) {
+    if (answer.action !== "accept" || answer.content?.send !== true) fail("CONFIRMATION_DECLINED", words.declined);
+    if (live && answer.content?.realMoney !== true) fail("CONFIRMATION_DECLINED", words.unticked);
+    return { send: true, liveAcknowledged: live };
+  }
+  const state = crypto.randomUUID();
+  asked.set(state, { token, expires: Date.now() + ASK_TTL_MS });
+  return {
+    send: false,
+    ask: inputRequired({
+      requestState: state,
+      inputRequests: {
+        [CONFIRM_KEY]: inputRequired.elicit({
+          message: confirmationMessage(pending, locale),
+          requestedSchema: {
+            type: "object",
+            properties: {
+              send: { type: "boolean", title: words.send, default: false },
+              ...live ? { realMoney: { type: "boolean", title: words.realMoney, default: false } } : {}
+            },
+            required: live ? ["send", "realMoney"] : ["send"]
+          }
+        })
+      }
+    })
+  };
+}
+
 // src/core/mcp.ts
 var WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
 var SAMPLE_INSTRUCTIONS = "TradePilot is running on sample data (TRADEPILOT_SAMPLE_DATA): the Demo account is simulated and Live is off. Every balance, holding and order here is made up for trying the app; say so when you report numbers, and nothing reaches Trading 212.";
@@ -44336,6 +44514,7 @@ var ORDER_INSTRUCTIONS = [
   "Where it is not shown (a terminal or another text-only host), show the user the draft from the tool's text.",
   "If they want it sent, call the matching app_prepare_* tool to validate it (this sends nothing), show them its summary with the amount, notes and policy checks,",
   "and call app_execute_* with that token only after they explicitly confirm in this conversation. For Live, pass liveAcknowledged=true only after they confirm they understand real money is used.",
+  "A host that can show forms asks the user in its own form before app_execute_* sends anything; a declined form sends nothing (CONFIRMATION_DECLINED), so do not call it again unless the user asks.",
   "Never resend an order whose result is unknown; check it with app_verify_unknown_execution."
 ].join(" ");
 function badWeekText(mix) {
@@ -46051,9 +46230,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked2 = await confirmInHost(server2, ctx, token, () => trading.describePending(token, "order"), config3.notifyLocale);
+          if (!asked2.send) return asked2.ask;
+          const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true || asked2.liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -46108,9 +46289,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged });
+          const asked2 = await confirmInHost(server2, ctx, token, () => trading.describePending(token, "cancel"), config3.notifyLocale);
+          if (!asked2.send) return asked2.ask;
+          const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged || asked2.liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -46161,9 +46344,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked2 = await confirmInHost(server2, ctx, token, () => trading.describePending(token, "basket"), config3.notifyLocale);
+          if (!asked2.send) return asked2.ask;
+          const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true || asked2.liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
@@ -46199,9 +46384,11 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
         _meta: { ui: { visibility: ["app"] } }
       },
-      async ({ token, liveAcknowledged }) => {
+      async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const data = await pies3.executePieChange(token, { liveAcknowledged: liveAcknowledged === true });
+          const asked2 = await confirmInHost(server2, ctx, token, () => pies3.describePieChange(token), config3.notifyLocale);
+          if (!asked2.send) return asked2.ask;
+          const data = await pies3.executePieChange(token, { liveAcknowledged: liveAcknowledged === true || asked2.liveAcknowledged });
           return result(data, data.message);
         } catch (error62) {
           return toolError(error62);
