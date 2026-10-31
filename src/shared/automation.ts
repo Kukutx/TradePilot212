@@ -193,6 +193,8 @@ export interface DcaPlan {
    * that run may have reached the broker, so the plan waits for you instead of sending again.
    */
   inFlightDueAt?: string;
+  /** When that run began: one begun within the run lock's ten minutes may still be under way. */
+  inFlightSince?: string;
   createdAt: string;
 }
 

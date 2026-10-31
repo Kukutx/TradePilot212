@@ -138,9 +138,23 @@ function anchored<T extends Schedule>(schedule: T, first: Date): T {
 
 /** A plan as stored, in today's shape: one saved before 2.79 has a UTC hour (`hourUtc`). */
 export function storedPlan(raw: DcaPlan & { hourUtc?: number }): DcaPlan {
-  if (raw.hour !== undefined && raw.timeZone) return raw;
-  const { hourUtc, ...rest } = raw;
-  return { ...rest, hour: raw.hour ?? hourUtc ?? DEFAULT_HOUR_UTC, timeZone: raw.timeZone || "UTC" };
+  const { hourUtc, dayOfMonth, weekday, anchorDay, ...rest } = raw;
+  // Only the fields its frequency uses: a weekday left on a monthly plan would read as a change on every save.
+  const weekly = raw.frequency === "weekly" || raw.frequency === "biweekly";
+  return {
+    ...rest,
+    ...(raw.frequency === "monthly" && dayOfMonth !== undefined ? { dayOfMonth } : {}),
+    ...(weekly && weekday !== undefined ? { weekday } : {}),
+    ...(raw.frequency === "biweekly" && anchorDay ? { anchorDay } : {}),
+    hour: raw.hour ?? hourUtc ?? DEFAULT_HOUR_UTC,
+    timeZone: raw.timeZone || "UTC",
+  };
+}
+
+/** A plan without the mark of a run being sent. */
+function settled(plan: DcaPlan): DcaPlan {
+  const { inFlightDueAt: _due, inFlightSince: _since, ...rest } = plan;
+  return rest;
 }
 
 function validateSchedule(input: Pick<PlanInput, "frequency" | "dayOfMonth" | "weekday" | "hour" | "timeZone">) {
@@ -252,9 +266,21 @@ export class AutomationService {
       // ran is not run again just because its hour or day moved. A biweekly plan counts its
       // fortnights from its new first run.
       const plain = scheduleOf(wanted as DcaPlan);
-      const next = scheduleFrom({ ...plain, ...(plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {}) }, now);
+      const lastRun = plan.lastRunAt ? { lastRunAt: plan.lastRunAt } : {};
       const { dayOfMonth: _day, weekday: _weekday, anchorDay: _anchor, ...rest } = plan;
-      base = { ...rest, ...anchored(plain, next), nextRunAt: next.toISOString() };
+      const sameDays = JSON.stringify({ ...plain, hour: 0 }) === JSON.stringify({ ...scheduleOf(plan), hour: 0 });
+      if (sameDays) {
+        // Only the hour moved: the run stays on the day it was due (a skipped run stays skipped), and a biweekly plan on
+        // its weeks; where that hour has passed today, on the next day the schedule runs.
+        const kept: Schedule = plan.anchorDay ? { ...plain, anchorDay: plan.anchorDay } : plain;
+        const zone = plain.timeZone || "UTC";
+        const sameDay = localHourStart(localDay(Date.parse(plan.nextRunAt), zone), plain.hour, zone);
+        const next = sameDay > now.getTime() ? new Date(sameDay) : scheduleFrom({ ...kept, ...lastRun }, now);
+        base = { ...rest, ...(kept.anchorDay ? kept : anchored(plain, next)), nextRunAt: next.toISOString() };
+      } else {
+        const next = scheduleFrom({ ...plain, ...lastRun }, now);
+        base = { ...rest, ...anchored(plain, next), nextRunAt: next.toISOString() };
+      }
     }
     if (patch.legs !== undefined && patch.targetAmount !== undefined) fail("INVALID_INPUT", "Give either legs or targetAmount, not both", { field: "targetAmount" });
     if (patch.targetAmount !== undefined) validateTargetAmount(patch.targetAmount);
@@ -289,9 +315,13 @@ export class AutomationService {
    */
   async skipNextRun(id: string, now = new Date()): Promise<DcaPlan> {
     const plan = await this.getPlan(id);
+    // An unattended run of this due date begun moments ago may be sending its orders: skipping now would also skip the
+    // run after it. One begun longer ago never recorded its result, and skipping it is how you settle it.
+    const since = plan.inFlightSince ? Date.parse(plan.inFlightSince) : NaN;
+    if (plan.inFlightDueAt === plan.nextRunAt && Number.isFinite(since) && now.getTime() - since < RUN_LOCK_MS)
+      fail("EXECUTION_BUSY", "This plan's run is being sent right now. Try again in a few minutes, once its result is in.");
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
-    const { inFlightDueAt: _inFlight, ...rest } = plan;
-    const updated: DcaPlan = { ...rest, nextRunAt: nextRunAt(plan, from).toISOString(), lastOutcome: `Skipped the run due ${plan.nextRunAt}.` };
+    const updated: DcaPlan = { ...settled(plan), nextRunAt: nextRunAt(plan, from).toISOString(), lastOutcome: `Skipped the run due ${plan.nextRunAt}.` };
     await this.deps.store.put(planKey(id), updated);
     await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: id, outcome: `skipped the run due ${plan.nextRunAt}` });
     return updated;
@@ -395,9 +425,8 @@ export class AutomationService {
     // before the due date counts as that period's run, so the next one is the date after it.
     const attempted = result.legs.some((leg) => leg.result);
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
-    const { inFlightDueAt: _inFlight, ...rest } = plan;
     await this.deps.store.put(planKey(planId), {
-      ...rest,
+      ...settled(plan),
       lastRunAt: now.toISOString(),
       lastOutcome: result.message,
       ...(attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}),
@@ -458,7 +487,7 @@ export class AutomationService {
         if (JSON.stringify(current.legs) !== JSON.stringify(latest.legs) || current.targetAmount !== latest.targetAmount || !current.autoExecute) continue;
         // Targets changed or cleared while a plan by targets was being priced: the split is rebuilt next time.
         if (current.targetAmount !== undefined && (await this.deps.targets?.(plan.environment))?.updatedAt !== basket.targetsSavedAt) continue;
-        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt });
+        await this.deps.store.put(planKey(plan.id), { ...current, inFlightDueAt: current.nextRunAt, inFlightSince: now.toISOString() });
         marked = true;
         const result = await this.deps.trading.executeBasket(preview.token);
         await this.deps.trading.recordActivity("plan_auto_executed", plan.environment, { planId: plan.id, legs: result.legs.length, outcome: result.status });
@@ -469,7 +498,7 @@ export class AutomationService {
         // orders may have reached the broker and the plan waits for the user.
         if (marked && (code === "EXECUTION_BUSY" || code === "CONFIRMATION_EXPIRED")) {
           const current = await this.read(plan.id);
-          if (current?.inFlightDueAt) { const { inFlightDueAt: _f, ...rest } = current; await this.deps.store.put(planKey(plan.id), rest); }
+          if (current?.inFlightDueAt) await this.deps.store.put(planKey(plan.id), settled(current));
         }
         await this.skip(plan, now, message, false);
         reports.push({ planId: plan.id, environment: plan.environment, dueAt: plan.nextRunAt, mode: "skipped", message });
