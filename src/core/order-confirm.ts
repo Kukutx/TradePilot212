@@ -14,15 +14,39 @@ import type { PendingDescription } from "./trading-service.js";
 const CONFIRM_KEY = "confirm";
 /** At most this many legs of a basket are listed in the form; the rest are counted. */
 const LISTED_LEGS = 10;
+/** How long a form asked about a token may be answered. */
+const ASK_TTL_MS = 15 * 60_000;
+/**
+ * The forms asked and not yet answered, by the one-time state sent with each: an answer counts only when it comes back
+ * with the state of a form asked about the same token. The SDK lifts `inputResponses` from any request's params, so
+ * without this a client (or a gateway in between) could send an answer to a form never shown. On the 2025 protocol
+ * the SDK keeps the state on the server while it asks, so the client never sees it.
+ */
+const asked = new Map<string, { token: string; expires: number }>();
+
+function askedAbout(state: unknown, token: string, now = Date.now()): boolean {
+  for (const [key, entry] of asked) if (entry.expires <= now) asked.delete(key);
+  if (typeof state !== "string") return false;
+  const entry = asked.get(state);
+  if (!entry || entry.token !== token) return false;
+  asked.delete(state);
+  return true;
+}
 
 const WORDS = {
   en: {
     side: { buy: "Buy", sell: "Sell" },
     order: (environment: string) => `Send this order to your Trading 212 ${environment} account?`,
     basket: (environment: string, title: string, count: number) => `Send the basket "${title}", ${count} order${count === 1 ? "" : "s"}, to your Trading 212 ${environment} account?`,
-    cancel: (environment: string, orderId: string) => `Cancel order ${orderId} in your Trading 212 ${environment} account? A cancelled stop-loss no longer protects the position.`,
-    pie: (environment: string, action: string, pie: string) => `${{ create: "Create", update: "Change", duplicate: "Duplicate", delete: "Delete" }[action] ?? action} ${pie} in your Trading 212 ${environment} account?`,
-    pieName: (name: string | undefined, id: number | undefined) => name ? `the pie "${name}"` : id === undefined ? "a pie" : `pie ${id}`,
+    cancel: (environment: string, orderId: string) => `Cancel order ${orderId} in your Trading 212 ${environment} account? If it is a stop-loss, the position is no longer protected.`,
+    pie: (environment: string, action: string, id: number | undefined, name: string | undefined) => {
+      const account = `in your Trading 212 ${environment} account?`;
+      if (action === "create") return `Create the pie "${name ?? ""}" ${account}`;
+      if (action === "duplicate") return `Duplicate pie ${id}${name ? ` as "${name}"` : ""} ${account}`;
+      if (action === "delete") return `Delete pie ${id} ${account}`;
+      return `Change pie ${id} ${account}${name ? ` It will be named "${name}".` : ""}`;
+    },
+    shares: "Shares:",
     more: (count: number) => `and ${count} more`,
     at: { limit: "limit", stop: "stop" },
     market: "at market",
@@ -39,9 +63,15 @@ const WORDS = {
     side: { buy: "买入", sell: "卖出" },
     order: (environment: string) => `把这笔订单发送到你的 Trading 212 ${environment}账户？`,
     basket: (environment: string, title: string, count: number) => `把篮子「${title}」的 ${count} 笔订单发送到你的 Trading 212 ${environment}账户？`,
-    cancel: (environment: string, orderId: string) => `撤销你 Trading 212 ${environment}账户里的订单 ${orderId}？止损单撤销后，这笔持仓就不再受保护。`,
-    pie: (environment: string, action: string, pie: string) => `在你的 Trading 212 ${environment}账户里${{ create: "新建", update: "修改", duplicate: "复制", delete: "删除" }[action] ?? action}${pie}？`,
-    pieName: (name: string | undefined, id: number | undefined) => name ? `组合「${name}」` : id === undefined ? "一个组合" : `组合 ${id}`,
+    cancel: (environment: string, orderId: string) => `撤销你 Trading 212 ${environment}账户里的订单 ${orderId}？如果它是止损单，撤销后这笔持仓就不再受保护。`,
+    pie: (environment: string, action: string, id: number | undefined, name: string | undefined) => {
+      const account = `你 Trading 212 ${environment}账户里的`;
+      if (action === "create") return `在你的 Trading 212 ${environment}账户里新建组合「${name ?? ""}」？`;
+      if (action === "duplicate") return `复制${account}组合 ${id}${name ? `，新组合名为「${name}」` : ""}？`;
+      if (action === "delete") return `删除${account}组合 ${id}？`;
+      return `修改${account}组合 ${id}？${name ? `改名为「${name}」。` : ""}`;
+    },
+    shares: "占比：",
     more: (count: number) => `另有 ${count} 笔`,
     at: { limit: "限价", stop: "止损价" },
     market: "市价",
@@ -71,7 +101,14 @@ export function confirmationMessage(pending: PendingDescription, locale: NotifyL
   const words = WORDS[locale];
   const environment = pending.environment === "live" ? words.live : words.demo;
   if (pending.kind === "cancel") return words.cancel(environment, pending.orderId);
-  if (pending.kind === "pie") return words.pie(environment, pending.action, words.pieName(pending.name, pending.pieId));
+  if (pending.kind === "pie") {
+    const head = words.pie(environment, pending.action, pending.pieId, pending.name);
+    const shares = Object.entries(pending.shares ?? {});
+    if (!shares.length) return head;
+    const listed = shares.slice(0, LISTED_LEGS).map(([ticker, share]) => `- ${ticker} ${Math.round(share * 10_000) / 100}%`);
+    if (shares.length > LISTED_LEGS) listed.push(`- ${words.more(shares.length - LISTED_LEGS)}`);
+    return [head, words.shares, ...listed].join("\n");
+  }
   const head = pending.kind === "order" ? words.order(environment) : words.basket(environment, pending.title ?? "", pending.drafts.length);
   const legs = pending.drafts.slice(0, LISTED_LEGS).map((draft) => `- ${legText(draft, words)}`);
   if (pending.drafts.length > LISTED_LEGS) legs.push(`- ${words.more(pending.drafts.length - LISTED_LEGS)}`);
@@ -98,22 +135,26 @@ export type HostConfirmation =
  * A host that cannot ask goes on as before, on the model's word and the host's own permission prompt. A declined
  * form, or a Live one without the real-money box ticked, throws CONFIRMATION_DECLINED and leaves the token unused.
  */
-export async function confirmInHost(server: McpServer, ctx: unknown, describe: () => Promise<PendingDescription>, locale: NotifyLocale = "en"): Promise<HostConfirmation> {
+export async function confirmInHost(server: McpServer, ctx: unknown, token: string, describe: () => Promise<PendingDescription>, locale: NotifyLocale = "en"): Promise<HostConfirmation> {
   if (!asksInHost(server)) return { send: true, liveAcknowledged: false };
   // The token is read first, so an expired one says so rather than asking about nothing.
   const pending = await describe();
   const live = pending.environment === "live";
   const words = WORDS[locale];
-  const responses = (ctx as { mcpReq?: { inputResponses?: Record<string, unknown> } } | undefined)?.mcpReq?.inputResponses;
-  const answer = inputResponse(responses, CONFIRM_KEY);
-  if (answer.kind === "elicit") {
+  const request = (ctx as { mcpReq?: { inputResponses?: Record<string, unknown>; requestState?: () => unknown } } | undefined)?.mcpReq;
+  const answer = inputResponse(request?.inputResponses, CONFIRM_KEY);
+  // An answer to no form this server asked about this token is not one: the form is shown.
+  if (answer.kind === "elicit" && askedAbout(request?.requestState?.(), token)) {
     if (answer.action !== "accept" || answer.content?.send !== true) fail("CONFIRMATION_DECLINED", words.declined);
     if (live && answer.content?.realMoney !== true) fail("CONFIRMATION_DECLINED", words.unticked);
     return { send: true, liveAcknowledged: live };
   }
+  const state = crypto.randomUUID();
+  asked.set(state, { token, expires: Date.now() + ASK_TTL_MS });
   return {
     send: false,
     ask: inputRequired({
+      requestState: state,
       inputRequests: {
         [CONFIRM_KEY]: inputRequired.elicit({
           message: confirmationMessage(pending, locale),

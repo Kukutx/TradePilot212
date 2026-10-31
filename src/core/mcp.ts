@@ -1861,7 +1861,7 @@ export function createMcpServer(
       },
       async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const asked = await confirmInHost(server, ctx, () => trading.describePending(token, "order"), config.notifyLocale);
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "order"), config.notifyLocale);
           if (!asked.send) return asked.ask;
           const data = await trading.executeOrder(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
@@ -1923,7 +1923,7 @@ export function createMcpServer(
       },
       async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const asked = await confirmInHost(server, ctx, () => trading.describePending(token, "cancel"), config.notifyLocale);
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "cancel"), config.notifyLocale);
           if (!asked.send) return asked.ask;
           const data = await trading.executeCancel(token, { liveAcknowledged: !!liveAcknowledged || asked.liveAcknowledged });
           return result(data, data.message);
@@ -1978,7 +1978,7 @@ export function createMcpServer(
       },
       async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const asked = await confirmInHost(server, ctx, () => trading.describePending(token, "basket"), config.notifyLocale);
+          const asked = await confirmInHost(server, ctx, token, () => trading.describePending(token, "basket"), config.notifyLocale);
           if (!asked.send) return asked.ask;
           const data = await trading.executeBasket(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);
@@ -2020,7 +2020,7 @@ export function createMcpServer(
       },
       async ({ token, liveAcknowledged }, ctx) => {
         try {
-          const asked = await confirmInHost(server, ctx, () => pies.describePieChange(token), config.notifyLocale);
+          const asked = await confirmInHost(server, ctx, token, () => pies.describePieChange(token), config.notifyLocale);
           if (!asked.send) return asked.ask;
           const data = await pies.executePieChange(token, { liveAcknowledged: liveAcknowledged === true || asked.liveAcknowledged });
           return result(data, data.message);

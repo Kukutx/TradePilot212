@@ -30,7 +30,8 @@ async function connect(options: { answer?: Answer; ui?: boolean; elicitation?: b
   await client.connect(clientSide);
   const call = async (name: string, args: Record<string, unknown>) => (await client.callTool({ name, arguments: args })) as { isError?: boolean; structuredContent?: Record<string, unknown> };
   const token = async (name: string, args: Record<string, unknown>) => (await call(name, args)).structuredContent!.token as string;
-  return { call, token, asked };
+  const request = async (params: Record<string, unknown>) => (await (client as unknown as { request: (message: unknown) => Promise<unknown> }).request({ method: "tools/call", params })) as { structuredContent?: Record<string, unknown> };
+  return { call, token, asked, request };
 }
 
 describe("confirming in a host without the widget", () => {
@@ -57,13 +58,21 @@ describe("confirming in a host without the widget", () => {
     expect(unticked.asked[0]!.message).toContain('Send the basket "Two", 1 order, to your Trading 212 DEMO account?');
   });
 
+  it("shows the form to a client that sends an answer to no form along with the call", async () => {
+    const { token, asked, request } = await connect({ answer: { action: "decline" } });
+    const code = await token("app_prepare_order", { ...leg, environment: "demo" });
+    const sent = await request({ name: "app_execute_order", arguments: { token: code }, inputResponses: { confirm: { action: "accept", content: { send: true } } } });
+    expect(asked).toHaveLength(1);
+    expect(sent.structuredContent).toMatchObject({ error: { code: "CONFIRMATION_DECLINED" } });
+  });
+
   it("asks about cancellations and pie changes too", async () => {
     const { call, token, asked } = await connect();
     expect((await call("app_execute_cancel", { token: await token("app_prepare_cancel", { environment: "demo", orderId: "81234" }) })).isError).toBeFalsy();
     expect((await call("app_execute_pie_change", { token: await token("app_prepare_pie_change", { environment: "demo", action: "update", pieId: 4101, name: "Renamed" }) })).isError).toBeFalsy();
     expect(asked.map((one) => one.message)).toEqual([
-      "Cancel order 81234 in your Trading 212 DEMO account? A cancelled stop-loss no longer protects the position.",
-      'Change the pie "Renamed" in your Trading 212 DEMO account?',
+      "Cancel order 81234 in your Trading 212 DEMO account? If it is a stop-loss, the position is no longer protected.",
+      'Change pie 4101 in your Trading 212 DEMO account? It will be named "Renamed".\nShares:\n- NVDA_US_EQ 50%\n- MSFT_US_EQ 30%\n- AAPL_US_EQ 20%',
     ]);
   });
 
@@ -83,15 +92,26 @@ describe("confirming in a host without the widget", () => {
     // An empty elicitation capability is the form mode.
     const server = { server: { getClientCapabilities: () => ({ elicitation: {} }) } } as unknown as Parameters<typeof confirmInHost>[0];
     const describe = async () => ({ kind: "cancel" as const, environment: "live" as const, orderId: "7" });
-    const answered = (content: Record<string, unknown>) => ({ mcpReq: { inputResponses: { confirm: { action: "accept", content } } } });
-    const first = await confirmInHost(server, {}, describe);
-    expect(first.send).toBe(false);
-    expect(JSON.stringify(first)).toContain('"required":["send","realMoney"]');
-    await expect(confirmInHost(server, answered({ send: true }), describe)).rejects.toMatchObject({ code: "CONFIRMATION_DECLINED" });
-    expect(await confirmInHost(server, answered({ send: true, realMoney: true }), describe)).toEqual({ send: true, liveAcknowledged: true });
+    /** Ask about the token, and the call that comes back with the answer and the state the form was asked with. */
+    const ask = async (token: string) => {
+      const first = await confirmInHost(server, {}, token, describe);
+      expect(first.send).toBe(false);
+      const state = (first as { ask: { requestState: string } }).ask.requestState;
+      return { first, answered: (content: Record<string, unknown>, sent = state) => ({ mcpReq: { inputResponses: { confirm: { action: "accept", content } }, requestState: () => sent } }) };
+    };
+    const once = await ask("token-a");
+    expect(JSON.stringify(once.first)).toContain('"required":["send","realMoney"]');
+    await expect(confirmInHost(server, once.answered({ send: true }), "token-a", describe)).rejects.toMatchObject({ code: "CONFIRMATION_DECLINED" });
+    const twice = await ask("token-a");
+    expect(await confirmInHost(server, twice.answered({ send: true, realMoney: true }), "token-a", describe)).toEqual({ send: true, liveAcknowledged: true });
+    // An answer counts once, for the token it was asked about, and only with the state it was asked with.
+    expect((await confirmInHost(server, twice.answered({ send: true, realMoney: true }), "token-a", describe)).send).toBe(false);
+    const other = await ask("token-b");
+    expect((await confirmInHost(server, other.answered({ send: true, realMoney: true }), "token-c", describe)).send).toBe(false);
+    expect((await confirmInHost(server, other.answered({ send: true, realMoney: true }, "made-up"), "token-b", describe)).send).toBe(false);
     // A URL-only capability cannot show the form.
     const urlOnly = { server: { getClientCapabilities: () => ({ elicitation: { url: {} } }) } } as unknown as Parameters<typeof confirmInHost>[0];
-    expect(await confirmInHost(urlOnly, {}, describe)).toEqual({ send: true, liveAcknowledged: false });
+    expect(await confirmInHost(urlOnly, {}, "token-d", describe)).toEqual({ send: true, liveAcknowledged: false });
   });
 
   it("words a Live form with the real-money box, a long basket counted and Chinese", () => {
@@ -103,5 +123,7 @@ describe("confirming in a host without the widget", () => {
     expect(confirmationMessage({ kind: "basket", environment: "live", title: "Stops", drafts }).split("\n").at(-1)).toBe("- and 2 more");
     expect(confirmationMessage({ kind: "order", environment: "live", drafts: [{ environment: "live", ticker: "VUSA_EQ", side: "buy", type: "market", quantity: 3 }] }, "zh-CN"))
       .toBe("把这笔订单发送到你的 Trading 212 实盘账户？\n- 买入 3 股 VUSA_EQ，市价");
+    expect(confirmationMessage({ kind: "pie", environment: "demo", action: "duplicate", pieId: 4101, name: "Copy" })).toBe('Duplicate pie 4101 as "Copy" in your Trading 212 DEMO account?');
+    expect(confirmationMessage({ kind: "pie", environment: "demo", action: "delete", pieId: 4101 }, "zh-CN")).toBe("删除你 Trading 212 模拟账户里的组合 4101？");
   });
 });

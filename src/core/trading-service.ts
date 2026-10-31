@@ -54,7 +54,8 @@ type RiskShown = { loss?: number; stopAbove?: true };
 export type PendingDescription =
   | { kind: "order" | "basket"; environment: TradingEnvironment; drafts: OrderDraft[]; title?: string }
   | { kind: "cancel"; environment: TradingEnvironment; orderId: string }
-  | { kind: "pie"; environment: TradingEnvironment; action: string; pieId?: number; name?: string };
+  /** `name` is the name the pie will have; `shares` the instruments' shares it will have, as fractions. */
+  | { kind: "pie"; environment: TradingEnvironment; action: string; pieId?: number; name?: string; shares?: Record<string, number> };
 type Pending = { kind: "order"; draft: OrderDraft; risk?: RiskShown } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
