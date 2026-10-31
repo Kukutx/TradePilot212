@@ -355,6 +355,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .alertFormActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .alertActions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 2px; }
 .alertActions .linkButton { min-height: 32px; font-size: 12px; }
+/* A plan's form (components/plans.tsx): its buys one row each, the instrument wide and the amount narrow, and the
+   schedule's three fields in a row where there is room. */
+.planForm { display: grid; gap: 13px; }
+.planForm .panelNote { margin: 0; }
+.planForm .alertFormActions { margin-top: 0; }
+.planLegs { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.planLegs legend { margin-bottom: 6px; padding: 0; color: var(--tp-muted); font-size: 12px; font-weight: 650; }
+.planLeg { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+.planLegRemove { margin-top: 24px; }
+.planLegs > .linkButton { justify-self: start; min-height: 32px; font-size: 12px; }
+.formGrid.planSchedule { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.planForm .toggleField { align-self: start; min-height: 36px; }
+@container (max-width: 520px) {
+  .formGrid.planSchedule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .planSchedule > :first-child { grid-column: 1 / -1; }
+}
+@container (max-width: 420px) {
+  .formGrid.planSchedule { grid-template-columns: minmax(0, 1fr); }
+  .planLeg { grid-template-columns: minmax(0, 1fr) auto; }
+  .planLeg > :nth-child(2) { grid-column: 1; }
+  .planLegRemove { grid-row: 1; grid-column: 2; }
+}
 .linkButton.danger, .linkButton.danger:hover { color: var(--tp-red); }
 /* Trade journal: a note per trade, the reason and the look back each under a quiet rule. */
 .journalList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

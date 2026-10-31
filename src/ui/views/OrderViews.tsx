@@ -3,7 +3,7 @@ import type { PolicyCheck } from "../../shared/automation";
 import type { CancelPreview, Instrument, OrderDraft, OrderPreview, OrderResolution, PendingOrder, Position } from "../../shared/contracts";
 import { MAX_JOURNAL_TEXT } from "../../shared/journal";
 import type { SupportedLocale } from "../i18n";
-import { DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
+import { Choices, DetailRow, Field, Icon, InstrumentName, useDialog } from "../components/common";
 import { ambiguousComma, amount, dateTime, money, notional, parseAmount, qty, time } from "../lib/format";
 import { instrumentCurrency, type InstrumentBook } from "../lib/instruments";
 import { countText, envLabel, fill, noticeText, orderTypeLabel, policyMessage, policyRuleLabel, policyStatusLabel, sizingText, validityLabel, type Translator } from "../lib/messages";
@@ -61,21 +61,6 @@ function useNumberText(value: number | undefined): [string, (text: string) => vo
  */
 const positive = (text: string) => { const value = parseAmount(text); return !ambiguousComma(text) && Number.isFinite(value) && value > 0; };
 
-/**
- * A form field's few choices as one row of buttons (a radio group named by the field's label), rather than a select
- * that hides them: the side and the order type. `id` is the field's, so the group can take the label's name.
- */
-function Choices<T extends string>({ id, value, options, onChange, ...described }: {
-  id: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void; "aria-describedby"?: string; "aria-invalid"?: boolean;
-}) {
-  return (
-    <div className="segmented formChoices" role="radiogroup" aria-labelledby={`${id}-label`} id={id} onKeyDown={radioKeys} {...described}>
-      {options.map(([key, label]) => (
-        <button key={key} type="button" role="radio" aria-checked={value === key} tabIndex={radioTab(value === key)} className={`${value === key ? "active" : ""} choice-${key}`} onClick={() => onChange(key)}>{label}</button>
-      ))}
-    </div>
-  );
-}
 
 export function OrderEditor({
   draft,

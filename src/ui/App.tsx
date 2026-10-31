@@ -43,6 +43,7 @@ import { CashHistoryView, HISTORY_KINDS, TAX_RULES, TaxYearView, TradeHistoryVie
 import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
+import type { PlanRequest } from "./components/plans";
 import { AutomationView } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
 import { JournalReviewView } from "./views/JournalView";
@@ -803,6 +804,25 @@ export default function App() {
   }
 
   /**
+   * Create, change, pause or delete an investment plan, then read the automation page again. Saving a plan places no
+   * order. The plan is the automation page's account's, which can lag the switch while the other account's loads.
+   */
+  async function changePlan(env: TradingEnvironment, input: Record<string, unknown>): Promise<boolean> {
+    const done = await run("errorTitlePlan", async () => {
+      await callTool("manage_investment_plans", { environment: env, ...input });
+    });
+    if (done) await loadInsight("automation", env);
+    return done;
+  }
+
+  /** Open a plan's orders now, as a basket sized at today's prices, to review; nothing is sent until confirmed. */
+  async function reviewPlan(planId: string): Promise<void> {
+    await run("errorTitlePlan", async () => {
+      showPayload(await callTool<BasePayload>("review_investment_plan", { planId }));
+    }, () => void reviewPlan(planId));
+  }
+
+  /**
    * Add, change or delete a trade journal note, then read the page again so it shows the change. Notes never trade.
    * They go to the account of the page shown, which can lag the switch while the other account's page loads.
    */
@@ -1388,7 +1408,13 @@ export default function App() {
                 onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
                 onSaveAccountAlert={(request) => changeAccountAlert({ action: "create", ...request })}
                 onDeleteAccountAlert={(alertId) => void changeAccountAlert({ action: "delete", alertId })}
-                onRearmAccountAlert={(alertId) => void changeAccountAlert({ action: "rearm", alertId })} />
+                onRearmAccountAlert={(alertId) => void changeAccountAlert({ action: "rearm", alertId })}
+                {...(writeEnabled && connected ? {
+                  onSavePlan: (request: PlanRequest) => changePlan(insights.automation!.environment, { action: "create", ...request }),
+                  onChangePlan: (planId: string, changes: Partial<PlanRequest> & { paused?: boolean }) => changePlan(insights.automation!.environment, { action: "update", planId, ...changes }),
+                  onDeletePlan: (planId: string) => void changePlan(insights.automation!.environment, { action: "delete", planId }),
+                  onReviewPlan: (planId: string) => void reviewPlan(planId),
+                } : {})} />
             )}
             {base?.kind === "order_draft" && !draft && (loading ? <SkeletonView label={t("refreshing")} /> : <div className="emptyState">{t("orderLoaded")}</div>)}
             {base?.kind === "cancel_draft" && (loading
