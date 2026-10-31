@@ -6,7 +6,7 @@
 // The keyboard follows the ARIA date grid: one Tab stop on the focused day; the arrows move by a day or a week, Home
 // and End to the week's ends, Page Up and Page Down by a month (with Shift, a year), Enter or Space chooses.
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { localeTag, type SupportedLocale } from "../i18n";
 import type { Translator } from "../lib/messages";
 import { Icon } from "./common";
@@ -45,28 +45,32 @@ export function monthWeeks(month: string): (string | null)[][] {
 
 /** The range after choosing `day`: it starts a new range, unless one is begun and `day` is not before its first. */
 export function pickDay(range: { from: string; to: string }, day: string): { from: string; to: string } {
-  return range.from && !range.to && day >= range.from ? { from: range.from, to: day } : { from: day, to: "" };
+  // A first day still being typed ("2026-1") has not begun one.
+  return realDay(range.from) && !realDay(range.to) && day >= range.from ? { from: range.from, to: day } : { from: day, to: "" };
 }
 
 const clamp = (day: string, min: string, max: string) => (day < min ? min : day > max ? max : day);
 
-export function RangeCalendar({ from, to, min, max, today, locale, t, onPick }: {
+export function RangeCalendar({ from: typedFrom, to: typedTo, min, max, today, locale, t, onPick }: {
   from: string; to: string; min: string; max: string; today: string; locale: SupportedLocale; t: Translator;
   onPick: (range: { from: string; to: string }) => void;
 }) {
-  const start = clamp(realDay(to) ? to : realDay(from) ? from : max, min, max);
-  const [focus, setFocus] = useState(start);
+  // What is drawn: the days of the boxes that are days, not one half typed.
+  const from = realDay(typedFrom) ? typedFrom : "";
+  const to = realDay(typedTo) ? typedTo : "";
+  const [focus, setFocus] = useState(() => clamp(to || from || max, min, max));
   const [hover, setHover] = useState<string | null>(null);
   const month = focus.slice(0, 7);
   const grid = useRef<HTMLTableElement>(null);
-  const moved = useRef(false);
-  // A day typed in a box shows its month.
-  useEffect(() => { if (!grid.current?.contains(document.activeElement)) setFocus(start); }, [start]);
-  useEffect(() => {
-    if (!moved.current) return;
-    moved.current = false;
-    grid.current?.querySelector<HTMLButtonElement>(`[data-day="${focus}"]`)?.focus();
-  }, [focus]);
+  // Set by a key that moved the focused day, so the day reached takes the focus once it is drawn.
+  const [moves, setMoves] = useState(0);
+  // A day typed in either box shows its month, the box typed in last deciding.
+  const typing = (day: string) => { if (day && !grid.current?.contains(document.activeElement)) setFocus(clamp(day, min, max)); };
+  useEffect(() => typing(from), [from]);
+  useEffect(() => typing(to), [to]);
+  useLayoutEffect(() => {
+    if (moves) grid.current?.querySelector<HTMLButtonElement>(`[data-day="${focus}"]`)?.focus();
+  }, [moves]);
 
   const tag = localeTag(locale);
   const title = new Intl.DateTimeFormat(tag, { month: "long", year: "numeric", timeZone: "UTC" }).format(parse(`${month}-01`));
@@ -77,7 +81,12 @@ export function RangeCalendar({ from, to, min, max, today, locale, t, onPick }: 
   const full = new Intl.DateTimeFormat(tag, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
   // The range drawn: the one chosen, or while the last day is still to choose, up to the day pointed at.
   const end = to || (from && hover && hover >= from ? hover : "");
-  const go = (day: string) => { moved.current = true; setFocus(clamp(day, min, max)); };
+  const go = (day: string) => {
+    const next = clamp(day, min, max);
+    if (next === focus) return;
+    setFocus(next);
+    setMoves((count) => count + 1);
+  };
   const keys = (event: KeyboardEvent<HTMLTableElement>) => {
     const steps: Record<string, { days?: number; months?: number }> = {
       ArrowRight: { days: 1 }, ArrowLeft: { days: -1 }, ArrowDown: { days: 7 }, ArrowUp: { days: -7 },
@@ -89,19 +98,24 @@ export function RangeCalendar({ from, to, min, max, today, locale, t, onPick }: 
     event.preventDefault();
     go(shiftDay(focus, step));
   };
-  const monthStep = (months: number) => { setFocus(clamp(shiftDay(focus, { months }), min, max)); };
+  // The month buttons stay focusable at the ends (marked, not disabled), so the focus is not dropped from the panel
+  // when one reaches the first or last month.
+  const first = month <= min.slice(0, 7);
+  const last = month >= max.slice(0, 7);
+  const monthStep = (months: number) => { if (!(months < 0 ? first : last)) setFocus(clamp(shiftDay(focus, { months }), min, max)); };
   return (
     <div className="calendar">
       <div className="calendarHead">
-        <button type="button" className="calendarStep" aria-label={t("calendarPrevious")} title={t("calendarPrevious")} disabled={month <= min.slice(0, 7)} onClick={() => monthStep(-1)}>
+        <button type="button" className="calendarStep" aria-label={t("calendarPrevious")} title={t("calendarPrevious")} aria-disabled={first || undefined} onClick={() => monthStep(-1)}>
           <Icon name="arrow" className="flip" />
         </button>
         <strong aria-live="polite">{title}</strong>
-        <button type="button" className="calendarStep" aria-label={t("calendarNext")} title={t("calendarNext")} disabled={month >= max.slice(0, 7)} onClick={() => monthStep(1)}>
+        <button type="button" className="calendarStep" aria-label={t("calendarNext")} title={t("calendarNext")} aria-disabled={last || undefined} onClick={() => monthStep(1)}>
           <Icon name="arrow" />
         </button>
       </div>
-      <table ref={grid} role="grid" aria-label={title} className="calendarGrid" onKeyDown={keys} onMouseLeave={() => setHover(null)}>
+      <table ref={grid} role="grid" aria-label={title} className="calendarGrid" onKeyDown={keys} onMouseLeave={() => setHover(null)}
+        onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHover(null); }}>
         <thead>
           <tr>{weekdays.map((day) => <th key={day.long} scope="col" abbr={day.long}>{day.short}</th>)}</tr>
         </thead>
@@ -111,14 +125,15 @@ export function RangeCalendar({ from, to, min, max, today, locale, t, onPick }: 
               {week.map((day, column) => {
                 if (!day) return <td key={column} />;
                 const outside = day < min || day > max;
-                const chosen = day === from || day === end;
+                // Selected are the days chosen; the days up to the one pointed at are drawn as the range, not chosen.
+                const chosen = day === from || day === to || Boolean(from && to && day > from && day < to);
                 const inside = Boolean(from && end && day > from && day < end);
                 const kind = [day === from ? "start" : "", day === end ? "end" : "", inside ? "inside" : "", day === today ? "today" : ""].filter(Boolean).join(" ");
                 return (
-                  <td key={day} role="gridcell" aria-selected={chosen || inside} className={kind || undefined}>
+                  <td key={day} role="gridcell" aria-selected={chosen} className={kind || undefined}>
                     <button type="button" data-day={day} tabIndex={day === focus ? 0 : -1} disabled={outside} aria-label={full.format(parse(day))}
                       {...(day === today ? { "aria-current": "date" as const } : {})}
-                      onClick={() => { setFocus(day); onPick(pickDay({ from, to }, day)); }} onMouseEnter={() => setHover(day)} onFocus={() => setHover(day)}>
+                      onClick={() => { setFocus(day); onPick(pickDay({ from: typedFrom, to: typedTo }, day)); }} onMouseEnter={() => setHover(day)} onFocus={() => setHover(day)}>
                       {Number(day.slice(8))}
                     </button>
                   </td>

@@ -117,7 +117,8 @@ export function Select<T extends string>({ value, options, onChange, disabled = 
     const span = value_.current;
     if (!span) return;
     if (span.scrollWidth > span.clientWidth + 1) span.title = options[chosen]?.label ?? "";
-    else span.removeAttribute("title");
+    // A title the tooltip layer set aside is dropped too, so it is not put back on a choice now shown whole.
+    else { span.removeAttribute("title"); delete span.dataset.tipTitle; }
   });
 
   const keys = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -179,7 +180,7 @@ export function Select<T extends string>({ value, options, onChange, disabled = 
  * and the host scrolls it, so the window's height says nothing; the root element's intersection with the top-level
  * viewport does, across origins too. Falls back to the whole window where that is not known.
  */
-function visibleArea(): Promise<{ top: number; bottom: number }> {
+export function visibleArea(): Promise<{ top: number; bottom: number }> {
   const whole = { top: 0, bottom: window.innerHeight };
   if (typeof IntersectionObserver === "undefined") return Promise.resolve(whole);
   return new Promise((resolve) => {

@@ -40,6 +40,15 @@ export function rangeLabel(range: DateRange, locale: SupportedLocale): string {
   return range.from === range.to ? dayLabel(range.to, locale) : `${dayLabel(range.from, locale, { year: !sameYear })} – ${dayLabel(range.to, locale)}`;
 }
 
+/**
+ * A day as typed, written as YYYY-MM-DD: 2026/10/05 and 2026.10.05 as well, and 20261005, all a phone's number pad
+ * can type (it has no "-").
+ */
+export function typedDay(text: string): string {
+  const day = text.trim().replace(/[./\s]/g, "-");
+  return /^\d{8}$/.test(day) ? `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6)}` : day;
+}
+
 /** The last 30 days, to start from when no range was chosen yet. */
 function lastMonth(today: string): { from: string; to: string } {
   return { from: new Date(Date.parse(today) - 29 * 86_400_000).toISOString().slice(0, 10), to: today };
@@ -54,7 +63,9 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<{ from: string; to: string }>({ from: "", to: "" });
   const [tried, setTried] = useState(false);
-  useEffect(() => { if (open) first.current?.focus(); }, [open]);
+  const panel = useRef<HTMLFormElement>(null);
+  // The panel opens on the calendar's day, not a box: on a phone a box would open the keyboard over the calendar.
+  useEffect(() => { if (open) panel.current?.querySelector<HTMLElement>('.calendarGrid button[tabindex="0"]')?.focus(); }, [open]);
   if (!context) return null;
   const { range, onRange, onClear, locale } = context;
   const today = todayLocal();
@@ -81,18 +92,18 @@ export function RangePicker({ t, disabled }: { t: Translator; disabled: boolean 
         <Icon name="calendar" />{label && <span>{label}</span>}
       </button>
       {open && (
-        <form id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}>
+        <form ref={panel} id={id} className="rangePanel" noValidate onSubmit={submit} aria-label={t("rangeCustom")}>
           <p className="rangeNote">{t("rangePick")}</p>
           <RangeCalendar from={draft.from} to={draft.to} min={FIRST_DAY} max={today} today={today} locale={locale} t={t} onPick={setDraft} />
           {/* The days typed, as year-month-day: plain text boxes, as a date box would open the browser's own calendar. */}
           <div className="rangeFields">
             <Field label={t("rangeFrom")} {...(tried && problem && onFirst ? { error: t(problem) } : {})}>
               {(props) => <input {...props} ref={first} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={10} placeholder="YYYY-MM-DD" className="dayInput"
-                value={draft.from} onChange={(event) => setDraft({ ...draft, from: event.target.value.trim() })} />}
+                value={draft.from} onChange={(event) => setDraft({ ...draft, from: typedDay(event.target.value) })} />}
             </Field>
             <Field label={t("rangeTo")} {...(tried && problem && !onFirst ? { error: t(problem) } : {})}>
               {(props) => <input {...props} ref={last} type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={10} placeholder="YYYY-MM-DD" className="dayInput"
-                value={draft.to} onChange={(event) => setDraft({ ...draft, to: event.target.value.trim() })} />}
+                value={draft.to} onChange={(event) => setDraft({ ...draft, to: typedDay(event.target.value) })} />}
             </Field>
           </div>
           <p className="rangeNote">{t("rangeNote")}</p>

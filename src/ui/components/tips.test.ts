@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest";
 import { placeTip, TipLayer } from "./tips";
 
 describe("the widget's own tooltips", () => {
-  const frame = { width: 375, height: 800 };
+  const frame = { width: 375, top: 0, bottom: 800 };
   const size = { width: 120, height: 30 };
 
   it("sits above the element, centred, and below it when there is no room above", () => {
     expect(placeTip({ top: 200, bottom: 230, left: 100, width: 60 }, size, frame)).toEqual({ top: 162, left: 70, below: false });
     expect(placeTip({ top: 20, bottom: 50, left: 100, width: 60 }, size, frame)).toEqual({ top: 58, left: 70, below: true });
+  });
+
+  it("goes below when the room above is outside the part of an inline frame the host shows", () => {
+    expect(placeTip({ top: 320, bottom: 350, left: 100, width: 60 }, size, { width: 375, top: 300, bottom: 900 })).toEqual({ top: 358, left: 70, below: true });
   });
 
   it("stays inside the frame at either edge", () => {

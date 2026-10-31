@@ -744,8 +744,8 @@ button.reviewTag:hover:not(:disabled) .edgeTrack, .reviewTag.active .edgeTrack {
 .calendarHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .calendarHead strong { font-size: 14px; font-weight: 700; text-transform: capitalize; }
 .calendarStep { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--tp-border); border-radius: 10px; background: var(--tp-bg); color: var(--tp-text); cursor: pointer; }
-.calendarStep:hover:not(:disabled) { border-color: var(--tp-border-strong); }
-.calendarStep:disabled { cursor: not-allowed; opacity: .45; }
+.calendarStep:hover:not([aria-disabled="true"]) { border-color: var(--tp-border-strong); }
+.calendarStep[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .calendarStep .icon { width: 16px; height: 16px; }
 .calendarStep .icon.flip { transform: scaleX(-1); }
 .calendarGrid { width: 100%; border-collapse: separate; border-spacing: 0 2px; table-layout: fixed; }
@@ -1786,6 +1786,12 @@ strong.historyAmount { flex: none; font-size: 13px; }
 .tipBubble.shown { opacity: 1; transform: none; }
 .tipBubble.below { transform: translateY(-2px); }
 .tipBubble.below.shown { transform: none; }
+/* With a mouse the bubble can be moved onto, to read it (WCAG 1.4.13), across the gap to its element too. */
+@media (hover: hover) { .tipBubble.shown { pointer-events: auto; } }
+.tipBubble::after { content: ""; position: absolute; inset-inline: 0; top: 100%; height: 8px; }
+.tipBubble.below::after { top: auto; bottom: 100%; }
+/* A long press shows the bubble, not the phone's callout over it. */
+@media (pointer: coarse) { [title], [data-tip-title] { -webkit-touch-callout: none; } }
 :root[data-theme="dark"] .tipBubble { background: #f4f4f5; color: #1c1d20; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
 @media (prefers-reduced-motion: reduce) { .tipBubble { transition: none; } }
 @media (forced-colors: active) { .tipBubble { border: 1px solid CanvasText; } }

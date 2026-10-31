@@ -28,6 +28,14 @@ describe("the range calendar", () => {
     expect(pickDay({ from: "2026-10-05", to: "" }, "2026-10-20")).toEqual({ from: "2026-10-05", to: "2026-10-20" });
     expect(pickDay({ from: "2026-10-05", to: "" }, "2026-10-05")).toEqual({ from: "2026-10-05", to: "2026-10-05" });
     expect(pickDay({ from: "2026-10-05", to: "" }, "2026-10-01")).toEqual({ from: "2026-10-01", to: "" });
+    // A first day half typed has begun nothing; a last day half typed leaves the first day's range open.
+    expect(pickDay({ from: "2026-1", to: "" }, "2026-10-05")).toEqual({ from: "2026-10-05", to: "" });
+    expect(pickDay({ from: "2026-10-05", to: "2026-1" }, "2026-10-20")).toEqual({ from: "2026-10-05", to: "2026-10-20" });
+  });
+
+  it("marks as selected only the days chosen, not the half-typed or the hover preview", () => {
+    const html = renderToStaticMarkup(createElement(RangeCalendar, { from: "2026-1", to: "2026-10-07", min: "2000-01-01", max: "2026-10-30", today: "2026-10-30", locale: "en", t: createTranslator("en"), onPick: () => {} }));
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
   });
 
   it("takes only days on the calendar", () => {
@@ -49,7 +57,8 @@ describe("the range calendar", () => {
     expect(html).toContain('data-day="2026-10-07" tabindex="0"');
     expect(html).toContain('class="today"><button type="button" data-day="2026-10-30" tabindex="-1" aria-label="Friday, October 30, 2026" aria-current="date">30</button>');
     expect(html).toContain('data-day="2026-10-31" tabindex="-1" disabled=""');
-    // Next month is past today.
-    expect(html).toMatch(/aria-label="Next month" title="Next month" disabled=""/);
+    // Next month is past today: marked, but still focusable, so pressing it there keeps the focus in the panel.
+    expect(html).toMatch(/aria-label="Next month" title="Next month" aria-disabled="true"/);
+    expect(html).not.toMatch(/calendarStep"[^>]*disabled=""/);
   });
 });
