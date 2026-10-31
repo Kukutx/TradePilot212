@@ -1423,7 +1423,7 @@ export default function App() {
             {portfolioLike && tab === "pies" && insights.pies && <PiesView payload={insights.pies} book={book} locale={locale} t={t} />}
             {portfolioLike && tab === "automation" && insights.automation && (
               <AutomationView data={insights.automation} book={book} locale={locale} t={t} busy={loading}
-                onTestNotifications={testNotifications}
+                onTestNotifications={insights.automation.writeEnabled ? testNotifications : undefined}
                 onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
                 onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
                 onSaveAccountAlert={(request) => changeAccountAlert({ action: "create", ...request })}

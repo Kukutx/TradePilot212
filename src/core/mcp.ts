@@ -1022,33 +1022,36 @@ export function createMcpServer(
     );
   }
 
-  registerAppTool(
-    server,
-    "test_notifications",
-    {
-      title: "Test Notifications",
-      description: "Send one test message to each notification endpoint set in NOTIFY_WEBHOOK_URL (Slack, Discord, Telegram, ntfy, Bark or plain JSON, each laid out for its service, in NOTIFY_LOCALE's language), now, even in quiet hours, and say what each answered. It names only each endpoint's kind and host, never its address, which can hold a token. Trades nothing and changes nothing.",
-      inputSchema: z.object({}),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-      _meta: {},
-    },
-    async () => {
-      try {
-        const results = notifications ? await notifications.test() : [];
-        const quiet = config.notifyQuietHours;
-        const data = {
-          kind: "notification_test", results, locale: config.notifyLocale,
-          quietHours: quiet ? { ...quiet, timeZone: config.timeZone ?? "UTC" } : null, timestamp: new Date().toISOString(),
-        };
-        const text = !results.length
-          ? "No notification endpoint is set: set NOTIFY_WEBHOOK_URL to one or more HTTPS URLs."
-          : results.map((item) => `${item.format} (${item.host}): ${item.ok ? "delivered" : `failed${item.status ? ` with HTTP ${item.status}` : ""}${item.error ? `: ${item.error}` : ""}`}`).join("\n");
-        return result(data, text);
-      } catch (error) {
-        return toolError(error);
-      }
-    },
-  );
+  // Sending to every endpoint is a write to the outside world: only where order tools are on.
+  if (canWrite) {
+    registerAppTool(
+      server,
+      "test_notifications",
+      {
+        title: "Test Notifications",
+        description: "Send one test message to each notification endpoint set in NOTIFY_WEBHOOK_URL (Slack, Discord, Telegram, ntfy, Bark or plain JSON, each laid out for its service, in NOTIFY_LOCALE's language), now, even in quiet hours, and say what each answered. It names only each endpoint's kind and host, never its address, which can hold a token. Trades nothing and changes nothing.",
+        inputSchema: z.object({}),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        _meta: {},
+      },
+      async () => {
+        try {
+          const results = notifications ? await notifications.test() : [];
+          const quiet = config.notifyQuietHours;
+          const data = {
+            kind: "notification_test", results, locale: config.notifyLocale,
+            quietHours: quiet ? { ...quiet, timeZone: config.timeZone ?? "UTC" } : null, timestamp: new Date().toISOString(),
+          };
+          const text = !results.length
+            ? "No notification endpoint is set: set NOTIFY_WEBHOOK_URL to one or more HTTPS URLs."
+            : results.map((item) => `${item.format} (${item.host}): ${item.ok ? "delivered" : `failed${item.status ? ` with HTTP ${item.status}` : ""}${item.error ? `: ${item.error}` : ""}`}`).join("\n");
+          return result(data, text);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
 
   // Alerts only notify; they never place orders, so they work without order tools.
   registerAppTool(

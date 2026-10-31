@@ -231,7 +231,7 @@ Each request waits 5 seconds at most. One an endpoint does not accept is tried a
 
 `NOTIFY_QUIET_HOURS=22-07` (whole hours in `TIMEZONE`, UTC without one; `22:00-07:00` also works) holds notifications during those hours and sends them as one message when they end, oldest first. Events that need you at once still go out: an order, cancellation or pie change whose result is unclear, protective orders that need attention, and a rejected cancellation. The daily digest comes at its own hour.
 
-**Send a test** on the widget's Automation tab, or the `test_notifications` tool, sends one test message to each endpoint at once, even in quiet hours, and says what each answered, naming only its kind and host. The Automation tab shows where notifications go, in which language, and the quiet hours.
+**Send a test** on the widget's Automation tab, or the `test_notifications` tool, sends one test message to each endpoint at once, even in quiet hours, and says what each answered, naming only its kind and host. It needs order tools on (`trade:write`), since it sends to the outside world. An address must not hold a user name or password; put a token in its path or query. The Automation tab shows where notifications go, in which language, and the quiet hours.
 
 ### Daily digest
 

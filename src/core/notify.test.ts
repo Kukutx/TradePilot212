@@ -24,6 +24,8 @@ describe("notification settings", () => {
     // A comma inside an address (an ntfy tag list) is kept; a comma between addresses separates them.
     expect(targets("https://ntfy.sh/t?tags=a,b,https://example.com/x").map((target) => target.url)).toEqual(["https://ntfy.sh/t?tags=a,b", "https://example.com/x"]);
     expect(targets("")).toEqual([]);
+    // Formats and schemes in capitals separate addresses too.
+    expect(targets("https://a.example/h,NTFY:https://n.example/t,HTTPS://b.example/x").map((target) => target.format)).toEqual(["raw", "ntfy", "raw"]);
   });
 
   it("refuses what cannot be delivered, without repeating an address that may hold a token", () => {
@@ -34,6 +36,9 @@ describe("notification settings", () => {
     expect(refusal("teams:https://example.com/x")).toMatch(/unknown format/);
     expect(refusal("ntfy:https://ntfy.example.com/")).toMatch(/topic/);
     expect(targets("http://localhost:8787/hook")[0]!.format).toBe("raw");
+    expect(refusal("https://user:SECRET@hooks.example/t")).toMatch(/user name or password/);
+    expect(refusal("https://user:SECRET@hooks.example/t")).not.toContain("SECRET");
+    expect(refusal("https://a.example/x?next=https://b.example/y")).toMatch(/second address/);
     expect(() => createConfig({ NOTIFY_WEBHOOK_URL: "http://hooks.example/t" })).toThrow(/HTTPS/);
   });
 
@@ -84,6 +89,10 @@ describe("notification text", () => {
     const ntfy = deliveryFor(targets("https://ntfy.sh/my-topic")[0]!, { ...message, urgent: true }, text, [fill]);
     expect([ntfy.url, JSON.parse(ntfy.body)]).toEqual(["https://ntfy.sh/", { topic: "my-topic", title: message.title, message: message.lines.join("\n"), priority: 4 }]);
     expect(body("https://api.day.app/KEY")).toMatchObject({ title: message.title, group: "TradePilot", level: "active" });
+    // A long message is cut before it is escaped, so no entity is cut in two.
+    const long = JSON.parse(deliveryFor(targets("https://api.telegram.org/bot1:A/sendMessage?chat_id=42")[0]!, { ...message, lines: Array.from({ length: 1500 }, () => "S&P") }, text, [fill]).body).text as string;
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.replace(/&(amp|lt|gt);/g, "").includes("&")).toBe(false);
   });
 });
 
@@ -167,5 +176,31 @@ describe("sending notifications", () => {
     expect(results).toEqual([{ format: "telegram", host: "api.telegram.org", ok: true, status: 200 }, { format: "raw", host: "b.example", ok: false, status: 404 }]);
     expect(JSON.stringify(results)).not.toContain("SECRET");
     expect(JSON.parse(calls.find((call) => call.url.includes("b.example"))!.body)).toMatchObject({ events: [] });
+  });
+
+  it("never passes on an error's own words, which can repeat the address", async () => {
+    const config = createConfig({ NOTIFY_WEBHOOK_URL: "https://hooks.example/tok3n" });
+    const fetcher = (async () => { throw new TypeError("fetch failed for https://hooks.example/tok3n"); }) as typeof fetch;
+    const results = await new Notifications({ config, fetcher }).test();
+    expect(results).toEqual([{ format: "raw", host: "hooks.example", ok: false, error: "could not connect" }]);
+  });
+
+  it("sends what it took from the store, and puts back one another scheduler set for later", async () => {
+    const { notifications, calls, clock, store } = setup({ NOTIFY_WEBHOOK_URL: "https://a.example/x" }, () => 500);
+    await notifications.send(fill);
+    clock.now += 61_000;
+    const [entry] = await store.list<{ dueAt: number; attempts: number }>("notify-outbox:");
+    // Another scheduler already tried it again and set the next try for later; this one listed the older copy.
+    const list = store.list.bind(store);
+    store.list = (async (prefix: string) => {
+      const listed = await list(prefix);
+      await store.put(entry!.key, { ...entry!.value, attempts: 2, dueAt: clock.now + 5 * 60_000 });
+      return listed;
+    }) as typeof store.list;
+    calls.length = 0;
+    expect(await notifications.flush()).toEqual([]);
+    expect(calls).toHaveLength(0);
+    store.list = list;
+    expect((await store.list<{ attempts: number }>("notify-outbox:"))[0]!.value.attempts).toBe(2);
   });
 });

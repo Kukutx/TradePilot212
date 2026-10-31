@@ -170,20 +170,24 @@ const ordinal = (index: number) => ["first", "second", "third"][index] ?? `${ind
  * may hold a token.
  */
 export function parseNotifyTargets(raw: string, loopback: (hostname: string) => boolean): NotifyTarget[] {
-  const entries = raw.trim().split(/[\s,]+(?=(?:[a-z]+:)?https?:\/\/)|\s+/).map((item) => item.trim().replace(/,$/, "")).filter(Boolean);
+  const entries = raw.trim().split(/[\s,]+(?=(?:[a-z]+:)?https?:\/\/)|\s+/i).map((item) => item.trim().replace(/,$/, "")).filter(Boolean);
   return entries.map((entry, index) => {
     const which = entries.length > 1 ? `The ${ordinal(index)} NOTIFY_WEBHOOK_URL entry` : "NOTIFY_WEBHOOK_URL";
     const prefixed = /^([a-z]+):(https?:\/\/.+)$/i.exec(entry);
     const named = prefixed?.[1]?.toLowerCase();
     if (named && !(NOTIFY_FORMATS as readonly string[]).includes(named)) throw new Error(`${which} starts with an unknown format; use one of ${NOTIFY_FORMATS.join(", ")}`);
+    const address = prefixed ? prefixed[2]! : entry;
+    if (address.slice(address.indexOf("://") + 3).includes("://")) throw new Error(`${which} holds a second address; separate addresses with a space or a comma`);
     let url: URL;
     try {
-      url = new URL(prefixed ? prefixed[2]! : entry);
+      url = new URL(address);
     } catch {
       throw new Error(`${which} is not a URL`);
     }
     if (url.protocol !== "https:" && !(loopback(url.hostname) && url.protocol === "http:")) throw new Error(`${which} must use HTTPS`);
     if (url.hash) throw new Error(`${which} must not have a fragment`);
+    // fetch refuses such a URL, and its error repeats the address with the password in it.
+    if (url.username || url.password) throw new Error(`${which} must not hold a user name or password; put a token in the path or query`);
     const format = (named as NotifyFormat | undefined) ?? KNOWN_HOSTS.find(([, test]) => test(url))?.[0] ?? "raw";
     if (format === "telegram" && !/\/bot[^/]+\/sendMessage$/.test(url.pathname)) throw new Error(`${which} for Telegram must be https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>`);
     if (format === "telegram" && !url.searchParams.get("chat_id")) throw new Error(`${which} for Telegram needs ?chat_id=<chat>`);
@@ -254,7 +258,10 @@ export function deliveryFor(target: NotifyTarget, message: NotificationMessage, 
     case "telegram": {
       const url = new URL(target.url);
       const params = Object.fromEntries(url.searchParams);
-      return json(`${url.origin}${url.pathname}`, { ...params, text: cut(`<b>${escapeHtml(message.title)}</b>${body ? `\n${escapeHtml(body)}` : ""}`, 4096), parse_mode: "HTML", disable_web_page_preview: true });
+      // Cut before escaping, so an entity is never cut in two; Telegram counts the text after reading its entities.
+      const title = cut(message.title, 256);
+      const lines = body ? cut(body, 4096 - title.length - 1) : "";
+      return json(`${url.origin}${url.pathname}`, { ...params, text: `<b>${escapeHtml(title)}</b>${lines ? `\n${escapeHtml(lines)}` : ""}`, parse_mode: "HTML", disable_web_page_preview: true });
     }
     case "ntfy": {
       // JSON publishing, to the server's root with the topic in the body, carries a title in any script.
@@ -297,6 +304,13 @@ const MAX_PENDING = 200;
 
 export interface NotifyTestResult { format: NotifyFormat; host: string; ok: boolean; status?: number; error?: string }
 
+/** A fixed reason for a request that got no answer: an error's own message can repeat the address, token and all. */
+function failureReason(error: unknown): string {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "TimeoutError" || name === "AbortError") return "no answer within 5 seconds";
+  return "could not connect";
+}
+
 export class Notifications {
   private readonly wanted: Set<string>;
   private keys?: Promise<string[]>;
@@ -320,7 +334,7 @@ export class Notifications {
       if (!response.ok) console.error(JSON.stringify({ message: "TradePilot notification rejected", format: target.format, host: new URL(target.url).hostname, status: response.status }));
       return { ok: response.ok, status: response.status };
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = failureReason(error);
       console.error(JSON.stringify({ message: "TradePilot notification failed", format: target.format, host: new URL(target.url).hostname, error: reason }));
       return { ok: false, error: reason };
     }
@@ -374,7 +388,11 @@ export class Notifications {
     for (const [index, target] of this.targets.entries()) {
       const mine = due.filter((item) => item.value.target === keys[index]);
       // Taken from the store before sending, so a second scheduler sends none of them twice.
-      const taken = (await Promise.all(mine.map(async (item) => ((await store.consume<Pending>(item.key)) ? item.value : undefined)))).filter((item): item is Pending => Boolean(item));
+      // What is sent is what was taken, which another scheduler may have put back since the list was read.
+      const consumed = await Promise.all(mine.map(async (item) => ({ key: item.key, value: await store.consume<Pending>(item.key) })));
+      const notYet = consumed.filter((item) => item.value && item.value.dueAt > now);
+      await Promise.all(notYet.map((item) => this.keep(item.value!).catch(() => {})));
+      const taken = consumed.map((item) => item.value).filter((item): item is Pending => Boolean(item) && item!.dueAt <= now);
       const held = taken.filter((item) => item.held).sort((a, b) => a.event.timestamp.localeCompare(b.event.timestamp));
       const batches: Pending[][] = [...(held.length ? [held] : []), ...taken.filter((item) => !item.held).map((item) => [item])];
       for (const batch of batches) {
