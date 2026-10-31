@@ -5,6 +5,7 @@ import type { PricesMissing } from "../../shared/prices";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { localeTag } from "../i18n";
 import { EmptyState, Metric, SectionHeader, type EmptyAction } from "../components/common";
+import { Select } from "../components/select";
 import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabels, type Grid } from "../components/charts";
 import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
@@ -325,13 +326,11 @@ function BenchmarkPicker({ data, busy, t, onBenchmark }: { data: PerformanceSumm
   const chosen = data.benchmark?.ticker ?? data.benchmarkChoice;
   const current = chosen && options.some((option) => option.ticker === chosen) ? chosen : "none";
   return (
-    <label className="benchmarkPicker">
-      <span>{t("benchmarkLabel")}</span>
-      <select value={current} disabled={busy} aria-label={t("benchmarkLabel")} onChange={(event) => onBenchmark(event.target.value)}>
-        {options.map((option) => <option key={option.ticker} value={option.ticker}>{option.name ? `${benchmarkName(option)} · ${option.name}` : benchmarkName(option)}</option>)}
-        <option value="none">{t("benchmarkNone")}</option>
-      </select>
-    </label>
+    <div className="benchmarkPicker">
+      <span aria-hidden="true">{t("benchmarkLabel")}</span>
+      <Select value={current} disabled={busy} label={t("benchmarkLabel")} onChange={onBenchmark}
+        options={[...options.map((option) => ({ value: option.ticker, label: option.name ? `${benchmarkName(option)} · ${option.name}` : benchmarkName(option) })), { value: "none", label: t("benchmarkNone") }]} />
+    </div>
   );
 }
 

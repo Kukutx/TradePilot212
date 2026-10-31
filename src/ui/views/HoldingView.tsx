@@ -286,7 +286,7 @@ export function HoldingView({
       <section className="dataPanel">
         <div className="pieHeader">
           <h2>{t("alertsTitle")}</h2>
-          {!addingAlert && <button type="button" className="secondaryButton compactButton" onClick={() => setAddingAlert(true)}>{t("addAlert")}</button>}
+          {!addingAlert && <button type="button" className="secondaryButton compactButton" data-reveals="form" onClick={() => setAddingAlert(true)}>{t("addAlert")}</button>}
         </div>
         {addingAlert && (
           <AlertForm held={Boolean(position)} {...(lastPrice ? { last: lastPrice } : {})} {...(quote ? { currency: quote } : {})} locale={locale} t={t} busy={busy}

@@ -75,7 +75,9 @@ describe("native controls", () => {
   it("draws scrollbars, selects, checkboxes, search, spinners and disclosures in the widget's own style", () => {
     expect(css).toMatch(/::-webkit-scrollbar-thumb\s*\{[^}]*border-radius: 999px/);
     expect(css).toMatch(/::-webkit-scrollbar-button\s*\{[^}]*display: none/);
-    expect(css).toMatch(/select:not\(\[multiple\]\)\s*\{[^}]*appearance: none/s);
+    expect(css).toMatch(/select:not\(\[multiple\]\), \.selectWrap > \.selectBox\s*\{[^}]*appearance: none/s);
+    // The widget's own select draws its open list too, as a card in the theme.
+    expect(css).toMatch(/\.selectList \{[^}]*position: absolute;[^}]*background: var\(--tp-bg\)/s);
     expect(css).toMatch(/input\[type="checkbox"\]\s*\{[^}]*appearance: none/s);
     expect(css).toMatch(/input\[type="number"\]\s*\{[^}]*appearance: textfield/);
     // Search and date boxes are drawn as the other text boxes (pnpm audit:ui finds any control left out).

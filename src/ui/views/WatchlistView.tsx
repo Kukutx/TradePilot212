@@ -3,6 +3,7 @@ import type { Instrument } from "../../shared/contracts";
 import { MAX_WATCH_NOTE, WATCH_PERIODS, type WatchLevel, type WatchlistView as WatchlistData, type WatchPeriod, type WatchRow } from "../../shared/watchlist";
 import type { MessageKey, SupportedLocale } from "../i18n";
 import { AssetAvatar, Icon } from "../components/common";
+import { Select } from "../components/select";
 import { InstrumentSearch } from "../components/instrument-search";
 import { priceDigits } from "../components/price-chart";
 import { amount, dayLabel, pct, qty, signedClass } from "../lib/format";
@@ -176,14 +177,11 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
                     className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{t(PERIOD_KEYS[key][0])}</button>
                 ))}
               </div>
-              <label className="watchSort">
-                <span>{t("watchSortLabel")}</span>
-                <select value={sort} aria-label={t("watchSortLabel")} onChange={(event) => setSort(event.target.value as WatchSort)}>
-                  <option value="added">{t("watchSortAdded")}</option>
-                  <option value="move">{t("watchSortMove")}</option>
-                  <option value="level">{t("watchSortLevel")}</option>
-                </select>
-              </label>
+              <div className="watchSort">
+                <span aria-hidden="true">{t("watchSortLabel")}</span>
+                <Select<WatchSort> value={sort} label={t("watchSortLabel")} onChange={setSort}
+                  options={[{ value: "added", label: t("watchSortAdded") }, { value: "move", label: t("watchSortMove") }, { value: "level", label: t("watchSortLevel") }]} />
+              </div>
             </div>
           )}
         </div>

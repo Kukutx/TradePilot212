@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, type CSSProperties, type InputHTMLAttributes,
 import type { Position } from "../../shared/contracts";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 
-export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert" | "calendar";
+export type IconName = "refresh" | "expand" | "collapse" | "globe" | "close" | "arrow" | "alert" | "calendar" | "check";
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   const paths = {
@@ -14,6 +14,7 @@ export function Icon({ name, className }: { name: IconName; className?: string }
     arrow: <path d="M5 12h14M13 6l6 6-6 6"/>,
     alert: <><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></>,
     calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></>,
+    check: <path d="M5 12.5l4.5 4.5L19 7.5"/>,
   } as const;
   return <svg viewBox="0 0 24 24" aria-hidden="true" className={`icon${className ? ` ${className}` : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -53,7 +54,7 @@ export function Field({ label, children, hint, error, unit, group }: {
   const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
   return (
     <div className={`field${error ? " invalid" : ""}`}>
-      {group ? <span className="fieldLabel" id={`${id}-label`}>{label}</span> : <label htmlFor={id}>{label}</label>}
+      {group ? <span className="fieldLabel" id={`${id}-label`}>{label}</span> : <label htmlFor={id} id={`${id}-label`}>{label}</label>}
       <div className={unit ? "fieldControl withUnit" : "fieldControl"}>
         {children({ id, ...(describedBy ? { "aria-describedby": describedBy } : {}), ...(error ? { "aria-invalid": true } : {}) })}
         {unit && <span className="fieldUnit" aria-hidden="true">{unit}</span>}

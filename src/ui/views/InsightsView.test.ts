@@ -43,7 +43,9 @@ describe("the performance view's benchmark", () => {
     expect(html).toContain("Your return</li>");
     expect(html).toContain("12.9 points ahead of VUSA");
     expect(html).toContain("VUSA +11.5% over the same days. VUSA is priced in GBX, so currency moves against EUR are not in it.");
-    expect(html).toMatch(/<option value="VUSAl_EQ" selected="">VUSA · Vanguard S&amp;P 500 UCITS ETF \(Dist\)<\/option><option value="EUNLd_EQ">EUNL<\/option><option value="none">No comparison<\/option>/);
+    expect([...html.matchAll(/role="option" aria-selected="(true|false)" data-value="([^"]+)"[^>]*><span>([^<]+)<\/span>/g)].map((match) => match.slice(1).join(" "))).toEqual([
+      "true VUSAl_EQ VUSA · Vanguard S&amp;P 500 UCITS ETF (Dist)", "false EUNLd_EQ EUNL", "false none No comparison",
+    ]);
     expect(render({ ...base, benchmarkChoice: "VUSAl_EQ", benchmark: { ticker: "VUSAl_EQ", shortName: "VUSA", currencyCode: "EUR", source: "stooq", return: 0.3, series: [] } }, "zh-CN")).toContain("跑输 VUSA 5.6 个百分点");
   });
 
@@ -66,11 +68,11 @@ describe("the performance view's benchmark", () => {
     const html = render({ ...base, benchmarkChoice: "EUNLd_EQ", benchmarkMissing: "plan", benchmarkProblem: "Finnhub has no daily prices." });
     expect(html).not.toContain('class="lineCompare"');
     expect(html).toContain("No comparison with EUNL: this quote provider&#x27;s free plan has no daily prices.");
-    expect(html).toContain('<option value="EUNLd_EQ" selected="">');
-    expect(render(base)).toContain('<option value="none" selected="">');
+    expect(html).toContain('aria-selected="true" data-value="EUNLd_EQ"');
+    expect(render(base)).toContain('aria-selected="true" data-value="none"');
     const query = render({ ...base, benchmarkChoice: "VWRL", benchmarkMissing: "instrument", benchmarkProblem: "Several match" });
     expect(query).toContain("No comparison with VWRL: it could not be looked up on Trading 212 as one fund");
-    expect(query).toContain('<option value="none" selected="">');
+    expect(query).toContain('aria-selected="true" data-value="none"');
   });
 
   it("calls a fund in pence the account's currency for a GBP account, and a gap under 0.05 points level", () => {
