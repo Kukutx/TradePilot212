@@ -141,6 +141,7 @@ export function AutomationView({ data, book, locale, t, busy = false, onTestNoti
           <DetailRow label={t("settingOrderWatch")} value={on(data.settings.orderWatch)} />
           <NotificationRows settings={data.settings} t={t} />
           <DetailRow label={t("settingDigest")} value={data.settings.digestHour === null ? t("settingOff") : `${String(data.settings.digestHour).padStart(2, "0")}:00 ${data.settings.digestTimeZone ?? "UTC"}`} />
+          {data.settings.reports?.length ? <DetailRow label={t("settingReports")} value={data.settings.reports.map((kind) => t(kind === "weekly" ? "reportWeekly" : "reportMonthly")).join(", ")} /> : null}
           <DetailRow label={t("settingTimeZone")} value={data.settings.timeZone ?? "UTC"} />
           {data.settings.taxYearStart && <DetailRow label={t("settingTaxYear")} value={yearStartLabel(data.settings.taxYearStart, locale)} />}
           <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />

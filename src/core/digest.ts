@@ -1,5 +1,5 @@
-// A once-a-day account digest sent to the notification webhook at DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC, so you can
-// follow the account without opening a chat. It only reads; it never trades. It is sent whatever
+// A once-a-day account digest sent to the notification webhook at DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC, in
+// NOTIFY_LOCALE's language, so you can follow the account without opening a chat. It only reads; it never trades. It is sent whatever
 // NOTIFY_EVENTS lists, and a day counts as done only once the webhook accepted it.
 
 import type { Position, TradingEnvironment } from "../shared/contracts.js";
@@ -11,7 +11,7 @@ import type { AccountAlert, DcaPlan, PriceAlert, TargetAllocation } from "../sha
 import type { PortfolioToday } from "../shared/today.js";
 import { analyzeAllocation, expectedDividends, positionValue } from "./analytics.js";
 import { credentialStatus, type RuntimeConfig } from "./config.js";
-import type { Notifier } from "./notify.js";
+import type { Notifier, NotifyLocale } from "./notify.js";
 import { monthStart, scheduleStart } from "./dividends.js";
 import { recentFillCount } from "./order-watch.js";
 import type { StateStore } from "./state-store.js";
@@ -149,32 +149,77 @@ export function digestDay(today: PortfolioToday | undefined): DigestInput["day"]
   };
 }
 
+/** The digest's words, in English or Chinese (NOTIFY_LOCALE); the figures are written the same in both. */
+const DIGEST_WORDS = {
+  en: {
+    total: (value: string, change: string | undefined) => `Total ${value}${change ? ` (${change} since the last digest)` : ""}`,
+    day: (amount: string, change: string | undefined, days: string, part: string | undefined) => `day ${amount}${change ? ` (${change})` : ""} on ${days}${part ? ` for ${part} instruments` : ""}`,
+    part: (counted: number, of: number) => `${counted} of ${of}`,
+    movers: (list: string) => `movers: ${list}`,
+    cash: (value: string) => `cash ${value}`,
+    unrealized: (value: string) => `unrealized ${value}`,
+    top: (list: string) => `top: ${list}`,
+    pending: (count: number) => `${count} pending order(s)`,
+    plans: (list: string) => `due plans: ${list}`,
+    alerts: (count: number) => `${count} alert(s) triggered in the last day`,
+    fills: (count: number) => `${count} order(s) filled in the last day`,
+    received: (sum: string, list: string) => `dividends ${sum} in: ${list}`,
+    expected: (list: string) => `dividends expected this week: ${list}`,
+    due: (on: string) => `due ${on}`,
+    drift: (points: string) => `largest drift from targets ${points} points`,
+    uncovered: (list: string) => `no full stop-loss: ${list}`,
+    join: ", ",
+  },
+  "zh-CN": {
+    total: (value: string, change: string | undefined) => `总值 ${value}${change ? `（较上次摘要 ${change}）` : ""}`,
+    day: (amount: string, change: string | undefined, days: string, part: string | undefined) => `当日 ${amount}${change ? `（${change}）` : ""}，交易日 ${days}${part ? `，按 ${part} 个标的计` : ""}`,
+    part: (counted: number, of: number) => `${counted}/${of}`,
+    movers: (list: string) => `涨跌最大：${list}`,
+    cash: (value: string) => `现金 ${value}`,
+    unrealized: (value: string) => `未实现盈亏 ${value}`,
+    top: (list: string) => `前三大持仓：${list}`,
+    pending: (count: number) => `${count} 笔挂单`,
+    plans: (list: string) => `到期计划：${list}`,
+    alerts: (count: number) => `过去一天触发 ${count} 个提醒`,
+    fills: (count: number) => `过去一天成交 ${count} 笔订单`,
+    received: (sum: string, list: string) => `收到股息 ${sum}：${list}`,
+    expected: (list: string) => `本周预计股息：${list}`,
+    due: (on: string) => `已到期 ${on}`,
+    drift: (points: string) => `与目标的最大偏离 ${points} 个百分点`,
+    uncovered: (list: string) => `未被止损完全覆盖：${list}`,
+    join: "，",
+  },
+} as const;
+
 /** Plain-text digest; kept short so it reads well in a chat notification. */
-export function digestText(input: DigestInput): string {
-  const change = input.previousTotalValue === undefined ? "" : ` (${signed(input.totalValue - input.previousTotalValue)} since the last digest)`;
+export function digestText(input: DigestInput, locale: NotifyLocale = "en"): string {
+  const words = DIGEST_WORDS[locale];
+  const change = input.previousTotalValue === undefined ? undefined : signed(input.totalValue - input.previousTotalValue);
   const top = [...input.positions].sort((a, b) => b.value - a.value).slice(0, 3)
     .map((item) => `${item.ticker} ${round(item.value)}${item.profitLoss === undefined ? "" : ` (${signed(item.profitLoss)})`}`);
   const day = input.day;
+  const more = (count: number, shown: number) => (count > shown ? ` +${count - shown}` : "");
   return [
-    `Total ${round(input.totalValue)} ${input.currency}${change}`,
-    day ? `day ${signed(day.profitLoss)}${day.change === undefined ? "" : ` (${signedPct(day.change)})`} on ${day.days.join(", ")}${day.counted < day.of ? ` for ${day.counted} of ${day.of} instruments` : ""}` : undefined,
+    words.total(`${round(input.totalValue)} ${input.currency}`, change),
+    day ? words.day(signed(day.profitLoss), day.change === undefined ? undefined : signedPct(day.change), day.days.join(", "), day.counted < day.of ? words.part(day.counted, day.of) : undefined) : undefined,
     // One sold out on the day has no price to compare: its sells' amount instead.
-    day?.movers.length ? `movers: ${day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? `${signed(mover.profitLoss)} ${input.currency}`.trim() : signedPct(mover.change)}`).join(", ")}` : undefined,
-    `cash ${round(input.cash)}`,
-    input.unrealized === undefined ? undefined : `unrealized ${signed(input.unrealized)}`,
-    top.length ? `top: ${top.join(", ")}` : undefined,
-    input.pendingOrders ? `${input.pendingOrders} pending order(s)` : undefined,
-    input.duePlans.length ? `due plans: ${input.duePlans.join(", ")}` : undefined,
-    input.triggeredAlerts ? `${input.triggeredAlerts} alert(s) triggered in the last day` : undefined,
-    input.filledOrders ? `${input.filledOrders} order(s) filled in the last day` : undefined,
+    day?.movers.length ? words.movers(day.movers.map((mover) => `${mover.name} ${mover.change === undefined ? `${signed(mover.profitLoss)} ${input.currency}`.trim() : signedPct(mover.change)}`).join(words.join)) : undefined,
+    words.cash(String(round(input.cash))),
+    input.unrealized === undefined ? undefined : words.unrealized(signed(input.unrealized)),
+    top.length ? words.top(top.join(words.join)) : undefined,
+    input.pendingOrders ? words.pending(input.pendingOrders) : undefined,
+    input.duePlans.length ? words.plans(input.duePlans.join(words.join)) : undefined,
+    input.triggeredAlerts ? words.alerts(input.triggeredAlerts) : undefined,
+    input.filledOrders ? words.fills(input.filledOrders) : undefined,
     input.dividends?.received.length
-      ? `dividends ${round(input.dividends.received.reduce((sum, item) => sum + item.amount, 0))} in: ${input.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round(item.amount)}`).join(", ")}${input.dividends.received.length > RECEIVED_DIVIDENDS ? ` +${input.dividends.received.length - RECEIVED_DIVIDENDS}` : ""}`
+      ? words.received(String(round(input.dividends.received.reduce((sum, item) => sum + item.amount, 0))),
+        `${input.dividends.received.slice(0, RECEIVED_DIVIDENDS).map((item) => `${item.name} ${round(item.amount)}`).join(words.join)}${more(input.dividends.received.length, RECEIVED_DIVIDENDS)}`)
       : undefined,
     input.dividends?.expected.length
-      ? `dividends expected this week: ${input.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round(item.amount)} ${item.due ? `due ${item.on.slice(5)}` : item.on.slice(5)}`).join(", ")}${input.dividends.expected.length > EXPECTED_DIVIDENDS ? ` +${input.dividends.expected.length - EXPECTED_DIVIDENDS}` : ""}`
+      ? words.expected(`${input.dividends.expected.slice(0, EXPECTED_DIVIDENDS).map((item) => `${item.name} ~${round(item.amount)} ${item.due ? words.due(item.on.slice(5)) : item.on.slice(5)}`).join(words.join)}${more(input.dividends.expected.length, EXPECTED_DIVIDENDS)}`)
       : undefined,
-    input.maxDrift === undefined ? undefined : `largest drift from targets ${(input.maxDrift * 100).toFixed(1)} points`,
-    input.uncovered?.length ? `no full stop-loss: ${input.uncovered.slice(0, 5).join(", ")}${input.uncovered.length > 5 ? ` +${input.uncovered.length - 5}` : ""}` : undefined,
+    input.maxDrift === undefined ? undefined : words.drift((input.maxDrift * 100).toFixed(1)),
+    input.uncovered?.length ? words.uncovered(`${input.uncovered.slice(0, 5).join(words.join)}${more(input.uncovered.length, 5)}`) : undefined,
   ].filter(Boolean).join(" · ");
 }
 
@@ -262,7 +307,7 @@ export class DailyDigest {
           ...(uncovered.length ? { uncovered } : {}),
           ...(day ? { day } : {}),
           ...(dividends ? { dividends } : {}),
-        });
+        }, this.deps.config.notifyLocale);
         const event = { id: crypto.randomUUID(), timestamp: now.toISOString(), environment, type: "daily_digest" as const, outcome: text };
         if (!(await this.deps.notify!(event, { force: true }))) {
           // Not delivered: release the day so the next attempt window sends it again.

@@ -290,6 +290,8 @@ export function activityLabel(event: ActivityEvent, t: Translator): string {
     case "account_alert_triggered": return t("activityAccountAlert");
     case "allocation_drift": return t("activityAllocationDrift");
     case "daily_digest": return t("activityDailyDigest");
+    case "weekly_report": return t("activityWeeklyReport");
+    case "monthly_report": return t("activityMonthlyReport");
     default: return String((event as ActivityEvent).type);
   }
 }

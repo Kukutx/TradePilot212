@@ -5,6 +5,7 @@ import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quote
 import { fail } from "./errors.js";
 import { DEFAULT_FX_FEE_RATE, MAX_FX_FEE_RATE } from "../shared/trade-cost.js";
 import { parseYearStart, validTimeZone } from "../shared/time-zone.js";
+import { REPORT_KINDS, type ReportKind } from "../shared/automation.js";
 import { parseNotifyLocale, parseNotifyTargets, parseQuietHours, type NotifyLocale, type NotifyTarget, type QuietHours } from "./notify.js";
 
 /** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
@@ -35,6 +36,8 @@ export interface RuntimeConfig {
   notifyLocale: NotifyLocale;
   /** Hours in TIMEZONE when only urgent events are sent (NOTIFY_QUIET_HOURS); the rest follow when they end. */
   notifyQuietHours?: QuietHours;
+  /** Weekly and monthly reports sent at the digest's hour (REPORTS); empty for none. */
+  reports: ReportKind[];
   /** Optional secret; when set each webhook carries an HMAC-SHA256 signature header. */
   notifyWebhookSecret: string;
   /** Activity types sent to the webhook; empty means the default set in notify.ts. */
@@ -73,7 +76,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
-  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS" | "NOTIFY_LOCALE" | "NOTIFY_QUIET_HOURS"
+  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS" | "NOTIFY_LOCALE" | "NOTIFY_QUIET_HOURS" | "REPORTS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "BENCHMARK" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
   | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE" | "TIMEZONE" | "TAX_YEAR_START" | "DIGEST_HOUR" | "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL",
   string
@@ -172,6 +175,15 @@ function taxYearStart(env: RuntimeEnv): string {
   return start.text;
 }
 
+/** REPORTS: weekly, monthly or both, sent at the digest's hour, so DIGEST_HOUR (or DIGEST_HOUR_UTC) is needed. */
+function reports(env: RuntimeEnv, digestSet: boolean): ReportKind[] {
+  const wanted = (env.REPORTS ?? "").split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+  const unknown = wanted.filter((item) => !(REPORT_KINDS as readonly string[]).includes(item));
+  if (unknown.length) throw new Error("REPORTS must list weekly, monthly or both");
+  if (wanted.length && !digestSet) throw new Error("REPORTS are sent at the digest's hour: set DIGEST_HOUR (in TIMEZONE) or DIGEST_HOUR_UTC too");
+  return REPORT_KINDS.filter((kind) => wanted.includes(kind));
+}
+
 /** DIGEST_HOUR in TIMEZONE (UTC without one), or DIGEST_HOUR_UTC; not both. */
 function digest(env: RuntimeEnv, zone: string | undefined): RuntimeConfig["digest"] {
   const read = (name: "DIGEST_HOUR" | "DIGEST_HOUR_UTC") => {
@@ -241,6 +253,7 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     quoteSymbols: parseSymbolMap(env.QUOTE_SYMBOLS ?? ""),
     benchmark: benchmark(env, sampleData),
     ...(digest(env, timeZone(env)) ? { digest: digest(env, timeZone(env))! } : {}),
+    reports: reports(env, digest(env, timeZone(env)) !== undefined),
     ...(timeZone(env) ? { timeZone: timeZone(env)! } : {}),
     taxYearStart: taxYearStart(env),
     sampleData,

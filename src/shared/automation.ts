@@ -348,6 +348,8 @@ export interface AutomationOverview {
     /** The daily digest's hour in `digestTimeZone`; null when it is off. Before 2.62, `digestHourUtc`. */
     digestHour: number | null;
     digestTimeZone?: string;
+    /** Weekly and monthly reports, sent at the digest's hour: from 2.81. */
+    reports?: ReportKind[];
     /** TIMEZONE, when set: the day the daily limits reset. */
     timeZone?: string;
     /** TAX_YEAR_START, the tax year's first day as MM-DD: from 2.62. */
@@ -364,3 +366,7 @@ export interface AlertReport {
   action: "triggered" | "waiting" | "no_price";
   message: string;
 }
+
+/** The account reports REPORTS can ask for, sent at the digest's hour: from 2.81. */
+export const REPORT_KINDS = ["weekly", "monthly"] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];

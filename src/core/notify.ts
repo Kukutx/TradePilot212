@@ -29,7 +29,12 @@ export const DEFAULT_NOTIFY_EVENTS: ActivityType[] = [
   "account_alert_triggered",
   "allocation_drift",
   "daily_digest",
+  "weekly_report",
+  "monthly_report",
 ];
+
+/** Sent at an hour chosen for them, quiet hours or not, and tried again by their own schedule when no endpoint takes them. */
+export const SCHEDULED_EVENTS = new Set<ActivityType>(["daily_digest", "weekly_report", "monthly_report"]);
 
 /** Events that need you now: sent during quiet hours too. */
 export const URGENT_EVENTS = new Set<ActivityType>([
@@ -65,6 +70,8 @@ const LABELS: Record<NotifyLocale, Partial<Record<ActivityType, string>>> = {
     account_alert_triggered: "Account alert",
     allocation_drift: "Allocation has drifted from your targets",
     daily_digest: "Daily digest",
+    weekly_report: "Weekly report",
+    monthly_report: "Monthly report",
   },
   "zh-CN": {
     order_submitted: "订单已发送",
@@ -87,6 +94,8 @@ const LABELS: Record<NotifyLocale, Partial<Record<ActivityType, string>>> = {
     account_alert_triggered: "账户提醒",
     allocation_drift: "持仓配置已偏离目标",
     daily_digest: "每日摘要",
+    weekly_report: "周报",
+    monthly_report: "月报",
   },
 };
 
@@ -136,8 +145,8 @@ function figures(event: ActivityEvent, locale: NotifyLocale): string[] {
 export function notificationMessage(event: ActivityEvent, locale: NotifyLocale = "en"): NotificationMessage {
   const label = LABELS[locale][event.type] ?? LABELS.en[event.type] ?? event.type;
   const details = figures(event, locale);
-  // The digest is one line of " · " parts; laid out, each is a line of its own.
-  const outcome = event.outcome ? (event.type === "daily_digest" ? event.outcome.split(" · ") : [event.outcome]) : [];
+  // A digest or report is one line of " · " parts; laid out, each is a line of its own.
+  const outcome = event.outcome ? (SCHEDULED_EVENTS.has(event.type) ? event.outcome.split(" · ") : [event.outcome]) : [];
   return {
     title: `TradePilot · ${WORDS[locale].env[event.environment]} · ${label}`,
     lines: [...(details.length ? [details.join(" · ")] : []), ...outcome],
@@ -350,8 +359,8 @@ export class Notifications {
     const keys = await this.targetKeys();
     const now = this.now();
     const quiet = this.deps.config.notifyQuietHours;
-    // Quiet hours hold what can wait for one message when they end; the digest comes at the hour chosen for it.
-    if (quiet && this.deps.store && !URGENT_EVENTS.has(event.type) && event.type !== "daily_digest" && inQuietHours(quiet, now, this.zone)) {
+    // Quiet hours hold what can wait for one message when they end; a digest or report comes at the hour chosen for it.
+    if (quiet && this.deps.store && !URGENT_EVENTS.has(event.type) && !SCHEDULED_EVENTS.has(event.type) && inQuietHours(quiet, now, this.zone)) {
       const dueAt = quietHoursEnd(quiet, now, this.zone);
       try {
         await Promise.all(keys.map((target) => this.keep({ event, target, attempts: 0, dueAt, held: true })));
@@ -364,8 +373,8 @@ export class Notifications {
     const text = notificationText(event, this.deps.config.notifyLocale);
     const results = await Promise.all(this.targets.map((target) => this.deliver(target, message, text, [event])));
     const accepted = results.some((result) => result.ok);
-    // The digest tries again by itself when no endpoint took it; one that some took is tried again here for the rest.
-    if (event.type !== "daily_digest" || accepted) {
+    // A digest or report tries again by itself when no endpoint took it; one that some took is tried again here for the rest.
+    if (!SCHEDULED_EVENTS.has(event.type) || accepted) {
       await Promise.all(results.map((result, index) => result.ok ? undefined
         : this.keep({ event, target: keys[index]!, attempts: 1, dueAt: now + RETRY_DELAYS_MS[0]! }).catch(() => {})));
     }
