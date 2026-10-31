@@ -34362,10 +34362,10 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
     const pie = pies3.get(id);
     return {
       settings: { id, name: pie.name, icon: pie.icon, ...pie.goal ? { goal: pie.goal } : {}, instrumentShares: pie.shares, dividendCashAction: pie.dividendCashAction, creationDate: pie.createdAt, publicUrl: null },
-      instruments: Object.entries(pie.shares).map(([ticker, share3]) => ({
+      instruments: Object.entries(pie.shares).map(([ticker, share4]) => ({
         ticker,
-        expectedShare: share3,
-        currentShare: round(drift(id, ticker, share3), 4),
+        expectedShare: share4,
+        currentShare: round(drift(id, ticker, share4), 4),
         ownedQuantity: holdings.find((item) => item.ticker === ticker)?.inPies ?? 0,
         issues: []
       }))
@@ -35909,7 +35909,7 @@ var TOOL_OUTPUT = {
   app_list_pies: payload("pies", pies),
   app_prepare_basket: payload("basket_preview", "token:s expiresAt:s snapshotAt:s environment:s purpose:s title:s accountCurrency:s legs:a notes:a"),
   app_prepare_cancel: payload("cancel_preview", "token:s expiresAt:s environment:s orderId:s order:o"),
-  app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a warnings:a"),
+  app_prepare_order: payload("order_preview", "token:s expiresAt:s snapshotAt:s draft:o instrument:o estimatedNotional:n estimatedNotionalCurrency:s estimatedAccountNotional:n accountCurrency:s availableCash:n availableToSell:n notices:a policy:a impact:o warnings:a"),
   app_prepare_pie_change: payload("pie_change_preview", "token:s expiresAt:s environment:s action:s pieId:n request:o current:o changes:a notices:a"),
   app_verify_unknown_execution: payload("execution_verification", "verificationId:s environment:s operation:s status:s message:s"),
   get_automation_overview: payload("automation", automation),
@@ -36206,6 +36206,43 @@ function journalTags(values) {
   return tags.length ? tags : void 0;
 }
 
+// src/shared/order-impact.ts
+var cents2 = (value) => Math.round(value * 100) / 100;
+var share = (value) => Math.round(value * 1e4) / 1e4;
+var walletNumber = (position, key) => {
+  const value = position?.walletImpact?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+};
+function orderImpact(input2) {
+  const currency = input2.account.currency;
+  if (!currency || !(input2.quantity > 0)) return void 0;
+  const sharesBefore = Math.max(0, input2.position?.quantity ?? 0);
+  const sharesAfter = input2.side === "buy" ? sharesBefore + input2.quantity : Math.max(0, sharesBefore - input2.quantity);
+  const notional = input2.accountNotional !== void 0 && Number.isFinite(input2.accountNotional) ? input2.accountNotional : void 0;
+  const converts2 = !knownCurrency(input2.instrumentCurrency) || currencyOfAccount(input2.instrumentCurrency) !== currencyOfAccount(currency);
+  const fxFee = converts2 && notional !== void 0 && input2.fxFeeRate > 0 ? notional * input2.fxFeeRate : void 0;
+  const sameCurrency = input2.instrumentCurrency.toUpperCase() === currency.toUpperCase();
+  const heldValue = !sharesBefore ? 0 : walletNumber(input2.position, "currentValue") ?? (sameCurrency && input2.position?.currentPrice ? sharesBefore * input2.position.currentPrice : void 0);
+  const valueAfter = heldValue === void 0 ? void 0 : input2.side === "buy" ? notional === void 0 ? void 0 : heldValue + notional : sharesBefore ? heldValue * (sharesAfter / sharesBefore) : 0;
+  const total = input2.account.totalValue;
+  const weights = total && total > 0 && heldValue !== void 0 && valueAfter !== void 0 ? { weightBefore: share(heldValue / total), weightAfter: share(valueAfter / (total - (fxFee ?? 0))) } : {};
+  const cashBefore = input2.account.cash?.availableToTrade;
+  const cashAfter = cashBefore === void 0 || notional === void 0 ? void 0 : input2.side === "buy" ? cashBefore - notional - (fxFee ?? 0) : cashBefore + notional - (fxFee ?? 0);
+  const cost = walletNumber(input2.position, "totalCost");
+  const realized = input2.side === "sell" && notional !== void 0 && cost !== void 0 && sharesBefore > 0 ? notional - cost * (Math.min(input2.quantity, sharesBefore) / sharesBefore) : void 0;
+  return {
+    currency,
+    sharesBefore,
+    sharesAfter,
+    ...weights,
+    ...cashBefore === void 0 ? {} : { cashBefore: cents2(cashBefore) },
+    ...cashAfter === void 0 ? {} : { cashAfter: cents2(cashAfter) },
+    ...realized === void 0 ? {} : { realized: cents2(realized) },
+    ...fxFee === void 0 ? {} : { fxFee: cents2(fxFee), fxFeeRate: input2.fxFeeRate },
+    ...input2.ukTaxYear && input2.side === "sell" ? { ukRule: realized !== void 0 && realized < 0 ? "sell_loss" : "sell" } : {}
+  };
+}
+
 // src/core/fx.ts
 function impliedFxRates(positions, accountCurrency) {
   const account = accountCurrency.toUpperCase();
@@ -36259,7 +36296,7 @@ var floorTo = (value, digits) => {
   return Math.floor(value * factor + 1e-9) / factor;
 };
 var money = (value) => Math.round(value * 100) / 100;
-var share = (value) => Math.round(value * 1e4) / 1e4;
+var share2 = (value) => Math.round(value * 1e4) / 1e4;
 var feePercent = (rate) => `${Number((rate * 100).toFixed(3))}%`;
 var points = (value) => `${Number((value * 100).toFixed(2))}`;
 function planRebalance(environment, account, positions, targets, options = {}, instrumentCurrency = () => void 0) {
@@ -36354,7 +36391,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
     if (quantity <= 0 || value < minTradeValue) continue;
     cash += value * (1 - feeOf(line));
     valueAfter.set(line.ticker, line.currentValue - value);
-    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+    trades.push({ ticker: line.ticker, side: "sell", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share2(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
   }
   const reserve = cashWeight * totalValue;
   const shortfalls = active.map((line) => ({ line, gap: line.targetWeight * totalValue - line.currentValue })).filter((item) => item.gap >= minTradeValue);
@@ -36365,7 +36402,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
   if (options.investAmount !== void 0 && options.investAmount > available + 5e-3) note("amount_capped", `Only ${money(available)} ${accountCurrency} is available above the cash reserve, less than the ${money(options.investAmount)} ${accountCurrency} asked for.`, { amount: money(options.investAmount), available: money(available), currency: accountCurrency });
   const scale = wantedCash > 0 ? Math.min(1, budget / wantedCash) : 0;
   const shortOfBuys = budget + 5e-3 < shortfalls.reduce((sum, item) => sum + item.gap, 0);
-  if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share(scale), budget: money(budget), currency: accountCurrency });
+  if (!buyOnly && wantedCash > 0 && scale < 1 && shortOfBuys) note("buys_scaled", `Buys are scaled to ${Math.floor(scale * 100)}% because only ${money(budget)} ${accountCurrency} is available above the cash reserve.`, { scale: share2(scale), budget: money(budget), currency: accountCurrency });
   const buy = (items, by) => {
     for (const { line, gap } of items) {
       const quantity = floorTo(gap * by * line.fx / line.price, decimals);
@@ -36376,7 +36413,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       }
       cash -= value * (1 + feeOf(line));
       valueAfter.set(line.ticker, line.currentValue + value);
-      trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
+      trades.push({ ticker: line.ticker, side: "buy", quantity, price: line.price, currency: line.currency, ...line.priceAt ? { priceAt: line.priceAt } : {}, value: money(value), currentWeight: share2(line.currentValue / totalValue), targetWeight: line.targetWeight, resultingWeight: 0 });
     }
   };
   buy(shortfalls, scale);
@@ -36398,7 +36435,7 @@ function planRebalance(environment, account, positions, targets, options = {}, i
       note("within_band", kept === total ? `Every target is within ${points(band)} points of its weight, so nothing is traded.` : inside ? `Every target is within ${points(band)} points of its weight; ${left}.` : `Only the targets more than ${points(band)} points off their weight are traded; ${left}.`, { count: kept, total, band, ...inside ? { inside: 1 } : {} });
     }
   }
-  for (const trade of trades) trade.resultingWeight = share((valueAfter.get(trade.ticker) ?? 0) / totalValue);
+  for (const trade of trades) trade.resultingWeight = share2((valueAfter.get(trade.ticker) ?? 0) / totalValue);
   if (usedImplied.size) note("implied_rates", `Exchange rates for ${[...usedImplied].sort().join(", ")} come from the broker's valuation of your holdings.`, { currencies: [...usedImplied].sort().join(", ") });
   if (usedQuoted.size) {
     const sources = [...usedQuoted].sort().map((code) => options.quotedFxRates?.[code]).filter((rate) => !!rate);
@@ -37379,6 +37416,19 @@ var TradingService = class {
     const policy2 = this.policyFor(draft, current.instrument, current.position, current.account, current.accountNotional, market, await this.usageToday(draft.environment));
     this.assertPolicy(policy2, draft.ticker);
     const notices = this.orderNotices(draft, current, market);
+    const prices = [draft.referencePrice, current.position?.currentPrice].filter((value) => value !== void 0 && value > 0);
+    const valuedAt = current.estimatedNotional !== void 0 ? current.estimatedNotional / draft.quantity : void 0;
+    const proceeds = draft.side === "sell" && draft.type === "market" && current.accountNotional !== void 0 && valuedAt && prices.length ? current.accountNotional * (Math.min(...prices) / valuedAt) : current.accountNotional;
+    const impact = orderImpact({
+      side: draft.side,
+      quantity: draft.quantity,
+      position: current.position,
+      account: current.account,
+      instrumentCurrency: current.instrument.currencyCode,
+      accountNotional: proceeds,
+      fxFeeRate: this.deps.config.fxFeeRate,
+      ukTaxYear: this.deps.config.taxYearStart === "04-06"
+    });
     const confirmation = await this.issue({ kind: "order", draft, ...riskShown(notices) });
     await this.recordActivity("order_prepared", draft.environment, { ticker: draft.ticker, side: draft.side, orderType: draft.type, quantity: draft.quantity });
     return {
@@ -37395,6 +37445,7 @@ var TradingService = class {
       ...current.position ? { availableToSell: current.position.quantityAvailableForTrading } : {},
       notices,
       policy: policy2,
+      ...impact ? { impact } : {},
       warnings: notices.map((notice) => notice.message)
     };
   }
@@ -38330,14 +38381,14 @@ function stepper(last, frequency, atMonthEnd) {
   };
 }
 function splitCents(total, shares2) {
-  const scale = shares2.reduce((sum, share3) => sum + share3, 0);
+  const scale = shares2.reduce((sum, share4) => sum + share4, 0);
   let running = 0;
   let previous = 0;
-  return shares2.map((share3) => {
-    running += share3;
-    const cents2 = Math.round(running / scale * total * 100);
-    const amount2 = (cents2 - previous) / 100;
-    previous = cents2;
+  return shares2.map((share4) => {
+    running += share4;
+    const cents3 = Math.round(running / scale * total * 100);
+    const amount2 = (cents3 - previous) / 100;
+    previous = cents3;
     return amount2;
   });
 }
@@ -38708,8 +38759,8 @@ function timeWeightedReturn(points3, flows, now = /* @__PURE__ */ new Date()) {
     const from = empty(start.point.totalValue) && deposits.length ? Math.min(...deposits) : start.at;
     const to = empty(end.point.totalValue) && withdrawals.length ? Math.max(...withdrawals) : end.at;
     const length = to - from;
-    const share3 = (at) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
-    const weighted = inside.reduce((sum, flow) => sum + flow.amount * share3(flow.at), 0);
+    const share4 = (at) => length > 0 ? Math.min(1, Math.max(0, (to - at) / length)) : 1;
+    const weighted = inside.reduce((sum, flow) => sum + flow.amount * share4(flow.at), 0);
     const invested = start.point.totalValue + weighted;
     const gain = end.point.totalValue - start.point.totalValue - total;
     netFlows += total;
@@ -40022,7 +40073,7 @@ var DEFAULT_DRIFT_THRESHOLD = 0.05;
 var HOUR_MS = 36e5;
 var DAY_MS5 = 864e5;
 var targetKey = (environment) => `targets:${environment}`;
-var share2 = (value) => Math.round(value * 1e4) / 1e4;
+var share3 = (value) => Math.round(value * 1e4) / 1e4;
 var exact = (value) => Math.round(value * 1e6) / 1e6;
 function allocationDrift(saved, analysis, options = {}) {
   const current = new Map(analysis.holdings.map((holding3) => [holding3.ticker, holding3.weight]));
@@ -40096,12 +40147,12 @@ var TargetAllocations = class {
       if (!(target.weight > 0 && target.weight <= 1)) fail("INVALID_INPUT", "Each target weight must be above 0 and at most 1", { field: "weight", instrument: target.instrument });
       const ticker = resolveInstrumentFromList(instruments, target.instrument).ticker;
       if (targets.some((item) => item.ticker === ticker)) fail("INVALID_INPUT", `${ticker} is named more than once`, { field: "targets", ticker });
-      const weight2 = share2(target.weight);
+      const weight2 = share3(target.weight);
       if (!(weight2 > 0)) fail("INVALID_INPUT", "Each target weight must be at least 0.0001 (0.01%)", { field: "weight", instrument: target.instrument });
       targets.push({ ticker, weight: weight2 });
     }
-    const invested = share2(targets.reduce((sum, target) => sum + target.weight, 0));
-    const cashWeight = share2(input2.cashWeight ?? Math.max(0, 1 - invested));
+    const invested = share3(targets.reduce((sum, target) => sum + target.weight, 0));
+    const cashWeight = share3(input2.cashWeight ?? Math.max(0, 1 - invested));
     if (invested + cashWeight > 1 + 1e-9) fail("INVALID_INPUT", `Targets (${(invested * 100).toFixed(2)}%) and cash (${(cashWeight * 100).toFixed(2)}%) add up to more than 100%`, { field: "targets" });
     const driftThreshold = input2.driftThreshold ?? DEFAULT_DRIFT_THRESHOLD;
     if (!(driftThreshold > 0 && driftThreshold < 1)) fail("INVALID_INPUT", "driftThreshold must be above 0 and below 1", { field: "driftThreshold" });
@@ -40581,16 +40632,16 @@ var num = (value) => typeof value === "number" && Number.isFinite(value) ? value
 function normaliseShares(shares2) {
   const entries = Object.entries(shares2);
   if (!entries.length || entries.length > MAX_PIE_INSTRUMENTS) fail("INVALID_INPUT", `A pie needs 1 to ${MAX_PIE_INSTRUMENTS} instruments`, { field: "instrumentShares" });
-  for (const [ticker, share3] of entries)
-    if (!Number.isFinite(share3) || share3 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
-  const total = entries.reduce((sum, [, share3]) => sum + share3, 0);
-  const scaled = entries.map(([ticker, share3]) => [ticker, round11(share3 / total, SHARE_DIGITS)]);
-  const remainder = round11(1 - scaled.reduce((sum, [, share3]) => sum + share3, 0), SHARE_DIGITS);
+  for (const [ticker, share4] of entries)
+    if (!Number.isFinite(share4) || share4 <= 0) fail("INVALID_INPUT", `The share for ${ticker} must be a positive number`, { field: "instrumentShares" });
+  const total = entries.reduce((sum, [, share4]) => sum + share4, 0);
+  const scaled = entries.map(([ticker, share4]) => [ticker, round11(share4 / total, SHARE_DIGITS)]);
+  const remainder = round11(1 - scaled.reduce((sum, [, share4]) => sum + share4, 0), SHARE_DIGITS);
   const largest = scaled.reduce((best, entry, index) => entry[1] > scaled[best][1] ? index : best, 0);
   const result2 = Object.fromEntries(scaled);
   result2[scaled[largest][0]] = round11(scaled[largest][1] + remainder, SHARE_DIGITS);
-  for (const [ticker, share3] of Object.entries(result2))
-    if (share3 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
+  for (const [ticker, share4] of Object.entries(result2))
+    if (share4 <= 0) fail("INVALID_INPUT", `${ticker} rounds to a 0% share; give it at least 0.01%`, { field: "instrumentShares" });
   return result2;
 }
 function pieOverview(summary, detail, id) {
@@ -40713,9 +40764,9 @@ var PiesService = class {
     const instruments = await this.deps.trading.instruments(draft.environment);
     const sharesInput = draft.instrumentShares ?? Object.fromEntries((current?.instruments ?? []).map((item) => [item.ticker, item.targetShare]));
     const resolved = {};
-    for (const [query, share3] of Object.entries(sharesInput)) {
+    for (const [query, share4] of Object.entries(sharesInput)) {
       const ticker = resolveInstrumentFromList(instruments, query).ticker;
-      resolved[ticker] = (resolved[ticker] ?? 0) + share3;
+      resolved[ticker] = (resolved[ticker] ?? 0) + share4;
     }
     const name = (draft.name ?? current?.settings?.name ?? "").trim();
     if (!name || name.length > 100) fail("INVALID_INPUT", "A pie needs a name of 1 to 100 characters", { field: "name" });
@@ -40990,7 +41041,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.82.0"
+  version: "2.83.0"
 };
 
 // src/shared/holding-risk.ts
@@ -41220,9 +41271,9 @@ function parityOf(covariance, weights, own2) {
     if (moved < PARITY_SETTLED) break;
   }
   const shares2 = x.map((value, i) => value * sigma[i].reduce((sum2, cell, j2) => sum2 + cell * x[j2], 0));
-  if (!shares2.every((share3) => share3 > 0 && Number.isFinite(share3))) return void 0;
-  const total = shares2.reduce((sum2, share3) => sum2 + share3, 0);
-  if (shares2.some((share3) => Math.abs(share3 / total - target) > PARITY_SPREAD)) return void 0;
+  if (!shares2.every((share4) => share4 > 0 && Number.isFinite(share4))) return void 0;
+  const total = shares2.reduce((sum2, share4) => sum2 + share4, 0);
+  if (shares2.some((share4) => Math.abs(share4 / total - target) > PARITY_SPREAD)) return void 0;
   const kept = weights.reduce((sum2, weight2, i) => moving.includes(i) ? sum2 : sum2 + weight2, 0);
   const sum = x.reduce((all, value) => all + value, 0);
   const parity = [...weights];
@@ -41287,7 +41338,7 @@ function equalRiskTargets(analysis) {
   if (!(then > 0)) return void 0;
   const after = (row) => row.parity / then * now;
   const whole = Math.max(analysis.totalValue, analysis.holdings.reduce((sum, holding3) => sum + Math.max(0, holding3.value), 0) + Math.max(0, analysis.cash));
-  const floor = (share3) => Math.floor(share3 * 1e6) / 1e6;
+  const floor = (share4) => Math.floor(share4 * 1e6) / 1e6;
   const targets = moved.map((row) => ({ ticker: row.ticker, weight: floor(after(row) / whole) }));
   const taken = targets.reduce((sum, target) => sum + target.weight, 0);
   const cashWeight = Math.max(0, floor(Math.min((analysis.availableCash ?? 0) / whole, 1 - taken)));
@@ -41600,8 +41651,8 @@ function stopText(position, guard, currency) {
   const outcome = stopOutcome(position, guard);
   const when = `${several ? "if every stop triggers" : "if it triggers"}${limit === void 0 ? "" : " and fills"}`;
   const cost = outcome ? `; ${when}: ${money3(-outcome.drop, currency)} from now${outcome.pnlAtStop === void 0 ? "" : `, P/L ${signed(outcome.pnlAtStop)}`}` : "";
-  const share3 = !guard.unsized ? `${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)})` : `${guard.covered > 0 ? `at least ${num2(guard.covered, 8)}` : "an unknown number"} of ${num2(position.quantity, 8)} (${guard.unsized} stop(s) placed by amount)`;
-  return `${guard.ticker} ${share3} from ${num2(guard.stopPrice, 6)}${range}${limits}${gap}${cost}`;
+  const share4 = !guard.unsized ? `${num2(guard.covered, 8)} of ${num2(position.quantity, 8)} (${pct(guard.coverage, 0)})` : `${guard.covered > 0 ? `at least ${num2(guard.covered, 8)}` : "an unknown number"} of ${num2(position.quantity, 8)} (${guard.unsized} stop(s) placed by amount)`;
+  return `${guard.ticker} ${share4} from ${num2(guard.stopPrice, 6)}${range}${limits}${gap}${cost}`;
 }
 function protectionLines(positions, orders, currency) {
   if (!positions.length) return [];
@@ -42025,9 +42076,24 @@ function orderPreview(data) {
     `Ready to send to ${env(data.draft.environment)}: ${draftLine(data.draft, data.instrument)}${data.estimatedNotional === void 0 ? "" : ` \u2248 ${money3(data.estimatedNotional, data.estimatedNotionalCurrency)}`}${data.estimatedAccountNotional === void 0 ? "" : ` (about ${money3(data.estimatedAccountNotional, data.accountCurrency)})`}.`,
     ...data.draft.thesis ? [`Why (saved to the journal once sent): ${quoted(data.draft.thesis)}.`] : [],
     ...data.availableCash === void 0 ? [] : [`Available cash ${money3(data.availableCash, data.accountCurrency)}.`],
+    ...data.impact ? impactLines(data.impact) : [],
     ...noticesLines(data.notices),
     ...policyLines(data.policy),
     tokenLine(data.token, data.expiresAt, data.draft.environment)
+  ];
+}
+function impactLines(impact) {
+  const parts = [
+    `shares ${num2(impact.sharesBefore, 8)} to ${num2(impact.sharesAfter, 8)}`,
+    ...impact.weightBefore === void 0 || impact.weightAfter === void 0 ? [] : [`${pct(impact.weightBefore)} to ${pct(impact.weightAfter)} of the account`],
+    ...impact.cashAfter === void 0 ? [] : [`cash to trade ${money3(impact.cashBefore)} to ${money3(impact.cashAfter, impact.currency)}`],
+    ...impact.realized === void 0 ? [] : [`realized ${signed(impact.realized)} ${impact.currency} against Trading 212's average price, before the conversion fee`],
+    ...impact.fxFee === void 0 ? [] : [`conversion fee at most ${money3(impact.fxFee, impact.currency)} (${pct(impact.fxFeeRate, 2)})`]
+  ];
+  return [
+    `If it fills, about: ${parts.join("; ")}.`,
+    ...impact.cashAfter !== void 0 && impact.cashAfter < 0 ? ["The cash to trade would fall below zero with the conversion fee: Trading 212 may refuse the order for want of funds."] : [],
+    ...impact.ukRule === "sell_loss" ? ["UK rules, outside an ISA: shares of the same company bought back today or within 30 days are matched with this sale first, at that rebuy's cost instead of the average cost, so most of this loss may not count."] : impact.ukRule === "sell" ? ["UK rules, outside an ISA: shares of the same company bought today or within 30 days after this sale are matched with it first, at their own cost instead of the section 104 pool's average."] : []
   ];
 }
 function basketPreview(data) {
@@ -42121,11 +42187,11 @@ function pieChange(data) {
   if (data.kind === "pie_change_draft") {
     const draft = data.draft;
     const shares2 = Object.entries(draft.instrumentShares ?? {});
-    const total = shares2.reduce((sum, [, share3]) => sum + share3, 0);
+    const total = shares2.reduce((sum, [, share4]) => sum + share4, 0);
     return [
       ...credentialsLine(draft.environment, data.credentials),
       `${draft.action} pie${draft.pieId ? ` #${draft.pieId}` : ""}${draft.name ? ` "${draft.name}"` : ""}${draft.goal ? `, goal ${num2(draft.goal)}` : ""}${draft.dividendCashAction ? `, dividends ${draft.dividendCashAction}` : ""}.`,
-      ...shares2.length && total > 0 ? [`Target slices: ${shares2.map(([ticker, share3]) => `${ticker} ${pct(share3 / total)}`).join(", ")}.`] : [],
+      ...shares2.length && total > 0 ? [`Target slices: ${shares2.map(([ticker, share4]) => `${ticker} ${pct(share4 / total)}`).join(", ")}.`] : [],
       ...data.current ? [`Now: ${pieLine(data.current)}`] : []
     ];
   }
@@ -42447,8 +42513,8 @@ function samplePriceHistory(ticker, input2) {
     const [start, startLog] = anchors[pair - 1];
     const [end, endLog] = anchors[pair];
     for (let index = start; index <= end; index++) {
-      const share3 = (index - start) / (end - start);
-      log2[index] = startLog + share3 * (endLog - startLog) + (walk[index] - walk[start]) - share3 * (walk[end] - walk[start]);
+      const share4 = (index - start) / (end - start);
+      log2[index] = startLog + share4 * (endLog - startLog) + (walk[index] - walk[start]) - share4 * (walk[end] - walk[start]);
     }
   }
   const digits = input2.last >= 1e3 ? 1 : input2.last >= 10 ? 2 : 4;
