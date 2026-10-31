@@ -207,6 +207,9 @@ async function seedSample(): Promise<void> {
   }
   // Day's-move alerts set last week, and one alert check, so the alerts show their last prices and the day's move.
   const lastWeek = new Date(Date.now() - 7 * 86_400_000);
+  // The goal as if set four months ago, so its pace against the plan shows.
+  const goal = await services.goals.get("demo");
+  if (goal) await store.put("goal:demo", { ...goal, start: { value: 15_000, at: new Date(Date.now() - 122 * 86_400_000).toISOString() } });
   // The weekly plan's last runs, written onto the saved plan: two confirmed and sent, then one skipped. Nothing is sent.
   const weekly = (await services.automation.listPlans("demo")).find((plan) => plan.label === "Weekly NVIDIA");
   if (weekly) {

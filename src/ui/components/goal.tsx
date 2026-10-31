@@ -3,15 +3,15 @@
 // across it. The form redraws the range as it is typed; saving keeps the goal in TradePilot.
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, MAX_GOAL_YEARS, projectGoal, type GoalInputs, type GoalProjection, type InvestmentGoal } from "../../shared/goal";
+import { DEFAULT_GOAL_INFLATION, DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, MAX_GOAL_YEARS, projectGoal, type GoalInputs, type GoalProjection, type InvestmentGoal } from "../../shared/goal";
 import type { SupportedLocale } from "../i18n";
-import { dayLabel, money, num, parseAmount, pct } from "../lib/format";
+import { dayLabel, money, num, parseAmount, pct, signedClass } from "../lib/format";
 import { fill, type Translator } from "../lib/messages";
 import { axisMoney, niceTicks, ViewSwitch } from "./charts";
 import { Field, Metric } from "./common";
 import { Select } from "./select";
 
-export interface GoalRequest { target: number; by: string; monthly: number; expectedReturn: number; volatility: number; name?: string }
+export interface GoalRequest { target: number; by: string; monthly: number; expectedReturn: number; volatility: number; inflation: number; name?: string }
 
 const HEIGHT = 200;
 const PAD = { top: 14, right: 14, bottom: 26, left: 64 };
@@ -31,6 +31,7 @@ export function defaultGoal(value: number | undefined, now = new Date()): GoalIn
     monthly: 200,
     expectedReturn: DEFAULT_GOAL_RETURN,
     volatility: DEFAULT_GOAL_VOLATILITY,
+    inflation: DEFAULT_GOAL_INFLATION,
   };
 }
 
@@ -155,12 +156,14 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
   const [monthlyText, setMonthlyText] = useState(String(start.monthly));
   const [returnText, setReturnText] = useState(percentText(start.expectedReturn, locale));
   const [volatilityText, setVolatilityText] = useState(percentText(start.volatility, locale));
+  const [inflationText, setInflationText] = useState(percentText(start.inflation ?? 0, locale));
   const [name, setName] = useState(goal?.name ?? "");
   const [touched, setTouched] = useState(false);
   const target = parseAmount(targetText);
   const monthly = monthlyText.trim() ? parseAmount(monthlyText) : 0;
   const expectedReturn = parseAmount(returnText) / 100;
   const volatility = parseAmount(volatilityText) / 100;
+  const inflation = inflationText.trim() ? parseAmount(inflationText) / 100 : 0;
   const by = monthEnd(Number(year), Number(month));
   const errors = {
     target: !(target > 0) ? t("goalTargetRequired") : undefined,
@@ -168,11 +171,12 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
     monthly: !(monthly >= 0) ? t("goalMonthlyRange") : undefined,
     expectedReturn: !(expectedReturn >= -0.5 && expectedReturn <= 0.3) ? fill(t("goalPercentRange"), { low: "-50", high: "30" }) : undefined,
     volatility: !(volatility >= 0 && volatility <= 1) ? fill(t("goalPercentRange"), { low: "0", high: "100" }) : undefined,
+    inflation: !(inflation >= 0 && inflation <= 0.2) ? fill(t("goalPercentRange"), { low: "0", high: "20" }) : undefined,
   };
   const valid = Object.values(errors).every((error) => !error);
   useEffect(() => {
-    onDraft(valid ? { target, by, monthly, expectedReturn, volatility } : undefined);
-  }, [valid, target, by, monthly, expectedReturn, volatility]);
+    onDraft(valid ? { target, by, monthly, expectedReturn, volatility, inflation } : undefined);
+  }, [valid, target, by, monthly, expectedReturn, volatility, inflation]);
   const years = Array.from({ length: MAX_GOAL_YEARS + 1 }, (_, index) => String(now.getUTCFullYear() + index));
   const months = Array.from({ length: 12 }, (_, index) => ({ value: String(index + 1), label: new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2000, index, 1))) }));
   const show = (error: string | undefined) => (touched ? error : undefined);
@@ -180,7 +184,7 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
     setTouched(true);
     if (!valid || busy) return;
     // An empty name is sent too: it clears the one saved.
-    onSave({ target, by, monthly, expectedReturn, volatility, name: name.trim() });
+    onSave({ target, by, monthly, expectedReturn, volatility, inflation, name: name.trim() });
   };
   return (
     <form className="alertForm goalForm" noValidate onSubmit={(event) => { event.preventDefault(); submit(); }}>
@@ -204,6 +208,9 @@ function GoalForm({ goal, value, currency, locale, t, busy, onSave, onCancel, on
         </Field>
         <Field label={t("goalVolatility")} unit="%" hint={t("goalVolatilityHint")} error={show(errors.volatility)}>
           {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={volatilityText} onChange={(event) => setVolatilityText(event.target.value)} />}
+        </Field>
+        <Field label={t("goalInflation")} unit="%" hint={t("goalInflationHint")} error={show(errors.inflation)}>
+          {(props) => <input {...props} inputMode="decimal" autoComplete="off" value={inflationText} onChange={(event) => setInflationText(event.target.value)} />}
         </Field>
         <Field label={t("goalName")}>
           {(props) => <input {...props} maxLength={80} autoComplete="off" value={name} placeholder={t("goalNamePlaceholder")} onChange={(event) => setName(event.target.value)} />}
@@ -287,6 +294,12 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
             <div className="goalBar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t("goalProgress")}>
               <i style={{ width: `${(share * 100).toFixed(1)}%` }} />
             </div>
+            {projection.pace && !projection.reached && (
+              <p className="goalPace">
+                <strong className={signedClass(projection.pace.difference)}>{fill(t(projection.pace.difference >= 0 ? "goalPaceAhead" : "goalPaceBehind"), { amount: m(Math.abs(projection.pace.difference)) })}</strong>
+                {fill(t("goalPaceSince"), { expected: m(projection.pace.expected), date: dayLabel(projection.pace.since.slice(0, 10), locale) })}
+              </p>
+            )}
           </div>
           <div className="metricGrid">
             <Metric label={t("goalChance")} value={projection.reached ? t("goalReached") : pct(projection.chance, locale, 0)} />
@@ -295,7 +308,7 @@ export function GoalPanel({ goal, value, currency, locale, t, busy, onSave, onRe
             <Metric label={t("goalNeeded")} value={projection.reached ? "—" : m(projection.neededMonthly)} />
           </div>
           {projection.months > 0 && <GoalChart projection={projection} target={shown.target} currency={currency} locale={locale} t={t} />}
-          <p className="panelNote">{fill(t("goalAssumptions"), { monthly: m(shown.monthly), rate: pct(shown.expectedReturn, locale, 1), volatility: pct(shown.volatility, locale, 1) })}</p>
+          <p className="panelNote">{fill(t(shown.inflation ? "goalAssumptionsReal" : "goalAssumptions"), { monthly: m(shown.monthly), rate: pct(shown.expectedReturn, locale, 1), volatility: pct(shown.volatility, locale, 1), inflation: pct(shown.inflation ?? 0, locale, 1) })}</p>
         </>
       )}
     </section>

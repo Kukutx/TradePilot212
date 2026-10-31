@@ -75,15 +75,17 @@ The Performance tab's **Monthly returns** grid, and `timeWeighted.months` and `t
 
 ## Investment goal
 
-The Performance tab's **Investment goal** panel, and `manage_goal`, measure the account against an amount to reach by a date. **Set a goal** opens a form with the target, the month to reach it by (the goal is dated the month's last day, up to 50 years away), what is added each month, the yearly return assumed (6% by default, from -50% to 30%) and the yearly volatility assumed (15% by default, up to 100%). The range redraws as the form is typed, and saving keeps one goal per account in TradePilot's store.
+The Performance tab's **Investment goal** panel, and `manage_goal`, measure the account against an amount to reach by a date. **Set a goal** opens a form with the target, the month to reach it by (the goal is dated the month's last day, up to 50 years away), what is added each month, the yearly return assumed (6% by default, from -50% to 30%), the yearly volatility assumed (15% by default, up to 100%) and the yearly inflation assumed (2% by default for a new goal, up to 20%; a goal saved before 2.94 assumes none). The range redraws as the form is typed, and saving keeps one goal per account in TradePilot's store.
 
 - **Progress** is the account value now against the target.
+- With inflation above 0, everything is in today's money: the target, what is added each month (which then rises with prices), and the projection, which grows at the return after inflation, (1 + return) / (1 + inflation) − 1.
+- **Pace**: saving a goal keeps the account value then as its start, until the target changes. Once a whole month has passed, the panel says how far the value now is ahead of or behind the middle line from that start, adding the monthly amount (`projection.pace` in `manage_goal`). With inflation assumed, the middle line is put in today's money, so an account that grew at the return assumed is on pace. Falling behind can mean less was added than planned, not only a weaker market.
 - The range is not a forecast. Growth is taken as lognormal: the median yearly log growth is ln(1 + return) less half the variance, and the **low** and **high** lines are its 10th and 90th percentiles over each horizon (the volatility over √years either side), so 8 in 10 outcomes fall between them: the spread of the yearly growth narrows as the horizon lengthens, while the spread of the money it makes widens. Each month's addition grows at the same rate from the end of its month. The chart has one point a month, or a quarter beyond ten years, with what is added and no growth as a dashed line and the target across it.
 - The **chance of reaching it** is the probability, under the same assumptions, that the yearly growth over the whole horizon is at or above the one that just reaches the target. A goal the account has already reached counts as reached.
 - **Monthly for the middle line** is what would have to be added each month for the middle line to reach the target by the date.
 - The dashboard shows the goal under the account value: its name, the share of the target and a short bar, which opens the goal on the Performance tab.
 - The scheduler says when the value first reaches 25%, 50%, 75% and 100% of the target ([AUTOMATION.md](./AUTOMATION.md#goal-milestones)), and the weekly and monthly reports say how far along it is.
-- Costs, taxes, inflation and changes in what is added are left out. The same sums run in the widget and on the server (`src/shared/goal.ts`), and `get_portfolio_performance` returns the saved goal as `goal`.
+- Costs, taxes and changes in what is added are left out, and inflation when it is set to 0. The same sums run in the widget and on the server (`src/shared/goal.ts`), and `get_portfolio_performance` returns the saved goal as `goal`.
 
 ## Risk
 

@@ -34,7 +34,7 @@ import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
 import { LISTING_WATCH_DAYS, MAX_LISTING_DAYS, MAX_LISTINGS, MAX_WATCH_FILTERS, type NewListingsView } from "../shared/listings.js";
 import { newListings } from "./new-listings.js";
-import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, projectGoal, type GoalView } from "../shared/goal.js";
+import { DEFAULT_GOAL_INFLATION, DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, projectGoal, type GoalView } from "../shared/goal.js";
 import { toolCallWatch, watchingReads } from "./request-context.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
@@ -1216,7 +1216,7 @@ export function createMcpServer(
     "manage_goal",
     {
       title: "Investment Goal",
-      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. It is a range from assumptions, not a forecast: it leaves out costs, taxes and inflation. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
+      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. With inflation assumed (default ${DEFAULT_GOAL_INFLATION} for a new goal), the target, monthly and projection are in today's money. Once a month has passed since the goal was set (or its target changed), projection.pace says how far the value now is ahead of or behind the middle line from the value then. It is a range from assumptions, not a forecast: it leaves out costs and taxes. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
       inputSchema: z.object({
         action: z.enum(["get", "set", "remove"]).default("get"),
         environment: environmentWithDefault,
@@ -1225,6 +1225,7 @@ export function createMcpServer(
         monthly: z.number().min(0).optional(),
         expectedReturn: z.number().min(-0.5).max(0.3).optional().describe("A fraction: 0.06 is 6% a year"),
         volatility: z.number().min(0).max(1).optional().describe("A fraction: 0.15 is 15% a year"),
+        inflation: z.number().min(0).max(0.2).optional().describe(`A fraction: 0.02 is 2% a year. Above 0, the target and monthly are in today's money. Default ${DEFAULT_GOAL_INFLATION} for a new goal`),
         name: z.string().max(80).optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -1250,8 +1251,10 @@ export function createMcpServer(
             ...(input.monthly === undefined ? {} : { monthly: input.monthly }),
             ...(input.expectedReturn === undefined ? {} : { expectedReturn: input.expectedReturn }),
             ...(input.volatility === undefined ? {} : { volatility: input.volatility }),
+            ...(input.inflation === undefined ? {} : { inflation: input.inflation }),
             ...(input.name === undefined ? {} : { name: input.name }),
             ...(account?.currency ? { currency: account.currency } : {}),
+            ...(account?.totalValue === undefined ? {} : { value: account.totalValue }),
           });
         }
         const value = account?.totalValue;
