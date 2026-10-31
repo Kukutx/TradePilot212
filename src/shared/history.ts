@@ -104,7 +104,39 @@ export interface ExportSummary {
   dividends: ExportTotals;
   /** Realised result of sales, from the Result column. */
   result: ExportTotals;
+  /**
+   * Tax withheld from dividends, by the country of each instrument's ISIN and the currency it was paid in: the gross,
+   * what was withheld, and the rate (from 2.88). Returns of capital are left out. Absent when the file has no
+   * withholding column.
+   */
+  withholding?: WithholdingByCountry[];
+  /**
+   * What the report's per-share figure on a dividend row was read as: after withholding ("net", so the gross is it
+   * plus the tax), before it ("gross"), both as the file's Totals showed; or "assumed" net, as the file could not tell.
+   */
+  withholdingBasis?: "net" | "gross" | "assumed";
+  /** Dividend rows left out of `withholding`: a figure missing, or the tax in another currency than the payment. */
+  withholdingUnread?: number;
   columns: string[];
+}
+
+export interface WithholdingByCountry {
+  /** The ISIN's two-letter country (US, GB, DE …), or "?" for rows without an ISIN. */
+  country: string;
+  currency: string;
+  payments: number;
+  gross: number;
+  withheld: number;
+  /** withheld / gross. */
+  rate: number;
+  /** The tickers paid, as the file names them. */
+  tickers: string[];
+  /**
+   * US instruments whose dividends were withheld at 25% or more: 30% is the rate without a W-8BEN, where a treaty usually
+   * gives 15%. An ADR of a foreign company has a US ISIN and is withheld at its home country's rate, so it can be one.
+   */
+  high?: boolean;
+  highTickers?: string[];
 }
 
 export interface ExportReport {

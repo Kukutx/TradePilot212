@@ -34309,7 +34309,7 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]]) {
     for (let quarter = 0; quarter < 4; quarter++) {
       const paidOn = daysAgo(firstDay + quarter * 91);
-      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * 0.85), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
+      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
     }
   }
   dividends.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
@@ -34499,11 +34499,13 @@ function createSampleBroker(passthrough = (input2, init) => globalThis.fetch(inp
       const order = item.order, fill2 = item.fill, impact = fill2.walletImpact;
       const ticker = String(order.ticker), currency = instrumentOf(ticker)?.currencyCode ?? "EUR", quantity = Number(fill2.quantity);
       const fee = currency === "EUR" ? "" : round(Number(impact.netValue) * 15e-4);
-      rows2.push([String(fill2.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time3(String(fill2.filledAt)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill2.id}`, Math.abs(quantity), fill2.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
+      rows2.push([String(fill2.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time3(String(fill2.filledAt)), instrumentOf(ticker)?.isin ?? "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill2.id}`, Math.abs(quantity), fill2.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
     }
     for (const item of dividends) {
-      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity);
-      rows2.push([String(item.paidOn), ["Dividend (Ordinary)", time3(String(item.paidOn)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", round(gross * 0.15), item.tickerCurrency, "", ""].join(",")]);
+      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity), isin = instrumentOf(ticker)?.isin ?? "";
+      const withheld = isin.startsWith("IE") ? 0 : round(gross * 0.15);
+      const net = gross - withheld, rate = round(Number(item.amount) / (net / (item.tickerCurrency === "GBX" ? 100 : 1)), 4);
+      rows2.push([String(item.paidOn), ["Dividend (Ordinary)", time3(String(item.paidOn)), isin, ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, round(net / Number(item.quantity)), item.tickerCurrency, rate, "", "", item.amount, "EUR", withheld || "", withheld ? item.tickerCurrency : "", "", ""].join(",")]);
     }
     for (const item of transactions) {
       const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST_ON_FREE_CASH" ? "Interest on cash" : String(item.type);
@@ -39598,6 +39600,17 @@ function summarizeExport(text) {
   const result2 = money4("Result");
   const action = at("Action");
   const time3 = at("Time");
+  const withheldColumn = money4("Withholding tax");
+  const priceColumn = money4("Price / share");
+  const shares2 = at("No. of shares");
+  const isin = at("ISIN");
+  const tickerColumn = at("Ticker");
+  const exchangeRate = at("Exchange rate");
+  const paidRows = [];
+  const quoted2 = { times: 0, over: 0 };
+  let unreadable = 0;
+  const cell = (row, index) => index >= 0 ? (row[index] ?? "").trim() : "";
+  const currencyOf = (column, row) => column.code ?? (column.currency !== void 0 ? cell(row, column.currency) : "");
   const add = (totals, column, row) => {
     if (!column) return;
     const value = Number((row[column.index] ?? "").replace(/[\s"]/g, ""));
@@ -39616,7 +39629,11 @@ function summarizeExport(text) {
     add(entry.totals, total, row);
     actions.set(name, entry);
     if (/interest/i.test(name)) add(summary.interest, total, row);
-    if (/^dividend/i.test(name)) add(summary.dividends, total, row);
+    if (/^dividend/i.test(name)) {
+      add(summary.dividends, total, row);
+      if (withheldColumn && priceColumn && !/return of capital|interest/i.test(name)) readPaid(row);
+    }
+    if (/buy|sell/i.test(name)) readQuote(row);
     add(summary.result, result2, row);
     charges.forEach((column, index) => add(chargeTotals[index].totals, column, row));
     const when = time3 >= 0 ? row[time3]?.trim() : void 0;
@@ -39625,12 +39642,92 @@ function summarizeExport(text) {
       if (!summary.last || when > summary.last) summary.last = when;
     }
   }
+  if (withheldColumn) {
+    const way = quoted2.times + quoted2.over === 0 ? void 0 : quoted2.times <= quoted2.over ? 0 : 1;
+    Object.assign(summary, withholdingOf(paidRows, unreadable, way));
+  }
   summary.actions = [...actions.values()].sort((a, b) => b.count - a.count || a.action.localeCompare(b.action));
   summary.charges = chargeTotals.filter((charge) => Object.keys(charge.totals).length);
+  function readQuote(row) {
+    const quantity = Number(cell(row, shares2)), perShare = Number(cell(row, priceColumn?.index ?? -1)), rate = Number(cell(row, exchangeRate));
+    const value = total ? Number(cell(row, total.index)) : NaN;
+    const priceCode = priceColumn ? currencyOf(priceColumn, row) : "", totalCode = total ? currencyOf(total, row) : "";
+    if (!(quantity > 0) || !(perShare > 0) || !(rate > 0) || !(value > 0) || !priceCode || !totalCode || pounds(priceCode) === pounds(totalCode) || Math.abs(rate - 1) < 0.02) return;
+    const worths = pence(priceCode) ? [quantity * perShare / 100, quantity * perShare] : [quantity * perShare];
+    const inTotal = value / (pence(totalCode) ? 100 : 1);
+    const off = (of) => Math.min(...worths.map((worth) => Math.abs(of(worth) - inTotal) / inTotal));
+    quoted2.times += Math.min(1, off((worth) => worth * rate));
+    quoted2.over += Math.min(1, off((worth) => worth / rate));
+  }
+  function readPaid(row) {
+    const quantity = Number(cell(row, shares2)), perShare = Number(cell(row, priceColumn.index));
+    const withheldText = cell(row, withheldColumn.index);
+    const withheld = withheldText ? Number(withheldText) : 0;
+    const priceCode = currencyOf(priceColumn, row), withheldCode = withheldText ? currencyOf(withheldColumn, row) : priceCode;
+    if (!(quantity > 0) || !(perShare > 0) || !Number.isFinite(withheld) || !priceCode || !withheldCode || pounds(priceCode) !== pounds(withheldCode)) {
+      unreadable += 1;
+      return;
+    }
+    const ticker = cell(row, tickerColumn);
+    const totalValue = total ? Number(cell(row, total.index)) : NaN, totalCode = total ? currencyOf(total, row) : "";
+    const rate = Number(cell(row, exchangeRate));
+    paidRows.push({
+      country: /^[A-Z]{2}/i.test(cell(row, isin)) ? cell(row, isin).slice(0, 2).toUpperCase() : "?",
+      currency: pounds(priceCode),
+      ...ticker ? { ticker } : {},
+      paid: quantity * perShare / (pence(priceCode) ? 100 : 1),
+      withheld: withheld / (pence(withheldCode) ? 100 : 1),
+      // The net in the paying currency, both ways the exchange rate could be quoted (paying currency = Total ÷ rate, or ×);
+      // for a payment in pence, the rate may be per pence, so each way also has its result counted as pence.
+      ...Number.isFinite(totalValue) && totalValue > 0 && totalCode ? pounds(totalCode) === pounds(priceCode) ? { nets: [[totalValue / (pence(totalCode) ? 100 : 1)]] } : rate > 0 ? { nets: [totalValue / rate, totalValue * rate].map((net) => pence(priceCode) ? [net, net / 100] : [net]) } : {} : {}
+    });
+  }
   const records = body.map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index] ?? ""]).filter(([, value]) => value !== "")));
   return { summary, records };
 }
 var round10 = (value) => Math.round(value * 1e8) / 1e8;
+var pence = (code) => /^GBX$/i.test(code) || code === "GBp";
+var pounds = (code) => pence(code) ? "GBP" : code.toUpperCase();
+function withholdingOf(rows2, unreadable, way) {
+  const signs = rows2.filter((row) => row.withheld !== 0);
+  const sign = signs.filter((row) => row.withheld < 0).length > signs.length / 2 ? -1 : 1;
+  for (const row of rows2) row.withheld *= sign;
+  const priced = rows2.filter((row) => row.nets && row.withheld > 0);
+  const paid = priced.reduce((sum, row) => sum + row.paid, 0);
+  const misfit = (gross, way2) => priced.reduce((sum, row) => {
+    const nets = row.nets[Math.min(way2, row.nets.length - 1)];
+    return sum + Math.min(...nets.map((net) => Math.abs(row.paid - (gross ? net + row.withheld : net))));
+  }, 0) / paid;
+  const fits = (gross) => way === void 0 ? Math.min(misfit(gross, 0), misfit(gross, 1)) : misfit(gross, way);
+  let basis = "assumed";
+  if (priced.length && paid > 0) {
+    const asNet = fits(false), asGross = fits(true);
+    if (asNet < 0.05 && asGross - asNet >= 0.03) basis = "net";
+    else if (asGross < 0.05 && asNet - asGross >= 0.03) basis = "gross";
+  }
+  const grossOf = (row) => basis === "gross" ? row.paid : row.paid + row.withheld;
+  const groups = /* @__PURE__ */ new Map();
+  for (const row of rows2) {
+    const key = `${row.country}:${row.currency}`;
+    const group = groups.get(key) ?? { country: row.country, currency: row.currency, payments: 0, gross: 0, withheld: 0, rate: 0, tickers: [], byTicker: /* @__PURE__ */ new Map() };
+    group.payments += 1;
+    group.gross += grossOf(row);
+    group.withheld += row.withheld;
+    const name = row.ticker ?? "?";
+    if (row.ticker && !group.tickers.includes(row.ticker)) group.tickers.push(row.ticker);
+    const one = group.byTicker.get(name) ?? { gross: 0, withheld: 0 };
+    one.gross += grossOf(row);
+    one.withheld += row.withheld;
+    group.byTicker.set(name, one);
+    groups.set(key, group);
+  }
+  const shown = (withheld, gross) => gross > 0 ? Math.round(withheld / gross * 1e3) / 1e3 : 0;
+  const withholding = [...groups.values()].map(({ byTicker, ...group }) => {
+    const highTickers = group.country === "US" ? [...byTicker].filter(([name, one]) => name !== "?" && shown(one.withheld, one.gross) >= 0.25).map(([name]) => name) : [];
+    return { ...group, gross: round10(group.gross), withheld: round10(group.withheld), rate: round10(shown(group.withheld, group.gross)), ...highTickers.length ? { high: true, highTickers } : {} };
+  }).sort((a, b) => b.withheld - a.withheld || a.country.localeCompare(b.country));
+  return { withholding, withholdingBasis: basis, ...unreadable ? { withholdingUnread: unreadable } : {} };
+}
 var escape2 = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 // src/core/insights-service.ts
@@ -41305,7 +41402,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.87.0",
+  version: "2.88.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -42519,10 +42616,18 @@ function exportSummary(summary) {
     ...summary.charges.map((charge) => `${charge.name}: ${money4(charge.totals)}`),
     ...some(summary.interest) ? [`Interest: ${money4(summary.interest)}`] : [],
     ...some(summary.dividends) ? [`Dividends (net of withholding): ${money4(summary.dividends)}`] : [],
-    ...some(summary.result) ? [`Realised result: ${money4(summary.result)}`] : []
+    ...some(summary.result) ? [`Realised result: ${money4(summary.result)}`] : [],
+    ...summary.withholding?.length ? [`Withheld from dividends: ${summary.withholding.map((entry) => `${entry.country} ${round22(entry.rate * 100)}% (${round22(entry.withheld)} of ${round22(entry.gross)} ${entry.currency} gross, ${entry.payments} payment${entry.payments === 1 ? "" : "s"})`).join("; ")}. ${WITHHOLDING_BASIS[summary.withholdingBasis ?? "assumed"]} Returns of capital are left out.`] : [],
+    ...summary.withholdingUnread ? [`${summary.withholdingUnread} dividend row${summary.withholdingUnread === 1 ? " was" : "s were"} left out of the withholding: a figure missing, or the tax in another currency than the payment.`] : [],
+    ...summary.withholding?.some((entry) => entry.high) ? [`US instruments withheld at 25% or more: ${summary.withholding.flatMap((entry) => entry.highTickers ?? []).join(", ")}. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%, so check the form's status in the Trading 212 app. An ADR of a foreign company has a US ISIN but is withheld at its home country's rate. This is not tax advice.`] : []
   ];
 }
 var round22 = (value) => Math.round(value * 100) / 100;
+var WITHHOLDING_BASIS = {
+  net: "The report's per-share figures are after withholding (its Totals show it), so the gross is them plus the tax.",
+  gross: "The report's per-share figures are before withholding (its Totals show it).",
+  assumed: "The report's per-share figures are taken as after withholding, as Trading 212's reports have been seen to give them; the file could not confirm it."
+};
 function describePayload(data) {
   if (!data || typeof data !== "object") return "";
   const payload2 = data;

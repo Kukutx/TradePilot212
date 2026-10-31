@@ -137,7 +137,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]] as const) {
     for (let quarter = 0; quarter < 4; quarter++) {
       const paidOn = daysAgo(firstDay + quarter * 91);
-      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * 0.85), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
+      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
     }
   }
   dividends.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
@@ -334,11 +334,16 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const order = item.order as Json, fill = item.fill as Json, impact = fill.walletImpact as Json;
       const ticker = String(order.ticker), currency = instrumentOf(ticker)?.currencyCode ?? "EUR", quantity = Number(fill.quantity);
       const fee = currency === "EUR" ? "" : round(Number(impact.netValue) * 0.0015);
-      rows.push([String(fill.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time(String(fill.filledAt)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill.id}`, Math.abs(quantity), fill.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
+      rows.push([String(fill.filledAt), [quantity < 0 ? "Market sell" : "Market buy", time(String(fill.filledAt)), instrumentOf(ticker)?.isin ?? "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), `EOF${fill.id}`, Math.abs(quantity), fill.price, currency, impact.fxRate, quantity < 0 ? impact.realisedProfitLoss : "", quantity < 0 ? "EUR" : "", impact.netValue, "EUR", "", "", fee, fee === "" ? "" : "EUR"].join(",")]);
     }
     for (const item of dividends) {
-      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity);
-      rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), "", ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, item.grossAmountPerShare, item.tickerCurrency, "", "", "", item.amount, "EUR", round(gross * 0.15), item.tickerCurrency, "", ""].join(",")]);
+      const ticker = String(item.ticker), gross = Number(item.grossAmountPerShare) * Number(item.quantity), isin = instrumentOf(ticker)?.isin ?? "";
+      // Irish-domiciled funds pay without withholding; US shares at the 15% a treaty usually gives. As Trading 212's
+      // reports have been seen to, the per-share figure is after withholding, to 2 decimals.
+      const withheld = isin.startsWith("IE") ? 0 : round(gross * 0.15);
+      // The exchange rate quoted as the orders above quote it: account currency per unit of the paying one.
+      const net = gross - withheld, rate = round(Number(item.amount) / (net / (item.tickerCurrency === "GBX" ? 100 : 1)), 4);
+      rows.push([String(item.paidOn), ["Dividend (Ordinary)", time(String(item.paidOn)), isin, ticker.split("_")[0], quote(instrumentOf(ticker)?.name), "", item.quantity, round(net / Number(item.quantity)), item.tickerCurrency, rate, "", "", item.amount, "EUR", withheld || "", withheld ? item.tickerCurrency : "", "", ""].join(",")]);
     }
     for (const item of transactions) {
       const action = item.type === "DEPOSIT" ? "Deposit" : item.type === "WITHDRAW" ? "Withdrawal" : item.type === "INTEREST_ON_FREE_CASH" ? "Interest on cash" : String(item.type);

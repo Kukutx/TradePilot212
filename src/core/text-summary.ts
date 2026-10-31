@@ -966,10 +966,19 @@ function exportSummary(summary: ExportSummary): string[] {
     ...(some(summary.interest) ? [`Interest: ${money(summary.interest)}`] : []),
     ...(some(summary.dividends) ? [`Dividends (net of withholding): ${money(summary.dividends)}`] : []),
     ...(some(summary.result) ? [`Realised result: ${money(summary.result)}`] : []),
+    ...(summary.withholding?.length ? [`Withheld from dividends: ${summary.withholding.map((entry) => `${entry.country} ${round2(entry.rate * 100)}% (${round2(entry.withheld)} of ${round2(entry.gross)} ${entry.currency} gross, ${entry.payments} payment${entry.payments === 1 ? "" : "s"})`).join("; ")}. ${WITHHOLDING_BASIS[summary.withholdingBasis ?? "assumed"]} Returns of capital are left out.`] : []),
+    ...(summary.withholdingUnread ? [`${summary.withholdingUnread} dividend row${summary.withholdingUnread === 1 ? " was" : "s were"} left out of the withholding: a figure missing, or the tax in another currency than the payment.`] : []),
+    ...(summary.withholding?.some((entry) => entry.high) ? [`US instruments withheld at 25% or more: ${summary.withholding.flatMap((entry) => entry.highTickers ?? []).join(", ")}. 30% is the rate without a W-8BEN form on file; with one, residents of most treaty countries pay 15%, so check the form's status in the Trading 212 app. An ADR of a foreign company has a US ISIN but is withheld at its home country's rate. This is not tax advice.`] : []),
   ];
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
+
+const WITHHOLDING_BASIS: Record<NonNullable<ExportSummary["withholdingBasis"]>, string> = {
+  net: "The report's per-share figures are after withholding (its Totals show it), so the gross is them plus the tax.",
+  gross: "The report's per-share figures are before withholding (its Totals show it).",
+  assumed: "The report's per-share figures are taken as after withholding, as Trading 212's reports have been seen to give them; the file could not confirm it.",
+};
 
 /** Extra lines for a tool payload, or nothing when the summary already says it all. */
 export function describePayload(data: unknown): string {
