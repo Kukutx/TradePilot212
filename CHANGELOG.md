@@ -3,6 +3,7 @@
 ## 2.96.0
 
 - Resource subscriptions: a client can subscribe to `tradepilot://<demo|live>/holdings`, `journal`, `targets`, `watchlist` and `goal`, and is sent `notifications/resources/updated` when one changes. The saved ones are watched where they are written, so a change from the widget, a tool or the scheduler (a goal milestone included) is heard. The holdings are said to change after TradePilot sends something to Trading 212 and each time the scheduler reads the account value.
+- Before saying the holdings changed, the scheduler drops the last dashboard read, so a subscriber that reads them again gets them fresh.
 - It works over stdio, where the connection stays open. The HTTP server answers each request on its own, and a change made by another process on the same data directory is not heard.
 
 ## 2.95.0

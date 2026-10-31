@@ -145,7 +145,8 @@ export function createServices(input: ServiceDependencies) {
     const settled = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
     const recorded = await stage("value history", () => values.snapshot());
     // Each value recorded is a fresh read of the account: its holdings may have changed outside TradePilot.
-    for (const { environment } of recorded) changes.emit(environment, "holdings");
+    // The dashboard read before it is dropped first, so a subscriber that reads the holdings again gets them fresh.
+    for (const { environment } of recorded) { trading.forgetDashboard(environment); changes.emit(environment, "holdings"); }
     return {
       ...settled,
       values: recorded,

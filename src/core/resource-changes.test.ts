@@ -50,9 +50,14 @@ describe("resource subscriptions", () => {
     await settle();
     expect(updated).toContain("tradepilot://demo/holdings");
     updated.length = 0;
+    // A holdings read just before the scheduler's is not served again after it says they changed.
+    const before = await client.readResource({ uri: "tradepilot://demo/holdings" });
     await services.runScheduled();
     await settle();
     expect(updated).toContain("tradepilot://demo/holdings");
+    expect(before.contents).toHaveLength(1);
+    const kept = services.trading["dashboards" as keyof typeof services.trading] as unknown as Map<string, unknown>;
+    expect(kept.has("demo")).toBe(false);
   });
 
   it("ignores a subscription to an address the server does not list, and stops when the connection closes", async () => {

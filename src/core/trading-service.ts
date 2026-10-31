@@ -1797,6 +1797,16 @@ export class TradingService {
     }
   }
 
+  /**
+   * Drop the last dashboard read, and keep none that was under way: the account was read again and may have changed
+   * outside TradePilot, so a read that follows takes it fresh (resource-changes.ts says the holdings changed).
+   */
+  forgetDashboard(environment: TradingEnvironment): void {
+    this.writes += 1;
+    this.dashboards.delete(environment);
+    this.reading.delete(environment);
+  }
+
   /** Something was sent to Trading 212: history read before it is out of date. */
   private wrote(environment: TradingEnvironment): void {
     this.writes += 1;
