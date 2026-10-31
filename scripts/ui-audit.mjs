@@ -2,14 +2,17 @@
 // style variables and in one that gives none, in a headless browser and
 // checks what tests on the markup cannot see: the widget scrolling sideways, a box sticking out of the frame, text cut
 // off with nothing showing the rest, text under 12px, low contrast, a control too small to tap, a control with no
-// focus ring, focused out of view or under something else, a form control left with the browser's own look, a broken image, a failed
-// request or a script error. Each view is checked as it opens, again with
-// everything folded opened (charts shown as tables, "show all" lists, collapsed sections, the date-range panel), and
-// after each choice of every switch and tab list in it. With --shots it also saves pictures, to look over by eye.
+// focus ring, focused out of view or under something else, a form control left with the browser's own look, a broken
+// image, a failed request, a script error, an SVG <title> (the browser's own tooltip) or the system's tap highlight.
+// Each view is checked as it opens, again with everything folded opened (charts shown as tables, "show all" lists,
+// collapsed sections, the date-range panel), and after each choice of every switch and tab list in it. With --shots it
+// also saves pictures, to look over by eye.
 //
 //   pnpm audit:ui                          every view, 375/720/1040 px, light and dark, English and Chinese, with and
-//                                          without the host's styles
+//                                          without the host's styles; and at 375 px on a touch screen, in high
+//                                          contrast and with reduced motion
 //   pnpm audit:ui -- --views=income,pies --widths=375 --themes=dark --langs=zh-CN --hosts=given --shots=ui-audit
+//   pnpm audit:ui -- --modes=touch,forced  only a phone's touch screen and Windows high contrast, at the narrowest width
 //
 // It exits 0 when nothing is wrong, 1 when it found problems and 2 when it could not check (a wrong option, no
 // Playwright, the preview not starting). It needs Playwright with Chromium (`pnpm add -D playwright && pnpm exec
@@ -39,6 +42,9 @@ const langs = list("langs", "en,zh-CN", ["en", "zh-CN"]);
 // The host's style variables: none (the widget's own fallbacks) or the preview's sample host's.
 const hosts = list("hosts", "none,given", ["none", "given"]);
 const shots = option("shots", "");
+// Besides the default, how a phone, Windows high contrast and "reduce motion" see the widget: these run at the
+// narrowest width asked for, in the light theme without the host's styles (high contrast replaces the colours anyway).
+const modes = list("modes", "default,touch,forced,reduced", ["default", "touch", "forced", "reduced"]);
 const parallel = Math.max(1, Number(option("parallel", "4")) || 4);
 
 let playwright;
@@ -301,6 +307,12 @@ function inspect(host = []) {
     if (!["none", "textfield"].includes(style.appearance) && style.opacity !== "0") problems.push(`browser-styled control: ${describe(control)} (${control.getAttribute("type") ?? control.tagName.toLowerCase()})`);
   }
   for (const image of document.querySelectorAll("img")) if (image.complete && image.naturalWidth === 0) problems.push(`broken image: ${image.getAttribute("src")}`);
+  // An SVG <title> is the browser's own tooltip, which a touch screen never shows: the project's bubble takes a title
+  // attribute instead.
+  for (const title of document.querySelectorAll("svg title")) problems.push(`browser tooltip: an SVG <title> "${(title.textContent ?? "").trim().slice(0, 40)}"`);
+  // A tap shows the project's own press, not the system's grey or blue box.
+  const tapped = [...document.querySelectorAll("button, a[href], summary, [role=tab], [role=option], [role=radio]")].find((element) => visible(element) && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(getComputedStyle(element).webkitTapHighlightColor ?? "transparent"));
+  if (tapped) problems.push(`system tap highlight: ${describe(tapped)}`);
   return problems;
 }
 
@@ -327,6 +339,8 @@ async function audit(context, base, run) {
   });
   try {
     await page.setViewportSize({ width: Number(run.width) + 140, height: 1400 });
+    if (run.mode === "forced") await page.emulateMedia({ forcedColors: "active" });
+    if (run.mode === "reduced") await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`${base}/#view=${run.view}&lang=${run.lang}&width=${run.width}&theme=${run.theme}&host=${run.host}`);
     // The preview's own bar stays at the top of a tall picture and would cover the widget's.
     if (shots) await page.addStyleTag({ content: "header { position: static !important; }" });
@@ -335,7 +349,7 @@ async function audit(context, base, run) {
     const frame = page.frames().find((item) => item !== page.mainFrame());
     const picture = async (state) => {
       if (!shots) return;
-      const file = path.join(shots, `${run.view}-${run.lang}-${run.theme}-${run.width}${run.host === "given" ? "-host" : ""}${state}.png`);
+      const file = path.join(shots, `${run.view}-${run.lang}-${run.theme}-${run.width}${run.host === "given" ? "-host" : ""}${run.mode === "default" ? "" : `-${run.mode}`}${state}.png`);
       await (await frame.frameElement()).screenshot({ path: file }).catch(() => page.screenshot({ path: file, fullPage: true }));
     };
     const seen = new Set();
@@ -501,6 +515,8 @@ async function audit(context, base, run) {
 const base = await startPreview();
 const browser = await playwright.chromium.launch();
 const context = await browser.newContext();
+// A phone: touch events, the mobile viewport rules and `pointer: coarse`.
+const touchContext = modes.includes("touch") ? await browser.newContext({ hasTouch: true, isMobile: true }) : undefined;
 const known = await (async () => {
   const page = await context.newPage();
   await page.goto(base);
@@ -512,13 +528,17 @@ if (!known.length) { await browser.close(); stop(); fail("The preview listed no 
 const views = option("views", "") ? list("views", "", known) : known;
 if (shots) await fs.mkdir(shots, { recursive: true });
 
-const runs = views.flatMap((view) => widths.flatMap((width) => themes.flatMap((theme) => langs.flatMap((lang) => hosts.map((host) => ({ view, width, theme, lang, host }))))));
+const narrowest = String(Math.min(...widths.map(Number)));
+const runs = [
+  ...(modes.includes("default") ? views.flatMap((view) => widths.flatMap((width) => themes.flatMap((theme) => langs.flatMap((lang) => hosts.map((host) => ({ view, width, theme, lang, host, mode: "default" })))))) : []),
+  ...modes.filter((mode) => mode !== "default").flatMap((mode) => views.flatMap((view) => langs.map((lang) => ({ view, width: narrowest, theme: "light", lang, host: "none", mode })))),
+];
 const found = [];
 let next = 0;
 await Promise.all(Array.from({ length: Math.min(parallel, runs.length) }, async () => {
   while (next < runs.length) {
     const run = runs[next++];
-    for (const problem of await audit(context, base, run)) found.push({ ...run, problem });
+    for (const problem of await audit(run.mode === "touch" ? touchContext : context, base, run)) found.push({ ...run, problem });
   }
 }));
 await browser.close();
@@ -528,12 +548,13 @@ stop();
 const grouped = new Map();
 for (const item of found) {
   const key = `${item.view} ${item.width}px: ${item.problem}`;
-  grouped.set(key, [...(grouped.get(key) ?? []), `${item.lang}/${item.theme}${item.host === "given" ? "/host" : ""}`]);
+  grouped.set(key, [...(grouped.get(key) ?? []), `${item.lang}/${item.theme}${item.host === "given" ? "/host" : ""}${item.mode === "default" ? "" : `/${item.mode}`}`]);
 }
 for (const [key, where] of grouped) console.log(`✗ ${key}  [${where.join(", ")}]`);
 // Why the preview turned a request down, from its own terminal.
 const failures = previewLog.split("\n").filter((line, index, lines) => line.startsWith("Preview request failed") || lines[index - 1]?.startsWith("Preview request failed"));
 if (failures.length) console.log(`The preview said:\n${failures.slice(0, 10).join("\n")}`);
-console.log(`${grouped.size === 0 ? "✓" : "✗"} UI audit: ${views.length} views × ${widths.length} widths × ${themes.length} themes × ${langs.length} languages × ${hosts.length} hosts, ${grouped.size} problem${grouped.size === 1 ? "" : "s"}${shots ? `; pictures in ${shots}` : ""}`);
+const extra = modes.filter((mode) => mode !== "default");
+console.log(`${grouped.size === 0 ? "✓" : "✗"} UI audit: ${views.length} views × ${widths.length} widths × ${themes.length} themes × ${langs.length} languages × ${hosts.length} hosts${extra.length ? `, and ${extra.join("/")} at ${narrowest}px` : ""}, ${grouped.size} problem${grouped.size === 1 ? "" : "s"}${shots ? `; pictures in ${shots}` : ""}`);
 const crashed = found.some((item) => item.problem.startsWith("the audit could not finish"));
 process.exit(crashed ? 2 : grouped.size === 0 ? 0 : 1);

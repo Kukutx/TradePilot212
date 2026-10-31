@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.97.0
+
+- On a phone, a tap no longer flashes the system's grey or blue box: buttons, links, tabs and rows show the project's own press instead.
+- The price chart's cost, stop and limit tags show their label in the project's bubble, on hover and on a long press, rather than the browser's own tooltip, which a touch screen never shows. Dragging across a chart no longer selects its axis labels; the table view stays selectable.
+- `pnpm audit:ui` also opens every view at the narrowest width on a touch screen, in Windows high contrast and with reduced motion (`--modes`), and fails on an SVG `<title>` or the system's tap highlight. A test of the price chart's tags that matched nothing, and so always passed, now checks them.
+
 ## 2.96.0
 
 - Resource subscriptions: a client can subscribe to `tradepilot://<demo|live>/holdings`, `journal`, `targets`, `watchlist` and `goal`, and is sent `notifications/resources/updated` when one changes. The saved ones are watched where they are written, so a change from the widget, a tool or the scheduler (a goal milestone included) is heard. The holdings are said to change after TradePilot sends something to Trading 212 and each time the scheduler reads the account value.

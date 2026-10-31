@@ -1941,3 +1941,12 @@ strong.historyAmount { flex: none; font-size: 13px; }
 /* The count of a long history and the button that lists its next page, side by side where they fit. */
 .listMore { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .listMore .panelNote { flex: 1 1 220px; margin: 0; }
+
+/* ---- Touch (2.97) ---- */
+/* A tap shows the project's own press, not the system's grey or blue box over what was tapped. */
+:root { -webkit-tap-highlight-color: transparent; }
+@media (pointer: coarse) {
+  :where(button, a[href], summary, [role="tab"], [role="option"], [role="radio"], label):not(:disabled, [aria-disabled="true"]):active { opacity: .72; }
+}
+/* Dragging across a chart moves its readout; it does not select the axis labels. The table view stays selectable. */
+svg { -webkit-user-select: none; user-select: none; }

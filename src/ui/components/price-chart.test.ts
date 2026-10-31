@@ -69,7 +69,7 @@ describe("price chart", () => {
     expect(html).toContain('class="priceLevel average"');
     expect(html).toContain('class="priceLevel stop"');
     expect(html).not.toContain('<line class="priceLevel alert" x1="6"');
-    expect(html).toContain('<g class="priceTag alert edge"><title>Alert: Above $2,000.00</title><rect');
+    expect(html).toContain('<g class="priceTag alert edge" title="Alert: Above $2,000.00" role="img" aria-label="Alert: Above $2,000.00"><rect');
     expect(html).toContain(">↑2,000<");
     expect(html).not.toContain("Too far");
     // The last close and each level have a tag on the axis.
@@ -94,7 +94,7 @@ describe("price chart", () => {
     }));
     expect(html).toContain('class="priceLevel stop"');
     expect(html).not.toContain('<line class="priceLevel average" x1="6"');
-    expect(html).toContain('<g class="priceTag average edge"><title>Average cost $50.00</title><rect');
+    expect(html).toContain('<g class="priceTag average edge" title="Average cost $50.00" role="img" aria-label="Average cost $50.00"><rect');
     expect(html).toContain(">↓50<");
     // The axis runs from the stop to the closes, not down to the average cost.
     const axis = [...html.matchAll(/class="lineAxis" x="[\d.]+" y="[\d.]+" dy="0.32em">([\d.]+)</g)].map((match) => Number(match[1]));
@@ -106,8 +106,11 @@ describe("price chart", () => {
     const far = chartTrades([{ orderId: "5", filledAt: "2026-03-02T14:00:00Z", side: "BUY", quantity: 1, price: 4000, priceCurrency: "USD" }], "USD", t, "en");
     const html = renderToStaticMarkup(createElement(PriceChart, { prices: year, trades: far, levels: many, currency: "USD", locale: "en", t }));
     expect(html.match(/class="priceLevel alert"/g)?.length).toBeGreaterThanOrEqual(14);
-    const tags = [...html.matchAll(/<g class="priceTag [a-z]+"><line[^>]*\/><rect x="[\d.]+" y="(-?[\d.]+)"/g)].map((match) => Number(match[1]));
+    const tags = [...html.matchAll(/<g class="priceTag [a-z]+"[^>]*><line[^>]*>(?:<\/line>)?<rect x="[\d.]+" y="(-?[\d.]+)"/g)].map((match) => Number(match[1]));
+    expect(tags.length).toBeGreaterThan(1);
     expect(tags.length).toBeLessThan(15);
+    // The project's bubble shows each label: no SVG <title>, the browser's own tooltip.
+    expect(html).not.toContain("<title>");
     expect(Math.min(...tags)).toBeGreaterThanOrEqual(14);
     expect(html).not.toContain("tradeMark");
     expect(html).toContain("Too far from these prices to draw: Bought 1 at $4,000.00 (Mar 2, 2026).");
