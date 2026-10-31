@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { TOOL_OUTPUT } from "./tool-output.js";
 import { registerPromptsAndResources } from "./mcp-prompts.js";
-import { credentialStatus, type RuntimeConfig } from "./config.js";
+import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { MAX_BASKET_LEGS, resolveInstrumentFromList } from "./trading-service.js";
 import { DEFAULT_HISTORY_PAGES, MAX_EXPORT_RECORDS, MAX_HISTORY_PAGES, parseWindow } from "./insights-service.js";
 import { MAX_LIMIT_OFFSET_PERCENT, MAX_PLAN_LEGS } from "./automation.js";
@@ -32,6 +32,8 @@ import { taxYearZone } from "../shared/time-zone.js";
 import { withTargetVolatility } from "../shared/holding-risk.js";
 import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
+import { MAX_LISTING_DAYS, MAX_LISTINGS, type NewListingsView } from "../shared/listings.js";
+import { newListings } from "./new-listings.js";
 import { toolCallWatch, watchingReads } from "./request-context.js";
 
 const WIDGET_URI = "ui://tradepilot212/trading-dashboard.html";
@@ -322,6 +324,41 @@ export function createMcpServer(
             ? `${environment.toUpperCase()} credentials are not configured, so instruments cannot be searched.`
             : instruments.length ? `Found ${instruments.length} Trading 212 instrument match(es) for "${query}".` : `No Trading 212 instrument matches "${query}".`,
         );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "list_new_instruments",
+    {
+      title: "New On Trading 212",
+      description:
+        "List the instruments Trading 212 added in the last `days` (default 30, up to 365), newest first, from the date its instrument list gives each one (addedOn): name, ticker, type, currency and when it was added, with how many of each type were added in the window. Narrow by `type` (as Trading 212 writes it, e.g. STOCK or ETF) and `currency` (e.g. USD). Renders the watchlist tab with the new listings open, where each can be added to the watchlist. Read-only: it reads the instrument list (kept ten minutes) and places nothing.",
+      inputSchema: z.object({
+        environment: environmentWithDefault,
+        days: z.number().int().min(1).max(MAX_LISTING_DAYS).default(30),
+        type: z.string().trim().min(1).max(20).optional(),
+        currency: z.string().trim().length(3).optional(),
+        limit: z.number().int().min(1).max(MAX_LISTINGS).default(50),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+      _meta: { ui: { resourceUri: WIDGET_URI } },
+    },
+    async ({ environment, days, type, currency, limit }) => {
+      try {
+        requireCredentials(config, environment);
+        const now = new Date();
+        const found = newListings(await trading.instruments(environment), { days, type, currency, limit }, now);
+        const data: NewListingsView = {
+          kind: "new_listings", environment, credentials: credentialStatus(config), days, from: found.from,
+          ...(type ? { type: type.toUpperCase() } : {}), ...(currency ? { currency: currency.toUpperCase() } : {}),
+          listings: found.listings, total: found.total, types: found.types, catalogue: found.catalogue, undated: found.undated,
+          timestamp: now.toISOString(),
+        };
+        return result(data, `${data.total ? `Found ${data.total}` : "Found no"} instrument(s) Trading 212 added on ${environment.toUpperCase()} in the last ${days} day(s)${data.type || data.currency ? ` (${[data.type, data.currency].filter(Boolean).join(", ")})` : ""}.`);
       } catch (error) {
         return toolError(error);
       }

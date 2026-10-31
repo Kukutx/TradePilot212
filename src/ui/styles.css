@@ -1242,6 +1242,21 @@ h2[tabindex="-1"]:focus { outline: none; }
 .watchName { display: grid; min-width: 0; }
 .watchName strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .watchName small { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tp-muted); font-size: 12px; }
+.listingsPanel .watchHeader { flex-wrap: wrap; }
+.listingsIntro { margin: 0 0 10px; }
+.listingsCurrency { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; color: var(--tp-muted); font-size: 13px; }
+.listingsFailed { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.listingList { list-style: none; margin: 0; padding: 0; }
+.listingRow { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--tp-border); }
+.listingRow > .compactButton, .listingRow > .statusPill { flex: 0 0 auto; white-space: nowrap; }
+.listingMain { display: grid; flex: 1 1 auto; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.listingMain:hover { background: var(--tp-bg-soft); }
+.listingMain:hover .watchName strong { text-decoration: underline; text-underline-offset: 3px; }
+.listingAdded { color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
+@container (max-width: 420px) {
+  .listingMain { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .listingMain .assetAvatar { display: none; }
+}
 .watchLater { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
 .watchList { list-style: none; margin: 0; padding: 0; }
 .watchRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 6px; padding: 8px 0 10px; border-top: 1px solid var(--tp-border); }

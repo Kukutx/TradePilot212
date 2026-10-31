@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { WatchlistView as WatchlistData, WatchRow } from "../../shared/watchlist";
+import type { NewListingsView } from "../../shared/listings";
 import { createTranslator } from "../i18n";
 import { sortWatchRows, watchLevelText, WatchlistView } from "./WatchlistView";
 
@@ -20,10 +21,45 @@ const late: WatchRow = { ticker: "AMZN_US_EQ", name: "Amazon", shortName: "AMZN"
 const data: WatchlistData = { kind: "watchlist", environment: "demo", credentials: { live: false, demo: true }, items: [nvda, tsla, late], timestamp: "2026-10-12T00:00:00Z" };
 
 const noop = () => {};
-const render = (view: WatchlistData, locale: "en" | "zh-CN" = "en") => renderToStaticMarkup(createElement(WatchlistView, {
-  data: view, locale, t: createTranslator(locale), busy: false,
+const render = (view: WatchlistData, locale: "en" | "zh-CN" = "en", listings?: NewListingsView) => renderToStaticMarkup(createElement(WatchlistView, {
+  data: view, locale, t: createTranslator(locale), busy: false, listings,
   onOpen: noop, onRemove: noop, onRefresh: noop, onAdd: async () => true, onNote: async () => true, onSearch: async () => [],
+  onListings: async () => { throw new Error("not read in a static render"); },
 }));
+const listings: NewListingsView = {
+  kind: "new_listings", environment: "demo", credentials: { live: false, demo: true }, days: 30, from: "2026-09-12T12:00:00Z", currency: "USD",
+  listings: [
+    { ticker: "KLAR_US_EQ", name: "Klarna Group", shortName: "KLAR", currencyCode: "USD", type: "STOCK", addedOn: "2026-10-12T09:00:00Z" },
+    { ticker: "TSLA_US_EQ", name: "Tesla", shortName: "TSLA", currencyCode: "USD", type: "STOCK", addedOn: "2026-09-20T09:00:00Z" },
+  ],
+  total: 3, types: { STOCK: 2, ETF: 1 }, catalogue: 120, undated: 1, timestamp: "2026-10-12T12:00:00Z",
+};
+
+describe("new listings", () => {
+  it("offers to read them until the host has, then lists them newest first with type choices and what was left out", () => {
+    expect(render(data)).toContain("Show new listings");
+    const html = render(data, "en", listings);
+    expect(html).not.toContain("Show new listings");
+    expect(html).toContain("Added today");
+    expect(html).toContain("Added Sep 20");
+    expect(html).toContain("All 3");
+    expect(html).toContain("ETFs 1");
+    expect(html).toContain('aria-checked="true" tabindex="0" class="active">30 days');
+    expect(html).toContain("Only instruments priced in USD.");
+    expect(html).toContain("Showing the newest 2 of 3.");
+    expect(html).toContain("1 instrument has no listing date");
+    // Tesla is on the watchlist already; Klarna is not.
+    expect(html).toContain('aria-label="Add Klarna Group to the watchlist"');
+    expect(html).not.toContain('aria-label="Add Tesla to the watchlist"');
+  });
+
+  it("reads in Chinese", () => {
+    const html = render(data, "zh-CN", listings);
+    expect(html).toContain("Trading 212 新上架");
+    expect(html).toContain("今天上架");
+    expect(html).toContain("只看以 USD 计价的标的。");
+  });
+});
 
 describe("watchlist view", () => {
   it("shows each row's price, the day's change in words as well as colour, its range and its nearest level", () => {

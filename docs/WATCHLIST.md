@@ -24,6 +24,12 @@ An instrument is added at its price then (Trading 212's for a holding, else the 
 
 Sort by the order added, the biggest move over the chosen period, or the nearest order or alert. A row opens the instrument's page.
 
+## New on Trading 212
+
+Under the watchlist, **New on Trading 212** lists the instruments Trading 212 added in the last 7, 30 or 90 days, newest first, by the listing date its instrument list gives each one (`addedOn`). Chips choose a type (stocks, ETFs and the others it lists), each with how many were added in the window; a row opens the instrument's page and **Add** puts it on the watchlist. The panel reads nothing until you open it: one read of the instrument list, which TradePilot keeps for ten minutes and shares with the search. Instruments without a date are never counted as new, and the panel says how many there are.
+
+`list_new_instruments` gives the same in the chat (`days` up to 365, `type`, `currency`, `limit` up to 100) and opens the panel with what it read. It is read-only.
+
 ## Prices and limits
 
 The daily closes come from the quote provider, the same ones the holding page's chart draws, cached for half an hour ([AUTOMATION.md](./AUTOMATION.md#quotes-for-instruments-you-do-not-hold)). The tab reads four instruments at a time and starts no new reads after 5 seconds; a row past that is named and gets its prices on the next refresh. Closes ten times or more from Trading 212's price, or from the instrument's order and alert prices, are taken to be in another unit and not used, and the provider's quote for it is left out too; the quote is checked against the order and alert prices the same way when the closes did not come. The row names the `QUOTE_SYMBOLS` factor that fixes it. Without a quote provider, or for an instrument it has no symbol for, a held instrument still shows Trading 212's price and the others show why they have none.
@@ -34,4 +40,4 @@ Free provider plans allow only a few requests a minute, shared with price alerts
 
 `get_watchlist` returns the rows above, with a text summary for hosts without the widget: each instrument's price and where it came from, the change over each period the closes cover, the range, the levels, the position when held, the move since added and the note. Both tools work without order tools.
 
-The sample account (`TRADEPILOT_SAMPLE_DATA=true`) prices its own instruments with simulated quotes and closes, offline, and lists Amazon and ASML to watch besides its holdings.
+The sample account (`TRADEPILOT_SAMPLE_DATA=true`) prices its own instruments with simulated quotes and closes, offline, and lists Amazon and ASML to watch besides its holdings; four instruments it lists were added in the last two months, for the New on Trading 212 panel.

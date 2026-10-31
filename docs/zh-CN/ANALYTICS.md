@@ -16,6 +16,7 @@ TradePilot 根据 Trading 212 的数据确定性地计算组合指标，模型�
 | `get_holding_detail` | 单个标的，持有或未持有均可：持仓、占账户比例和已保存的目标权重、挂单及其与最新价的距离、价格提醒、交易日志笔记、交易时段、最近 12 个月的成交、从一年前本月第一天以来的股息（含合计）、持仓接下来预计的股息（`nextDividends`，附 `dividendFrequency`；规则同下文的日历）、当日涨跌（`day`，同下文；未持有的标的只有价格变动），以及来自行情源的最多 12 个月日收盘价，文字里会汇总整段的涨跌、其中完整覆盖的 1、3、6 个月各自的涨跌，以及最高价和最低价。渲染带价格图的持仓页，并画出这些日子里持仓的市值与净投入的对比（[见下文](#your-position)） | account、portfolio、orders、metadata、history（orders、dividends）、TradePilot 的交易日志 |
 | `get_watchlist` | 自选列表里的标的，持有或未持有均可：现价及其来源、相对前一收盘价的涨跌和 1、3、12 个月涨跌、近 12 个月的最高价和最低价（不足 12 个月则按现有的收盘价）、三个月的收盘价、挂单和已启用的提醒及其与现价的距离、加入以来的涨跌和备注（[WATCHLIST.md](./WATCHLIST.md)）。渲染“自选”标签页 | portfolio、orders、metadata；价格和收盘价来自行情源 |
 | `manage_watchlist` | 把标的加入自选列表（可附备注）、修改备注或移除标的。只写入 TradePilot 自己的存储 | metadata（用于识别标的） |
+| `list_new_instruments` | Trading 212 在最近 `days` 天（默认 30 天，最多 365 天）新增的标的，按各自的上架日期（`addedOn`）从新到旧排列，并给出这段时间每种类型新增了多少；可按 `type` 和 `currency` 筛选。打开自选页的“Trading 212 新上架”面板（[WATCHLIST.md](./WATCHLIST.md#new-on-trading-212)） | metadata |
 | `get_order_status` | 按 id 查询单个订单：未成交（以及已成交多少）、已成交、部分成交、已撤销或被拒绝，附成交明细 | orders、history（orders） |
 | `get_market_hours` | 当前交易时段（常规、盘前、盘后、夜盘、休息、休市）以及下次开盘和收盘时间 | metadata |
 | `manage_history_export` | 列出券商的 CSV 报表、申请生成新报表，或读取已生成的报表：各操作类型的明细行和合计，以及按币种列出 API 历史里没有逐项列出的费用（货币兑换费、印花税、法国金融交易税、预扣税）、利息、扣除预扣税后的股息和已实现结果。2.88 起还按每个标的 ISIN 所属国家给出分红预扣税（税前金额、预扣金额和比例，以派息货币计；资本返还不计入）。报表里的每股金额是预扣前还是预扣后，能从合计金额判断时就按判断结果，否则按用户反馈的预扣后处理。预扣达到 25% 或以上的美国标的会列出名字：可能是没有登记 W-8BEN，也可能是按本国税率预扣的外国公司 ADR。尚未用真实报表验证 | history |

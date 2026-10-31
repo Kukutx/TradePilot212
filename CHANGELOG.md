@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.90.0
+
+- The Watchlist tab has a **New on Trading 212** panel: the instruments Trading 212 added in the last 7, 30 or 90 days, newest first, by the listing date its instrument list gives each (`addedOn`).
+  - Chips choose a type, each with how many were added in the window. A row opens the instrument's page, and **Add** puts it on the watchlist.
+  - It reads nothing until opened. Opening it reads the instrument list once, which is kept for ten minutes and shared with the search. Instruments without a date are never counted as new, and the panel says how many there are.
+- `list_new_instruments` gives the same in the chat, narrowed by `days` (up to 365), `type`, `currency` and `limit`, with a text summary. It opens the panel with what it read. Read-only.
+- The sample account's instrument list has four instruments added in the last two months.
+
 ## 2.89.0
 
 - Each trade says where its order was placed, from Trading 212's `initiatedFrom`: its app (iOS or Android), the web, the API, auto-invest (a Pie's or the account's, or one instrument's recurring buy), or Trading 212 itself. A split or another corporate action has no source.

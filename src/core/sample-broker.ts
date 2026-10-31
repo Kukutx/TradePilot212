@@ -13,11 +13,13 @@ interface SampleInstrument {
   name: string;
   shortName: string;
   currencyCode: string;
-  isin: string;
+  isin?: string;
   type: string;
   price: number;
   extendedHours?: boolean;
   workingScheduleId: number;
+  /** Days before the sample started that Trading 212 added it; long ago when absent. */
+  addedDaysAgo?: number;
 }
 /** `rate`: EUR per unit of the instrument's currency the shares cost, weighted by cost; today's rate when absent. */
 interface Holding { ticker: string; quantity: number; average: number; inPies: number; createdAt: string; rate?: number }
@@ -33,6 +35,11 @@ const INSTRUMENTS: SampleInstrument[] = [
   // Not held and never traded: something to watch.
   { ticker: "AMZN_US_EQ", name: "Amazon", shortName: "AMZN", currencyCode: "USD", isin: "US0231351067", type: "STOCK", price: 186.4, extendedHours: true, workingScheduleId: 1 },
   { ticker: "ASMLa_EQ", name: "ASML Holding", shortName: "ASML", currencyCode: "EUR", isin: "NL0010273215", type: "STOCK", price: 642.3, workingScheduleId: 3 },
+  // Added lately, for the new-listings panel.
+  { ticker: "KLAR_US_EQ", name: "Klarna Group", shortName: "KLAR", currencyCode: "USD", type: "STOCK", price: 38.6, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 3 },
+  { ticker: "WDEFd_EQ", name: "WisdomTree Europe Defence UCITS ETF (Acc)", shortName: "WDEF", currencyCode: "EUR", type: "ETF", price: 41.25, workingScheduleId: 3, addedDaysAgo: 12 },
+  { ticker: "FIG_US_EQ", name: "Figma", shortName: "FIG", currencyCode: "USD", type: "STOCK", price: 52.3, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 24 },
+  { ticker: "CRCL_US_EQ", name: "Circle Internet Group", shortName: "CRCL", currencyCode: "USD", type: "STOCK", price: 118.4, extendedHours: true, workingScheduleId: 1, addedDaysAgo: 61 },
 ];
 /** Account (EUR) value of one unit of each quote currency. */
 const EUR_PER_UNIT: Record<string, number> = { EUR: 1, USD: 0.92, GBX: 0.0118 };
@@ -139,7 +146,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]] as const) {
     for (let quarter = 0; quarter < 4; quarter++) {
       const paidOn = daysAgo(firstDay + quarter * 91);
-      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
+      dividends.push({ reference: `${ticker}-${quarter}`, ticker, type: "ORDINARY", amount: round(eur(ticker, perShare * quantity) * (instrumentOf(ticker)?.isin?.startsWith("IE") ? 1 : 0.85)), currency: "EUR", tickerCurrency: instrumentOf(ticker)?.currencyCode, grossAmountPerShare: perShare, quantity, paidOn });
     }
   }
   dividends.sort((a, b) => String(b.paidOn).localeCompare(String(a.paidOn)));
@@ -242,7 +249,7 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
       const order = pending.find((item) => String(item.id) === path.split("/").pop());
       return order ? json(order) : json({ code: "OrderNotFound" }, 404);
     }
-    if (method === "GET" && path === "/equity/metadata/instruments") return json(INSTRUMENTS.map(({ price, ...meta }) => ({ ...meta, maxOpenQuantity: 10_000, addedOn: "2019-01-01T00:00:00.000Z" })));
+    if (method === "GET" && path === "/equity/metadata/instruments") return json(INSTRUMENTS.map(({ price, addedDaysAgo, ...meta }) => ({ ...meta, maxOpenQuantity: 10_000, addedOn: addedDaysAgo === undefined ? "2019-01-01T00:00:00.000Z" : daysAgo(addedDaysAgo) })));
     if (method === "GET" && path === "/equity/metadata/exchanges") {
       const now = new Date();
       return json([
