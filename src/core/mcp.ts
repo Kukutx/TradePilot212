@@ -182,7 +182,7 @@ function listedRange(listed: number, offset: number | undefined, count: number):
 }
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
+  { changes, trading, insights, automation, alerts, accountAlerts, listings: listingWatches, goals, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -254,7 +254,7 @@ export function createMcpServer(
     }),
   );
 
-  registerPromptsAndResources(server, { trading, journal, targets: targetAllocations, watchlist, goals }, config);
+  registerPromptsAndResources(server, { trading, journal, targets: targetAllocations, watchlist, goals, changes }, config);
 
   registerAppTool(
     server,

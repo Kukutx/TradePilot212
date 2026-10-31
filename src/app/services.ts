@@ -1,3 +1,4 @@
+import { ResourceChanges, watchingStore } from "../core/resource-changes.js";
 import { PriceAlerts } from "../core/alerts.js";
 import { ListingWatches } from "../core/listing-watch.js";
 import { Goals } from "../core/goals.js";
@@ -52,7 +53,10 @@ let processSampleBroker: typeof fetch | undefined;
 export function createServices(input: ServiceDependencies) {
   // Sample mode answers Trading 212 requests from the simulated account; other requests pass through.
   const sampleFetcher = () => (input.fetcher ? createSampleBroker(input.fetcher) : (processSampleBroker ??= createSampleBroker()));
-  const deps = input.config.sampleData ? { ...input, fetcher: sampleFetcher() } : input;
+  // The saved state says what it changed, for the clients subscribed to the account's resources.
+  const changes = new ResourceChanges();
+  const watched = { ...input, store: watchingStore(input.store, changes) };
+  const deps = input.config.sampleData ? { ...watched, fetcher: sampleFetcher() } : watched;
   // The closures only run after the services they call exist.
   const notifications = createNotifications(deps.config, deps.store, deps.fetcher);
   const notify = notifications?.send;
@@ -66,7 +70,7 @@ export function createServices(input: ServiceDependencies) {
     afterBasket: (planId, result, unattended) => automation.recordRun(planId, result, new Date(), unattended ? "scheduler" : "you"),
     afterOrder: (draft, outcome) => journal.recordOrder(draft, outcome),
     afterVerification: (entryId, orderId) => journal.confirmOrder(entryId, orderId),
-    afterWrite: (environment) => insights.forgetHistory(environment),
+    afterWrite: (environment) => { insights.forgetHistory(environment); changes.emit(environment, "holdings"); },
   });
   const insights = new InsightsService({ config: deps.config, ...(deps.fetcher ? { fetcher: deps.fetcher } : {}), instruments: (environment) => trading.instruments(environment),
     // The sample account's history is drawn relative to today: kept, it would go stale.
@@ -140,6 +144,8 @@ export function createServices(input: ServiceDependencies) {
   const tick = async () => {
     const settled = { links: await stage("protective links", () => links.reconcile()), orders: await stage("order watch", () => orders.check()) };
     const recorded = await stage("value history", () => values.snapshot());
+    // Each value recorded is a fresh read of the account: its holdings may have changed outside TradePilot.
+    for (const { environment } of recorded) changes.emit(environment, "holdings");
     return {
       ...settled,
       values: recorded,
@@ -218,5 +224,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
+  return { changes, trading, insights, automation, links, orders, values, alerts, accountAlerts, listings, goals, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }

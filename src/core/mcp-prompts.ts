@@ -8,6 +8,7 @@ import { credentialStatus, type RuntimeConfig } from "./config.js";
 import { SKILL_PROMPTS } from "./skill-prompts.js";
 import type { Services } from "../app/services.js";
 import type { TradingEnvironment } from "../shared/contracts.js";
+import { resourceUri, type ResourceName } from "./resource-changes.js";
 
 const ENVIRONMENTS = ["demo", "live"] as const;
 /** At most this many instruments are offered while one is typed. */
@@ -25,9 +26,33 @@ const TITLES: Record<string, string> = {
 /** The prompts about one instrument take it as an argument. */
 const ABOUT_INSTRUMENT = new Set(["order-followup", "trade-journal"]);
 
-type PromptDeps = Pick<Services, "trading" | "journal" | "targets" | "watchlist" | "goals">;
+type PromptDeps = Pick<Services, "trading" | "journal" | "targets" | "watchlist" | "goals"> & Partial<Pick<Services, "changes">>;
 
-export function registerPromptsAndResources(server: McpServer, { trading, journal, targets, watchlist, goals }: PromptDeps, config: RuntimeConfig): void {
+/**
+ * Let the client subscribe to the account's resources: each subscribed one that changes is sent as
+ * notifications/resources/updated, and the client reads it again. Only a connection that stays open (stdio) hears of
+ * changes; the HTTP server answers each request with a new server, so a subscription there ends with its request.
+ */
+function subscribeToChanges(server: McpServer, changes: NonNullable<PromptDeps["changes"]>, uris: ReadonlySet<string>): void {
+  const subscribed = new Set<string>();
+  server.server.registerCapabilities({ resources: { subscribe: true } });
+  server.server.setRequestHandler("resources/subscribe", async (request) => {
+    // Only the resources this server lists: a subscription to anything else would never be told of a change.
+    if (uris.has(request.params.uri)) subscribed.add(request.params.uri);
+    return {};
+  });
+  server.server.setRequestHandler("resources/unsubscribe", async (request) => {
+    subscribed.delete(request.params.uri);
+    return {};
+  });
+  const stop = changes.on((uri) => {
+    if (subscribed.has(uri)) server.server.sendResourceUpdated({ uri }).catch(() => undefined);
+  });
+  const closed = server.server.onclose;
+  server.server.onclose = () => { stop(); subscribed.clear(); closed?.(); };
+}
+
+export function registerPromptsAndResources(server: McpServer, { trading, journal, targets, watchlist, goals, changes }: PromptDeps, config: RuntimeConfig): void {
   /** The account named, in any case; this server's default when none is (a form sends an empty field as ""). */
   const environmentOf = (value: string | undefined): TradingEnvironment => {
     const named = (value ?? "").trim().toLowerCase();
@@ -78,9 +103,11 @@ export function registerPromptsAndResources(server: McpServer, { trading, journa
    * One JSON document per account with keys. Fixed addresses rather than a URI template: the accounts are known when
    * the server starts, and a template brings in the SDK's template matcher for nothing.
    */
-  const perAccount = (name: string, title: string, description: string, read: (environment: TradingEnvironment) => Promise<unknown>) => {
+  const uris = new Set<string>();
+  const perAccount = (name: ResourceName, title: string, description: string, read: (environment: TradingEnvironment) => Promise<unknown>) => {
     for (const environment of ENVIRONMENTS.filter((item) => credentialStatus(config)[item])) {
-      const uri = `tradepilot://${environment}/${name}`;
+      const uri = resourceUri(environment, name);
+      uris.add(uri);
       server.registerResource(`${environment}-${name}`, uri, { title: `${title} (${environment.toUpperCase()})`, description, mimeType: "application/json" }, async () => ({
         contents: [{ uri, mimeType: "application/json", text: JSON.stringify(await read(environment), null, 2) }],
       }));
@@ -94,4 +121,5 @@ export function registerPromptsAndResources(server: McpServer, { trading, journa
   perAccount("targets", "Target allocation", "The saved target weights, cash share and drift threshold; null when none are saved.", async (environment) => ({ environment, targets: (await targets.get(environment)) ?? null }));
   perAccount("goal", "Investment goal", "The saved investment goal: the target, the date, what is added each month, the return and volatility assumed and the milestone reached; null when none is set.", async (environment) => ({ environment, goal: (await goals.get(environment)) ?? null }));
   perAccount("watchlist", "Watchlist", "The watched instruments, each with the user's note and the price when it was added.", async (environment) => ({ environment, items: await watchlist.list(environment) }));
+  if (changes && uris.size) subscribeToChanges(server, changes, uris);
 }

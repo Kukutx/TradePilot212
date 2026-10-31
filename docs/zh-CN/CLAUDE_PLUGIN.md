@@ -67,6 +67,8 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 | `tradepilot://demo/watchlist` | 自选列表中的标的及其备注 |
 | `tradepilot://demo/goal` | 投资目标及已达到的进度节点，或 `null` |
 
+客户端可以订阅其中任何一个。资源变化时，服务器会发送 `notifications/resources/updated`，客户端再读一次：交易日志、目标配置、自选列表和投资目标在每次保存时都会通知，不管是在组件里、通过工具还是由调度器保存（包括达到进度节点）；持仓在 TradePilot 向 Trading 212 发送操作之后，以及调度器每次读取账户市值时（大约每小时一次）通知，因为在 Trading 212 应用里做的改动只有那时才看得到。只有保持打开的连接才能收到变化，所以这只在 stdio 下有效；HTTP 服务每个请求单独处理。同一个数据目录上另一个 TradePilot 进程做的改动不会通知。
+
 这些 prompt 由 `skills/*/SKILL.md` 生成到 `src/core/skill-prompts.ts`，因为 Worker 和打包后的插件在运行时读不到 `skills/`。修改 skill 后，运行 `pnpm build:prompts`（`pnpm build:plugin` 也会运行它）；两者不一致时会有测试失败。
 
 <a id="progress-cancelling-and-the-servers-name"></a>
