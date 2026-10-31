@@ -1,5 +1,5 @@
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
-import type { NewListingsView } from "../shared/listings";
+import type { ListingWatch, NewListingsView } from "../shared/listings";
 import type { App as McpApp } from "@modelcontextprotocol/ext-apps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -1509,7 +1509,18 @@ export default function App() {
                 onSearch={searchInstruments}
                 onRefresh={() => void loadInsight("watchlist")}
                 listings={listings?.environment === environment ? listings : undefined}
-                onListings={(read) => callTool<NewListingsView>("list_new_instruments", { environment, ...read, limit: 50 })} />
+                onListings={(read) => callTool<NewListingsView>("list_new_instruments", { environment, ...read, limit: 50 })}
+                onWatchListings={async (scope) => {
+                  const env = environment;
+                  const { watch } = await callTool<{ watch: ListingWatch | null }>("manage_listing_alert", scope ? { environment: env, action: "set", ...scope } : { environment: env, action: "remove" });
+                  // The host's read is shown again when the tab comes back: it keeps the alert as saved.
+                  setListings((shown) => {
+                    if (shown?.environment !== env) return shown;
+                    const { watch: _old, ...rest } = shown;
+                    return watch ? { ...rest, watch } : rest;
+                  });
+                  return watch;
+                }} />
             )}
             {base?.kind === "trade_plan" && (
               <TradePlanView

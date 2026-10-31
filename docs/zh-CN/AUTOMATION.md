@@ -199,6 +199,13 @@ stdio 服务还需要 `TRADEPILOT_ALLOW_WRITES=true`。没有它，即使设置�
 
 已触发的提醒会写一条 `account_alert_triggered` 事件（总值和现金类提醒会附带数值及其货币），发送到 webhook，并保持已触发状态，直到你重新启用（当日涨跌提醒则是到下一个交易日）。在界面里，自动化页面有一个**账户提醒**列表，带有**添加提醒**：起始金额是账户当前价值下浮或上浮 5%、可用现金的一半或两倍（至少 100），取整到十位；当日涨跌则是 2%。金额可以用任一种分隔符输入：`10,000`、`10 000` 和 `1.250,50` 都会按预期读取，单独一个逗号后面跟三位数字时视为千位分隔符，输入了分隔符之后，输入框会显示它读到的数值。最多 50 个。提醒从不下单，也从不撤单。
 
+<a id="listing-alerts"></a>
+## 上架提醒
+
+`manage_listing_alert` 开启、修改或关闭账户的上架提醒：Trading 212 上架这些类型（`STOCK`、`ETF` 等）、以这些币种计价的新标的时提醒我；不指定就是全部。自选页的 **Trading 212 新上架** 面板可以按面板当前显示的范围开启提醒、修改或关闭它（[WATCHLIST.md](./WATCHLIST.md#new-on-trading-212)）。
+
+调度器每个账户最多每小时读一次标的列表。Trading 212 标注的上架日期（`addedOn`）在最近 14 天内、且提醒以前没见过的标的，就算新上架；所以上架日期比第一次读到它的时间稍早的标的也不会漏掉。开启提醒时已经列出的标的算作见过。每次发现新标的，都会写一条 `new_listings` 动态，列出新上架的标的（太多时截断并注明还有多少个），并发到通知地址。读取失败会在下一次调度时重试。每个账户一个提醒。它不会下单。
+
 <a id="quotes-for-instruments-you-do-not-hold"></a>
 ## 未持有标的的报价
 
@@ -238,7 +245,7 @@ Trading 212 的 Public API 没有行情接口；它只报告你持有仓位的�
 
 `NOTIFY_LOCALE=zh-CN` 让通知用中文书写（默认 `en`）：事件名称、买入或卖出、股数，数字按中文习惯书写，成交金额带币种（€1,303.75）。
 
-默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
+默认发送以下类型：`order_submitted`、`order_status_unknown`、`order_filled`、`order_partly_filled`、`order_outcome_unknown`、`cancel_status_unknown`、`basket_submitted`、`plan_due`、`plan_auto_executed`、`plan_skipped`、`protective_sibling_cancelled`、`protective_attention`、`cancel_rejected`、`pie_submitted`、`pie_status_unknown`、`price_alert_triggered`、`account_alert_triggered`、`new_listings`、`allocation_drift` 和 `daily_digest`。`NOTIFY_EVENTS` 会替换这份列表。设置 `NOTIFY_WEBHOOK_SECRET` 后，无论哪种服务，每个请求都会带上 `X-TradePilot-Signature: sha256=<HMAC of the body>`。
 
 每个请求最多等 5 秒。某个地址没有接收的通知，会由定时任务在 1 分钟后重试，之后依次隔 5、15、60、180 分钟，仍失败就放弃（记入日志）；其他已经收到的地址不会重复发送。没有任何地址接收的每日摘要交给摘要自己的重试（每 15 分钟一次）。等待中的通知保存在服务器的存储里，最多 200 条、最长 30 小时。
 

@@ -28,6 +28,8 @@ Sort by the order added, the biggest move over the chosen period, or the nearest
 
 Under the watchlist, **New on Trading 212** lists the instruments Trading 212 added in the last 7, 30 or 90 days, newest first, by the listing date its instrument list gives each one (`addedOn`). Chips choose a type (stocks, ETFs and the others it lists), each with how many were added in the window; a row opens the instrument's page and **Add** puts it on the watchlist. The panel reads nothing until you open it: one read of the instrument list, which TradePilot keeps for ten minutes and shares with the search. Instruments without a date are never counted as new, and the panel says how many there are.
 
+At the bottom, the panel turns on a listing alert for what it shows (a type, a currency, or anything), changes it to that, or turns it off: the scheduler then checks hourly and notifies when Trading 212 lists more ([AUTOMATION.md](./AUTOMATION.md#listing-alerts)).
+
 `list_new_instruments` gives the same in the chat (`days` up to 365, `type`, `currency`, `limit` up to 100) and opens the panel with what it read. It is read-only.
 
 ## Prices and limits

@@ -32,7 +32,7 @@ import { taxYearZone } from "../shared/time-zone.js";
 import { withTargetVolatility } from "../shared/holding-risk.js";
 import { compareWithBenchmark } from "./benchmark.js";
 import { MAX_WATCH_NOTE, MAX_WATCHLIST } from "../shared/watchlist.js";
-import { MAX_LISTING_DAYS, MAX_LISTINGS, type NewListingsView } from "../shared/listings.js";
+import { LISTING_WATCH_DAYS, MAX_LISTING_DAYS, MAX_LISTINGS, MAX_WATCH_FILTERS, type NewListingsView } from "../shared/listings.js";
 import { newListings } from "./new-listings.js";
 import { toolCallWatch, watchingReads } from "./request-context.js";
 
@@ -179,7 +179,7 @@ function listedRange(listed: number, offset: number | undefined, count: number):
 }
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
+  { trading, insights, automation, alerts, accountAlerts, listings: listingWatches, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -352,10 +352,12 @@ export function createMcpServer(
         requireCredentials(config, environment);
         const now = new Date();
         const found = newListings(await trading.instruments(environment), { days, type, currency, limit }, now);
+        const watch = await listingWatches.get(environment);
         const data: NewListingsView = {
           kind: "new_listings", environment, credentials: credentialStatus(config), days, from: found.from,
           ...(type ? { type: type.toUpperCase() } : {}), ...(currency ? { currency: currency.toUpperCase() } : {}),
           listings: found.listings, total: found.total, types: found.types, catalogue: found.catalogue, undated: found.undated,
+          ...(watch ? { watch } : {}), webhook: config.notifyTargets.length > 0,
           timestamp: now.toISOString(),
         };
         return result(data, `${data.total ? `Found ${data.total}` : "Found no"} instrument(s) Trading 212 added on ${environment.toUpperCase()} in the last ${days} day(s)${data.type || data.currency ? ` (${[data.type, data.currency].filter(Boolean).join(", ")})` : ""}.`);
@@ -1197,6 +1199,40 @@ export function createMcpServer(
         }
         const alert = await accountAlerts.rearm(input.alertId);
         return result({ kind: "account_alert", alert }, `Re-armed account alert ${alert.id}.`);
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  // A listing alert reads Trading 212's instrument list only, so it works without order tools.
+  registerAppTool(
+    server,
+    "manage_listing_alert",
+    {
+      title: "Listing Alert",
+      description: `Turn on, change or turn off the account's listing alert: the scheduler reads Trading 212's instrument list at most once an hour and notifies when Trading 212 has added instruments of the chosen \`types\` (as Trading 212 writes them, e.g. STOCK or ETF) and \`currencies\` (e.g. USD); any when left empty. An instrument counts as new when Trading 212 dates it (addedOn) in the last ${LISTING_WATCH_DAYS} days and the alert has not seen it before; what is listed when the alert is turned on counts as seen. Each find is logged once (list_new_instruments shows the alert too) and sent to the notification webhook when one is configured. One alert per account; set again to change it. It never places orders.`,
+      inputSchema: z.object({
+        action: z.enum(["set", "remove"]),
+        environment: environmentWithDefault,
+        types: z.array(z.string().trim().min(1).max(20)).max(MAX_WATCH_FILTERS).optional(),
+        currencies: z.array(z.string().trim().length(3)).max(MAX_WATCH_FILTERS).optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      _meta: {},
+    },
+    async (input) => {
+      try {
+        const webhook = config.notifyTargets.length > 0;
+        if (input.action === "remove") {
+          const had = await listingWatches.remove(input.environment);
+          return result({ kind: "listing_alert", environment: input.environment, watch: null, webhook, timestamp: new Date().toISOString() },
+            had ? `Turned off the ${input.environment.toUpperCase()} listing alert.` : `There was no ${input.environment.toUpperCase()} listing alert.`);
+        }
+        const watch = await listingWatches.set({ environment: input.environment, ...(input.types ? { types: input.types } : {}), ...(input.currencies ? { currencies: input.currencies } : {}) });
+        const what = [watch.types.join("/"), watch.currencies.join("/")].filter(Boolean).join(", ");
+        return result({ kind: "listing_alert", environment: input.environment, watch, webhook, timestamp: new Date().toISOString() },
+          `The ${input.environment.toUpperCase()} listing alert is on${what ? ` for ${what}` : " for any instrument"}; it checks at most hourly.${webhook ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
       } catch (error) {
         return toolError(error);
       }

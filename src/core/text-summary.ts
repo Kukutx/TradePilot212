@@ -997,6 +997,7 @@ function newListingLines(data: NewListingsView): string[] {
     ...data.listings.map((item) => `- ${item.addedOn.slice(0, 10)} ${item.name} (${item.ticker}${item.type ? `, ${item.type}` : ""}, ${item.currencyCode})`),
     ...(data.total > data.listings.length ? [`${data.total - data.listings.length} more match; ask with a higher limit or a narrower type or currency.`] : []),
     ...(data.undated ? [`${data.undated} of the ${data.catalogue} instruments have no date from Trading 212 and are never counted as new.`] : []),
+    ...(data.watch ? [`Listing alert: on for ${[data.watch.types.join("/") || "any type", data.watch.currencies.join("/") || "any currency"].join(", ")}${data.watch.lastFoundAt ? `; last found ${data.watch.lastFound} on ${data.watch.lastFoundAt.slice(0, 10)}` : ""}${data.webhook ? "" : "; no NOTIFY_WEBHOOK_URL, so finds are only logged"}.`] : []),
   ];
 }
 

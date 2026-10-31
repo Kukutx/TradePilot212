@@ -45,7 +45,7 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_account_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "list_new_instruments", "get_portfolio_today"])
+for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_account_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "list_new_instruments", "manage_listing_alert", "get_portfolio_today"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
@@ -81,11 +81,13 @@ const watch = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["manage_watchlist", { action: "note", instrument: "TSLA", note: "After the call" }],
   ["manage_watchlist", { action: "remove", instrument: "TSLA_US_EQ" }],
   ["get_watchlist", {}],
+  ["manage_listing_alert", { action: "set", types: ["etf"] }],
   ["list_new_instruments", { days: 30 }],
   ["manage_account_alerts", { action: "create", condition: "cash_above", amount: 1 }],
   ["list_price_alerts", {}],
 ]);
-const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied, listed, accountAlert, alertList] = watch.results;
+const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied, listingAlert, listed, accountAlert, alertList] = watch.results;
+if (listingAlert.isError || listingAlert.structuredContent?.watch?.types?.join() !== "ETF" || listed.structuredContent?.watch?.types?.join() !== "ETF") throw new Error(`Listing alert failed: ${JSON.stringify([listingAlert, listed?.structuredContent?.watch]).slice(0, 400)}`);
 // The sample lists three instruments added in the last 30 days, newest first.
 if (listed.isError || listed.structuredContent?.kind !== "new_listings" || listed.structuredContent.listings?.map((item) => item.ticker).join() !== "KLAR_US_EQ,WDEFd_EQ,FIG_US_EQ"
   || listed.structuredContent.types?.ETF !== 1) throw new Error(`New listings failed: ${JSON.stringify(listed).slice(0, 400)}`);

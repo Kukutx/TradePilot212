@@ -194,6 +194,8 @@ async function seedSample(): Promise<void> {
     ["manage_watchlist", { action: "add", instrument: "AMZN" }],
     ["manage_watchlist", { action: "add", instrument: "NVDA" }],
     ["manage_watchlist", { action: "add", instrument: "EUNL" }],
+    // A listing alert on stocks, so the new-listings panel shows one on.
+    ["manage_listing_alert", { action: "set", types: ["STOCK"] }],
     ["manage_price_alerts", { action: "create", instrument: "TSLA", condition: "above", price: 260, note: "Breakout" }],
     ["manage_price_alerts", { action: "create", instrument: "ASML", condition: "below", price: 600 }],
   ];

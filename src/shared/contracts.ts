@@ -164,6 +164,7 @@ export type ActivityType =
   | "pie_status_unknown"
   | "price_alert_triggered"
   | "account_alert_triggered"
+  | "new_listings"
   | "allocation_drift"
   | "daily_digest"
   | "weekly_report"
