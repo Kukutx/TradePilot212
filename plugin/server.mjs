@@ -38495,6 +38495,161 @@ function resultSplitOf(positions) {
 }
 var fxShown = (fx) => fx !== void 0 && Math.abs(fx) >= 5e-3;
 
+// src/shared/splits.ts
+var SPLIT_FILL = "STOCK_SPLIT";
+var EVENT_MS = 864e5;
+var EPSILON = 1e-9;
+var isSplitType = (type) => (type ?? "").toUpperCase() === SPLIT_FILL;
+var isTradeFill = (item) => !item.fill?.type || item.fill.type.toUpperCase() === "TRADE";
+function readSplits(fills, read, options = {}) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const fill of fills) {
+    const row = read(fill);
+    if (!row || !Number.isFinite(row.time)) continue;
+    const list2 = byKey.get(row.key) ?? [];
+    list2.push({ fill, row });
+    byKey.set(row.key, list2);
+  }
+  const events = /* @__PURE__ */ new Map();
+  const used = /* @__PURE__ */ new Set();
+  const unresolved = /* @__PURE__ */ new Set();
+  for (const [key, list2] of byKey) {
+    if (!list2.some(({ row }) => row.split)) continue;
+    list2.sort((a, b) => a.row.time - b.row.time);
+    const groups = [];
+    for (let index = 0; index < list2.length; index++) {
+      const { row } = list2[index];
+      if (!row.split) continue;
+      const splits = [index];
+      let end = index;
+      for (let at = index + 1; at < list2.length && list2[at].row.time - row.time <= EVENT_MS; at++) if (list2[at].row.split) {
+        splits.push(at);
+        end = at;
+      }
+      let opened = 0, closed = 0, trades = 0;
+      for (const at of splits) {
+        const quantity = list2[at].row.quantity;
+        if (quantity > 0) opened += quantity;
+        else closed -= quantity;
+      }
+      for (let at = index; at <= end; at++) if (!list2[at].row.split) trades += list2[at].row.quantity;
+      const mixed = end - index + 1 > splits.length;
+      groups.push({ start: index, end, splits, trades, opened, closed, ...opened > EPSILON && closed > EPSILON ? { ratio: opened / closed } : mixed ? { ratio: NaN } : {} });
+      index = end;
+    }
+    const now = options.held?.(key);
+    if (now !== void 0 && Number.isFinite(now)) {
+      let shares2 = now;
+      let next = list2.length - 1;
+      for (let group = groups.length - 1; group >= 0; group--) {
+        const split2 = groups[group];
+        for (; next > split2.end; next--) shares2 -= list2[next].row.quantity;
+        next = split2.start - 1;
+        shares2 -= split2.trades;
+        const before = shares2 - split2.opened + split2.closed;
+        split2.ratio ??= before > EPSILON && shares2 > EPSILON ? shares2 / before : void 0;
+        shares2 = split2.ratio && Number.isFinite(split2.ratio) ? shares2 / split2.ratio : before;
+      }
+    } else if (options.fromStart) {
+      let shares2 = 0;
+      let next = 0;
+      for (const split2 of groups) {
+        for (; next < split2.start; next++) shares2 += list2[next].row.quantity;
+        next = split2.end + 1;
+        const after = shares2 + split2.opened - split2.closed;
+        split2.ratio ??= shares2 > EPSILON && after > EPSILON ? after / shares2 : void 0;
+        shares2 = (split2.ratio && Number.isFinite(split2.ratio) ? shares2 * split2.ratio : after) + split2.trades;
+      }
+    }
+    const found = [];
+    for (const split2 of groups) {
+      if (split2.ratio === void 0 || !Number.isFinite(split2.ratio) || !(split2.ratio > 0) || Math.abs(split2.ratio - 1) <= EPSILON) {
+        unresolved.add(key);
+        continue;
+      }
+      found.push({ at: new Date(list2[split2.start].row.time).toISOString(), ratio: Math.round(split2.ratio * 1e8) / 1e8 });
+      for (const at of split2.splits) used.add(list2[at].fill);
+    }
+    if (found.length) events.set(key, found);
+  }
+  return { events, used, unresolved };
+}
+function splitTerms(ratio2) {
+  if (!(ratio2 > 0) || !Number.isFinite(ratio2)) return void 0;
+  for (let before = 1; before <= 1e3; before++) {
+    const after = Math.round(ratio2 * before);
+    if (after >= 1 && Math.abs(after / before - ratio2) <= ratio2 * 1e-6) return { after, before };
+  }
+  return void 0;
+}
+function splitFactor(splits, time3) {
+  let factor = 1;
+  for (const split2 of splits ?? []) if (Date.parse(split2.at) > time3) factor *= split2.ratio;
+  return factor;
+}
+var tickerOf = (item) => item.order?.ticker ?? item.order?.instrument?.ticker;
+function signedFillQuantity(item) {
+  const quantity = Math.abs(item.fill?.quantity ?? item.order?.filledQuantity ?? 0);
+  return (item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0 ? -quantity : quantity;
+}
+function restateSplits(items, keyOf = (ticker) => ticker, options = {}) {
+  const read = readSplits(items, (item) => {
+    const ticker = tickerOf(item);
+    return ticker && item.fill ? { key: keyOf(ticker), time: Date.parse(item.fill.filledAt ?? ""), quantity: signedFillQuantity(item), split: isSplitType(item.fill.type) } : void 0;
+  }, options);
+  const tickers = /* @__PURE__ */ new Map();
+  for (const item of read.used) {
+    const ticker = tickerOf(item);
+    tickers.set(keyOf(ticker), ticker);
+  }
+  const splits = [...read.events].flatMap(([key, events]) => events.map((event) => ({ ...event, ticker: tickers.get(key) ?? key }))).sort((a, b) => a.at.localeCompare(b.at));
+  if (!read.events.size) return { items: [...items], splits, unresolved: read.unresolved };
+  const restated = [];
+  for (const item of items) {
+    if (read.used.has(item)) continue;
+    const ticker = tickerOf(item);
+    const factor = ticker && item.fill ? splitFactor(read.events.get(keyOf(ticker)), Date.parse(item.fill.filledAt ?? "")) : 1;
+    if (Math.abs(factor - 1) <= EPSILON || !item.fill) {
+      restated.push(item);
+      continue;
+    }
+    const fill = { ...item.fill };
+    if (fill.quantity !== void 0) fill.quantity *= factor;
+    if (fill.price !== void 0) fill.price /= factor;
+    const order = item.order ? { ...item.order } : void 0;
+    if (order?.filledQuantity !== void 0) order.filledQuantity *= factor;
+    if (order?.quantity !== void 0) order.quantity *= factor;
+    restated.push({ ...item, fill, ...order ? { order } : {} });
+  }
+  return { items: restated, splits, unresolved: read.unresolved };
+}
+var SPLIT_MOVE = 0.25;
+var SMALL_SPLIT = Math.log(1.3);
+function closesAdjusted(closes2, split2) {
+  const size = Math.abs(Math.log(split2.ratio));
+  if (size < SMALL_SPLIT) return true;
+  const priced = closes2.filter((point) => point.close > 0);
+  const day2 = split2.at.slice(0, 10);
+  const next = new Date(Date.parse(`${day2}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+  let nearest = Infinity;
+  for (const first of [day2, next]) {
+    const before = priced.filter((point) => point.date < first).at(-1);
+    const after = priced.find((point) => point.date >= first);
+    if (!before || !after) continue;
+    nearest = Math.min(nearest, Math.abs(Math.log(after.close / before.close * split2.ratio)));
+  }
+  return !(nearest < size * SPLIT_MOVE);
+}
+function adjustCloses(closes2, splits) {
+  const unadjusted = (splits ?? []).filter((split2) => !closesAdjusted(closes2, split2));
+  if (!unadjusted.length) return [...closes2];
+  return closes2.map((point) => {
+    let factor = 1;
+    for (const split2 of unadjusted) if (point.date < split2.at.slice(0, 10)) factor *= split2.ratio;
+    return factor === 1 ? point : { ...point, close: point.close / factor };
+  });
+}
+
 // src/core/dividends.ts
 var DAY = 864e5;
 var SAME_PAYDAY_DAYS = 10;
@@ -38610,7 +38765,7 @@ function expectedPayments(schedule, quantity, from, until = Number.POSITIVE_INFI
 
 // src/core/uk-matching.ts
 var UK_ZONE = "Europe/London";
-var EPSILON = 1e-9;
+var EPSILON2 = 1e-9;
 var DAY_MS3 = 864e5;
 var round8 = (value) => Math.round(value * 100) / 100;
 var shares = (value) => Math.round(value * 1e8) / 1e8;
@@ -38672,10 +38827,10 @@ function byInstrument(orders, keyOf) {
 }
 function take(day2, quantity, sale) {
   if (day2.buyUnvalued) sale.unvalued = true;
-  const cost = day2.bought > EPSILON ? day2.cost * (quantity / day2.bought) : 0;
+  const cost = day2.bought > EPSILON2 ? day2.cost * (quantity / day2.bought) : 0;
   day2.bought -= quantity;
   day2.cost -= cost;
-  if (day2.bought < EPSILON) {
+  if (day2.bought < EPSILON2) {
     day2.bought = 0;
     day2.cost = 0;
   }
@@ -38684,20 +38839,20 @@ function take(day2, quantity, sale) {
 function matchDays(days) {
   for (const day2 of days) {
     const quantity = Math.min(day2.sold, day2.bought);
-    if (quantity <= EPSILON) continue;
+    if (quantity <= EPSILON2) continue;
     day2.matched.cost += take(day2, quantity, day2);
     day2.matched.sameDay += quantity;
     day2.sold -= quantity;
   }
   for (let index = 0; index < days.length; index++) {
     const day2 = days[index];
-    if (day2.sold <= EPSILON) continue;
+    if (day2.sold <= EPSILON2) continue;
     const last = dayAfter(day2.day, 30);
-    for (let next = index + 1; next < days.length && day2.sold > EPSILON; next++) {
+    for (let next = index + 1; next < days.length && day2.sold > EPSILON2; next++) {
       const later = days[next];
       if (later.day > last) break;
       const quantity = Math.min(day2.sold, later.bought);
-      if (quantity <= EPSILON) continue;
+      if (quantity <= EPSILON2) continue;
       day2.matched.cost += take(later, quantity, day2);
       day2.matched.thirtyDay += quantity;
       day2.sold -= quantity;
@@ -38705,11 +38860,11 @@ function matchDays(days) {
   }
   let pool = 0, poolCost = 0, poolUnvalued = false;
   for (const day2 of days) {
-    if (day2.bought > EPSILON && day2.buyUnvalued) poolUnvalued = true;
+    if (day2.bought > EPSILON2 && day2.buyUnvalued) poolUnvalued = true;
     pool += day2.bought;
     poolCost += day2.cost;
     const quantity = Math.min(day2.sold, pool);
-    if (quantity <= EPSILON) continue;
+    if (quantity <= EPSILON2) continue;
     const cost = poolCost * (quantity / pool);
     if (poolUnvalued) day2.unvalued = true;
     day2.matched.cost += cost;
@@ -38717,7 +38872,7 @@ function matchDays(days) {
     day2.sold -= quantity;
     pool -= quantity;
     poolCost -= cost;
-    if (pool < EPSILON) {
+    if (pool < EPSILON2) {
       pool = 0;
       poolCost = 0;
       poolUnvalued = false;
@@ -38729,9 +38884,15 @@ function ukShareMatching(input2) {
   const keyOf = keysBy(input2.orders, input2.holdings ?? []);
   const held = /* @__PURE__ */ new Map();
   for (const holding3 of input2.holdings ?? []) held.set(keyOf(holding3.ticker), (held.get(keyOf(holding3.ticker)) ?? 0) + holding3.quantity);
-  const { instruments, unnamed } = byInstrument(input2.orders, keyOf);
+  const restated = restateSplits(input2.orders, keyOf, input2.holdings ? { held: (key) => held.get(key) ?? 0 } : { fromStart: input2.complete });
+  const splitsOf = /* @__PURE__ */ new Map();
+  for (const split3 of restated.splits) {
+    const key = keyOf(split3.ticker);
+    splitsOf.set(key, [...splitsOf.get(key) ?? [], { on: localDay(Date.parse(split3.at), UK_ZONE), ratio: split3.ratio }]);
+  }
+  const { instruments, unnamed } = byInstrument(restated.items, keyOf);
   const rows2 = [];
-  let gains = 0, losses = 0, unmatched = 0, unvalued = 0, unreconciled = 0, notTrades = 0;
+  let gains = 0, losses = 0, unmatched = 0, unvalued = 0, unreconciled = 0, notTrades = 0, split2 = 0;
   for (const [key, instrument] of instruments) {
     const days = [...instrument.days.values()].sort((a, b) => a.day.localeCompare(b.day));
     matchDays(days);
@@ -38753,7 +38914,7 @@ function ukShareMatching(input2) {
         continue;
       }
       const matched = day2.soldTotal - day2.sold;
-      const proceeds = day2.soldTotal > EPSILON ? day2.proceeds * (matched / day2.soldTotal) : 0;
+      const proceeds = day2.soldTotal > EPSILON2 ? day2.proceeds * (matched / day2.soldTotal) : 0;
       const gain = proceeds - day2.matched.cost;
       row.proceeds += proceeds;
       row.cost += day2.matched.cost;
@@ -38766,6 +38927,8 @@ function ukShareMatching(input2) {
     const off = input2.holdings && input2.complete && Math.abs(instrument.net - holding3) > Math.max(1e-6, Math.abs(holding3) * 1e-6);
     if (off) unreconciled++;
     if (instrument.notTrades) notTrades++;
+    const splits = splitsOf.get(key);
+    if (splits) split2++;
     rows2.push({
       ...row,
       quantity: shares(row.quantity),
@@ -38779,7 +38942,8 @@ function ukShareMatching(input2) {
       realizedProfitLoss: round8(row.realizedProfitLoss),
       ...rowUnvalued ? { unvalued: true } : {},
       ...off ? { reconciliation: { held: shares(holding3), fills: shares(instrument.net) } } : {},
-      ...instrument.notTrades ? { notTrades: instrument.notTrades } : {}
+      ...instrument.notTrades ? { notTrades: instrument.notTrades } : {},
+      ...splits ? { splits } : {}
     });
   }
   rows2.sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain));
@@ -38790,9 +38954,10 @@ function ukShareMatching(input2) {
     "Gains in a Stocks and Shares ISA are free of tax. The pool is one per person across every account and broker, so shares of the same company held elsewhere change the cost; one company listed under two tickers is grouped by its ISIN where Trading 212 gives one."
   ];
   if (input2.currency && input2.currency !== "GBP") notes.push(`The account is in ${input2.currency}, not GBP, so these amounts are not yet the sterling figures a UK return needs.`);
-  if (unmatched > EPSILON) notes.push("Some shares sold could not be matched with any purchase read (bought before the history read, or transferred in); their gain is left out.");
+  if (unmatched > EPSILON2) notes.push("Some shares sold could not be matched with any purchase read (bought before the history read, or transferred in); their gain is left out.");
   if (unvalued) notes.push(`${unvalued} sale(s) or the purchases matched with them had no account-currency value from Trading 212; their gain is left out.`);
   if (unreconciled) notes.push(`For ${unreconciled} instrument(s) the fills read do not add up to the shares held now (see reconciliation): shares came or went another way (a transfer in or out, a split, a corporate action), so their matching is not reliable.`);
+  if (split2) notes.push(`${split2} instrument(s) had a split or consolidation (see splits): as HMRC treats it, it is the same holding in other units, so the shares bought and sold before it are counted in today's units, at the same cost, and the quantities here are today's.`);
   if (notTrades) notes.push(`${notTrades} instrument(s) have fills that were not trades (see notTrades), such as a split or a corporate action: they were matched as purchases and sales, which may not be how HMRC treats them.`);
   if (unnamed) notes.push(`${unnamed} fill(s) named no instrument and are left out.`);
   if (provisional) notes.push("Sales in the year's last 30 days are matched with buys up to 30 days after them, and those days are not all past: the figures can still change.");
@@ -38800,7 +38965,7 @@ function ukShareMatching(input2) {
   return {
     rule: "uk",
     currency: input2.currency,
-    complete: input2.complete && unmatched <= EPSILON && unvalued === 0 && unreconciled === 0 && notTrades === 0 && unnamed === 0,
+    complete: input2.complete && unmatched <= EPSILON2 && unvalued === 0 && unreconciled === 0 && notTrades === 0 && unnamed === 0,
     ...provisional ? { provisional: true } : {},
     gains: round8(gains),
     losses: round8(losses),
@@ -39009,11 +39174,13 @@ function summarizePerformance(input2) {
     const pnl = wallet?.realisedProfitLoss ?? 0;
     realized += pnl;
     tickerRow(ticker).realizedProfitLoss += pnl;
-    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
     const side = (item.order?.side ?? "").toUpperCase();
     const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if (side === "SELL" || quantity < 0) sells++;
-    else buys++;
+    if (isTradeFill(item)) {
+      turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
+      if (side === "SELL" || quantity < 0) sells++;
+      else buys++;
+    }
     for (const tax of wallet?.taxes ?? []) {
       const amount2 = Math.abs(tax.quantity ?? 0);
       taxes.push({ key: tax.name ?? "OTHER", amount: amount2, ticker });
@@ -39321,7 +39488,7 @@ function summarizeTaxYear(input2) {
     const wallet = item.fill?.walletImpact;
     for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
     const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
+    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0 || !isTradeFill(item)) continue;
     const pnl = wallet?.realisedProfitLoss ?? 0;
     const value = wallet?.netValue === void 0 ? 0 : Math.abs(wallet.netValue);
     if (wallet?.netValue === void 0) unvalued++;
@@ -39972,10 +40139,12 @@ var InsightsService = class {
     for (const item of filled) {
       const impact = item.fill?.walletImpact;
       const value = Math.abs(impact?.netValue ?? 0);
-      if (String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0) {
+      const trade = !item.fill?.type || item.fill.type.toUpperCase() === "TRADE";
+      const sell = String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0;
+      if (trade && sell) {
         totals.sells += 1;
         totals.sold += value;
-      } else {
+      } else if (trade) {
         totals.buys += 1;
         totals.bought += value;
       }
@@ -41117,7 +41286,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.85.0",
+  version: "2.86.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -41502,17 +41671,22 @@ var MAX_READ_FILLS = 200;
 function holdingPositionHistory(data) {
   const history = data.history;
   if (!data.prices || data.prices.points.length < 2 || !history) return void 0;
-  if (history.fillsUnpriced || history.fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price))) return "fills";
   if (history.fillsNotTrades) return "split";
+  const traded = history.fills.filter((fill) => !isSplitType(fill.fillType));
+  if (history.fillsUnpriced || traded.some((fill) => fill.quantity && (!fill.filledAt || !fill.price))) return "fills";
+  const today = (at, quantity, price) => {
+    const factor = splitFactor(history.splits, Date.parse(at));
+    return { at, quantity: quantity * factor, price: price / factor };
+  };
   const fills = [
-    ...history.fills.flatMap((fill) => {
+    ...traded.flatMap((fill) => {
       if (!fill.filledAt || !fill.price || !fill.quantity) return [];
       const sell = String(fill.side ?? "").toUpperCase() === "SELL" || fill.quantity < 0;
-      return [{ at: fill.filledAt, quantity: sell ? -Math.abs(fill.quantity) : Math.abs(fill.quantity), price: fill.price }];
+      return [today(fill.filledAt, sell ? -Math.abs(fill.quantity) : Math.abs(fill.quantity), fill.price)];
     }),
-    ...(history.olderFills ?? []).map((fill) => ({ at: fill.filledAt, quantity: fill.side === "SELL" ? -fill.quantity : fill.quantity, price: fill.price }))
+    ...(history.olderFills ?? []).map((fill) => today(fill.filledAt, fill.side === "SELL" ? -fill.quantity : fill.quantity, fill.price))
   ];
-  let closes2 = data.prices.points;
+  let closes2 = adjustCloses(data.prices.points, history.splits);
   const shortened = history.fillsTruncated || history.fills.length + (history.olderFills?.length ?? 0) >= MAX_READ_FILLS;
   if (shortened) {
     if (!fills.length) return "fills";
@@ -41528,7 +41702,7 @@ function holdingPositionHistory(data) {
   } else if (data.accountRate && data.accountRate > 0) {
     rate = data.accountRate;
   } else {
-    const rated = history.fills.filter((fill) => fill.price && fill.quantity && fill.netValue);
+    const rated = traded.filter((fill) => fill.price && fill.quantity && fill.netValue);
     const local = rated.reduce((sum, fill) => sum + Math.abs(fill.quantity * fill.price), 0);
     const account = rated.reduce((sum, fill) => sum + Math.abs(fill.netValue), 0);
     if (local > 0 && account > 0) [rate, fillRates] = [local / account, true];
@@ -42047,11 +42221,16 @@ function holding2(data) {
     ...section(`Price alerts (${data.alerts.length})`, rows(data.alerts, (alert) => alertLine(alert, data.instrument))),
     ...section(`Journal notes (${data.journalTotal ?? data.journal.length})`, rows(data.journal, (entry) => journalLine(entry, false), 10)),
     ...history ? [
-      ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.side ?? "?"} ${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money3(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+      ...section(`Fills since ${history.from.slice(0, 10)} (${history.olderFills?.length ? `newest ${history.fills.length} of ${history.fills.length + history.olderFills.length}` : history.fills.length}${history.fillsTruncated ? ", more not read" : ""})`, rows(history.fills, (fill) => `${fill.filledAt?.slice(0, 10) ?? "?"} ${fill.fillType ? `${fill.fillType} ${(fill.quantity ?? 0) < 0 || String(fill.side).toUpperCase() === "SELL" ? "-" : "+"}` : `${fill.side ?? "?"} `}${num2(Math.abs(fill.quantity ?? 0), 8)} @ ${num2(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}${fill.netValue === void 0 ? "" : `, ${money3(fill.netValue, fill.accountCurrency)}`}${fill.realisedProfitLoss ? `, realized ${signed(fill.realisedProfitLoss)}` : ""}`)),
+      ...history.splits?.length ? [`Splits: ${history.splits.map((split2) => `${split2.at.slice(0, 10)} ${splitLabel(split2.ratio)}`).join("; ")}. Fills before one are listed as traded; the position's history counts them in today's units.`] : [],
       `Dividends since ${(history.dividendsFrom ?? history.from).slice(0, 10)}: ${money3(history.dividendTotal, c)} from ${history.dividendCount} payment(s)${history.dividends[0] ? `, last ${money3(history.dividends[0].amount, history.dividends[0].currency)} on ${history.dividends[0].date.slice(0, 10)}` : ""}${history.dividendsTruncated ? "; older payments were not read, so the total covers only the newer part of the window" : ""}.`,
       ...history.nextDividends ? [`Expected next dividends${history.dividendFrequency ? ` (${FREQUENCY_TEXT[history.dividendFrequency]})` : ""}, at today's quantity, dates approximate: ${history.nextDividends.slice(0, 4).map((payment) => `${payment.on < data.timestamp.slice(0, 10) ? `due ${payment.on}, not paid yet` : `about ${payment.on}`} ${money3(payment.amount, c)}`).join("; ")}.`] : []
     ] : [`History not read: ${data.historyProblem ?? "unknown error"}.`]
   ];
+}
+function splitLabel(ratio2) {
+  const terms = splitTerms(ratio2) ?? (ratio2 >= 1 ? { after: ratio2, before: 1 } : { after: 1, before: 1 / ratio2 });
+  return ratio2 >= 1 ? `${num2(terms.after, 8)}-for-${num2(terms.before, 8)}` : `${num2(terms.before, 8)}-into-${num2(terms.after, 8)}`;
 }
 function taxYear(data) {
   const c = data.accountCurrency;
@@ -42768,7 +42947,7 @@ function fillsOfDay(items, ticker, session) {
   const start = fillsFrom(session);
   return dayFillsOf(items).filter((fill) => fill.ticker === ticker && Date.parse(fill.at) >= start);
 }
-var dayFillsOf = (items) => items.flatMap((item) => item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }] : []);
+var dayFillsOf = (items) => items.flatMap((item) => item.ticker && item.filledAt && (!item.fillType || item.fillType.toUpperCase() === "TRADE") && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }] : []);
 async function portfolioToday(deps, environment, now = /* @__PURE__ */ new Date()) {
   const dashboard2 = await deps.trading.getDashboard(environment, DASHBOARD_REUSE_MS);
   if (!dashboard2.credentials[environment]) throw new Error(dashboard2.warning ?? `${environment.toUpperCase()} credentials are not configured`);
@@ -42870,7 +43049,7 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
     deps.insights.tradeHistory(environment, window, ticker, MAX_CHART_FILLS, HISTORY_PAGES),
     deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES })
   ]).catch((error62) => asStructuredError(error62));
-  const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
+  const fills = historyRead.then((read2) => Array.isArray(read2) ? read2[0].fills.flatMap((fill) => fill.filledAt && fill.price && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE") ? [{ at: fill.filledAt, price: fill.price }] : []) : []);
   const subjectRead = listed ? Promise.resolve(listed) : deps.trading.instruments(environment).catch(() => []).then((list2) => ({ ...position.instrument, ...list2.find((item) => item.ticker === ticker) }));
   const subject = listed ?? position.instrument;
   const quoteRead = position?.currentPrice ? Promise.resolve(void 0) : settleWithin(deps.trading.externalQuote(subject).catch(() => void 0), QUOTE_WAIT_MS);
@@ -42907,6 +43086,13 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
   const prices = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
+  const splitRead = Array.isArray(history) ? readSplits(history[0].fills, (fill) => {
+    const quantity = Math.abs(fill.quantity ?? 0);
+    return { key: ticker, time: Date.parse(fill.filledAt ?? ""), quantity: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? -quantity : quantity, split: isSplitType(fill.fillType) };
+  }, { held: () => position?.quantity ?? 0 }) : void 0;
+  const splits = splitRead?.events.get(ticker);
+  const splitFills = splitRead?.used ?? /* @__PURE__ */ new Set();
+  const splitFill = (fill) => splitFills.has(fill);
   const filled = new Set(listedFills.flatMap((fill) => fill.orderId ? [fill.orderId] : []));
   const onFill = (note) => note.orderId !== void 0 && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
@@ -42965,10 +43151,11 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
           ...fill.priceCurrency ? { priceCurrency: fill.priceCurrency } : {},
           ...fill.netValue === void 0 ? {} : { netValue: fill.netValue },
           ...fill.accountCurrency ? { accountCurrency: fill.accountCurrency } : {},
-          ...fill.realisedProfitLoss === void 0 ? {} : { realisedProfitLoss: fill.realisedProfitLoss }
+          ...fill.realisedProfitLoss === void 0 ? {} : { realisedProfitLoss: fill.realisedProfitLoss },
+          ...fill.fillType && fill.fillType.toUpperCase() !== "TRADE" ? { fillType: fill.fillType } : {}
         })),
         ...history[0].fills.length > MAX_FILLS ? {
-          olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => fill.filledAt && fill.price ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }] : [])
+          olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => fill.filledAt && fill.price && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE") ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }] : [])
         } : {},
         dividends: history[1].items.map((item) => ({
           date: item.date,
@@ -42980,8 +43167,9 @@ async function holdingDetail(deps, environment, query, now = /* @__PURE__ */ new
         dividendTotal: history[1].totals.DIVIDEND ?? 0,
         dividendCount: history[1].count,
         fillsTruncated: history[0].truncated,
-        ...history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price)) ? { fillsUnpriced: true } : {},
-        ...history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE") ? { fillsNotTrades: true } : {},
+        ...history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price) && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE")) ? { fillsUnpriced: true } : {},
+        ...history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE" && !splitFill(fill)) ? { fillsNotTrades: true } : {},
+        ...splits ? { splits } : {},
         dividendsTruncated: history[1].truncated,
         ...nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {},
         ...nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}
@@ -43014,7 +43202,7 @@ function stats(trades, tag) {
   };
 }
 var tagKey = (tag) => journalTagFilter(tag)?.toLowerCase();
-var tickerOf = (item, entry) => item.order?.ticker ?? item.order?.instrument?.ticker ?? entry.ticker;
+var tickerOf2 = (item, entry) => item.order?.ticker ?? item.order?.instrument?.ticker ?? entry.ticker;
 function matchNotes(input2) {
   const wanted = tagKey(input2.tag);
   const notes = wanted ? input2.notes.filter((note) => note.tags?.some((tag) => tag.toLowerCase() === wanted)) : input2.notes;
@@ -43053,7 +43241,7 @@ function summarizeJournalReview(input2) {
     const fill = item.fill;
     const price = fill.price;
     const side = orderSide(item);
-    const ticker = tickerOf(item, entry);
+    const ticker = tickerOf2(item, entry);
     const quotedPrice = input2.prices.get(ticker);
     const ratio2 = quotedPrice !== void 0 && quotedPrice > 0 ? quotedPrice / price : void 0;
     const priceNow = ratio2 !== void 0 && !(input2.quoted?.has(ticker) && (ratio2 >= 10 || ratio2 <= 0.1)) ? quotedPrice : void 0;
@@ -43130,7 +43318,7 @@ async function journalReview2(deps, environment, window, options = {}, now = /* 
   }
   const names = new Map(instruments.map((instrument) => [instrument.ticker, instrument.name ?? instrument.shortName ?? instrument.ticker]));
   const { matched } = matchNotes({ notes, orders: history.items, window, ...options.tag ? { tag: options.tag } : {} });
-  const wanted = [...new Set(matched.map(({ entry, item }) => tickerOf(item, entry)))].filter((ticker) => !prices.has(ticker));
+  const wanted = [...new Set(matched.map(({ entry, item }) => tickerOf2(item, entry)))].filter((ticker) => !prices.has(ticker));
   const quoted2 = /* @__PURE__ */ new Set();
   for (const ticker of wanted.slice(0, MAX_REVIEW_QUOTES)) {
     const instrument = instruments.find((item) => item.ticker === ticker);
@@ -43382,7 +43570,7 @@ var STALE_CLOSE_DAYS = 10;
 var NO_SHARES2 = 1e-6;
 var round18 = (value) => Math.round(value * 100) / 100;
 var dayOf2 = (time3) => new Date(time3).toISOString().slice(0, 10);
-var emptyFlows = () => ({ boughtQuantity: 0, soldQuantity: 0, bought: 0, sold: 0, dividends: 0, boughtLocal: 0, soldLocal: 0, rated: { local: 0, account: 0 }, anchors: [], realized: 0 });
+var emptyFlows = () => ({ boughtQuantity: 0, soldQuantity: 0, bought: 0, sold: 0, dividends: 0, boughtLocal: 0, soldLocal: 0, rated: { local: 0, account: 0 }, anchors: [], realized: 0, notTrades: 0 });
 function holdingFlows(orders, dividends, from, to) {
   const flows = /* @__PURE__ */ new Map();
   const of = (ticker) => {
@@ -43402,6 +43590,10 @@ function holdingFlows(orders, dividends, from, to) {
     if (!(quantity > 0)) continue;
     const sell = (item.order?.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0;
     const entry = of(ticker);
+    if (!isTradeFill(item)) {
+      entry.notTrades += 1;
+      continue;
+    }
     const net = fill.walletImpact?.netValue;
     const local = fill.price && fill.price > 0 ? quantity * fill.price : void 0;
     if (sell) entry.soldQuantity += quantity;
@@ -43473,6 +43665,10 @@ function attributeGains(input2) {
     const quantity = position?.quantity ?? 0;
     let startQuantity = quantity - flows.boughtQuantity + flows.soldQuantity;
     if (Math.abs(startQuantity) < NO_SHARES2) startQuantity = 0;
+    if (flows.notTrades) {
+      missing.push({ ticker, reason: "quantity", problem: `${ticker} had a split or another corporate action since the start (${flows.notTrades} fill(s) that were not trades), so its shares then and now are not in the same units.` });
+      continue;
+    }
     if (startQuantity < 0) {
       missing.push({ ticker, reason: "quantity", problem: `${ticker}'s shares do not add up: ${quantity} now, ${flows.boughtQuantity} bought and ${flows.soldQuantity} sold since the start. A split, or shares moved in or out, changes the count without a fill.` });
       continue;
