@@ -1977,3 +1977,4 @@ svg { -webkit-user-select: none; user-select: none; }
 .metric.updatedMetric .autoRefreshToggle input:checked + .toggleTrack > span { transform: translateX(11px); }
 @media (pointer: coarse) { .metric.updatedMetric .autoRefreshToggle { min-height: 36px; } }
 @media (forced-colors: active) { .refreshWarn { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; color: CanvasText; } }
+.dayStale { flex-basis: 100%; color: var(--tp-amber-text); font-size: 12px; line-height: 1.35; }

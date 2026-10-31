@@ -406,8 +406,10 @@ export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   /** The dashboard reading itself again: the reader's switch, whether a dashboard read for now has shown, and how its reads went. */
   const [autoRefreshOn, setAutoRefreshOn] = useState(readAutoRefresh);
-  const [liveDashboard, setLiveDashboard] = useState(false);
-  const [autoRefreshRun, setAutoRefreshRun] = useState<{ failures: number; tried: number; problem?: string }>({ failures: 0, tried: 0 });
+  /** The dashboard that was read for now when it came (not an old chat's): only it reads itself again. */
+  const [liveFor, setLiveFor] = useState<BasePayload | null>(null);
+  /** Reads that failed in a row and why, when the last one started, and whether one is on its way. */
+  const [autoRefreshRun, setAutoRefreshRun] = useState<{ failures: number; tried: number; problem?: string; reading?: boolean }>({ failures: 0, tried: 0 });
   const [shellElement, setShellElement] = useState<HTMLDivElement | null>(null);
   /** The dashboard the last automatic read brought, told apart from one the reader asked for. */
   const quietRead = useRef<BasePayload | null>(null);
@@ -536,8 +538,9 @@ export default function App() {
     setToday((current) => { const kept = sameAccount(current); return { key, loading: true, ...(kept ? { data: kept } : {}) }; });
     const settle = (data?: PortfolioToday) => setToday((current) => {
       if (current?.key !== key) return current;
-      const kept = data ?? current.data;
-      return { key, ...(kept ? { data: kept } : { failed: true }), loading: false };
+      // Figures kept after a failed read say they are an earlier read's.
+      if (!data) return current.data ? { key, data: current.data, loading: false, stale: true } : { key, failed: true, loading: false };
+      return { key, data, loading: false };
     });
     callTool<PortfolioToday>("app_get_today", { environment: base.environment }).then(settle, () => settle());
     // Only a new dashboard (or the connection) starts a read; the day's state itself does not.
@@ -912,7 +915,10 @@ export default function App() {
           candidates: base.candidates.map(candidateForRefresh),
         }));
       } else {
-        setBase(await callTool<DashboardPayload>("app_get_dashboard", { environment: env }));
+        const next = await callTool<DashboardPayload>("app_get_dashboard", { environment: env });
+        setBase(next);
+        // A dashboard the reader read is for now, even on a device whose clock is off.
+        setLiveFor(next);
         setTab("holdings");
       }
     }, () => void refresh(env, target, scopes));
@@ -1369,17 +1375,19 @@ export default function App() {
   // The dashboard reads itself again while it is looked at (lib/auto-refresh): only one read for the account as it is
   // now (not an old chat's, until it is read again), on the holdings, with nothing under review or loading.
   const dashboardShown = base?.kind === "portfolio" && tab === "holdings" ? base : null;
+  // Judged as each dashboard comes, whichever tab is open: a saved one the host hands over later is not live.
   useEffect(() => {
-    if (dashboardShown && Date.now() - Date.parse(dashboardShown.timestamp) <= TODAY_FRESH_MS) setLiveDashboard(true);
-  }, [dashboardShown]);
+    if (base?.kind === "portfolio" && Date.now() - Date.parse(base.timestamp) <= TODAY_FRESH_MS) setLiveFor(base);
+  }, [base]);
+  const liveDashboard = Boolean(dashboardShown && liveFor === dashboardShown);
   // Any other dashboard shown (one the reader read, or another account's) starts the count of failed reads again;
   // a failed read shows none, so it never clears its own count.
   useEffect(() => {
-    if (dashboardShown && dashboardShown !== quietRead.current) setAutoRefreshRun((run) => (run.failures ? { failures: 0, tried: run.tried } : run));
+    if (dashboardShown && dashboardShown !== quietRead.current) setAutoRefreshRun((run) => (run.failures ? { ...run, failures: 0, problem: undefined } : run));
   }, [dashboardShown]);
   const shownToday = dashboardShown && today?.key === `${dashboardShown.environment}:${dashboardShown.timestamp}` ? today.data : undefined;
   useAutoRefresh(shellElement, {
-    active: Boolean(autoRefreshOn && liveDashboard && dashboardShown?.credentials[dashboardShown.environment] && app && !reviewing && status !== "loading" && !problem && autoRefreshRun.failures < MAX_FAILURES),
+    active: Boolean(autoRefreshOn && liveDashboard && dashboardShown?.credentials[dashboardShown.environment] && app && !reviewing && status !== "loading" && !problem && !autoRefreshRun.reading && autoRefreshRun.failures < MAX_FAILURES),
     delayMs: refreshDelay(shownToday, dashboardShown?.positions.length ?? 0),
     since: Math.max(dashboardShown ? Date.parse(dashboardShown.timestamp) : NaN, autoRefreshRun.tried),
     onTick: () => readDashboardAgain(),
@@ -1389,16 +1397,19 @@ export default function App() {
   async function readDashboardAgain(): Promise<void> {
     const shown = dashboardShown;
     if (!shown) return;
-    setAutoRefreshRun((run) => ({ ...run, tried: Date.now() }));
+    // One at a time: a slow read (Trading 212's client retries) holds the next until it settles.
+    setAutoRefreshRun((run) => ({ ...run, tried: Date.now(), reading: true }));
     try {
       const next = await callTool<DashboardPayload>("app_get_dashboard", { environment: shown.environment });
       quietRead.current = next;
       // Kept only if the reader is still on that dashboard: not after a switch of account, page or a manual read.
       setBase((current) => (current === shown ? next : current));
+      // Read just now, whatever this device's clock says of its time.
+      setLiveFor((current) => (current === shown ? next : current));
       setAutoRefreshRun({ failures: 0, tried: Date.now() });
     } catch (readError) {
       const { message } = problemFrom("errorTitleRefresh", readError);
-      setAutoRefreshRun((run) => ({ failures: run.failures + 1, tried: Date.now(), problem: message }));
+      setAutoRefreshRun((run) => ({ failures: run.failures + 1, tried: Date.now(), problem: message, reading: false }));
     }
   }
 
@@ -1555,7 +1566,7 @@ export default function App() {
                 {...(today && today.key === `${base.environment}:${base.timestamp}` ? { today } : {})}
                 {...(writeEnabled && connected ? { onProtectAll: () => void protectAll() } : {})}
                 {...(connected ? { onGoal: () => void selectTab("performance") } : {})}
-                {...(liveDashboard && base.credentials[base.environment] ? { auto: { on: autoRefreshOn, onChange: chooseAutoRefresh, failures: autoRefreshRun.failures, ...(autoRefreshRun.problem ? { problem: autoRefreshRun.problem } : {}) } } : {})} />
+                {...(liveFor === base && base.credentials[base.environment] ? { auto: { on: autoRefreshOn, onChange: chooseAutoRefresh, failures: autoRefreshRun.failures, ...(autoRefreshRun.problem ? { problem: autoRefreshRun.problem } : {}) } } : {})} />
             )}
             {base && isInsight(base) && tab === "holdings" && (loading
               ? <SkeletonView label={t("refreshing")} />
