@@ -35275,6 +35275,377 @@ function taxYearZone(yearStart) {
   return yearStart ? TAX_YEAR_ZONES[yearStart] : void 0;
 }
 
+// src/core/notify.ts
+var DEFAULT_NOTIFY_EVENTS = [
+  "order_submitted",
+  "order_status_unknown",
+  "order_filled",
+  "order_partly_filled",
+  "order_outcome_unknown",
+  "cancel_status_unknown",
+  "basket_submitted",
+  "plan_due",
+  "plan_auto_executed",
+  "plan_skipped",
+  "protective_sibling_cancelled",
+  "protective_attention",
+  "cancel_rejected",
+  "pie_submitted",
+  "pie_status_unknown",
+  "price_alert_triggered",
+  "account_alert_triggered",
+  "allocation_drift",
+  "daily_digest"
+];
+var URGENT_EVENTS = /* @__PURE__ */ new Set([
+  "order_status_unknown",
+  "order_outcome_unknown",
+  "cancel_status_unknown",
+  "pie_status_unknown",
+  "protective_attention",
+  "cancel_rejected"
+]);
+var NOTIFY_FORMATS = ["raw", "slack", "discord", "telegram", "ntfy", "bark"];
+var LABELS = {
+  en: {
+    order_submitted: "Order sent",
+    order_status_unknown: "Order result unclear, check Trading 212",
+    order_filled: "Order filled",
+    order_partly_filled: "Order partly filled",
+    order_closed: "Order closed",
+    order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
+    cancel_status_unknown: "Cancellation result unclear, check Trading 212",
+    basket_submitted: "Basket sent",
+    plan_due: "Investment plan is due and waits for your confirmation",
+    plan_auto_executed: "Investment plan ran on Demo",
+    plan_skipped: "Investment plan skipped",
+    protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
+    protective_attention: "Protective orders need your attention",
+    cancel_rejected: "Cancellation was rejected",
+    pie_submitted: "Pie changed",
+    pie_status_unknown: "Pie change result unclear, check Trading 212",
+    price_alert_triggered: "Price alert",
+    account_alert_triggered: "Account alert",
+    allocation_drift: "Allocation has drifted from your targets",
+    daily_digest: "Daily digest"
+  },
+  "zh-CN": {
+    order_submitted: "\u8BA2\u5355\u5DF2\u53D1\u9001",
+    order_status_unknown: "\u8BA2\u5355\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
+    order_filled: "\u8BA2\u5355\u5DF2\u6210\u4EA4",
+    order_partly_filled: "\u8BA2\u5355\u90E8\u5206\u6210\u4EA4",
+    order_closed: "\u8BA2\u5355\u5DF2\u7ED3\u675F",
+    order_outcome_unknown: "\u6709\u8BA2\u5355\u5DF2\u79BB\u5F00\u6302\u5355\u7C3F\uFF0C\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
+    cancel_status_unknown: "\u64A4\u5355\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
+    basket_submitted: "\u7BEE\u5B50\u8BA2\u5355\u5DF2\u53D1\u9001",
+    plan_due: "\u5B9A\u6295\u8BA1\u5212\u5DF2\u5230\u671F\uFF0C\u7B49\u4F60\u786E\u8BA4",
+    plan_auto_executed: "\u5B9A\u6295\u8BA1\u5212\u5DF2\u5728\u6A21\u62DF\u8D26\u6237\u6267\u884C",
+    plan_skipped: "\u5B9A\u6295\u8BA1\u5212\u5DF2\u8DF3\u8FC7",
+    protective_sibling_cancelled: "\u4FDD\u62A4\u5355\u5DF2\u6210\u4EA4\uFF0C\u53E6\u4E00\u5F20\u5DF2\u64A4\u9500",
+    protective_attention: "\u4FDD\u62A4\u5355\u9700\u8981\u4F60\u5904\u7406",
+    cancel_rejected: "\u64A4\u5355\u88AB\u62D2\u7EDD",
+    pie_submitted: "Pie \u5DF2\u4FEE\u6539",
+    pie_status_unknown: "Pie \u4FEE\u6539\u7ED3\u679C\u4E0D\u660E\uFF0C\u8BF7\u5230 Trading 212 \u67E5\u770B",
+    price_alert_triggered: "\u4EF7\u683C\u63D0\u9192",
+    account_alert_triggered: "\u8D26\u6237\u63D0\u9192",
+    allocation_drift: "\u6301\u4ED3\u914D\u7F6E\u5DF2\u504F\u79BB\u76EE\u6807",
+    daily_digest: "\u6BCF\u65E5\u6458\u8981"
+  }
+};
+var WORDS = {
+  en: {
+    env: { demo: "Demo", live: "Live" },
+    side: { buy: "Buy", sell: "Sell" },
+    shares: (count) => count,
+    filled: (count) => `filled ${count}`,
+    orders: (count) => count === 1 ? "1 order" : `${count} orders`,
+    held: (count) => count === 1 ? "1 notification during quiet hours" : `${count} notifications during quiet hours`,
+    test: "Test notification",
+    testBody: "TradePilot can reach this endpoint. Nothing was traded."
+  },
+  "zh-CN": {
+    env: { demo: "\u6A21\u62DF", live: "\u5B9E\u76D8" },
+    side: { buy: "\u4E70\u5165", sell: "\u5356\u51FA" },
+    shares: (count) => `${count} \u80A1`,
+    filled: (count) => `\u6210\u4EA4 ${count} \u80A1`,
+    orders: (count) => `${count} \u7B14\u8BA2\u5355`,
+    held: (count) => `\u9759\u9ED8\u65F6\u6BB5\u5185\u7684 ${count} \u6761\u901A\u77E5`,
+    test: "\u6D4B\u8BD5\u901A\u77E5",
+    testBody: "TradePilot \u80FD\u8FDE\u5230\u8FD9\u4E2A\u5730\u5740\u3002\u6CA1\u6709\u8FDB\u884C\u4EFB\u4F55\u4EA4\u6613\u3002"
+  }
+};
+function figures(event, locale) {
+  const words = WORDS[locale];
+  const count = (value) => new Intl.NumberFormat(locale, { maximumFractionDigits: 6 }).format(value);
+  const price = (value) => new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value);
+  const money4 = (value, currency) => {
+    try {
+      return currency ? new Intl.NumberFormat(locale, { style: "currency", currency }).format(value) : price(value);
+    } catch {
+      return `${price(value)} ${currency}`;
+    }
+  };
+  const side = event.side ? words.side[event.side] : void 0;
+  return [
+    event.ticker,
+    side && event.quantity !== void 0 ? `${side} ${words.shares(count(event.quantity))}` : void 0,
+    event.filledQuantity !== void 0 && event.filledQuantity !== event.quantity ? words.filled(count(event.filledQuantity)) : void 0,
+    event.price !== void 0 ? `@ ${price(event.price)}` : void 0,
+    // A fill's value; an alert's figures are in its own words.
+    event.value !== void 0 && event.type.startsWith("order_") ? money4(event.value, event.valueCurrency) : void 0,
+    event.legs !== void 0 ? words.orders(event.legs) : void 0
+  ].filter((part) => Boolean(part));
+}
+function notificationMessage(event, locale = "en") {
+  const label = LABELS[locale][event.type] ?? LABELS.en[event.type] ?? event.type;
+  const details = figures(event, locale);
+  const outcome = event.outcome ? event.type === "daily_digest" ? event.outcome.split(" \xB7 ") : [event.outcome] : [];
+  return {
+    title: `TradePilot \xB7 ${WORDS[locale].env[event.environment]} \xB7 ${label}`,
+    lines: [...details.length ? [details.join(" \xB7 ")] : [], ...outcome],
+    urgent: URGENT_EVENTS.has(event.type)
+  };
+}
+function notificationText(event, locale = "en") {
+  const label = LABELS[locale][event.type] ?? LABELS.en[event.type] ?? event.type;
+  const env2 = locale === "en" ? event.environment.toUpperCase() : WORDS[locale].env[event.environment];
+  return [`[TradePilot ${env2}] ${label}`, ...figures(event, locale), event.outcome].filter(Boolean).join(" \xB7 ");
+}
+var KNOWN_HOSTS = [
+  ["slack", (url2) => url2.hostname === "hooks.slack.com"],
+  ["discord", (url2) => /^(?:(?:ptb|canary)\.)?discord(?:app)?\.com$/.test(url2.hostname) && url2.pathname.startsWith("/api/webhooks/")],
+  ["telegram", (url2) => url2.hostname === "api.telegram.org"],
+  ["ntfy", (url2) => url2.hostname === "ntfy.sh"],
+  ["bark", (url2) => url2.hostname === "api.day.app"]
+];
+var ordinal = (index) => ["first", "second", "third"][index] ?? `${index + 1}th`;
+function parseNotifyTargets(raw, loopback) {
+  const entries = raw.trim().split(/[\s,]+(?=(?:[a-z]+:)?https?:\/\/)|\s+/i).map((item) => item.trim().replace(/,$/, "")).filter(Boolean);
+  return entries.map((entry, index) => {
+    const which = entries.length > 1 ? `The ${ordinal(index)} NOTIFY_WEBHOOK_URL entry` : "NOTIFY_WEBHOOK_URL";
+    const prefixed = /^([a-z]+):(https?:\/\/.+)$/i.exec(entry);
+    const named = prefixed?.[1]?.toLowerCase();
+    if (named && !NOTIFY_FORMATS.includes(named)) throw new Error(`${which} starts with an unknown format; use one of ${NOTIFY_FORMATS.join(", ")}`);
+    const address = prefixed ? prefixed[2] : entry;
+    if (address.slice(address.indexOf("://") + 3).includes("://")) throw new Error(`${which} holds a second address; separate addresses with a space or a comma`);
+    let url2;
+    try {
+      url2 = new URL(address);
+    } catch {
+      throw new Error(`${which} is not a URL`);
+    }
+    if (url2.protocol !== "https:" && !(loopback(url2.hostname) && url2.protocol === "http:")) throw new Error(`${which} must use HTTPS`);
+    if (url2.hash) throw new Error(`${which} must not have a fragment`);
+    if (url2.username || url2.password) throw new Error(`${which} must not hold a user name or password; put a token in the path or query`);
+    const format = named ?? KNOWN_HOSTS.find(([, test]) => test(url2))?.[0] ?? "raw";
+    if (format === "telegram" && !/\/bot[^/]+\/sendMessage$/.test(url2.pathname)) throw new Error(`${which} for Telegram must be https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>`);
+    if (format === "telegram" && !url2.searchParams.get("chat_id")) throw new Error(`${which} for Telegram needs ?chat_id=<chat>`);
+    if (format === "ntfy" && url2.pathname.split("/").filter(Boolean).length === 0) throw new Error(`${which} for ntfy must name a topic, such as https://ntfy.sh/my-topic`);
+    return { url: url2.toString(), format };
+  });
+}
+function parseNotifyLocale(raw) {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (!value || value === "en") return "en";
+  if (["zh", "zh-cn", "zh-hans", "zh_cn"].includes(value)) return "zh-CN";
+  throw new Error("NOTIFY_LOCALE must be en or zh-CN");
+}
+function parseQuietHours(raw) {
+  const value = (raw ?? "").trim();
+  if (!value) return void 0;
+  const match = /^(\d{1,2})(?::00)?\s*-\s*(\d{1,2})(?::00)?$/.exec(value);
+  const start = Number(match?.[1]), end = Number(match?.[2]);
+  if (!match || start > 23 || end > 23 || start === end) throw new Error("NOTIFY_QUIET_HOURS must be two different whole hours from 0 to 23, such as 22-07");
+  return { start, end };
+}
+function inQuietHours(quiet, instant, timeZone2) {
+  const hour = localHour(instant, timeZone2);
+  return quiet.start < quiet.end ? hour >= quiet.start && hour < quiet.end : hour >= quiet.start || hour < quiet.end;
+}
+function quietHoursEnd(quiet, instant, timeZone2) {
+  let day2 = localDay(instant, timeZone2);
+  for (let tries = 0; tries < 3; tries++) {
+    const end = localHourStart(day2, quiet.end, timeZone2);
+    if (end > instant) return end;
+    const [year, month, date5] = day2.split("-").map(Number);
+    day2 = new Date(Date.UTC(year, month - 1, date5 + 1)).toISOString().slice(0, 10);
+  }
+  return instant + 36e5;
+}
+var escapeHtml = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+var escapeDiscord = (text) => text.replace(/([\\*_~`|])/g, "\\$1").replace(/^([#>-])/gm, "\\$1");
+var cut = (text, length) => text.length > length ? `${text.slice(0, length - 1)}\u2026` : text;
+function deliveryFor(target, message, text, events) {
+  const json3 = (url2, value) => ({ url: url2, body: JSON.stringify(value), headers: { "Content-Type": "application/json" } });
+  const body = message.lines.join("\n");
+  switch (target.format) {
+    case "slack":
+      return json3(target.url, {
+        text: cut(text, 3e3),
+        blocks: [
+          { type: "header", text: { type: "plain_text", text: cut(message.title, 150) } },
+          ...body ? [{ type: "section", text: { type: "plain_text", text: cut(body, 3e3) } }] : []
+        ]
+      });
+    case "discord":
+      return json3(target.url, { content: cut(`**${escapeDiscord(message.title)}**${body ? `
+${escapeDiscord(body)}` : ""}`, 2e3), allowed_mentions: { parse: [] } });
+    case "telegram": {
+      const url2 = new URL(target.url);
+      const params = Object.fromEntries(url2.searchParams);
+      const title = cut(message.title, 256);
+      const lines = body ? cut(body, 4096 - title.length - 1) : "";
+      return json3(`${url2.origin}${url2.pathname}`, { ...params, text: `<b>${escapeHtml(title)}</b>${lines ? `
+${escapeHtml(lines)}` : ""}`, parse_mode: "HTML", disable_web_page_preview: true });
+    }
+    case "ntfy": {
+      const url2 = new URL(target.url);
+      const parts = url2.pathname.split("/").filter(Boolean);
+      const topic = parts.pop();
+      return json3(`${url2.origin}/${parts.map((part) => `${part}/`).join("")}${url2.search}`, { topic, title: message.title, message: body || message.title, priority: message.urgent ? 4 : 3 });
+    }
+    case "bark":
+      return json3(target.url, { title: message.title, body: body || message.title, group: "TradePilot", level: message.urgent ? "timeSensitive" : "active" });
+    default:
+      return json3(target.url, events.length === 1 ? { text, content: text, event: events[0] } : { text, content: text, events });
+  }
+}
+async function signature(secret, body) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac3 = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+  return [...mac3].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function digestOf(text) {
+  const hash2 = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...hash2].slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+var PREFIX = "notify-outbox:";
+var RETRY_DELAYS_MS = [6e4, 5 * 6e4, 15 * 6e4, 60 * 6e4, 3 * 60 * 6e4];
+var KEEP_MS = 30 * 60 * 6e4;
+var MAX_PENDING = 200;
+function failureReason(error62) {
+  const name = error62 instanceof Error ? error62.name : "";
+  if (name === "TimeoutError" || name === "AbortError") return "no answer within 5 seconds";
+  return "could not connect";
+}
+var Notifications = class {
+  constructor(deps) {
+    this.deps = deps;
+    this.wanted = new Set(deps.config.notifyEvents.length ? deps.config.notifyEvents : DEFAULT_NOTIFY_EVENTS);
+  }
+  deps;
+  wanted;
+  keys;
+  get targets() {
+    return this.deps.config.notifyTargets;
+  }
+  now() {
+    return this.deps.now?.() ?? Date.now();
+  }
+  get zone() {
+    return this.deps.config.timeZone ?? "UTC";
+  }
+  /** Each endpoint's name in the store: a hash, so a token in its URL is never written there. */
+  targetKeys() {
+    return this.keys ??= Promise.all(this.targets.map((target) => digestOf(`${target.format}:${target.url}`)));
+  }
+  /** One request to one endpoint; true when it answered 2xx. */
+  async deliver(target, message, text, events) {
+    const request = deliveryFor(target, message, text, events);
+    if (this.deps.config.notifyWebhookSecret) request.headers["X-TradePilot-Signature"] = `sha256=${await signature(this.deps.config.notifyWebhookSecret, request.body)}`;
+    try {
+      const response = await this.deps.fetcher(request.url, { method: "POST", headers: request.headers, body: request.body, signal: AbortSignal.timeout(5e3) });
+      if (!response.ok) console.error(JSON.stringify({ message: "TradePilot notification rejected", format: target.format, host: new URL(target.url).hostname, status: response.status }));
+      return { ok: response.ok, status: response.status };
+    } catch (error62) {
+      const reason = failureReason(error62);
+      console.error(JSON.stringify({ message: "TradePilot notification failed", format: target.format, host: new URL(target.url).hostname, error: reason }));
+      return { ok: false, error: reason };
+    }
+  }
+  async keep(item) {
+    if (!this.deps.store) return;
+    await this.deps.store.put(`${PREFIX}${item.event.id}:${item.target}`, item, this.now() + KEEP_MS);
+  }
+  send = async (event, options) => {
+    if (!options?.force && !this.wanted.has(event.type)) return false;
+    const keys = await this.targetKeys();
+    const now = this.now();
+    const quiet = this.deps.config.notifyQuietHours;
+    if (quiet && this.deps.store && !URGENT_EVENTS.has(event.type) && event.type !== "daily_digest" && inQuietHours(quiet, now, this.zone)) {
+      const dueAt = quietHoursEnd(quiet, now, this.zone);
+      try {
+        await Promise.all(keys.map((target) => this.keep({ event, target, attempts: 0, dueAt, held: true })));
+        return true;
+      } catch (error62) {
+        console.error(JSON.stringify({ message: "TradePilot notification could not be held; sending it now", error: error62 instanceof Error ? error62.message : String(error62) }));
+      }
+    }
+    const message = notificationMessage(event, this.deps.config.notifyLocale);
+    const text = notificationText(event, this.deps.config.notifyLocale);
+    const results = await Promise.all(this.targets.map((target) => this.deliver(target, message, text, [event])));
+    const accepted = results.some((result2) => result2.ok);
+    if (event.type !== "daily_digest" || accepted) {
+      await Promise.all(results.map((result2, index) => result2.ok ? void 0 : this.keep({ event, target: keys[index], attempts: 1, dueAt: now + RETRY_DELAYS_MS[0] }).catch(() => {
+      })));
+    }
+    return accepted;
+  };
+  /** Deliveries now due: held ones in one message per endpoint, failed ones each again. Run from the scheduler. */
+  async flush() {
+    const store2 = this.deps.store;
+    if (!store2) return [];
+    const now = this.now();
+    const keys = await this.targetKeys();
+    const entries = await store2.list(PREFIX);
+    const stale = entries.filter((item) => !keys.includes(item.value.target)).concat([...entries].sort((a, b) => b.value.event.timestamp.localeCompare(a.value.event.timestamp)).slice(MAX_PENDING));
+    await Promise.all(stale.map((item) => store2.delete(item.key)));
+    const due = entries.filter((item) => item.value.dueAt <= now && !stale.includes(item));
+    const delivered = [];
+    for (const [index, target] of this.targets.entries()) {
+      const mine = due.filter((item) => item.value.target === keys[index]);
+      const consumed = await Promise.all(mine.map(async (item) => ({ key: item.key, value: await store2.consume(item.key) })));
+      const notYet = consumed.filter((item) => item.value && item.value.dueAt > now);
+      await Promise.all(notYet.map((item) => this.keep(item.value).catch(() => {
+      })));
+      const taken = consumed.map((item) => item.value).filter((item) => Boolean(item) && item.dueAt <= now);
+      const held = taken.filter((item) => item.held).sort((a, b) => a.event.timestamp.localeCompare(b.event.timestamp));
+      const batches = [...held.length ? [held] : [], ...taken.filter((item) => !item.held).map((item) => [item])];
+      for (const batch of batches) {
+        const events = batch.map((item) => item.event);
+        const locale = this.deps.config.notifyLocale;
+        const message = events.length === 1 && !batch[0].held ? notificationMessage(events[0], locale) : { title: `TradePilot \xB7 ${WORDS[locale].held(events.length)}`, lines: events.map((event) => notificationText(event, locale)), urgent: false };
+        const text = events.length === 1 && !batch[0].held ? notificationText(events[0], locale) : [message.title, ...message.lines].join("\n");
+        const result2 = await this.deliver(target, message, text, events);
+        if (result2.ok) {
+          delivered.push(...events.map((event) => event.id));
+          continue;
+        }
+        for (const item of batch) {
+          const attempts = item.attempts + 1;
+          if (attempts > RETRY_DELAYS_MS.length) {
+            console.error(JSON.stringify({ message: "TradePilot notification given up", type: item.event.type, format: target.format, attempts: item.attempts }));
+            continue;
+          }
+          await this.keep({ ...item, attempts, dueAt: now + RETRY_DELAYS_MS[attempts - 1] }).catch(() => {
+          });
+        }
+      }
+    }
+    return delivered;
+  }
+  /** One test message to each endpoint, sent at once whatever the hour, with what each answered. Never held or retried. */
+  async test() {
+    const words = WORDS[this.deps.config.notifyLocale];
+    const message = { title: `TradePilot \xB7 ${words.test}`, lines: [words.testBody], urgent: false };
+    return Promise.all(this.targets.map(async (target) => ({ format: target.format, host: new URL(target.url).hostname, ...await this.deliver(target, message, `${message.title} \xB7 ${words.testBody}`, []) })));
+  }
+};
+function createNotifications(config3, store2, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
+  if (!config3.notifyTargets.length) return void 0;
+  return new Notifications({ config: config3, ...store2 ? { store: store2 } : {}, fetcher });
+}
+
 // src/core/config.ts
 function isLoopbackHost(hostname3) {
   return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(hostname3.toLowerCase());
@@ -35337,13 +35708,6 @@ function createPolicy(env2) {
     demo: applyTo === "demo" || applyTo === "both" ? configured : relaxed,
     live: applyTo === "live" || applyTo === "both" ? configured : relaxed
   };
-}
-function webhookUrl(env2) {
-  const raw = (env2.NOTIFY_WEBHOOK_URL ?? "").trim();
-  if (!raw) return "";
-  const url2 = new URL(raw);
-  if (url2.protocol !== "https:" && !(isLoopbackHost(url2.hostname) && url2.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
-  return url2.toString();
 }
 function timeZone(env2) {
   const raw = (env2.TIMEZONE ?? "").trim();
@@ -35408,7 +35772,9 @@ function createConfig(env2, requestOrigin) {
     demoAutomationEnabled: flag(env2, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env2.PROTECTIVE_OCO ? flag(env2, "PROTECTIVE_OCO") : true,
     orderWatch: env2.ORDER_WATCH ? flag(env2, "ORDER_WATCH") : true,
-    notifyWebhookUrl: webhookUrl(env2),
+    notifyTargets: parseNotifyTargets(env2.NOTIFY_WEBHOOK_URL ?? "", isLoopbackHost),
+    notifyLocale: parseNotifyLocale(env2.NOTIFY_LOCALE),
+    ...parseQuietHours(env2.NOTIFY_QUIET_HOURS) ? { notifyQuietHours: parseQuietHours(env2.NOTIFY_QUIET_HOURS) } : {},
     notifyWebhookSecret: env2.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env2, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
     quoteProvider: sampleData ? "none" : quoteProvider(env2),
@@ -35564,7 +35930,8 @@ var TOOL_OUTPUT = {
   review_trading212_order: payload("order_draft", "draft:o resolvedInstrument:o credentials:o writeEnabled:b"),
   review_trading212_order_intent: payload("order_draft", "draft:o resolvedInstrument:o resolution:o note:s credentials:o writeEnabled:b"),
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
-  show_daily_trade_plan: payload("trade_plan", plan)
+  show_daily_trade_plan: payload("trade_plan", plan),
+  test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s")
 };
 
 // src/core/skill-prompts.ts
@@ -35803,18 +36170,18 @@ var MAX_REVIEW_QUOTES = 8;
 function journalTagFilter(value) {
   return value === void 0 ? void 0 : journalTags([value])?.[0];
 }
-function cut(value, max) {
+function cut2(value, max) {
   return value.length <= max ? value : Array.from(value).slice(0, max).join("");
 }
 function journalText(value) {
-  const text = value === void 0 ? "" : cut(value.trim(), MAX_JOURNAL_TEXT).trim();
+  const text = value === void 0 ? "" : cut2(value.trim(), MAX_JOURNAL_TEXT).trim();
   return text ? text : void 0;
 }
 function journalTags(values) {
   const seen = /* @__PURE__ */ new Set();
   const tags = [];
   for (const value of values ?? []) {
-    const tag = cut(value.trim().replace(/^#+/, "").trim(), MAX_JOURNAL_TAG).trim();
+    const tag = cut2(value.trim().replace(/^#+/, "").trim(), MAX_JOURNAL_TAG).trim();
     if (!tag || seen.has(tag.toLowerCase())) continue;
     seen.add(tag.toLowerCase());
     tags.push(tag);
@@ -38908,10 +39275,10 @@ var HistoryLedgers = class {
     let floor = await this.floor(prefix);
     if (capped) {
       const placed = items.map(times.place).filter(Number.isFinite).sort((a, b) => b - a);
-      const cut2 = placed[Math.min(TRIM_TO, placed.length) - 1];
-      if (cut2 !== void 0) {
-        items = items.filter((item) => !(times.place(item) < cut2) || !(times.time(item) < cut2));
-        floor = Math.max(floor ?? cut2, cut2);
+      const cut3 = placed[Math.min(TRIM_TO, placed.length) - 1];
+      if (cut3 !== void 0) {
+        items = items.filter((item) => !(times.place(item) < cut3) || !(times.time(item) < cut3));
+        floor = Math.max(floor ?? cut3, cut3);
         await this.store.put(`${prefix}floor`, floor);
       }
     }
@@ -40607,7 +40974,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.79.0"
+  version: "2.80.0"
 };
 
 // src/shared/holding-risk.ts
@@ -42194,7 +42561,7 @@ async function dayMove(deps, context, input2) {
     }
   }
   const previous = previousClose.close;
-  const figures = dayFigures({
+  const figures2 = dayFigures({
     quantity: identity.quantity,
     ...price ? { price } : {},
     previous,
@@ -42202,19 +42569,19 @@ async function dayMove(deps, context, input2) {
   });
   const owned = identity.quantity > 0 || own2.length > 0;
   const inAccount = (amount2) => accountCurrency && currency ? toAccountCurrency(amount2, currency, accountCurrency, rates) : void 0;
-  const profitLoss = !owned || figures.profitLoss === void 0 ? void 0 : inAccount(figures.profitLoss);
-  const base = owned ? inAccount(figures.base) : void 0;
+  const profitLoss = !owned || figures2.profitLoss === void 0 ? void 0 : inAccount(figures2.profitLoss);
+  const base = owned ? inAccount(figures2.base) : void 0;
   const value = !owned ? void 0 : identity.quantity === 0 ? 0 : price ? inAccount(identity.quantity * price) : void 0;
   return {
     ...identity,
     previousClose,
-    ...figures.change !== void 0 ? { change: figures.change } : {},
+    ...figures2.change !== void 0 ? { change: figures2.change } : {},
     ...profitLoss !== void 0 ? { profitLoss: round15(profitLoss, 2) } : {},
     ...base !== void 0 ? { base: round15(base, 2) } : {},
     ...value !== void 0 ? { value: round15(value, 2) } : {},
-    ...figures.bought ? { bought: figures.bought } : {},
-    ...figures.sold ? { sold: figures.sold } : {},
-    ...owned && figures.profitLoss !== void 0 && profitLoss === void 0 ? { missing: "fx", problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` } : {}
+    ...figures2.bought ? { bought: figures2.bought } : {},
+    ...figures2.sold ? { sold: figures2.sold } : {},
+    ...owned && figures2.profitLoss !== void 0 && profitLoss === void 0 ? { missing: "fx", problem: `No exchange rate from ${currency ?? "the instrument's currency"} to ${accountCurrency ?? "the account currency"}: no holding in it is left to imply one.` } : {}
   };
 }
 async function daySessionOf(deps, environment, instrument, quoted2, now = /* @__PURE__ */ new Date()) {
@@ -42810,7 +43177,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
       }
     }
     const day2 = priceSource === "broker" || !priceAt ? session(instrument).day : priceAt.slice(0, 10);
-    const figures = price && points3?.length ? watchFigures({ price, day: day2, points: points3 }) : { changes: {} };
+    const figures2 = price && points3?.length ? watchFigures({ price, day: day2, points: points3 }) : { changes: {} };
     const ratio2 = price && item.addedPrice ? price / item.addedPrice : void 0;
     return {
       ticker: item.ticker,
@@ -42824,7 +43191,7 @@ async function watchlistView(deps, environment, now = /* @__PURE__ */ new Date()
       ...position ? { held: { quantity: position.quantity, averagePrice: position.averagePricePaid } } : {},
       ...price ? { price, priceSource, priceAt } : {},
       ...ratio2 !== void 0 && ratio2 < 10 && ratio2 > 0.1 ? { sinceAdded: round17(ratio2 - 1) } : {},
-      ...figures,
+      ...figures2,
       levels: levels.map((level) => price ? { ...level, distance: round17(level.price / price - 1) } : level).sort((a, b) => Math.abs(a.distance ?? Infinity) - Math.abs(b.distance ?? Infinity)),
       ...missing ? { pricesMissing: missing, pricesProblem: problem } : {}
     };
@@ -43356,7 +43723,7 @@ var registerAppTool = ((server2, name, config3, handler) => {
   const outputSchema = TOOL_OUTPUT[name];
   return j(server2, name, outputSchema ? { ...config3, outputSchema } : config3, handler);
 });
-function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
+function createMcpServer({ trading, insights, automation: automation3, alerts, accountAlerts, journal, targets: targetAllocations, values, pies: pies3, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, automationOverview, notifications }, config3, widgetHtml2, scopes2 = /* @__PURE__ */ new Set(["trade:read", "trade:write"])) {
   const canWrite = scopes2.has("trade:write");
   const environmentWithDefault = environmentEnum.default(config3.defaultTradingEnvironment);
   const instructions = [
@@ -44096,7 +44463,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         const saved = await targetAllocations.get(environment);
         if (!saved) return result({ kind: "target_allocation", environment, timestamp: (/* @__PURE__ */ new Date()).toISOString() }, `No ${environment.toUpperCase()} targets are saved.`);
         const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
-        const webhookHint = config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
+        const webhookHint = config3.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         let analysis;
         try {
           let covariance;
@@ -44136,7 +44503,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             defaultEnvironment: config3.defaultTradingEnvironment,
             alerts: list2,
             accountAlerts: onAccount,
-            webhook: !!config3.notifyWebhookUrl,
+            webhook: config3.notifyTargets.length > 0,
             timestamp: (/* @__PURE__ */ new Date()).toISOString()
           },
           `${list2.length} price alert(s), ${list2.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`
@@ -44163,6 +44530,36 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
           const current = draft.action === "create" || !draft.pieId ? void 0 : await pies3.getPie(draft.environment, draft.pieId);
           const data = { kind: "pie_change_draft", draft, ...current ? { current } : {}, credentials: credentialStatus(config3), writeEnabled: true };
           return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
+        } catch (error62) {
+          return toolError(error62);
+        }
+      }
+    );
+  }
+  if (canWrite) {
+    registerAppTool(
+      server2,
+      "test_notifications",
+      {
+        title: "Test Notifications",
+        description: "Send one test message to each notification endpoint set in NOTIFY_WEBHOOK_URL (Slack, Discord, Telegram, ntfy, Bark or plain JSON, each laid out for its service, in NOTIFY_LOCALE's language), now, even in quiet hours, and say what each answered. It names only each endpoint's kind and host, never its address, which can hold a token. Trades nothing and changes nothing.",
+        inputSchema: external_exports.object({}),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        _meta: {}
+      },
+      async () => {
+        try {
+          const results = notifications ? await notifications.test() : [];
+          const quiet = config3.notifyQuietHours;
+          const data = {
+            kind: "notification_test",
+            results,
+            locale: config3.notifyLocale,
+            quietHours: quiet ? { ...quiet, timeZone: config3.timeZone ?? "UTC" } : null,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          const text = !results.length ? "No notification endpoint is set: set NOTIFY_WEBHOOK_URL to one or more HTTPS URLs." : results.map((item) => `${item.format} (${item.host}): ${item.ok ? "delivered" : `failed${item.status ? ` with HTTP ${item.status}` : ""}${item.error ? `: ${item.error}` : ""}`}`).join("\n");
+          return result(data, text);
         } catch (error62) {
           return toolError(error62);
         }
@@ -44200,7 +44597,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             ...input2.percent === void 0 ? {} : { percent: input2.percent },
             ...input2.note ? { note: input2.note } : {}
           });
-          return result({ kind: "price_alert", alert: alert2 }, `Saved alert ${alert2.id} on ${alert2.ticker}.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          return result({ kind: "price_alert", alert: alert2 }, `Saved alert ${alert2.id} on ${alert2.ticker}.${config3.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
         }
         if (!input2.alertId) return toolError(new Error("alertId is required"));
         if (input2.action === "delete") {
@@ -44243,7 +44640,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             ...input2.percent === void 0 ? {} : { percent: input2.percent },
             ...input2.note ? { note: input2.note } : {}
           });
-          return result({ kind: "account_alert", alert: alert2 }, `Saved account alert ${alert2.id}.${config3.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          return result({ kind: "account_alert", alert: alert2 }, `Saved account alert ${alert2.id}.${config3.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
         }
         if (!input2.alertId) return toolError(new Error("alertId is required"));
         if (input2.action === "delete") {
@@ -45578,86 +45975,6 @@ var DailyDigest = class {
   }
 };
 
-// src/core/notify.ts
-var DEFAULT_NOTIFY_EVENTS = [
-  "order_submitted",
-  "order_status_unknown",
-  "order_filled",
-  "order_partly_filled",
-  "order_outcome_unknown",
-  "cancel_status_unknown",
-  "basket_submitted",
-  "plan_due",
-  "plan_auto_executed",
-  "plan_skipped",
-  "protective_sibling_cancelled",
-  "protective_attention",
-  "cancel_rejected",
-  "pie_submitted",
-  "pie_status_unknown",
-  "price_alert_triggered",
-  "account_alert_triggered",
-  "allocation_drift",
-  "daily_digest"
-];
-var LABELS = {
-  order_submitted: "Order sent",
-  order_status_unknown: "Order result unclear, check Trading 212",
-  order_filled: "Order filled",
-  order_partly_filled: "Order partly filled",
-  order_closed: "Order closed",
-  order_outcome_unknown: "An order left the order book and how it ended is unclear, check Trading 212",
-  cancel_status_unknown: "Cancellation result unclear, check Trading 212",
-  basket_submitted: "Basket sent",
-  plan_due: "Investment plan is due and waits for your confirmation",
-  plan_auto_executed: "Investment plan ran on Demo",
-  plan_skipped: "Investment plan skipped",
-  protective_sibling_cancelled: "Protective order filled; the other one was cancelled",
-  protective_attention: "Protective orders need your attention",
-  cancel_rejected: "Cancellation was rejected",
-  pie_submitted: "Pie changed",
-  pie_status_unknown: "Pie change result unclear, check Trading 212",
-  price_alert_triggered: "Price alert",
-  account_alert_triggered: "Account alert",
-  allocation_drift: "Allocation has drifted from your targets",
-  daily_digest: "Daily digest"
-};
-function notificationText(event) {
-  const parts = [
-    `[TradePilot ${event.environment.toUpperCase()}] ${LABELS[event.type] ?? event.type}`,
-    event.ticker,
-    event.side && event.quantity !== void 0 ? `${event.side} ${event.quantity}` : void 0,
-    event.price !== void 0 ? `@ ${event.price}` : void 0,
-    event.legs !== void 0 ? `${event.legs} order(s)` : void 0,
-    event.outcome
-  ];
-  return parts.filter(Boolean).join(" \xB7 ");
-}
-async function signature(secret, body) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac3 = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
-  return [...mac3].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-function createNotifier(config3, fetcher = (input2, init) => globalThis.fetch(input2, init)) {
-  if (!config3.notifyWebhookUrl) return void 0;
-  const wanted = new Set(config3.notifyEvents.length ? config3.notifyEvents : DEFAULT_NOTIFY_EVENTS);
-  return async (event, options) => {
-    if (!options?.force && !wanted.has(event.type)) return false;
-    const text = notificationText(event);
-    const body = JSON.stringify({ text, content: text, event });
-    const headers = { "Content-Type": "application/json" };
-    if (config3.notifyWebhookSecret) headers["X-TradePilot-Signature"] = `sha256=${await signature(config3.notifyWebhookSecret, body)}`;
-    try {
-      const response = await fetcher(config3.notifyWebhookUrl, { method: "POST", headers, body, signal: AbortSignal.timeout(5e3) });
-      if (!response.ok) console.error(JSON.stringify({ message: "TradePilot webhook rejected", status: response.status }));
-      return response.ok;
-    } catch (error62) {
-      console.error(JSON.stringify({ message: "TradePilot webhook failed", error: error62 instanceof Error ? error62.message : String(error62) }));
-      return false;
-    }
-  };
-}
-
 // src/core/protective-links.ts
 var LINK_TTL_MS2 = 400 * 24 * 60 * 60 * 1e3;
 var fullyFilled2 = (outcome) => !!outcome && (/FILLED/.test(outcome.status) && !/UNFILLED|PARTIAL/.test(outcome.status) || outcome.quantity > 0 && outcome.filledQuantity >= outcome.quantity * (1 - 1e-6));
@@ -45750,7 +46067,7 @@ var ProtectiveLinks = class {
 
 // src/core/value-history.ts
 var HOUR_MS2 = 36e5;
-var KEEP_MS = 6 * 366 * 864e5;
+var KEEP_MS2 = 6 * 366 * 864e5;
 var monthKey = (series, date5) => `value-history:${series}:${date5.slice(0, 7)}`;
 var round21 = (value) => Math.round(value * 100) / 100;
 var DATE_ONLY2 = /^\d{4}-\d{2}-\d{2}$/;
@@ -45801,7 +46118,7 @@ var ValueHistory = class {
     const key = monthKey(this.series(environment), point.date);
     const month = (await this.deps.store.get(key) ?? []).filter((item) => item.date !== point.date);
     const points3 = [...month, point].sort((a, b) => a.date.localeCompare(b.date));
-    await this.deps.store.put(key, points3, Date.parse(point.at) + KEEP_MS);
+    await this.deps.store.put(key, points3, Date.parse(point.at) + KEEP_MS2);
   }
   /**
    * Recorded days from `from` to `to` (inclusive), oldest first. A date bound compares whole days; a
@@ -45822,7 +46139,8 @@ var processSampleBroker;
 function createServices(input2) {
   const sampleFetcher = () => input2.fetcher ? createSampleBroker(input2.fetcher) : processSampleBroker ??= createSampleBroker();
   const deps = input2.config.sampleData ? { ...input2, fetcher: sampleFetcher() } : input2;
-  const notify = createNotifier(deps.config, deps.fetcher);
+  const notifications = createNotifications(deps.config, deps.store, deps.fetcher);
+  const notify = notifications?.send;
   const quotes = deps.config.sampleData ? createSampleQuotes() : createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
     ...deps,
@@ -45902,7 +46220,8 @@ function createServices(input2) {
     alerts: await stage("alerts", () => alerts.check()),
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
-    digest: await stage("digest", () => digest2.run())
+    digest: await stage("digest", () => digest2.run()),
+    notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([]))
   });
   let running;
   const runScheduled = () => running ??= tick2().finally(() => {
@@ -45948,7 +46267,14 @@ function createServices(input2) {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,
         orderWatch: deps.config.orderWatch,
-        webhook: !!deps.config.notifyWebhookUrl,
+        webhook: deps.config.notifyTargets.length > 0,
+        ...deps.config.notifyTargets.length ? {
+          notifications: {
+            formats: deps.config.notifyTargets.map((target) => target.format),
+            locale: deps.config.notifyLocale,
+            ...deps.config.notifyQuietHours ? { quietHours: deps.config.notifyQuietHours } : {}
+          }
+        } : {},
         digestHour: deps.config.digest?.hour ?? null,
         ...deps.config.digest ? { digestTimeZone: deps.config.digest.timeZone } : {},
         ...deps.config.timeZone ? { timeZone: deps.config.timeZone } : {},
@@ -45958,7 +46284,7 @@ function createServices(input2) {
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     };
   };
-  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest: digest2, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
+  return { trading, insights, automation: automation3, links, orders, values, alerts, accountAlerts, journal, targets, pies: pies3, digest: digest2, notifications, priceHistory, watchlist: watchlist2, schedules, today, closes: closes2, runScheduled, automationOverview };
 }
 
 // src/adapters/node/file-state-store.ts

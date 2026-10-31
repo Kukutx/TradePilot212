@@ -1,7 +1,7 @@
 {
   "name": "tradepilot212",
   "displayName": "TradePilot 212",
-  "version": "2.79.0",
+  "version": "2.80.0",
   "description": "Trading 212 portfolio analytics, pies, rebalancing, protective orders, investment plans, price alerts, and human-confirmed order baskets over a local MCP server.",
   "author": {
     "name": "Kukutx",
@@ -83,8 +83,18 @@
     "notify_webhook_url": {
       "type": "string",
       "title": "Notification webhook",
-      "description": "Optional HTTPS webhook (Slack, Discord or your own) that receives due plans, fills and price alerts while the plugin is running.",
+      "description": "Optional HTTPS address, or several separated by spaces (Slack, Discord, Telegram, ntfy, Bark or your own), that receives due plans, fills and price alerts while the plugin is running.",
       "default": ""
+    },
+    "notify_locale": {
+      "type": "string",
+      "title": "Notification language",
+      "description": "The language notifications are written in.",
+      "options": [
+        "en",
+        "zh-CN"
+      ],
+      "default": "en"
     },
     "quote_provider": {
       "type": "string",

@@ -37,10 +37,12 @@ const policyScope = (process.env.POLICY_APPLY_TO || "live").trim().toLowerCase()
 result("POLICY_APPLY_TO", ["live", "demo", "both", "none"].includes(policyScope), `policy rules bind ${policyScope}`);
 const positionCap = Number(process.env.POLICY_MAX_POSITION_WEIGHT || "0.25");
 result("POLICY_MAX_POSITION_WEIGHT", Number.isFinite(positionCap) && positionCap >= 0 && positionCap <= 1, String(positionCap));
-const webhook = (process.env.NOTIFY_WEBHOOK_URL ?? "").trim();
+const webhooks = (process.env.NOTIFY_WEBHOOK_URL ?? "").trim().split(/\s+/).filter(Boolean);
 let webhookOk = true;
-try { if (webhook) webhookOk = new URL(webhook).protocol === "https:"; } catch { webhookOk = false; }
-result("NOTIFY_WEBHOOK_URL", webhookOk, webhook ? (webhookOk ? "notifications on" : "must be an HTTPS URL") : "off (activity log only)");
+for (const entry of webhooks) {
+  try { webhookOk &&= new URL(entry.replace(/^(?:slack|discord|telegram|ntfy|bark|raw):(?=https?:)/i, "")).protocol === "https:"; } catch { webhookOk = false; }
+}
+result("NOTIFY_WEBHOOK_URL", webhookOk, webhooks.length ? (webhookOk ? `notifications on (${webhooks.length} endpoint${webhooks.length === 1 ? "" : "s"})` : "each entry must be an HTTPS URL") : "off (activity log only)");
 const quoteSource = (process.env.QUOTE_PROVIDER || "stooq").trim().toLowerCase();
 const quoteKeyed = ["finnhub", "twelvedata", "alphavantage"].includes(quoteSource);
 result("QUOTE_PROVIDER", ["stooq", "none"].includes(quoteSource) || (quoteKeyed && Boolean(process.env.QUOTE_API_KEY)),

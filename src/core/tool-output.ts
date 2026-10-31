@@ -120,4 +120,5 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   review_trading212_order_intent: payload("order_draft", "draft:o resolvedInstrument:o resolution:o note:s credentials:o writeEnabled:b"),
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
   show_daily_trade_plan: payload("trade_plan", plan),
+  test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s"),
 };

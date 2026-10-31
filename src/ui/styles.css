@@ -1830,3 +1830,11 @@ strong.historyAmount { flex: none; font-size: 13px; }
 :root[data-theme="dark"] .tipBubble { background: #f4f4f5; color: #1c1d20; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
 @media (prefers-reduced-motion: reduce) { .tipBubble { transition: none; } }
 @media (forced-colors: active) { .tipBubble { border: 1px solid CanvasText; } }
+
+/* ---- Notification test (2.80) ---- */
+.notifyTest { display: grid; gap: 8px; justify-items: start; margin-top: 12px; }
+.notifyResults { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.notifyResults li { display: flex; align-items: center; gap: 6px; color: var(--tp-text); }
+.notifyResults li svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.notifyResults li.ok svg { color: var(--tp-green); }
+.notifyResults li.failed svg { color: var(--tp-red); }

@@ -131,7 +131,7 @@ src/
 
 `ValueHistory`（`value-history.ts`）在定时检查中排在订单跟踪之后。每个环境大约每小时一次，它只读取账户概要（`TradingService.accountSummary`），把当天的数据点更新写入 `value-history:<env>:<YYYY-MM>`。每月一个键，保证每个存储值都远低于 Durable Object 的单值上限。`get_portfolio_performance` 用 `points()` 读取时间范围内的数据点。
 
-`notify.ts` 根据 `NOTIFY_WEBHOOK_URL` 构建一个可选的 webhook 发送器。`TradingService.recordActivity` 会把每个事件交给它；发送器按类型过滤，设置了密钥时对消息体签名，发送失败时静默忽略。
+`notify.ts` 根据 `NOTIFY_WEBHOOK_URL`（一个或多个地址，各有自己的格式）构建一个可选的 `Notifications`。`TradingService.recordActivity` 会把每个事件交给它的 `send`；它按类型过滤，用 `NOTIFY_LOCALE` 的语言书写，按每个地址排版，设置了密钥时对每个消息体签名，并且从不抛出错误。某个地址没有接收的通知，以及因 `NOTIFY_QUIET_HOURS` 暂存的通知，保存在 `notify-outbox:<事件>:<地址哈希>` 下；定时任务的最后一步 `flush()` 发送到期的通知（暂存的按地址合成一条），失败的留到下一次等待。每条在发送前先用 `consume` 取出，所以两次定时任务不会重复发送。存储里只保存每个地址的哈希，从不保存 URL。
 
 <a id="insightsservice-and-analytics"></a>
 ### `InsightsService` 和 `analytics`

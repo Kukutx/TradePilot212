@@ -275,7 +275,9 @@ All policy variables are described in [docs/AUTOMATION.md](./docs/AUTOMATION.md#
 Notifications are optional:
 
 ```env
-NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…   # one or more: Slack, Discord, Telegram, ntfy, Bark or any HTTPS endpoint
+NOTIFY_LOCALE=zh-CN           # optional, notifications in Chinese (default en)
+NOTIFY_QUIET_HOURS=22-07      # optional, hold all but urgent events overnight (in TIMEZONE), sent as one message after
 NOTIFY_WEBHOOK_SECRET=        # optional HMAC signature
 NOTIFY_EVENTS=                # optional, e.g. plan_due,price_alert_triggered
 DIGEST_HOUR=7                 # optional daily digest at 07:00 in TIMEZONE (or DIGEST_HOUR_UTC=7)

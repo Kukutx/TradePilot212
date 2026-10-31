@@ -343,6 +343,8 @@ export interface AutomationOverview {
     /** Open orders are watched and how each ended is reported. */
     orderWatch: boolean;
     webhook: boolean;
+    /** How notifications go out, when an endpoint is set: from 2.80. Quiet hours are in `timeZone`, UTC without one. */
+    notifications?: { formats: string[]; locale: string; quietHours?: { start: number; end: number } };
     /** The daily digest's hour in `digestTimeZone`; null when it is off. Before 2.62, `digestHourUtc`. */
     digestHour: number | null;
     digestTimeZone?: string;

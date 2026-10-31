@@ -164,7 +164,7 @@ const registerAppTool = ((server: McpServer, name: string, config: Record<string
 }) as unknown as typeof registerAppToolBase;
 
 export function createMcpServer(
-  { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview }: Services,
+  { trading, insights, automation, alerts, accountAlerts, journal, targets: targetAllocations, values, pies, priceHistory, watchlist, schedules, today, closes, automationOverview, notifications }: Services,
   config: RuntimeConfig,
   widgetHtml: () => Promise<string>,
   scopes: ReadonlySet<string> = new Set(["trade:read", "trade:write"]),
@@ -954,7 +954,7 @@ export function createMcpServer(
         const saved = await targetAllocations.get(environment);
         if (!saved) return result({ kind: "target_allocation", environment, timestamp: new Date().toISOString() }, `No ${environment.toUpperCase()} targets are saved.`);
         const lead = `${action === "set" ? "Saved" : "Saved targets:"} ${saved.targets.length} target(s) and ${(saved.cashWeight * 100).toFixed(1)}% cash on ${environment.toUpperCase()}`;
-        const webhookHint = config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
+        const webhookHint = config.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told about drift outside the chat.";
         // The targets are saved by now; a failed account read only leaves out today's drift.
         let analysis: Awaited<ReturnType<typeof targetAllocations.withDrift>>;
         try {
@@ -989,7 +989,7 @@ export function createMcpServer(
         const list = await alerts.list(environment);
         const onAccount = await accountAlerts.list(environment);
         return result({
-          kind: "price_alerts", ...(environment ? { environment } : {}), defaultEnvironment: config.defaultTradingEnvironment, alerts: list, accountAlerts: onAccount, webhook: !!config.notifyWebhookUrl, timestamp: new Date().toISOString(),
+          kind: "price_alerts", ...(environment ? { environment } : {}), defaultEnvironment: config.defaultTradingEnvironment, alerts: list, accountAlerts: onAccount, webhook: config.notifyTargets.length > 0, timestamp: new Date().toISOString(),
         },
           `${list.length} price alert(s), ${list.filter((alert) => alert.triggeredAt).length} triggered; ${onAccount.length} account alert(s), ${onAccount.filter((alert) => alert.triggeredAt).length} triggered.`);
       } catch (error) {
@@ -1015,6 +1015,37 @@ export function createMcpServer(
           const current = draft.action === "create" || !draft.pieId ? undefined : await pies.getPie(draft.environment, draft.pieId);
           const data = { kind: "pie_change_draft", draft: draft as PieChangeDraft, ...(current ? { current } : {}), credentials: credentialStatus(config), writeEnabled: true };
           return result(data, `Opened a pie ${draft.action} for review. Nothing has been changed.`);
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
+
+  // Sending to every endpoint is a write to the outside world: only where order tools are on.
+  if (canWrite) {
+    registerAppTool(
+      server,
+      "test_notifications",
+      {
+        title: "Test Notifications",
+        description: "Send one test message to each notification endpoint set in NOTIFY_WEBHOOK_URL (Slack, Discord, Telegram, ntfy, Bark or plain JSON, each laid out for its service, in NOTIFY_LOCALE's language), now, even in quiet hours, and say what each answered. It names only each endpoint's kind and host, never its address, which can hold a token. Trades nothing and changes nothing.",
+        inputSchema: z.object({}),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        _meta: {},
+      },
+      async () => {
+        try {
+          const results = notifications ? await notifications.test() : [];
+          const quiet = config.notifyQuietHours;
+          const data = {
+            kind: "notification_test", results, locale: config.notifyLocale,
+            quietHours: quiet ? { ...quiet, timeZone: config.timeZone ?? "UTC" } : null, timestamp: new Date().toISOString(),
+          };
+          const text = !results.length
+            ? "No notification endpoint is set: set NOTIFY_WEBHOOK_URL to one or more HTTPS URLs."
+            : results.map((item) => `${item.format} (${item.host}): ${item.ok ? "delivered" : `failed${item.status ? ` with HTTP ${item.status}` : ""}${item.error ? `: ${item.error}` : ""}`}`).join("\n");
+          return result(data, text);
         } catch (error) {
           return toolError(error);
         }
@@ -1054,7 +1085,7 @@ export function createMcpServer(
             ...(input.percent === undefined ? {} : { percent: input.percent }),
             ...(input.note ? { note: input.note } : {}),
           });
-          return result({ kind: "price_alert", alert }, `Saved alert ${alert.id} on ${alert.ticker}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          return result({ kind: "price_alert", alert }, `Saved alert ${alert.id} on ${alert.ticker}.${config.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
         }
         if (!input.alertId) return toolError(new Error("alertId is required"));
         if (input.action === "delete") {
@@ -1098,7 +1129,7 @@ export function createMcpServer(
             ...(input.percent === undefined ? {} : { percent: input.percent }),
             ...(input.note ? { note: input.note } : {}),
           });
-          return result({ kind: "account_alert", alert }, `Saved account alert ${alert.id}.${config.notifyWebhookUrl ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
+          return result({ kind: "account_alert", alert }, `Saved account alert ${alert.id}.${config.notifyTargets.length ? "" : " Set NOTIFY_WEBHOOK_URL to be told outside the chat."}`);
         }
         if (!input.alertId) return toolError(new Error("alertId is required"));
         if (input.action === "delete") {

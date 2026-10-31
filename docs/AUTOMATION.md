@@ -116,7 +116,7 @@ About every 5 minutes per environment, the scheduler reads the open orders and c
 
 The history can lag the order book, so an order whose history entry is missing or not final yet is checked again on the next checks. An order placed by value has no share count, so a cancellation, rejection or expiry after part of it filled counts as partly filled.
 
-Fills and unclear outcomes go to the webhook by default. `order_closed` stays in the activity log unless you add it to `NOTIFY_EVENTS`, because most of those are cancellations you made yourself. The widget's activity list shows each fill's shares, average price and value. The daily digest counts the fills of the last day, from a separate record that does not depend on how many events the activity log keeps.
+Fills and unclear outcomes are notified by default. `order_closed` stays in the activity log unless you add it to `NOTIFY_EVENTS`, because most of those are cancellations you made yourself. The widget's activity list shows each fill's shares, average price and value. The daily digest counts the fills of the last day, from a separate record that does not depend on how many events the activity log keeps.
 
 This covers orders placed anywhere, the Trading 212 app included. It only reads: one order-book read per check, plus one history read when an order has left. An order that opens and fills between two checks, which is most Market orders, is not seen; its own result already says how it went. The first check after starting only records what is open. Set `ORDER_WATCH=false` to turn it off.
 
@@ -210,7 +210,28 @@ An external price only sizes an order; the order still goes through the usual re
 
 ## Notifications
 
-Set `NOTIFY_WEBHOOK_URL` to an HTTPS endpoint to be told outside the chat. Each notable activity event is posted as JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`. By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `account_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`. Delivery is best effort with a 5-second timeout and no retries.
+Set `NOTIFY_WEBHOOK_URL` to one or more HTTPS endpoints, separated by spaces or commas, to be told outside the chat. Each gets the message laid out for its service, known by its address:
+
+| Service | Address | What is sent |
+|---|---|---|
+| Slack | `https://hooks.slack.com/services/…` | A header and the details as plain text, so a ticker's underscores are not read as italics |
+| Discord | `https://discord.com/api/webhooks/…` | The title in bold and the details, with markdown escaped and nobody mentioned |
+| Telegram | `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>` | The title in bold and the details (HTML); every query parameter goes in the body |
+| ntfy | `https://ntfy.sh/<topic>`, or `ntfy:https://your-server/<topic>` | Title, message and a higher priority for events that need you now |
+| Bark | `https://api.day.app/<key>` | Title and body, grouped as TradePilot, time-sensitive for events that need you now |
+| Anything else | any HTTPS URL | JSON with `text` (Slack, Mattermost), `content` (Discord) and the raw `event`, as before |
+
+A format before the address (`slack:`, `discord:`, `telegram:`, `ntfy:`, `bark:`, `raw:`) sets it for a self-hosted server or a relay. An address that holds a token (Telegram's, Bark's key, a Slack hook) is never written to the logs or the store, and errors about it name its place in the list, not its text.
+
+`NOTIFY_LOCALE=zh-CN` writes notifications in Chinese (`en` is the default): the event's name, buy or sell, shares, and figures as each language writes them, the value of a fill in its currency (€1,303.75). The daily digest's figures are still in English.
+
+By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `account_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`, whatever the service.
+
+Each request waits 5 seconds at most. One an endpoint does not accept is tried again from the scheduler after a minute, then 5, 15, 60 and 180 minutes, and then given up (logged); the other endpoints are not sent it again. A daily digest no endpoint accepted is left to the digest's own retry, every 15 minutes. Waiting deliveries are kept in the server's store, at most 200, for at most 30 hours.
+
+`NOTIFY_QUIET_HOURS=22-07` (whole hours in `TIMEZONE`, UTC without one; `22:00-07:00` also works) holds notifications during those hours and sends them as one message when they end, oldest first. Events that need you at once still go out: an order, cancellation or pie change whose result is unclear, protective orders that need attention, and a rejected cancellation. The daily digest comes at its own hour.
+
+**Send a test** on the widget's Automation tab, or the `test_notifications` tool, sends one test message to each endpoint at once, even in quiet hours, and says what each answered, naming only its kind and host. It needs order tools on (`trade:write`), since it sends to the outside world. An address must not hold a user name or password; put a token in its path or query. The Automation tab shows where notifications go, in which language, and the quiet hours.
 
 ### Daily digest
 

@@ -124,7 +124,7 @@ Owns application rules.
 
 `ValueHistory` (`value-history.ts`) runs on the tick after the order watch. About once an hour per environment it reads only the account summary (`TradingService.accountSummary`) and upserts the day's point under `value-history:<env>:<YYYY-MM>`. One key per month keeps every stored value well under the Durable Object value limit. `get_portfolio_performance` reads the points in its window with `points()`.
 
-`notify.ts` builds an optional webhook sender from `NOTIFY_WEBHOOK_URL`. `TradingService.recordActivity` passes every event to it; the sender filters by type, signs the body when a secret is set, and swallows delivery errors.
+`notify.ts` builds an optional `Notifications` from `NOTIFY_WEBHOOK_URL` (one or more endpoints, each with its format). `TradingService.recordActivity` passes every event to its `send`; it filters by type, writes the message in `NOTIFY_LOCALE`, lays it out per endpoint, signs each body when a secret is set, and never throws. A delivery an endpoint did not accept, and one held for `NOTIFY_QUIET_HOURS`, is kept under `notify-outbox:<event>:<endpoint hash>`, and the scheduler's last stage, `flush()`, sends what is due (held ones as one message per endpoint) and keeps what fails for its next wait. Each entry is taken with `consume` before it is sent, so two ticks never send it twice. The store holds a hash of each endpoint, never its URL.
 
 ### `InsightsService` and `analytics`
 

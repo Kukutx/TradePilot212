@@ -5,6 +5,7 @@ import { parseSymbolMap, QUOTE_PROVIDERS, type QuoteProviderName } from "./quote
 import { fail } from "./errors.js";
 import { DEFAULT_FX_FEE_RATE, MAX_FX_FEE_RATE } from "../shared/trade-cost.js";
 import { parseYearStart, validTimeZone } from "../shared/time-zone.js";
+import { parseNotifyLocale, parseNotifyTargets, parseQuietHours, type NotifyLocale, type NotifyTarget, type QuietHours } from "./notify.js";
 
 /** `URL.hostname` keeps the brackets around an IPv6 address, so both spellings are accepted. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -28,8 +29,12 @@ export interface RuntimeConfig {
   protectiveLinking: boolean;
   /** Report how open orders end (filled, partly filled, cancelled, rejected) once they leave the book (default on). */
   orderWatch: boolean;
-  /** Optional HTTPS endpoint that receives a JSON message for notable automation events. */
-  notifyWebhookUrl: string;
+  /** Endpoints that receive notable automation events (NOTIFY_WEBHOOK_URL, one or more), each laid out for its service. */
+  notifyTargets: NotifyTarget[];
+  /** The language of notifications (NOTIFY_LOCALE): en or zh-CN. */
+  notifyLocale: NotifyLocale;
+  /** Hours in TIMEZONE when only urgent events are sent (NOTIFY_QUIET_HOURS); the rest follow when they end. */
+  notifyQuietHours?: QuietHours;
   /** Optional secret; when set each webhook carries an HMAC-SHA256 signature header. */
   notifyWebhookSecret: string;
   /** Activity types sent to the webhook; empty means the default set in notify.ts. */
@@ -68,7 +73,7 @@ export type RuntimeEnv = Partial<Record<
   | "POLICY_ALLOWED_TICKERS" | "POLICY_BLOCKED_TICKERS" | "POLICY_ALLOWED_TYPES"
   | "POLICY_MARKET_ORDERS_WHEN_CLOSED" | "POLICY_MAX_REFERENCE_AGE_SECONDS" | "POLICY_APPLY_TO"
   | "AUTOMATION_DEMO_ENABLED" | "PROTECTIVE_OCO" | "ORDER_WATCH"
-  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS"
+  | "NOTIFY_WEBHOOK_URL" | "NOTIFY_WEBHOOK_SECRET" | "NOTIFY_EVENTS" | "NOTIFY_LOCALE" | "NOTIFY_QUIET_HOURS"
   | "QUOTE_PROVIDER" | "QUOTE_API_KEY" | "QUOTE_SYMBOLS" | "BENCHMARK" | "DIGEST_HOUR_UTC" | "TRADEPILOT_SAMPLE_DATA"
   | "OAUTH_REDIRECT_HOSTS" | "FX_FEE_RATE" | "TIMEZONE" | "TAX_YEAR_START" | "DIGEST_HOUR" | "T212_DEMO_BASE_URL" | "T212_LIVE_BASE_URL",
   string
@@ -150,13 +155,6 @@ function createPolicy(env: RuntimeEnv): Record<TradingEnvironment, TradingPolicy
   };
 }
 
-function webhookUrl(env: RuntimeEnv): string {
-  const raw = (env.NOTIFY_WEBHOOK_URL ?? "").trim();
-  if (!raw) return "";
-  const url = new URL(raw);
-  if (url.protocol !== "https:" && !(isLoopbackHost(url.hostname) && url.protocol === "http:")) throw new Error("NOTIFY_WEBHOOK_URL must use HTTPS");
-  return url.toString();
-}
 
 function timeZone(env: RuntimeEnv): string | undefined {
   const raw = (env.TIMEZONE ?? "").trim();
@@ -233,7 +231,9 @@ export function createConfig(env: RuntimeEnv, requestOrigin?: string): RuntimeCo
     demoAutomationEnabled: flag(env, "AUTOMATION_DEMO_ENABLED"),
     protectiveLinking: env.PROTECTIVE_OCO ? flag(env, "PROTECTIVE_OCO") : true,
     orderWatch: env.ORDER_WATCH ? flag(env, "ORDER_WATCH") : true,
-    notifyWebhookUrl: webhookUrl(env),
+    notifyTargets: parseNotifyTargets(env.NOTIFY_WEBHOOK_URL ?? "", isLoopbackHost),
+    notifyLocale: parseNotifyLocale(env.NOTIFY_LOCALE),
+    ...(parseQuietHours(env.NOTIFY_QUIET_HOURS) ? { notifyQuietHours: parseQuietHours(env.NOTIFY_QUIET_HOURS)! } : {}),
     notifyWebhookSecret: env.NOTIFY_WEBHOOK_SECRET ?? "",
     notifyEvents: list(env, "NOTIFY_EVENTS").map((item) => item.toLowerCase()),
     quoteProvider: sampleData ? "none" : quoteProvider(env),

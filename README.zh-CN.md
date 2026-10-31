@@ -283,7 +283,9 @@ POLICY_MARKET_ORDERS_WHEN_CLOSED=false
 通知是可选的：
 
 ```env
-NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…
+NOTIFY_WEBHOOK_URL=https://hooks.slack.com/services/…   # 一个或多个：Slack、Discord、Telegram、ntfy、Bark 或任意 HTTPS 地址
+NOTIFY_LOCALE=zh-CN           # 可选，用中文推送（默认 en）
+NOTIFY_QUIET_HOURS=22-07      # 可选，夜间只推紧急事件（按 TIMEZONE），其余结束后合成一条发送
 NOTIFY_WEBHOOK_SECRET=        # 可选，HMAC 签名
 NOTIFY_EVENTS=                # 可选，例如 plan_due,price_alert_triggered
 DIGEST_HOUR=7                 # 可选，每天按 TIMEZONE 的 7 点推送账户摘要（或 DIGEST_HOUR_UTC=7）
