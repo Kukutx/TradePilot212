@@ -7,7 +7,7 @@
 // Live plans are never executed unattended; nothing in this file can change that per plan.
 
 import type { OrderDraft, TradingEnvironment } from "../shared/contracts.js";
-import type { BasketDraftPayload, BasketExecutionResult, DcaLeg, DcaPlan, PlanFrequency, PlanRunReport, TargetAllocation } from "../shared/automation.js";
+import { MAX_PLAN_RUNS, type BasketDraftPayload, type BasketExecutionResult, type DcaLeg, type DcaPlan, type PlanFrequency, type PlanRun, type PlanRunReport, type TargetAllocation } from "../shared/automation.js";
 import { positionValue } from "./analytics.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
@@ -152,6 +152,11 @@ export function storedPlan(raw: DcaPlan & { hourUtc?: number }): DcaPlan {
 }
 
 /** A plan without the mark of a run being sent. */
+/** The plan with `run` as its newest run, keeping the last MAX_PLAN_RUNS. */
+function withRun(plan: DcaPlan, run: PlanRun): DcaPlan {
+  return { ...plan, runs: [run, ...(plan.runs ?? [])].slice(0, MAX_PLAN_RUNS) };
+}
+
 function settled(plan: DcaPlan): DcaPlan {
   const { inFlightDueAt: _due, inFlightSince: _since, ...rest } = plan;
   return rest;
@@ -321,7 +326,8 @@ export class AutomationService {
     if (plan.inFlightDueAt === plan.nextRunAt && Number.isFinite(since) && now.getTime() - since < RUN_LOCK_MS)
       fail("EXECUTION_BUSY", "This plan's run is being sent right now. Try again in a few minutes, once its result is in.");
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
-    const updated: DcaPlan = { ...settled(plan), nextRunAt: nextRunAt(plan, from).toISOString(), lastOutcome: `Skipped the run due ${plan.nextRunAt}.` };
+    const run: PlanRun = { dueAt: plan.nextRunAt, at: now.toISOString(), outcome: "left_out", by: "you", message: `Skipped the run due ${plan.nextRunAt}.` };
+    const updated: DcaPlan = { ...withRun(settled(plan), run), nextRunAt: nextRunAt(plan, from).toISOString(), lastOutcome: run.message };
     await this.deps.store.put(planKey(id), updated);
     await this.deps.trading.recordActivity("plan_skipped", plan.environment, { planId: id, outcome: `skipped the run due ${plan.nextRunAt}` });
     return updated;
@@ -420,13 +426,19 @@ export class AutomationService {
   async recordRun(planId: string, result: BasketExecutionResult, now = new Date()): Promise<void> {
     const plan = await this.read(planId);
     if (!plan) return;
+    // The scheduler marks the due date it is sending before it sends; a run you confirmed has no mark.
+    const run: PlanRun = {
+      dueAt: plan.nextRunAt, at: now.toISOString(), outcome: result.status, by: plan.inFlightDueAt === plan.nextRunAt ? "scheduler" : "you",
+      submitted: result.legs.filter((leg) => leg.result?.status === "submitted").length, legs: result.legs.length,
+      message: result.message.slice(0, 200),
+    };
     // Any leg that reached the broker (submitted, rejected or unclear) uses up this due date, so a
     // scheduler tick never sends the plan again. Only a run stopped before sending stays due. A run
     // before the due date counts as that period's run, so the next one is the date after it.
     const attempted = result.legs.some((leg) => leg.result);
     const from = new Date(Math.max(now.getTime(), Date.parse(plan.nextRunAt) || 0));
     await this.deps.store.put(planKey(planId), {
-      ...settled(plan),
+      ...withRun(settled(plan), run),
       lastRunAt: now.toISOString(),
       lastOutcome: result.message,
       ...(attempted ? { nextRunAt: nextRunAt(plan, from).toISOString() } : {}),
@@ -511,8 +523,10 @@ export class AutomationService {
     // Re-read: the user may have paused, changed or deleted the plan while this tick was working.
     const current = await this.read(plan.id);
     if (!current) return;
+    // Only a run moved on from (nothing to buy) is one of its runs; one blocked stays due and is tried again.
+    const run: PlanRun = { dueAt: current.nextRunAt, at: now.toISOString(), outcome: "nothing", by: "scheduler", message: message.slice(0, 200) };
     await this.deps.store.put(planKey(plan.id), {
-      ...current,
+      ...(advance ? withRun(current, run) : current),
       lastOutcome: message,
       ...(advance ? { lastRunAt: now.toISOString(), nextRunAt: nextRunAt(current, now).toISOString() } : {}),
     });

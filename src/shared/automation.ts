@@ -160,6 +160,28 @@ export interface DcaLeg {
   limitOffsetPercent?: number;
 }
 
+/** The most runs a plan keeps, newest first. */
+export const MAX_PLAN_RUNS = 12;
+
+/**
+ * One run of a plan. `outcome` is the basket's status when it was sent (submitted: every order went; partial: some
+ * did; stopped: it stopped before any went; rejected: Trading 212 refused them), "nothing" when there was nothing to
+ * buy, or "left_out" when you skipped it.
+ */
+export interface PlanRun {
+  /** The due date it was the run of. */
+  dueAt: string;
+  /** When it was sent, found to have nothing to buy, or left out. */
+  at: string;
+  outcome: "submitted" | "partial" | "stopped" | "rejected" | "nothing" | "left_out";
+  /** The orders it sent and those it had, for a sent run. */
+  submitted?: number;
+  legs?: number;
+  /** Who ran it: you, or the scheduler on its own (Demo with automation on). */
+  by?: "you" | "scheduler";
+  message: string;
+}
+
 export interface DcaPlan {
   id: string;
   environment: TradingEnvironment;
@@ -188,6 +210,8 @@ export interface DcaPlan {
   nextRunAt: string;
   lastRunAt?: string;
   lastOutcome?: string;
+  /** Its last runs, newest first, at most MAX_PLAN_RUNS: from 2.87. */
+  runs?: PlanRun[];
   /**
    * Set while an unattended run of this due date is being sent. If it is still set on a later tick,
    * that run may have reached the broker, so the plan waits for you instead of sending again.

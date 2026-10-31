@@ -201,6 +201,15 @@ async function seedSample(): Promise<void> {
   }
   // Day's-move alerts set last week, and one alert check, so the alerts show their last prices and the day's move.
   const lastWeek = new Date(Date.now() - 7 * 86_400_000);
+  // The weekly plan's last runs: two sent, one with nothing to buy, one skipped. Recorded only; nothing is sent.
+  const weekly = (await services.automation.listPlans("demo")).find((plan) => plan.label === "Weekly NVIDIA");
+  if (weekly) {
+    const draft = { environment: "demo" as const, ticker: "NVDA_US_EQ", side: "buy" as const, type: "market" as const, quantity: 0.4 };
+    const sent = { kind: "basket_execution" as const, environment: "demo" as const, purpose: "dca" as const, ok: true, status: "submitted" as const, message: "1 of 1 orders submitted.",
+      legs: [{ draft, result: { kind: "order_execution" as const, environment: "demo" as const, ok: true, status: "submitted" as const, message: "Submitted." } }] };
+    for (const days of [21, 14]) await services.automation.recordRun(weekly.id, sent, new Date(Date.now() - days * 86_400_000));
+    await services.automation.skipNextRun(weekly.id, new Date(Date.now() - 7 * 86_400_000));
+  }
   await services.alerts.create({ environment: "demo", instrument: "AAPL", condition: "day_move", percent: 3, note: "Big day" }, lastWeek);
   await services.alerts.create({ environment: "demo", instrument: "NVDA", condition: "day_move", percent: 5 }, lastWeek);
   await services.alerts.check().catch((error: unknown) => console.warn("Could not check the alerts:", error));

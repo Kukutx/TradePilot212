@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.87.0
+
+- Each investment plan keeps its latest runs, up to 12: when it ran, whether you confirmed it or the scheduler sent it unattended, how many of its orders went in, and the runs skipped or with nothing to buy. A plan used to keep only its last outcome.
+  - On the Automation tab, **Last runs** under a plan opens the list, each run with its outcome.
+  - `list_investment_plans` and the text summary list the latest runs.
+  - A run blocked before sending (a closed market, a policy rule) is not recorded as a run: the plan stays due and is tried again.
+- The preview's weekly sample plan shows a few past runs. Nothing is sent.
+
 ## 2.86.0
 
 - Splits and consolidations among the fills (Trading 212's `STOCK_SPLIT`) are read as what they are: the same holding in other units, at the same cost.

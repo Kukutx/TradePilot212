@@ -301,6 +301,37 @@ describe("standing plans", () => {
     expect((await automation.updatePlan(plan.id, { hour: 8 }, new Date("2026-11-04T08:30:00Z"))).nextRunAt).toBe("2026-11-18T08:00:00.000Z");
   });
 
+  it("keeps the latest runs of a plan: who ran it, what it sent, and the ones left out", async () => {
+    const { automation, store } = setup();
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "weekly", weekday: 1 }, new Date("2026-10-01T00:00:00Z"));
+    const leg = (status: string) => ({ draft: {}, result: { status } });
+    await automation.recordRun(plan.id, { status: "partial", legs: [leg("submitted"), leg("rejected")], message: "1 of 2 orders submitted." } as never, new Date("2026-10-05T15:02:00Z"));
+    let runs = (await automation.getPlan(plan.id)).runs!;
+    expect(runs).toEqual([{ dueAt: "2026-10-05T15:00:00.000Z", at: "2026-10-05T15:02:00.000Z", outcome: "partial", by: "you", submitted: 1, legs: 2, message: "1 of 2 orders submitted." }]);
+    // The scheduler marks the due date before it sends; that run is an unattended one.
+    const due = await automation.getPlan(plan.id);
+    await store.put(`plan:${plan.id}`, { ...due, inFlightDueAt: due.nextRunAt, inFlightSince: "2026-10-12T15:00:10Z" });
+    await automation.recordRun(plan.id, { status: "submitted", legs: [leg("submitted")], message: "Sent." } as never, new Date("2026-10-12T15:01:00Z"));
+    await automation.skipNextRun(plan.id, new Date("2026-10-13T00:00:00Z"));
+    runs = (await automation.getPlan(plan.id)).runs!;
+    expect(runs.map((run) => [run.dueAt.slice(0, 10), run.outcome, run.by])).toEqual([
+      ["2026-10-19", "left_out", "you"], ["2026-10-12", "submitted", "scheduler"], ["2026-10-05", "partial", "you"],
+    ]);
+    // Only the newest twelve are kept.
+    for (let week = 0; week < 15; week++) await automation.skipNextRun(plan.id, new Date("2026-10-13T00:00:00Z"));
+    runs = (await automation.getPlan(plan.id)).runs!;
+    expect(runs).toHaveLength(12);
+    expect(runs.every((run) => run.outcome === "left_out")).toBe(true);
+  });
+
+  it("records a scheduler run with nothing to buy, but not one blocked and still due", async () => {
+    const { automation, insights } = setup({ AUTOMATION_DEMO_ENABLED: "true" });
+    insights.tryMarketStatus = async (_environment, instrument) => ({ ticker: instrument.ticker, session: "closed", isOpen: false, checkedAt: new Date().toISOString() });
+    const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 1, autoExecute: true }, new Date("2026-09-15T00:00:00Z"));
+    await automation.runDuePlans(new Date(Date.parse(plan.nextRunAt) + 60_000));
+    expect((await automation.getPlan(plan.id)).runs).toBeUndefined();
+  });
+
   it("refuses to skip a run being sent this moment, and settles one whose result never came", async () => {
     const { automation, store } = setup();
     const plan = await automation.createPlan({ environment: "demo", label: "x", legs: [{ ticker: "VUSA", amount: 100 }], frequency: "monthly", dayOfMonth: 5 }, new Date("2026-10-01T00:00:00Z"));
