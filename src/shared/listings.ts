@@ -41,5 +41,30 @@ export interface NewListingsView {
   /** Instruments in the list, and those of them with no date Trading 212 gives (never counted as new). */
   catalogue: number;
   undated: number;
+  /** The account's listing alert, when one is on, and whether a webhook would carry it. */
+  watch?: ListingWatch;
+  webhook?: boolean;
   timestamp: string;
+}
+
+/** How far back the listing alert looks: an instrument dated in these days and not seen before is new. */
+export const LISTING_WATCH_DAYS = 14;
+/** The most types and currencies a listing alert narrows to. */
+export const MAX_WATCH_FILTERS = 10;
+
+/**
+ * A listing alert on one account: the scheduler reads the instrument list (at most hourly) and notifies when Trading
+ * 212 adds instruments of the types and currencies chosen (any, when none). It never places orders.
+ */
+export interface ListingWatch {
+  environment: TradingEnvironment;
+  /** Types as Trading 212 writes them (STOCK, ETF, …); any when empty. */
+  types: string[];
+  /** Currency codes; any when empty. */
+  currencies: string[];
+  createdAt: string;
+  lastCheckedAt?: string;
+  /** The last time it found new instruments, and how many. */
+  lastFoundAt?: string;
+  lastFound?: number;
 }

@@ -188,6 +188,12 @@ A day's move belongs to the latest trading day of the holdings with a move. Only
 
 A triggered alert writes one `account_alert_triggered` activity event (with the value and its currency, for value and cash), goes to the webhook, and stays triggered until you re-arm it (a day's move, until the next trading day). In the widget, the automation page has an **Account alerts** list with **Add alert**: its starting amount is 5% under or over the account's value now, half its free cash or twice it (at least 100), rounded to tens, or 2% for the day's move. Amounts can be typed with either separator: `10,000`, `10 000` and `1.250,50` all read as expected, a lone comma before three digits groups thousands, and the field says what it read once a separator is in it. At most 50. Alerts never place or cancel orders.
 
+## Listing alerts
+
+`manage_listing_alert` turns on, changes or turns off an account's listing alert: tell me when Trading 212 lists new instruments of these types (`STOCK`, `ETF`, …) in these currencies, or any when none are given. The watchlist's **New on Trading 212** panel turns it on for what the panel shows, changes it, or turns it off ([WATCHLIST.md](./WATCHLIST.md#new-on-trading-212)).
+
+The scheduler reads the instrument list at most once an hour per account. An instrument is new when Trading 212 dates it (`addedOn`) in the last 14 days and the alert has not seen it before, so one dated a little earlier than the read that first lists it still counts; what is listed when the alert is turned on counts as seen. Each find writes one `new_listings` activity event naming what was added (cut short with how many more) and goes to the webhook. A read that fails is tried again on the next tick. One alert per account. It never places orders.
+
 ## Quotes for instruments you do not hold
 
 Trading 212's Public API has no quote endpoint; it only reports the last price of positions you hold. TradePilot fills the gap with a pluggable external quote source, used by `get_quote`, price alerts, the watchlist, the page of an instrument you do not hold, the benchmark on the Performance tab, plan legs you do not hold yet, and rebalance targets without a `referencePrice`. A held instrument always uses the broker's price. The sample account uses simulated quotes and exchange rates for its own instruments instead, with no network.
@@ -225,7 +231,7 @@ A format before the address (`slack:`, `discord:`, `telegram:`, `ntfy:`, `bark:`
 
 `NOTIFY_LOCALE=zh-CN` writes notifications in Chinese (`en` is the default): the event's name, buy or sell, shares, and figures as each language writes them, the value of a fill in its currency (€1,303.75).
 
-By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `account_alert_triggered`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`, whatever the service.
+By default these types are sent: `order_submitted`, `order_status_unknown`, `order_filled`, `order_partly_filled`, `order_outcome_unknown`, `cancel_status_unknown`, `basket_submitted`, `plan_due`, `plan_auto_executed`, `plan_skipped`, `protective_sibling_cancelled`, `protective_attention`, `cancel_rejected`, `pie_submitted`, `pie_status_unknown`, `price_alert_triggered`, `account_alert_triggered`, `new_listings`, `allocation_drift` and `daily_digest`. `NOTIFY_EVENTS` replaces that list. With `NOTIFY_WEBHOOK_SECRET`, each request carries `X-TradePilot-Signature: sha256=<HMAC of the body>`, whatever the service.
 
 Each request waits 5 seconds at most. One an endpoint does not accept is tried again from the scheduler after a minute, then 5, 15, 60 and 180 minutes, and then given up (logged); the other endpoints are not sent it again. A daily digest no endpoint accepted is left to the digest's own retry, every 15 minutes. Waiting deliveries are kept in the server's store, at most 200, for at most 30 hours.
 

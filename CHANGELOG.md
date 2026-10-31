@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.91.0
+
+- Listing alerts: be told when Trading 212 lists new instruments of the types and currencies you choose, or any.
+  - `manage_listing_alert` turns an account's alert on, changes it or turns it off. The watchlist's New on Trading 212 panel does the same for what it shows, and says when one is on and what it covers.
+  - The scheduler reads the instrument list at most once an hour per account. An instrument is new when Trading 212 dates it in the last 14 days and the alert has not seen it before, so one dated a little before the read that first lists it is not missed. What is listed when the alert is turned on counts as seen.
+  - Each find writes one `new_listings` activity event naming what was added and goes to the webhook, which sends it by default. `list_new_instruments` shows the alert as well.
+- The preview's sample account has a listing alert on stocks.
+
 ## 2.90.0
 
 - The Watchlist tab has a **New on Trading 212** panel: the instruments Trading 212 added in the last 7, 30 or 90 days, newest first, by the listing date its instrument list gives each (`addedOn`).

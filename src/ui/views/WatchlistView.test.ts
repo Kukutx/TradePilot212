@@ -25,6 +25,7 @@ const render = (view: WatchlistData, locale: "en" | "zh-CN" = "en", listings?: N
   data: view, locale, t: createTranslator(locale), busy: false, listings,
   onOpen: noop, onRemove: noop, onRefresh: noop, onAdd: async () => true, onNote: async () => true, onSearch: async () => [],
   onListings: async () => { throw new Error("not read in a static render"); },
+  onWatchListings: async () => null,
 }));
 const listings: NewListingsView = {
   kind: "new_listings", environment: "demo", credentials: { live: false, demo: true }, days: 30, from: "2026-09-12T12:00:00Z", currency: "USD",
@@ -58,6 +59,15 @@ describe("new listings", () => {
     expect(html).toContain("All 2");
     expect(html).toContain('aria-checked="true" tabindex="0" class="active">ETFs 0');
     expect(html).toContain("Trading 212 added nothing like this in the last 30 days.");
+  });
+
+  it("offers a listing alert for what the panel shows, and says when one is on and what it covers", () => {
+    expect(render(data, "en", listings)).toContain("Checks hourly for new listings: USD.");
+    const on = render(data, "en", { ...listings, type: "ETF", watch: { environment: "demo", types: ["STOCK"], currencies: [], createdAt: "2026-10-01T00:00:00Z" }, webhook: false });
+    expect(on).toContain("Listing alert on: Stocks");
+    expect(on).toContain("set NOTIFY_WEBHOOK_URL");
+    expect(on).toContain("Change to ETFs · USD");
+    expect(on).toContain(">Turn off<");
   });
 
   it("reads in Chinese", () => {

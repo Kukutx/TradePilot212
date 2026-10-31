@@ -6,7 +6,7 @@ import { AssetAvatar, Icon } from "../components/common";
 import { Select } from "../components/select";
 import { InstrumentSearch } from "../components/instrument-search";
 import { NewListingsPanel, type ListingRead } from "../components/new-listings";
-import type { NewListingsView } from "../../shared/listings";
+import type { ListingWatch, NewListingsView } from "../../shared/listings";
 import { priceDigits } from "../components/price-chart";
 import { amount, dayLabel, pct, qty, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -146,7 +146,7 @@ export function sortWatchRows(rows: WatchRow[], sort: WatchSort, period: WatchPe
   return [...rows].sort(sort === "move" ? (a, b) => move(b) - move(a) : (a, b) => near(a) - near(b));
 }
 
-export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRemove, onNote, onSearch, onRefresh, listings, onListings }: {
+export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRemove, onNote, onSearch, onRefresh, listings, onListings, onWatchListings }: {
   data: WatchlistData;
   book?: InstrumentBook;
   locale: SupportedLocale;
@@ -162,6 +162,7 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
   /** New listings the host read, shown open. */
   listings?: NewListingsView | undefined;
   onListings: (read: ListingRead) => Promise<NewListingsView>;
+  onWatchListings: (scope: { types: string[]; currencies: string[] } | null) => Promise<ListingWatch | null>;
 }) {
   const [period, setPeriod] = useState<WatchPeriod>("1d");
   const [sort, setSort] = useState<WatchSort>("added");
@@ -209,7 +210,7 @@ export function WatchlistView({ data, book, locale, t, busy, onOpen, onAdd, onRe
           </p>
         )}
       </section>
-      <NewListingsPanel key={data.environment} initial={listings} listed={listed} busy={busy} locale={locale} t={t} onRead={onListings} onOpen={onOpen} onAdd={onAdd} />
+      <NewListingsPanel key={data.environment} initial={listings} listed={listed} busy={busy} locale={locale} t={t} onRead={onListings} onOpen={onOpen} onAdd={onAdd} onWatch={onWatchListings} />
     </main>
   );
 }

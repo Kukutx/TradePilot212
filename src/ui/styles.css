@@ -1252,6 +1252,11 @@ h2[tabindex="-1"]:focus { outline: none; }
 .listingMain { display: grid; flex: 1 1 auto; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px; border: 0; border-radius: 12px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .listingMain:hover { background: var(--tp-bg-soft); }
 .listingMain:hover .watchName strong { text-decoration: underline; text-underline-offset: 3px; }
+.listingsAlert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--tp-border); border-radius: 12px; background: var(--tp-bg-soft); }
+.listingsAlertText { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.listingsAlertText strong { font-size: 14px; }
+.listingsAlertText small { color: var(--tp-muted); font-size: 12px; }
+.listingsAlertActions { display: flex; flex-wrap: wrap; gap: 6px; }
 .listingAdded { color: var(--tp-muted); font-size: 12px; white-space: nowrap; }
 @container (max-width: 420px) {
   .listingMain { grid-template-columns: minmax(0, 1fr); gap: 2px; }

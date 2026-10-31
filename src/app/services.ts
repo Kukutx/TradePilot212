@@ -1,4 +1,5 @@
 import { PriceAlerts } from "../core/alerts.js";
+import { ListingWatches } from "../core/listing-watch.js";
 import { AccountAlerts } from "../core/account-alerts.js";
 import { AutomationService } from "../core/automation.js";
 import { credentialStatus, type RuntimeConfig } from "../core/config.js";
@@ -108,6 +109,7 @@ export function createServices(input: ServiceDependencies) {
   }, environment, now);
   /** Alerts on the account's value, cash and day's move; the day's move is the one get_portfolio_today adds up. */
   const accountAlerts = new AccountAlerts({ config: deps.config, store: deps.store, trading, today: (environment, now) => today(environment, now) });
+  const listings = new ListingWatches({ config: deps.config, store: deps.store, trading });
   const digest = new DailyDigest({
     config: deps.config, store: deps.store, trading, targets: (environment) => targets.get(environment), today,
     // A year of dividends is a page or two of Trading 212's history; at most as many pages as the Income tab reads.
@@ -121,7 +123,7 @@ export function createServices(input: ServiceDependencies) {
       values.points(environment, { ...(window.from ? { from: window.from.toISOString() } : {}), to: window.to.toISOString(), withStart: true, ...(account === undefined ? {} : { account }) })),
     ...(notify ? { notify } : {}),
   });
-  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price and account alerts, target drift and the daily digest. */
+  /** One scheduler tick: settle protective pairs first, then how open orders ended, the daily value record, due plans, price, account and listing alerts, target drift and the daily digest. */
   // Each stage runs even when an earlier one fails, so one broken read cannot stop the others.
   const stage = async <T>(name: string, run: () => Promise<T[]>): Promise<T[]> => {
     try {
@@ -138,6 +140,7 @@ export function createServices(input: ServiceDependencies) {
     plans: await stage("plans", () => automation.runDuePlans()),
     alerts: await stage("alerts", () => alerts.check()),
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
+    listings: await stage("listing alerts", () => listings.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run()),
     reports: await stage("reports", () => reports.run()),
@@ -206,5 +209,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, listings, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }
