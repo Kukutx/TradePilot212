@@ -4,7 +4,7 @@ import { orderImpact } from "./order-impact";
 
 const held: Position = {
   instrument: { ticker: "AAPL_US_EQ", name: "Apple", shortName: "AAPL", currencyCode: "USD" },
-  quantity: 10, quantityAvailableForTrading: 10, averagePricePaid: 150, currentPrice: 200,
+  quantity: 10, quantityAvailableForTrading: 10, quantityInPies: 0, averagePricePaid: 150, currentPrice: 200,
   walletImpact: { currentValue: 1800, totalCost: 1400, unrealizedProfitLoss: 400 },
 };
 const account = { currency: "EUR", totalValue: 10_000, cash: { availableToTrade: 2000 } };
