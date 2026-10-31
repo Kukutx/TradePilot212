@@ -39677,8 +39677,9 @@ function summarizeExport(text) {
       ...ticker ? { ticker } : {},
       paid: quantity * perShare / (pence(priceCode) ? 100 : 1),
       withheld: withheld / (pence(withheldCode) ? 100 : 1),
-      // The net in the paying currency, both ways the exchange rate could be quoted (paying currency = Total ÷ rate, or ×).
-      ...Number.isFinite(totalValue) && totalValue > 0 && totalCode ? pounds(totalCode) === pounds(priceCode) ? { nets: [totalValue / (pence(totalCode) ? 100 : 1)] } : rate > 0 ? { nets: [totalValue / rate, totalValue * rate] } : {} : {}
+      // The net in the paying currency, both ways the exchange rate could be quoted (paying currency = Total ÷ rate, or ×);
+      // for a payment in pence, the rate may be per pence, so each way also has its result counted as pence.
+      ...Number.isFinite(totalValue) && totalValue > 0 && totalCode ? pounds(totalCode) === pounds(priceCode) ? { nets: [[totalValue / (pence(totalCode) ? 100 : 1)]] } : rate > 0 ? { nets: [totalValue / rate, totalValue * rate].map((net) => pence(priceCode) ? [net, net / 100] : [net]) } : {} : {}
     });
   }
   const records = body.map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index] ?? ""]).filter(([, value]) => value !== "")));
@@ -39694,8 +39695,8 @@ function withholdingOf(rows2, unreadable, way) {
   const priced = rows2.filter((row) => row.nets && row.withheld > 0);
   const paid = priced.reduce((sum, row) => sum + row.paid, 0);
   const misfit = (gross, way2) => priced.reduce((sum, row) => {
-    const net = row.nets[Math.min(way2, row.nets.length - 1)];
-    return sum + Math.abs(row.paid - (gross ? net + row.withheld : net));
+    const nets = row.nets[Math.min(way2, row.nets.length - 1)];
+    return sum + Math.min(...nets.map((net) => Math.abs(row.paid - (gross ? net + row.withheld : net))));
   }, 0) / paid;
   const fits = (gross) => way === void 0 ? Math.min(misfit(gross, 0), misfit(gross, 1)) : misfit(gross, way);
   let basis = "assumed";
