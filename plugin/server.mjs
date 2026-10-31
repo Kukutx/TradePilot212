@@ -46306,9 +46306,9 @@ var ListingWatches = class {
       }
       const recent = recentlyDated(instruments, now);
       const seen = new Set(await this.deps.store.get(seenKey(environment)) ?? []);
-      const found = recent.filter((item) => !seen.has(item.ticker) && watchMatches(watch, item)).sort((a, b) => Date.parse(b.addedOn) - Date.parse(a.addedOn) || a.ticker.localeCompare(b.ticker));
       const current = await this.get(environment);
       if (!current || current.createdAt !== watch.createdAt) continue;
+      const found = recent.filter((item) => !seen.has(item.ticker) && watchMatches(current, item)).sort((a, b) => Date.parse(b.addedOn) - Date.parse(a.addedOn) || a.ticker.localeCompare(b.ticker));
       await this.deps.store.put(seenKey(environment), recent.map((item) => item.ticker));
       await this.deps.store.put(watchKey2(environment), {
         ...current,
