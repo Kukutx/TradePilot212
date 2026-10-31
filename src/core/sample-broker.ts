@@ -117,11 +117,11 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
     if (then === undefined) return now;
     return round(now + (then - now) * Math.min(1, Math.max(0, (started - Date.parse(at)) / (400 * 86_400_000))), 6);
   };
-  const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0, id: number = nextId++) => {
+  const addHistory = (ticker: string, quantity: number, price: number, at: string, realisedProfitLoss = 0, id: number = nextId++, initiatedFrom = "API") => {
     const currency = instrumentOf(ticker)?.currencyCode ?? "EUR";
     const rate = rateOn(currency, at);
     history.unshift({
-      order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
+      order: { id, ticker, side: quantity < 0 ? "SELL" : "BUY", type: "MARKET", status: "FILLED", initiatedFrom, quantity, filledQuantity: quantity, currency: instrumentOf(ticker)?.currencyCode, createdAt: at, instrument: { ticker, name: instrumentOf(ticker)?.name } },
       fill: { id, filledAt: at, price, quantity, type: "TRADE", walletImpact: { currency: "EUR", fxRate: rate, netValue: round(Math.abs(quantity) * price * rate), realisedProfitLoss, taxes: quantity > 0 && instrumentOf(ticker)?.currencyCode === "USD" ? [] : [{ name: "FINRA_FEE", quantity: 0.02, currency: "EUR" }] } },
     });
   };
@@ -131,7 +131,9 @@ export function createSampleBroker(passthrough: typeof fetch = (input, init) => 
   for (let index = 13; index >= 0; index--) {
     const instrument = traded[index % traded.length]!;
     const sell = index % 4 === 3;
-    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0);
+    // Placed from the app, the web, the API, or by auto-invest for the fund, as an account's orders are.
+    const source = instrument.ticker === "VUSAl_EQ" ? "AUTOINVEST" : sell ? "WEB" : index % 3 === 0 ? "API" : "IOS";
+    addHistory(instrument.ticker, sell ? -2 : 3, round(instrument.price * (0.95 - index * 0.013)), daysAgo(20 + index * 24), sell ? 30 + index * 2 : 0, nextId++, source);
   }
   const dividends: Json[] = [];
   for (const [ticker, perShare, quantity, firstDay] of [["AAPL_US_EQ", 0.25, 12, 30], ["KO_US_EQ", 0.485, 25, 45], ["MSFT_US_EQ", 0.83, 6, 60], ["VUSAl_EQ", 27, 40, 80]] as const) {

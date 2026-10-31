@@ -11,6 +11,7 @@ import { MAX_REVIEW_QUOTES, REVIEW_AFTER_DAYS, type JournalEntry, type JournalPa
 import type { AccountSummary, ActivityEvent, CancelDraftPayload, CancelPreview, CredentialStatus, EnrichedTradeCandidate, ExecutionVerificationResult, Instrument, OrderDraft, OrderDraftPayload, OrderExecutionResult, OrderNotice, OrderPreview, PendingOrder, PortfolioSnapshot, Position, TradingEnvironment, OrderImpact } from "../shared/contracts.js";
 import type { AccountAlert, AutomationOverview, BasketDraftPayload, BasketExecutionResult, BasketPreview, DcaPlan, PolicyCheck, PriceAlert, ProtectiveLink, RebalancePlan, TargetAllocation, TradingPolicy } from "../shared/automation.js";
 import type { AllocationAnalysis, AllocationDrift, CalendarReturn, DailyMove, Drawdown, ExportReport, FillTotals, HoldingMix, IncomeSummary, MarketSensitivity, PerformanceSummary, TaxYearSummary } from "../shared/history.js";
+import { tradeSource, type TradeSource } from "../shared/history.js";
 import type { TradeTotals } from "../shared/trade-cost.js";
 import type { PieChangeDraftPayload, PieChangePreview, PieChangeResult, PieOverview, PiesPayload } from "../shared/pies.js";
 import { portfolioProtection, stopOutcome, stopProtection, type StopProtection } from "../shared/protection.js";
@@ -667,6 +668,7 @@ function income(data: IncomeSummary): string[] {
 
 interface TradeFill {
   orderId?: string;
+  initiatedFrom?: string;
   ticker?: string;
   name?: string;
   side?: string;
@@ -704,18 +706,21 @@ function tradeHistory(data: { fills: TradeFill[]; count?: number; offset?: numbe
   const partial = all > fills.length;
   return [
     ...(all ? [`Totals over all ${all} fill(s)${currency ? ` (${currency})` : ""}: ${totals.buys} buys ${num(totals.bought)}, ${totals.sells} sells ${num(totals.sold)}, realized P/L ${signed(totals.realised)}, fees ${num(totals.costs)}.`] : ["No fills in this window."]),
+    ...(totals.bySource && Object.keys(totals.bySource).length ? [`Placed from: ${Object.entries(totals.bySource).map(([source, count]) => `${SOURCE_TEXT[source as TradeSource] ?? source} ${count}`).join(", ")}.`] : []),
     ...(fees.size ? [`Fees by kind${partial ? ` over the ${fills.length} listed` : ""}: ${[...fees].map(([name, amount]) => `${name} ${num(amount)}`).join(", ")}.`] : []),
     ...(!partial ? [] : offset && !fills.length ? [`No fills past the first ${offset} of ${all}.`]
       : offset ? [`Fills ${offset + 1}–${offset + fills.length} of ${all}, newest first, are listed below${offset + fills.length < all ? `; offset ${offset + fills.length} lists the next` : ""}.`]
       : [`The newest ${fills.length} of ${all} fills are listed below; offset ${fills.length}, with this window's period.from and period.to as from and to, lists the next, or a shorter window fewer.`]),
     ...rows(fills, (fill) => `${day(fill.filledAt)} ${String(fill.side ?? "").toUpperCase()} ${num(Math.abs(fill.quantity ?? 0), 8)} ${fill.ticker ?? "?"}${fill.name ? ` (${fill.name})` : ""} @ ${num(fill.price, 6)}${fill.priceCurrency ? ` ${fill.priceCurrency}` : ""}`
-      + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
+      + `${fill.netValue === undefined ? "" : ` = ${num(Math.abs(fill.netValue))}${fill.accountCurrency ? ` ${fill.accountCurrency}` : ""}`}${fill.realisedProfitLoss ? `, P/L ${signed(fill.realisedProfitLoss)}` : ""}${fill.costs ? `, fees ${num(fill.costs)}` : ""}${tradeSource(fill.initiatedFrom) ? `, via ${SOURCE_TEXT[tradeSource(fill.initiatedFrom)!]}` : ""}${fill.orderId ? ` (order ${fill.orderId})` : ""}`, 50),
     ...(data.unfilled ? section("Closed without a fill", rows(data.unfilled, (order) => `${day(order.createdAt)} ${String(order.side ?? "").toUpperCase()} ${order.value !== undefined && !order.quantity ? `value ${num(Math.abs(order.value))}` : num(Math.abs(order.quantity ?? 0), 8)} ${order.ticker ?? "?"} ${String(order.type ?? "").toLowerCase()}`
       + `${order.limitPrice === undefined ? "" : ` limit ${num(order.limitPrice, 6)}`}${order.stopPrice === undefined ? "" : ` stop ${num(order.stopPrice, 6)}`}${order.priceCurrency && (order.limitPrice !== undefined || order.stopPrice !== undefined) ? ` ${order.priceCurrency}` : ""} (${order.status ?? "?"})`, 50)) : []),
     ...section("Journal notes on these orders", rows(data.journal ?? [], (entry) => journalLine(entry))),
     ...(data.truncated ? ["History was truncated at the page limit; older fills are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : []),
   ];
 }
+
+const SOURCE_TEXT: Record<TradeSource, string> = { app: "app", web: "web", api: "API", autoinvest: "auto-invest", system: "Trading 212", other: "other" };
 
 function orderStatus(data: OrderStatusReport): string[] {
   const filled = data.fills.reduce((sum, fill) => sum + (fill.quantity ?? 0), 0);

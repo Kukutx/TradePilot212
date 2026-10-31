@@ -649,6 +649,8 @@ export interface CashHistory {
 export interface HistoryFilter {
   ticker?: string;
   types?: string[];
+  /** Only orders placed from here (trades, from 2.89). */
+  source?: TradeSource;
 }
 
 /** One executed fill. Amounts in the account currency unless a field names another. */
@@ -711,9 +713,26 @@ export interface TradeHistory {
   timestamp: string;
 }
 
+/** Where an order was placed, from Trading 212's `initiatedFrom`: its app (iOS or Android), the web, the API, auto-invest, or Trading 212 itself. */
+export type TradeSource = "app" | "web" | "api" | "autoinvest" | "system" | "other";
+export const TRADE_SOURCES: TradeSource[] = ["app", "web", "api", "autoinvest", "system", "other"];
+
+export function tradeSource(initiatedFrom: string | undefined): TradeSource | undefined {
+  const value = initiatedFrom?.trim().toUpperCase();
+  if (!value) return undefined;
+  if (value === "IOS" || value === "ANDROID") return "app";
+  if (value === "WEB") return "web";
+  if (value === "API") return "api";
+  if (value === "AUTOINVEST") return "autoinvest";
+  if (value === "SYSTEM") return "system";
+  return "other";
+}
+
 export interface FillTotals {
   buys: number;
   sells: number;
+  /** The window's trades by where their orders were placed (from 2.89); trades whose source is not given are left out. */
+  bySource?: Partial<Record<TradeSource, number>>;
   /** Money spent on buys and taken in by sells, both as positive amounts. */
   bought: number;
   sold: number;
