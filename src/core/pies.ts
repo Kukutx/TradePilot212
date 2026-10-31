@@ -18,7 +18,7 @@ import type {
 import { credentialStatus, requireCredentials, type RuntimeConfig } from "./config.js";
 import { asStructuredError, fail } from "./errors.js";
 import type { StateStore } from "./state-store.js";
-import { resolveInstrumentFromList, type TradingService } from "./trading-service.js";
+import { resolveInstrumentFromList, type PendingDescription, type TradingService } from "./trading-service.js";
 import { ExecutionStatusUnknownError, Trading212ApiError, Trading212Client } from "./trading212-client.js";
 import { randomToken } from "./web-utils.js";
 
@@ -272,6 +272,14 @@ export class PiesService {
       changes,
       notices,
     };
+  }
+
+  /** What a pie confirmation token would change, read without using it (order-confirm.ts). */
+  async describePieChange(token: string): Promise<PendingDescription> {
+    const pending = await this.deps.store.get<PendingPieChange>(`pie-confirm:${token}`);
+    if (!pending) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    const name = pending.request?.name ?? pending.duplicate?.name;
+    return { kind: "pie", environment: pending.environment, action: pending.action, ...(pending.pieId === undefined ? {} : { pieId: pending.pieId }), ...(name ? { name } : {}) };
   }
 
   /** Send a confirmed pie change once. Live changes need the second confirmation, as orders do. */

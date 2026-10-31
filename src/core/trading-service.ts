@@ -50,6 +50,11 @@ interface PendingBasket {
 }
 /** What the preview of a risk-sized buy showed: the loss over budget it named, or that the price was under the stop-loss. */
 type RiskShown = { loss?: number; stopAbove?: true };
+/** A confirmation token's orders, for the host's own confirmation dialog. */
+export type PendingDescription =
+  | { kind: "order" | "basket"; environment: TradingEnvironment; drafts: OrderDraft[]; title?: string }
+  | { kind: "cancel"; environment: TradingEnvironment; orderId: string }
+  | { kind: "pie"; environment: TradingEnvironment; action: string; pieId?: number; name?: string };
 type Pending = { kind: "order"; draft: OrderDraft; risk?: RiskShown } | { kind: "cancel"; environment: TradingEnvironment; orderId: string } | PendingBasket;
 interface Snapshot { instruments: Instrument[]; positions: Position[]; account: AccountSummary }
 /** An order's final state from the broker's history; `quantity` is the order size, 0 when not reported. */
@@ -1186,6 +1191,18 @@ export class TradingService {
     const pending = await this.deps.store.consume<Pending>(key);
     if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
     return pending as Extract<Pending, { kind: K }>;
+  }
+
+  /**
+   * What a confirmation token would send, read without using it, for a host that asks the user itself before the
+   * send (order-confirm.ts). Nothing is checked here that the send does not check again.
+   */
+  async describePending(confirmationId: string, kind: "order" | "basket" | "cancel"): Promise<PendingDescription> {
+    const pending = await this.deps.store.get<Pending>(`confirm:${confirmationId}`);
+    if (!pending || pending.kind !== kind) fail("CONFIRMATION_EXPIRED", "Confirmation token is invalid or expired");
+    if (pending.kind === "order") return { kind: "order", environment: pending.draft.environment, drafts: [pending.draft] };
+    if (pending.kind === "cancel") return { kind: "cancel", environment: pending.environment, orderId: pending.orderId };
+    return { kind: "basket", environment: pending.environment, title: pending.title, drafts: pending.drafts };
   }
 
   /** The environment a confirmation token belongs to, so its send can take that environment's lock. */

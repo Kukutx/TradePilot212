@@ -85,6 +85,8 @@ TradePilot 可以作为本地进程运行，而不是部署成公网 Worker。�
 
 如果你打开了它们，请为 `app_execute_order`、`app_execute_basket`、`app_execute_cancel` 和 `app_execute_pie_change` 保留 Claude Code 每次调用前的权限提示，并且永远不要把它们加进允许列表。这个提示就是你的确认步骤。
 
+如果宿主能显示自己的表单（MCP elicitation）而且不渲染组件，还会多一步不依赖模型的确认：`app_execute_*` 发送任何东西之前，TradePilot 先在宿主的表单里问你，列出要发的订单（最多列十笔，其余写明还有几笔）、要撤销的订单或要改的组合，以及是哪个账户。只有勾选“确认发送”并接受，才会发送。实盘操作还要勾选“我明白这会使用真实资金”，这一项同时算作实盘的二次确认。拒绝表单会返回 `CONFIRMATION_DECLINED`，令牌不会被用掉，过期前仍然有效。渲染组件的宿主不会弹出这个表单，因为你在组件里确认；不能显示表单的宿主照旧。
+
 <a id="run-the-stdio-server-without-the-plugin"></a>
 ## 不通过插件运行 stdio 服务
 

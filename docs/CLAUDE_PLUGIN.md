@@ -80,6 +80,8 @@ A terminal host may not render MCP Apps UIs. In such a host the execution tools 
 
 If you enable them, keep Claude Code's per-call permission prompt on for `app_execute_order`, `app_execute_basket`, `app_execute_cancel` and `app_execute_pie_change`, and never add them to an allow-list. That prompt is then your confirmation step.
 
+A host that can show its own forms (MCP elicitation) and renders no widget gets a second step that does not depend on the model: before `app_execute_*` sends anything, TradePilot asks you in the host's form, listing the orders (up to ten, then how many more), the cancellation or the pie change, and the account. Nothing is sent unless you tick **Send it** and accept. A Live write also needs **I understand this uses real money** ticked, which then stands for the Live acknowledgement. A declined form returns `CONFIRMATION_DECLINED` and leaves the token unused until it expires. A host that renders the widget is never asked, since you confirm there, and a host that cannot show forms goes on as before.
+
 ## Run the stdio server without the plugin
 
 From a clone:

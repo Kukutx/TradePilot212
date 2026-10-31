@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.95.0
+
+- A host that can show its own forms (MCP elicitation) and renders no widget, such as a terminal, asks the user before `app_execute_order`, `app_execute_basket`, `app_execute_cancel` or `app_execute_pie_change` sends anything. The form lists what will be sent (up to ten orders, then how many more) and to which account, in `NOTIFY_LOCALE`'s language. Nothing is sent unless the user ticks **Send it**; on Live they also tick that real money is used, which stands for the Live acknowledgement. A declined form returns `CONFIRMATION_DECLINED` and leaves the token unused.
+- A host that renders the widget is never asked, as the user confirms there, and a host that cannot show forms works as before. An expired token says so without asking.
+
 ## 2.94.0
 
 - The investment goal can assume inflation (2% for a new goal; a goal saved before assumes none). Above 0, the target and what is added each month are in today's money, the monthly amount rising with prices, and the projection grows at the return after inflation.

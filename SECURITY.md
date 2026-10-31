@@ -64,7 +64,7 @@ Read this before connecting a Live account. It describes where each safeguard is
 
 ## Local stdio and the Claude plugin
 
-The stdio server has no OAuth layer: anyone who can start the process already holds the Trading 212 keys in its environment. The order-review, basket, plan-management and execution tools are not registered unless `TRADEPILOT_ALLOW_WRITES=true`, and Demo automation stays off without it. This is because a terminal host may not hide app-only tools from the model. If you enable writes, keep the host's per-call permission prompt for the execution tools. The plugin stores API keys in the system credential store, not in settings files.
+The stdio server has no OAuth layer: anyone who can start the process already holds the Trading 212 keys in its environment. The order-review, basket, plan-management and execution tools are not registered unless `TRADEPILOT_ALLOW_WRITES=true`, and Demo automation stays off without it. This is because a terminal host may not hide app-only tools from the model. If you enable writes, keep the host's per-call permission prompt for the execution tools. A host that can show forms (MCP elicitation) and renders no widget is also asked, in its own form, before each execution tool sends anything, so the send waits on the user's answer there and not on the model's word. The plugin stores API keys in the system credential store, not in settings files.
 
 ## Deployment guidance
 
