@@ -1013,15 +1013,16 @@ function goalProgressLine(goal: InvestmentGoal, value: number | undefined, curre
 
 function goalLines(goal: InvestmentGoal, value: number | undefined, currency: string | undefined, now: Date): string[] {
   const money = (amount: number) => `${num(amount)}${currency ? ` ${currency}` : ""}`;
-  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money(goal.target)} by ${goal.by}, adding ${money(goal.monthly)} a month, assuming ${num(goal.expectedReturn * 100, 1)}% a year with ${num(goal.volatility * 100, 1)}% volatility.`;
+  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money(goal.target)} by ${goal.by}, adding ${money(goal.monthly)} a month, assuming ${num(goal.expectedReturn * 100, 1)}% a year with ${num(goal.volatility * 100, 1)}% volatility${goal.inflation ? ` and ${num(goal.inflation * 100, 1)}% inflation, in today's money (the monthly amount rising with prices)` : ""}.`;
   if (value === undefined) return [head, "The account value could not be read, so there is no projection."];
   const projection = projectGoal(goal, value, now);
   return [
     head,
     `Now ${money(value)} (${num(value / goal.target * 100, 1)}% of the target)${projection.reached ? ", at or above it already" : ""}.`,
+    ...(projection.pace && !projection.reached ? [`${money(Math.abs(projection.pace.difference))} ${projection.pace.difference >= 0 ? "ahead of" : "behind"} plan: the middle line from ${money(goal.start!.value)} on ${projection.pace.since.slice(0, 10)} would be at ${money(projection.pace.expected)} now.`] : []),
     ...(projection.months ? [
       `By ${goal.by}: ${money(projection.final.low)} to ${money(projection.final.high)} (10th to 90th percentile), ${money(projection.final.mid)} in the middle; ${money(projection.added)} of it added from now.`,
-      `Chance of reaching it under these assumptions: ${num(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: costs, taxes and inflation are left out.`,
+      `Chance of reaching it under these assumptions: ${num(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: ${goal.inflation ? "costs and taxes are" : "costs, taxes and inflation are"} left out.`,
     ] : [`The date has passed.`]),
   ];
 }

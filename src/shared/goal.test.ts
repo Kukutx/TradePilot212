@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { monthsUntil, normalCdf, projectGoal } from "./goal.js";
+import { goalPace, monthsUntil, normalCdf, projectGoal, realReturn } from "./goal.js";
 
 const now = new Date("2026-10-31T12:00:00Z");
 
@@ -53,5 +53,24 @@ describe("goal projection", () => {
     const projection = projectGoal({ target: 1_000_000, by: "2056-10-31", monthly: 500, expectedReturn: 0.07, volatility: 0.18 }, 50_000, now);
     expect(projection.months).toBe(360);
     expect(projection.points).toHaveLength(121);
+  });
+
+  it("grows at the return after inflation, so the projection is in today's money", () => {
+    expect(realReturn({ expectedReturn: 0.06, inflation: 0.02 })).toBeCloseTo(0.0392, 4);
+    expect(realReturn({ expectedReturn: 0.06 })).toBe(0.06);
+    const base = { target: 100_000, by: "2036-10-31", monthly: 200, expectedReturn: 0.06, volatility: 0.15 };
+    const nominal = projectGoal(base, 20_000, now);
+    const real = projectGoal({ ...base, inflation: 0.02 }, 20_000, now);
+    expect(real.final.mid).toBeLessThan(nominal.final.mid);
+    expect(real.chance).toBeLessThan(nominal.chance);
+  });
+
+  it("measures the pace from the goal's start once a whole month has passed", () => {
+    const goal = { target: 100_000, by: "2036-10-31", monthly: 500, expectedReturn: 0, volatility: 0, start: { value: 10_000, at: "2026-08-15T09:00:00Z" } };
+    // At no growth, two whole months of 500 since mid-August.
+    expect(goalPace(goal, 11_500, now)).toEqual({ since: "2026-08-15T09:00:00Z", months: 2, expected: 11_000, difference: 500 });
+    expect(goalPace({ ...goal, start: { value: 10_000, at: "2026-10-20T00:00:00Z" } }, 11_500, now)).toBeUndefined();
+    expect(goalPace({ ...goal, start: undefined }, 11_500, now)).toBeUndefined();
+    expect(projectGoal(goal, 10_500, now).pace?.difference).toBe(-500);
   });
 });

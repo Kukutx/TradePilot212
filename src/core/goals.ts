@@ -4,7 +4,7 @@
 // The progress already made when a goal is set, or its target changed, is taken as known and not announced.
 
 import type { TradingEnvironment } from "../shared/contracts.js";
-import { DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, goalMilestone, MAX_GOAL_YEARS, type InvestmentGoal } from "../shared/goal.js";
+import { DEFAULT_GOAL_INFLATION, DEFAULT_GOAL_RETURN, DEFAULT_GOAL_VOLATILITY, goalMilestone, MAX_GOAL_YEARS, type InvestmentGoal } from "../shared/goal.js";
 import type { ValuePoint } from "../shared/history.js";
 import { requireCredentials, type RuntimeConfig } from "./config.js";
 import { fail } from "./errors.js";
@@ -21,8 +21,11 @@ export interface GoalInput {
   monthly?: number;
   expectedReturn?: number;
   volatility?: number;
+  inflation?: number;
   name?: string;
   currency?: string;
+  /** The account value now, kept as the goal's start when it is new or its target changes. */
+  value?: number;
 }
 
 export interface GoalReport {
@@ -70,16 +73,22 @@ export class Goals {
     const monthly = input.monthly ?? current?.monthly ?? 0;
     const expectedReturn = input.expectedReturn ?? current?.expectedReturn ?? DEFAULT_GOAL_RETURN;
     const volatility = input.volatility ?? current?.volatility ?? DEFAULT_GOAL_VOLATILITY;
+    // A goal saved before inflation was asked for assumed none.
+    const inflation = input.inflation ?? (current ? current.inflation ?? 0 : DEFAULT_GOAL_INFLATION);
     if (!(monthly >= 0) || !Number.isFinite(monthly)) fail("INVALID_INPUT", "The monthly amount is 0 or more", { field: "monthly" });
     if (!(expectedReturn >= -0.5 && expectedReturn <= 0.3)) fail("INVALID_INPUT", "The yearly return is between -50% and 30%, as a fraction", { field: "expectedReturn" });
     if (!(volatility >= 0 && volatility <= 1)) fail("INVALID_INPUT", "The yearly volatility is between 0 and 100%, as a fraction", { field: "volatility" });
+    if (!(inflation >= 0 && inflation <= 0.2)) fail("INVALID_INPUT", "The yearly inflation is between 0 and 20%, as a fraction", { field: "inflation" });
     const name = input.name === undefined ? current?.name : input.name.trim().slice(0, 80) || undefined;
     const currency = input.currency ?? current?.currency;
     // A new target is measured afresh: its progress so far is taken as known at the next check.
-    const milestone = current && current.target === input.target ? current.milestone : undefined;
+    const sameTarget = !!current && current.target === input.target;
+    const milestone = sameTarget ? current.milestone : undefined;
+    // The pace is measured from where the account stood when this target was set.
+    const start = sameTarget && current.start ? current.start : input.value !== undefined && Number.isFinite(input.value) ? { value: input.value, at: now.toISOString() } : undefined;
     const goal: InvestmentGoal = {
-      environment: input.environment, target: input.target, by: input.by, monthly, expectedReturn, volatility,
-      ...(currency ? { currency } : {}), ...(name ? { name } : {}), ...(milestone === undefined ? {} : { milestone }),
+      environment: input.environment, target: input.target, by: input.by, monthly, expectedReturn, volatility, inflation,
+      ...(currency ? { currency } : {}), ...(name ? { name } : {}), ...(milestone === undefined ? {} : { milestone }), ...(start ? { start } : {}),
       createdAt: current?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(),
     };
     await this.deps.store.put(goalKey(input.environment), goal);

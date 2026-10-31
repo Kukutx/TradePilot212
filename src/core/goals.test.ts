@@ -11,7 +11,7 @@ describe("goals", () => {
   it("saves one goal per account with the assumptions it is given or the defaults, keeping what a change leaves out", async () => {
     const goals = setup();
     const saved = await goals.set({ environment: "demo", target: 100_000, by: "2036-10-31", monthly: 300, name: " House ", currency: "EUR" }, now);
-    expect(saved).toEqual({ environment: "demo", target: 100_000, by: "2036-10-31", monthly: 300, expectedReturn: 0.06, volatility: 0.15, currency: "EUR", name: "House", createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    expect(saved).toEqual({ environment: "demo", target: 100_000, by: "2036-10-31", monthly: 300, expectedReturn: 0.06, volatility: 0.15, inflation: 0.02, currency: "EUR", name: "House", createdAt: now.toISOString(), updatedAt: now.toISOString() });
     const later = new Date("2026-11-02T00:00:00Z");
     const changed = await goals.set({ environment: "demo", target: 120_000, by: "2037-01-01", expectedReturn: 0.05 }, later);
     expect(changed).toMatchObject({ target: 120_000, monthly: 300, expectedReturn: 0.05, volatility: 0.15, name: "House", createdAt: now.toISOString(), updatedAt: later.toISOString() });
@@ -30,6 +30,7 @@ describe("goals", () => {
     await expect(goals.set({ ...base, monthly: -1 }, now)).rejects.toThrow("0 or more");
     await expect(goals.set({ ...base, expectedReturn: 6 }, now)).rejects.toThrow("as a fraction");
     await expect(goals.set({ ...base, volatility: 2 }, now)).rejects.toThrow("volatility");
+    await expect(goals.set({ ...base, inflation: 0.5 }, now)).rejects.toThrow("inflation");
     await expect(goals.set({ ...base, environment: "live" }, now)).rejects.toThrow();
   });
 
@@ -65,5 +66,19 @@ describe("goals", () => {
   it("words a milestone in English too, naming an unnamed goal", () => {
     const goal = { environment: "demo" as const, target: 10_000, by: "2036-10-31", monthly: 0, expectedReturn: 0.06, volatility: 0.15, createdAt: "", updatedAt: "" };
     expect(milestoneText(goal, 75, 7_600, "EUR")).toBe("The investment goal is 75% of the way: 7,600 EUR of 10,000 EUR by 2036-10-31.");
+  });
+
+  it("keeps where the account stood when the target was set, for the pace, until the target changes", async () => {
+    const goals = setup();
+    const first = await goals.set({ environment: "demo", target: 100_000, by: "2036-10-31", value: 20_000 }, now);
+    expect(first.start).toEqual({ value: 20_000, at: now.toISOString() });
+    const later = new Date("2027-01-15T00:00:00Z");
+    expect((await goals.set({ environment: "demo", target: 100_000, by: "2037-10-31", value: 25_000 }, later)).start).toEqual(first.start);
+    expect((await goals.set({ environment: "demo", target: 90_000, by: "2037-10-31", value: 25_000 }, later)).start).toEqual({ value: 25_000, at: later.toISOString() });
+    // A goal saved before inflation was asked for assumes none when it is changed.
+    const store = new MemoryStateStore();
+    await store.put("goal:demo", { environment: "demo", target: 1_000, by: "2030-01-01", monthly: 0, expectedReturn: 0.06, volatility: 0.15, createdAt: "", updatedAt: "" });
+    const old = new Goals({ config: createConfig({ T212_DEMO_API_KEY: "k", T212_DEMO_API_SECRET: "s" }), store });
+    expect((await old.set({ environment: "demo", target: 1_000, by: "2031-01-01" }, now)).inflation).toBe(0);
   });
 });

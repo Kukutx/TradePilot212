@@ -1,12 +1,15 @@
 // An investment goal: an amount to reach by a date, with what you add each month. The projection is a range, not a
 // forecast: growth at an assumed yearly return and volatility, the low and high lines being the 10th and 90th
 // percentiles of the yearly growth over each horizon (lognormal), with each month's contribution growing at the same
-// rate. The server and the widget work it out the same way, so the form shows the range as it is typed.
+// rate. With inflation assumed, it is all in today's money: growth at the return after inflation, the monthly amount
+// rising with prices. The server and the widget work it out the same way, so the form shows the range as it is typed.
 
 import type { CredentialStatus, TradingEnvironment } from "./contracts.js";
 
 export const DEFAULT_GOAL_RETURN = 0.06;
 export const DEFAULT_GOAL_VOLATILITY = 0.15;
+/** The yearly inflation a new goal assumes; a goal saved before there was one assumes none. */
+export const DEFAULT_GOAL_INFLATION = 0.02;
 /** The furthest a goal may be, in years. */
 export const MAX_GOAL_YEARS = 50;
 /** The 90th percentile of the standard normal: the low and high lines are this many deviations either side. */
@@ -24,6 +27,13 @@ export interface InvestmentGoal {
   expectedReturn: number;
   /** The yearly volatility assumed, as a fraction. */
   volatility: number;
+  /**
+   * The yearly inflation assumed, as a fraction: above 0, the target and what is added each month are in today's money
+   * (the monthly amount rising with prices), and the projection is too. Absent is 0.
+   */
+  inflation?: number;
+  /** The account value when the goal was set or its target changed, which the pace is measured from. */
+  start?: { value: number; at: string };
   /** The account currency when it was saved. */
   currency?: string;
   name?: string;
@@ -45,7 +55,11 @@ export function goalMilestone(value: number, target: number): number {
   return GOAL_MILESTONES.filter((mark) => value >= (target * mark) / 100).at(-1) ?? 0;
 }
 
-export type GoalInputs = Pick<InvestmentGoal, "target" | "by" | "monthly" | "expectedReturn" | "volatility">;
+export type GoalInputs = Pick<InvestmentGoal, "target" | "by" | "monthly" | "expectedReturn" | "volatility" | "inflation">;
+
+/** The yearly return after inflation: what the projection grows at, in today's money. */
+export const realReturn = (inputs: Pick<GoalInputs, "expectedReturn" | "inflation">) =>
+  inputs.inflation && inputs.inflation > 0 ? (1 + inputs.expectedReturn) / (1 + inputs.inflation) - 1 : inputs.expectedReturn;
 
 export interface GoalPoint {
   /** The month's date, YYYY-MM-DD. */
@@ -71,6 +85,19 @@ export interface GoalProjection {
   neededMonthly: number;
   /** The value now is at or above the target already. */
   reached: boolean;
+  /** How the value now compares with where the middle line from the goal's start says it would be. */
+  pace?: GoalPace;
+}
+
+export interface GoalPace {
+  /** When the goal's start was taken. */
+  since: string;
+  /** Whole months since then. */
+  months: number;
+  /** Where the middle line from the start value, adding the monthly amount, would be now. */
+  expected: number;
+  /** The value now less that: above 0 is ahead. */
+  difference: number;
 }
 
 /** The goal and the value it is measured against, as get_portfolio_performance and manage_goal return them. */
@@ -111,11 +138,30 @@ function grown(value: number, monthly: number, growth: number, months: number): 
   return lump + monthly * annuity;
 }
 
-export function projectGoal(inputs: GoalInputs, value: number, now = new Date()): GoalProjection {
+/** The median yearly log growth: the return after inflation, less the volatility drag. */
+const medianGrowth = (inputs: Pick<GoalInputs, "expectedReturn" | "inflation" | "volatility">) => {
+  const sigma = Math.max(0, inputs.volatility);
+  return Math.log(1 + Math.max(-0.99, realReturn(inputs))) - (sigma * sigma) / 2;
+};
+
+/**
+ * Where the value is now against the middle line from the goal's start: none until a whole month has passed. The
+ * months are whole calendar months, as the projection's are, so a part month adds no contribution yet.
+ */
+export function goalPace(goal: GoalInputs & Pick<InvestmentGoal, "start">, value: number, now = new Date()): GoalPace | undefined {
+  if (!goal.start) return undefined;
+  const since = new Date(goal.start.at);
+  if (!Number.isFinite(since.getTime())) return undefined;
+  const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 + now.getUTCMonth() - since.getUTCMonth() - (now.getUTCDate() < since.getUTCDate() ? 1 : 0);
+  if (months < 1) return undefined;
+  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months);
+  return { since: goal.start.at, months, expected, difference: value - expected };
+}
+
+export function projectGoal(inputs: GoalInputs & Partial<Pick<InvestmentGoal, "start">>, value: number, now = new Date()): GoalProjection {
   const months = monthsUntil(inputs.by, now);
   const sigma = Math.max(0, inputs.volatility);
-  // The median yearly log growth: the expected return less the volatility drag.
-  const median = Math.log(1 + Math.max(-0.99, inputs.expectedReturn)) - (sigma * sigma) / 2;
+  const median = medianGrowth(inputs);
   const at = (m: number, z: number) => (m === 0 ? value : grown(value, inputs.monthly, median + z * sigma / Math.sqrt(m / 12), m));
   const step = months > 120 ? 3 : 1;
   const points: GoalPoint[] = [];
@@ -147,6 +193,7 @@ export function projectGoal(inputs: GoalInputs, value: number, now = new Date())
   const lumpMid = months ? grown(value, 0, median, months) : value;
   const perMonth = months ? grown(0, 1, median, months) : 0;
   const neededMonthly = reached || lumpMid >= inputs.target || !perMonth ? 0 : (inputs.target - lumpMid) / perMonth;
+  const pace = goalPace(inputs, value, now);
   return {
     months, points,
     final: { low: last.low, mid: last.mid, high: last.high },
@@ -154,5 +201,6 @@ export function projectGoal(inputs: GoalInputs, value: number, now = new Date())
     chance: Math.min(1, Math.max(0, chance)),
     neededMonthly,
     reached,
+    ...(pace ? { pace } : {}),
   };
 }
