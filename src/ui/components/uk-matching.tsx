@@ -3,7 +3,7 @@
 
 import type { UkMatching } from "../../shared/history";
 import type { SupportedLocale } from "../i18n";
-import { money, qty, signedClass } from "../lib/format";
+import { dayLabel, num, money, qty, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, type Translator } from "../lib/messages";
 import { Metric } from "./common";
@@ -21,6 +21,13 @@ export function rowProblems(row: UkMatching["byTicker"][number], locale: Support
     ...(row.reconciliation ? [fill(t("ukMatchingRowOff"), { fills: qty(row.reconciliation.fills, locale), held: qty(row.reconciliation.held, locale) })] : []),
     ...(row.notTrades ? [fill(t("ukMatchingRowNotTrades"), { count: String(row.notTrades) })] : []),
   ];
+}
+
+/** Each split of an instrument, "2-for-1 split on 10 Jun 2026", or a consolidation's "10 into 1". */
+export function splitText(row: UkMatching["byTicker"][number], locale: SupportedLocale, t: Translator): string[] {
+  return (row.splits ?? []).map((split) => split.ratio >= 1
+    ? fill(t("ukMatchingRowSplit"), { ratio: num(split.ratio, locale), date: dayLabel(split.on, locale) })
+    : fill(t("ukMatchingRowConsolidation"), { ratio: num(1 / split.ratio, locale), date: dayLabel(split.on, locale) }));
 }
 
 export function UkMatchingPanel({ data, book, locale, t }: { data: UkMatching; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
@@ -50,6 +57,7 @@ export function UkMatchingPanel({ data, book, locale, t }: { data: UkMatching; b
                 <tr key={row.ticker}>
                   <td title={label.ticker}>
                     <strong>{label.detail || label.name}</strong><small>{matchedText(row, locale, t)}</small>
+                    {row.splits?.length ? <small>{splitText(row, locale, t).join(" · ")}</small> : null}
                     {problems.length > 0 && <small className="ukProblem">{problems.join(" · ")}</small>}
                   </td>
                   <td className={signedClass(row.gain)}>{m(row.gain, true)}</td>

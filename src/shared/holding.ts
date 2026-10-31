@@ -5,6 +5,7 @@ import type { CredentialStatus, Instrument, PendingOrder, Position, TradingEnvir
 import type { MarketStatus } from "./history.js";
 import type { JournalEntry } from "./journal.js";
 import type { PriceHistory, PricesMissing } from "./prices.js";
+import type { SplitEvent } from "./splits.js";
 import type { DayMove } from "./today.js";
 
 /** One fill of an order on this instrument, newest first. */
@@ -22,6 +23,8 @@ export interface HoldingFill {
   netValue?: number;
   accountCurrency?: string;
   realisedProfitLoss?: number;
+  /** Trading 212's kind of fill when it was not a trade: STOCK_SPLIT, or another corporate action. */
+  fillType?: string;
 }
 
 /** One dividend paid on this instrument; the amount is in the account currency. */
@@ -80,8 +83,13 @@ export interface HoldingDetail {
     fillsTruncated: boolean;
     /** A fill read had shares but no price or date. */
     fillsUnpriced?: true;
-    /** A fill read was not a trade (a split or a distribution): shares with no price paid. */
+    /** A fill read was not a trade (a distribution, a merger, or a split whose ratio cannot be told). */
     fillsNotTrades?: true;
+    /**
+     * The splits and consolidations read, oldest first: `ratio` shares after for each before. The fills before one
+     * are in the units of their time; the price chart and the position's history count them in today's.
+     */
+    splits?: SplitEvent[];
     /** The same for dividends; dividendTotal and dividendCount then cover only the newer part of the window. */
     dividendsTruncated: boolean;
     /**

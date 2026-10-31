@@ -4,6 +4,7 @@ import type { Instrument, TradingEnvironment } from "../shared/contracts.js";
 import type { Exchange, MarketStatus } from "../shared/history.js";
 import type { HoldingDetail } from "../shared/holding.js";
 import type { JournalEntry } from "../shared/journal.js";
+import { isSplitType, readSplits } from "../shared/splits.js";
 import type { PriceAlerts } from "./alerts.js";
 import { marketStatus } from "./analytics.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart } from "./dividends.js";
@@ -122,6 +123,18 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
   const prices: PriceHistoryResult | undefined = unitProblem && !(read && "prices" in read) && !(read && read.missing === "unit") ? { missing: "unit", problem: unitProblem } : read;
   const target = targets?.targets.find((item) => item.ticker === ticker)?.weight;
   const listedFills = Array.isArray(history) ? history[0].fills.slice(0, MAX_FILLS) : [];
+  // The splits among the fills, from the shares held now: the year's fills do not reach the first buy, but every fill
+  // after a split read was read too, as the history is read newest first.
+  const splitRead = Array.isArray(history)
+    ? readSplits(history[0].fills, (fill) => {
+      const quantity = Math.abs(fill.quantity ?? 0);
+      return { key: ticker, time: Date.parse(fill.filledAt ?? ""), quantity: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? -quantity : quantity, split: isSplitType(fill.fillType) };
+    }, () => position?.quantity ?? 0)
+    : undefined;
+  const splits = splitRead?.events.get(ticker);
+  /** A fill of a split read: its shares are the split's, not a trade's. */
+  const splitFills: ReadonlySet<unknown> = splitRead?.used ?? new Set();
+  const splitFill = (fill: unknown) => splitFills.has(fill);
   const filled = new Set(listedFills.flatMap((fill) => (fill.orderId ? [fill.orderId] : [])));
   const onFill = (note: JournalEntry) => note.orderId !== undefined && filled.has(note.orderId);
   const relevant = notes.filter((note) => note.ticker === ticker || onFill(note));
@@ -191,9 +204,10 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
               ...(fill.netValue === undefined ? {} : { netValue: fill.netValue }),
               ...(fill.accountCurrency ? { accountCurrency: fill.accountCurrency } : {}),
               ...(fill.realisedProfitLoss === undefined ? {} : { realisedProfitLoss: fill.realisedProfitLoss }),
+              ...(fill.fillType && fill.fillType.toUpperCase() !== "TRADE" ? { fillType: fill.fillType } : {}),
             })),
             ...(history[0].fills.length > MAX_FILLS ? {
-              olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => (fill.filledAt && fill.price
+              olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => (fill.filledAt && fill.price && !splitFill(fill)
                 ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }]
                 : [])),
             } : {}),
@@ -207,8 +221,9 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             dividendTotal: history[1].totals.DIVIDEND ?? 0,
             dividendCount: history[1].count,
             fillsTruncated: history[0].truncated,
-            ...(history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price)) ? { fillsUnpriced: true as const } : {}),
-            ...(history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE") ? { fillsNotTrades: true as const } : {}),
+            ...(history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price) && !splitFill(fill)) ? { fillsUnpriced: true as const } : {}),
+            ...(history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE" && !splitFill(fill)) ? { fillsNotTrades: true as const } : {}),
+            ...(splits ? { splits } : {}),
             dividendsTruncated: history[1].truncated,
             ...(nextDividends.length ? { nextDividends: nextDividends.map((payment) => ({ on: new Date(payment.at).toISOString().slice(0, 10), amount: payment.amount })) } : {}),
             ...(nextDividends.length && schedule?.frequency ? { dividendFrequency: schedule.frequency } : {}),

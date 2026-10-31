@@ -9,6 +9,7 @@ import { amount, dayLabel, money, qty, signedClass, time } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { fill, orderStatusLabel, orderTypeLabel, plural, type Translator } from "../lib/messages";
 import { allTimeAction, chartLabels, costLabel, instrumentDatum, PeriodSwitch, type InsightPeriod } from "./InsightsView";
+import { isSplitType } from "../../shared/splits";
 import { taxYearZone } from "../../shared/time-zone";
 import { radioKeys, radioMoveKeys, radioTab, radioTabOf } from "../lib/radio";
 import { UkMatchingPanel } from "../components/uk-matching";
@@ -197,8 +198,9 @@ export function TradeHistoryView({ data, book, locale, t, period, busy, onPeriod
                       <div>
                         {onOpen && ticker ? <button type="button" className="inlineLink reviewName" disabled={busy} title={ticker} onClick={() => onOpen(ticker)}>{label.name}</button> : <strong title={ticker}>{label.name}</strong>}
                         <small>
-                          <b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b>
-                          {` ${qty(Math.abs(item.quantity ?? 0), locale)} × ${amount(item.price, item.priceCurrency, locale, { digits: 4 })}`}
+                          {item.fillType && item.fillType.toUpperCase() !== "TRADE"
+                            ? <><b className="orderSide action">{isSplitType(item.fillType) ? t("fillSplit") : t("fillCorporateAction")}</b>{` ${sell ? "−" : "+"}${qty(Math.abs(item.quantity ?? 0), locale)}${item.price ? ` × ${amount(item.price, item.priceCurrency, locale, { digits: 4 })}` : ""}`}</>
+                            : <><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b>{` ${qty(Math.abs(item.quantity ?? 0), locale)} × ${amount(item.price, item.priceCurrency, locale, { digits: 4 })}`}</>}
                           {item.filledAt ? ` · ${time(item.filledAt, locale)}` : ""}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}
                         </small>
                       </div>

@@ -740,8 +740,10 @@ export interface UkMatchingTicker {
   unvalued?: true;
   /** The fills read add up to other than the shares held now: shares came or went another way. */
   reconciliation?: { held: number; fills: number };
-  /** Fills that were not trades (a split, a corporate action), matched as purchases and sales. */
+  /** Fills that were not trades (a corporate action, or a split whose ratio could not be told), matched as purchases and sales. */
   notTrades?: number;
+  /** Splits and consolidations, by UK day: `ratio` shares after for each before. Earlier fills count in today's units. */
+  splits?: Array<{ on: string; ratio: number }>;
 }
 
 /** A tax year's sales matched as HMRC matches them, beside Trading 212's figures. An estimate. */

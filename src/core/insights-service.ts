@@ -597,8 +597,11 @@ export class InsightsService {
     for (const item of filled) {
       const impact = item.fill?.walletImpact;
       const value = Math.abs(impact?.netValue ?? 0);
-      // A sell is told by its side, or by the shares it took away, as everywhere else.
-      if (String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0) { totals.sells += 1; totals.sold += value; } else { totals.buys += 1; totals.bought += value; }
+      // A sell is told by its side, or by the shares it took away, as everywhere else. A split or another corporate
+      // action moved shares without a trade: neither bought nor sold.
+      const trade = !item.fill?.type || item.fill.type.toUpperCase() === "TRADE";
+      const sell = String(item.order?.side ?? "").toUpperCase() === "SELL" || (item.fill?.quantity ?? 0) < 0;
+      if (trade && sell) { totals.sells += 1; totals.sold += value; } else if (trade) { totals.buys += 1; totals.bought += value; }
       totals.realised += impact?.realisedProfitLoss ?? 0;
       totals.costs += (impact?.taxes ?? []).reduce((sum, tax) => sum + Math.abs(tax.quantity ?? 0), 0);
       totals.currency ??= impact?.currency;
