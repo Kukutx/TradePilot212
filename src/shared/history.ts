@@ -1,6 +1,7 @@
 // Trading 212 history, schedule, and report shapes, plus the analytics payloads built from them.
 // Broker fields are optional because the Public API is still marked Beta and omits empty values.
 
+import type { InvestmentGoal } from "./goal.js";
 import type { Preferences, TradingEnvironment } from "./contracts.js";
 import type { PricesMissing } from "./prices.js";
 import type { TradeTotals } from "./trade-cost.js";
@@ -602,6 +603,8 @@ export interface PerformanceSummary {
   attributionProblem?: string;
   /** Why there is none: a period that ends before now, a history cut short at its page limit, or a read that failed. */
   attributionMissing?: "period" | "history" | "data";
+  /** The account's investment goal, when one is saved (manage_goal); the widget projects it from currentValue. */
+  goal?: InvestmentGoal;
   notes: string[];
   timestamp: string;
 }

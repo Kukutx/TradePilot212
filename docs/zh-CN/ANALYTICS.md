@@ -7,7 +7,7 @@ TradePilot 根据 Trading 212 的数据确定性地计算组合指标，模型�
 | 工具 | 返回内容 | 需要的 Trading 212 API 权限 |
 |---|---|---|
 | `analyze_portfolio_allocation` | 权重、现金占比、币种和资产类型敞口、集中度（最大持仓、前 5 大持仓、赫芬达尔指数、有效持仓数）、基于规则的提示；根据一年的周收盘价算出的每个持仓的风险占比、组合波动率、最大几个持仓之间的联动，以及当前持仓在这一年里的表现：收益、20 周一遇的糟糕周、最差一周和最大回撤（`risk`，[见下文](#risk-by-holding)） | account、portfolio、metadata；收盘价来自行情源 |
-| `get_portfolio_performance` | 已实现盈亏、未实现盈亏、入金和出金、股息和利息收入、按类型分列的费用、交易笔数、按 ticker 的贡献；全部历史窗口下，还有按净投入计算的简单收益率，第一笔入金满一年后还有年化资金加权收益；TradePilot 在窗口内记录的每日账户市值，以及任意窗口内这些天的时间加权收益、它距前高的最大跌幅（`timeWeighted.drawdown`，[见下文](#drawdown)）和每个自然月、自然年的收益（`timeWeighted.months`、`timeWeighted.years`，[见下文](#monthly-returns)），并与同期指数基金的收益和回撤对比（`benchmark`；默认是通过 SPY 跟踪的标普 500）；以及每个标的在该期间的收益（`attribution`，[见下文](#gain-by-instrument)） | account、portfolio、history（orders、dividends、transactions）、TradePilot 的每日市值记录；基准以及期初估值所用的收盘价来自行情源 |
+| `get_portfolio_performance` | 已实现盈亏、未实现盈亏、入金和出金、股息和利息收入、按类型分列的费用、交易笔数、按 ticker 的贡献；全部历史窗口下，还有按净投入计算的简单收益率，第一笔入金满一年后还有年化资金加权收益；TradePilot 在窗口内记录的每日账户市值，以及任意窗口内这些天的时间加权收益、它距前高的最大跌幅（`timeWeighted.drawdown`，[见下文](#drawdown)）和每个自然月、自然年的收益（`timeWeighted.months`、`timeWeighted.years`，[见下文](#monthly-returns)），并与同期指数基金的收益和回撤对比（`benchmark`；默认是通过 SPY 跟踪的标普 500）；以及每个标的在该期间的收益（`attribution`，[见下文](#gain-by-instrument)）；设定了投资目标时还有该目标（`goal`，[见下文](#investment-goal)） | account、portfolio、history（orders、dividends、transactions）、TradePilot 的每日市值记录；基准以及期初估值所用的收盘价来自行情源 |
 | `get_portfolio_today` | 仪表盘，并附上每个持仓的当日涨跌：现价对比前一收盘价、按账户币种计的盈亏、当天买入和卖出的股数，以及合计和合计涨跌（[见下文](#the-days-move)）。渲染的仪表盘带**日涨跌**列 | account、portfolio、orders、metadata（交易所时间表）、history（当天的订单）；前一收盘价来自行情源 |
 | `get_income_summary` | 按月和按 ticker 分列的股息和利息、近 12 个月合计，以及根据当前持仓预计的未来 12 个月股息：合计、本月和之后 11 个月的日历，以及每笔预计分红和它的大概日期（见下文）。周期截至现在时，还给出持仓的成本股息率、按市值的股息率，以及未投资的现金和利息（见下文）。渲染“收入”标签页 | account、positions、history（dividends、transactions） |
 | `get_tax_year_summary` | 单个税务年度：卖出笔数、卖出所得、已实现盈利和亏损分开列、按标的的结果、股息、利息和费用。`year` 是该税务年度开始的自然年，`yearStart` 是它的第一天，格式为 `MM-DD`（英国为 `04-06`；默认取 `TAX_YEAR_START`，没有则为 `01-01`），`timeZone` 是计算日期所用的时区（如 `Europe/London`；默认取 `TIMEZONE`，没有则为 UTC） | account、history（orders、dividends、transactions） |
@@ -18,6 +18,7 @@ TradePilot 根据 Trading 212 的数据确定性地计算组合指标，模型�
 | `manage_watchlist` | 把标的加入自选列表（可附备注）、修改备注或移除标的。只写入 TradePilot 自己的存储 | metadata（用于识别标的） |
 | `list_new_instruments` | Trading 212 在最近 `days` 天（默认 30 天，最多 365 天）新增的标的，按各自的上架日期（`addedOn`）从新到旧排列，并给出这段时间每种类型新增了多少；可按 `type` 和 `currency` 筛选。打开自选页的“Trading 212 新上架”面板（[WATCHLIST.md](./WATCHLIST.md#new-on-trading-212)） | metadata |
 | `manage_listing_alert` | 按所选类型和币种开启、修改或关闭账户的上架提醒；调度器每小时检查一次，Trading 212 有新上架时通知（[AUTOMATION.md](./AUTOMATION.md#listing-alerts)）。只写 TradePilot 自己的数据 | metadata |
+| `manage_goal` | 查看、设定或删除账户的投资目标：在某个日期前达到的金额，以及每月投入、假设的年化收益和年化波动。返回当前市值、预测范围、达成概率，以及中间线达标所需的每月投入（[下文](#investment-goal)）。只写 TradePilot 自己的数据 | account |
 | `get_order_status` | 按 id 查询单个订单：未成交（以及已成交多少）、已成交、部分成交、已撤销或被拒绝，附成交明细 | orders、history（orders） |
 | `get_market_hours` | 当前交易时段（常规、盘前、盘后、夜盘、休息、休市）以及下次开盘和收盘时间 | metadata |
 | `manage_history_export` | 列出券商的 CSV 报表、申请生成新报表，或读取已生成的报表：各操作类型的明细行和合计，以及按币种列出 API 历史里没有逐项列出的费用（货币兑换费、印花税、法国金融交易税、预扣税）、利息、扣除预扣税后的股息和已实现结果。2.88 起还按每个标的 ISIN 所属国家给出分红预扣税（税前金额、预扣金额和比例，以派息货币计；资本返还不计入）。报表里的每股金额是预扣前还是预扣后，能从合计金额判断时就按判断结果，否则按用户反馈的预扣后处理。预扣达到 25% 或以上的美国标的会列出名字：可能是没有登记 W-8BEN，也可能是按本国税率预扣的外国公司 ADR。尚未用真实报表验证 | history |
@@ -76,6 +77,17 @@ TradePilot 根据 Trading 212 的数据确定性地计算组合指标，模型�
 - 从上个月月底之前的某个记录日算起、中间没有读数（服务器没在运行）的月份为**延伸**（`extended`）：它的收益也包含那些天，`from` 注明从哪天开始。文字里会给出它的起止日期。
 - 表格里不完整或延伸的月份用虚线框、数值用斜体，悬停文字里有它的起止日期。第一个只有一个记录日的月份没有收益，不显示；之后那个月就成为延伸月份。
 - 每行是一年，最近的年份在上，行末是该年自己的收益。格子盈利为绿色、亏损为红色，与持仓热力图一样：达到色阶上限即为最深颜色（上限取 2%、5%、10% 或 20% 中能涵盖五分之四月份的最小值），每格写出数值。窄屏上每年显示为每行四个月的网格。
+
+<a id="investment-goal"></a>
+## 投资目标
+
+“收益”标签页的**投资目标**面板和 `manage_goal` 把账户和“在某个日期前达到某个金额”的目标相比较。点**设定目标**会打开表单：目标金额、截止月份（目标日期取该月最后一天，最远 50 年）、每月投入、假设的年化收益（默认 6%，范围 -50% 到 30%）和假设的年化波动（默认 15%，最高 100%）。边填表单边重画范围，保存后每个账户在 TradePilot 的存储里保留一个目标。
+
+- **进度**是当前市值相对目标金额的比例。
+- 范围不是预测。增长按对数正态分布计算：每年对数增长的中位数是 ln(1 + 收益) 减去方差的一半，**偏低**和**偏高**两条线是各个期限上它的第 10 和第 90 百分位（两侧各偏离波动率 ÷ √年数），所以 10 种结果里有 8 种落在两条线之间：期限越长，年化增长的区间越窄，但金额的区间越宽。每月的投入从当月月底起按同样的速度增长。图上每月一个点，十年以上每季度一个点；只算投入、不算增长的金额画成虚线，目标金额横贯全图。
+- **达成概率**是在同样的假设下，整个期限的年化增长不低于刚好达到目标所需增长的概率。账户已经达到目标时显示为已达成。
+- **按中间线需每月投入**是要让中间线在截止日期前达到目标，每月需要投入多少。
+- 不计费用、税、通胀和投入金额的变化。组件和服务器用同一套计算（`src/shared/goal.ts`），`get_portfolio_performance` 会以 `goal` 返回已保存的目标。
 
 <a id="risk"></a>
 ## 风险

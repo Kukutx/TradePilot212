@@ -2,6 +2,7 @@
 // terminals) show the model only a tool's text, so every result carries the facts needed to answer
 // from it: holdings, orders, plans, skipped legs, tokens to confirm. Lists are capped to stay short.
 
+import { projectGoal, type GoalView, type InvestmentGoal } from "../shared/goal.js";
 import type { NewListingsView } from "../shared/listings.js";
 import type { ExportSummary } from "./export-csv.js";
 import type { HoldingDetail } from "../shared/holding.js";
@@ -471,6 +472,7 @@ function performance(data: PerformanceSummary): string[] {
     ...attributionLines(data),
     ...section("By instrument", rows(data.byTicker.filter((item) => item.realizedProfitLoss || item.dividends || item.costs).slice(0, 10), (item) => `${item.ticker}: realized ${signed(item.realizedProfitLoss)}, dividends ${num(item.dividends)}, costs ${num(item.costs)}`)),
     ...(data.coverage.truncated ? ["History was truncated at the page limit; older records are not counted yet. A higher maxPages reads further back, and for periods over 60 days TradePilot keeps what it has read, so asking again goes on from there."] : []),
+    ...(data.goal ? goalLines(data.goal, data.currentValue, c, new Date(data.timestamp)) : []),
     ...data.notes,
   ];
 }
@@ -1001,6 +1003,22 @@ function newListingLines(data: NewListingsView): string[] {
   ];
 }
 
+/** The goal, how far along it is, and its projection under the assumptions saved with it. */
+function goalLines(goal: InvestmentGoal, value: number | undefined, currency: string | undefined, now: Date): string[] {
+  const money = (amount: number) => `${num(amount)}${currency ? ` ${currency}` : ""}`;
+  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money(goal.target)} by ${goal.by}, adding ${money(goal.monthly)} a month, assuming ${num(goal.expectedReturn * 100, 1)}% a year with ${num(goal.volatility * 100, 1)}% volatility.`;
+  if (value === undefined) return [head, "The account value could not be read, so there is no projection."];
+  const projection = projectGoal(goal, value, now);
+  return [
+    head,
+    `Now ${money(value)} (${num(value / goal.target * 100, 1)}% of the target)${projection.reached ? ", at or above it already" : ""}.`,
+    ...(projection.months ? [
+      `By ${goal.by}: ${money(projection.final.low)} to ${money(projection.final.high)} (10th to 90th percentile), ${money(projection.final.mid)} in the middle; ${money(projection.added)} of it added from now.`,
+      `Chance of reaching it under these assumptions: ${num(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: costs, taxes and inflation are left out.`,
+    ] : [`The date has passed.`]),
+  ];
+}
+
 export function describePayload(data: unknown): string {
   if (!data || typeof data !== "object") return "";
   const payload = data as Record<string, unknown> & { kind?: string };
@@ -1016,6 +1034,11 @@ export function describePayload(data: unknown): string {
     case "target_allocation": lines = targetAllocation(payload as unknown as Parameters<typeof targetAllocation>[0]); break;
     case "trade_history": lines = tradeHistory(payload as unknown as Parameters<typeof tradeHistory>[0]); break;
     case "new_listings": lines = newListingLines(payload as unknown as NewListingsView); break;
+    case "goal": {
+      const view = payload as unknown as GoalView;
+      lines = [...credentialsLine(view.environment, view.credentials), ...(view.goal ? goalLines(view.goal, view.value, view.currency, new Date(view.timestamp)) : [])];
+      break;
+    }
     case "basket_draft": lines = basketDraft(payload as unknown as BasketDraftPayload & { rebalance?: RebalancePlan }); break;
     case "basket_preview": lines = basketPreview(payload as unknown as BasketPreview); break;
     case "basket_execution": lines = basketExecution(payload as unknown as BasketExecutionResult); break;

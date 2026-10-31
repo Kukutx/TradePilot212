@@ -45,7 +45,7 @@ async function session(extraEnv, calls = []) {
 const listTools = async (extraEnv) => (await session(extraEnv)).tools;
 
 const readOnly = await listTools({});
-for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_account_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "list_new_instruments", "manage_listing_alert", "get_portfolio_today"])
+for (const name of ["get_portfolio_dashboard", "get_holding_detail", "get_portfolio_performance", "analyze_portfolio_allocation", "get_market_hours", "plan_portfolio_rebalance", "get_trading_policy", "list_investment_plans", "list_pies", "get_pie", "list_price_alerts", "manage_price_alerts", "manage_account_alerts", "manage_trade_journal", "get_journal_review", "manage_target_allocation", "get_tax_year_summary", "get_quote", "get_automation_overview", "get_watchlist", "manage_watchlist", "list_new_instruments", "manage_listing_alert", "manage_goal", "get_portfolio_today"])
   if (!readOnly.includes(name)) throw new Error(`Missing read tool ${name}`);
 if (readOnly.some((name) => name.startsWith("app_execute") || name.startsWith("app_prepare") || name.startsWith("review_") || name === "manage_investment_plans"))
   throw new Error("Write tools must be absent unless TRADEPILOT_ALLOW_WRITES=true");
@@ -85,8 +85,14 @@ const watch = await session({ TRADEPILOT_SAMPLE_DATA: "true" }, [
   ["list_new_instruments", { days: 30 }],
   ["manage_account_alerts", { action: "create", condition: "cash_above", amount: 1 }],
   ["list_price_alerts", {}],
+  ["manage_goal", { action: "set", target: 1_000_000, by: `${new Date().getUTCFullYear() + 20}-12-31`, monthly: 300, name: "Smoke" }],
+  ["get_portfolio_performance", {}],
 ]);
-const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied, listingAlert, listed, accountAlert, alertList] = watch.results;
+const [watchAdded, , watchlist, watched, noted, watchRemoved, emptied, listingAlert, listed, accountAlert, alertList, goalSet, goalPerformance] = watch.results;
+// The goal is measured against the account value now, and the performance read carries it.
+const goalView = goalSet.structuredContent;
+if (goalSet.isError || goalView?.kind !== "goal" || goalView.goal?.target !== 1_000_000 || !(goalView.value > 0) || !(goalView.projection?.points?.length > 12)
+  || !(goalView.projection.chance >= 0 && goalView.projection.chance <= 1) || goalPerformance.structuredContent?.goal?.name !== "Smoke") throw new Error(`Goal failed: ${JSON.stringify([goalSet, goalPerformance?.structuredContent?.goal]).slice(0, 400)}`);
 if (listingAlert.isError || listingAlert.structuredContent?.watch?.types?.join() !== "ETF" || listed.structuredContent?.watch?.types?.join() !== "ETF") throw new Error(`Listing alert failed: ${JSON.stringify([listingAlert, listed?.structuredContent?.watch]).slice(0, 400)}`);
 // The sample lists three instruments added in the last 30 days, newest first.
 if (listed.isError || listed.structuredContent?.kind !== "new_listings" || listed.structuredContent.listings?.map((item) => item.ticker).join() !== "KLAR_US_EQ,WDEFd_EQ,FIG_US_EQ"

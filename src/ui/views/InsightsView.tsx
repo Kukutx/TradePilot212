@@ -10,6 +10,8 @@ import { axisMoney, BarList, ColumnChart, decimalsOf, LineChart, type ChartLabel
 import { drawdownSeries } from "../../shared/drawdown";
 import { DividendCalendar } from "../components/dividend-calendar";
 import { GainChart } from "../components/gains";
+import { GoalPanel, type GoalRequest } from "../components/goal";
+import type { InvestmentGoal } from "../../shared/goal";
 import { HoldingMixPanel } from "../components/holding-mix";
 import { HoldingParityPanel, type EqualRiskPlan } from "../components/holding-parity";
 import { TargetEditor, type MeasuredRisk, type TargetPreset, type TargetSave } from "../components/target-editor";
@@ -452,8 +454,11 @@ function ValueHistoryPanel({ points, returns, data, currency, locale, t, busy, o
   );
 }
 
-export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, onOpen, busy }: {
+export function PerformanceView({ data, book, locale, t, period, onPeriod, onBenchmark, onOpen, onGoal, onRemoveGoal, busy }: {
   data: PerformanceSummary; book?: InstrumentBook; locale: SupportedLocale; t: Translator; period: InsightPeriod | null; onPeriod: (next: InsightPeriod) => void; busy: boolean;
+  /** Save the investment goal; resolves to it as saved. */
+  onGoal?: (request: GoalRequest) => Promise<InvestmentGoal | undefined>;
+  onRemoveGoal?: () => Promise<boolean>;
   /** Read the performance again compared with another fund, or "none". */
   onBenchmark?: (choice: string) => void;
   /** Open an instrument's page. */
@@ -492,6 +497,10 @@ export function PerformanceView({ data, book, locale, t, period, onPeriod, onBen
           <Metric label={data.simpleReturn === undefined ? t("tradesCount") : t("simpleReturn")} value={data.simpleReturn === undefined ? `${data.trades.buys + data.trades.sells}` : pct(data.simpleReturn, locale, 1, { signed: true })} tone={data.simpleReturn === undefined ? undefined : signedClass(data.simpleReturn)} />
         </div>
       </section>
+
+      {onGoal && onRemoveGoal && (
+        <GoalPanel {...(data.goal ? { goal: data.goal } : {})} {...(data.currentValue === undefined ? {} : { value: data.currentValue })} currency={currency} locale={locale} t={t} busy={busy} onSave={onGoal} onRemove={onRemoveGoal} />
+      )}
 
       {data.valueHistory && data.valueHistory.length >= 2 && (
         <ValueHistoryPanel points={data.valueHistory} {...(data.timeWeighted ? { returns: data.timeWeighted } : {})} data={data} currency={currency} locale={locale} t={t} busy={busy}

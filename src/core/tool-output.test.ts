@@ -12,6 +12,7 @@ const ARGS: Record<string, Record<string, unknown>> = {
   search_trading212_instruments: { query: "apple" },
   list_new_instruments: { days: 30 },
   manage_listing_alert: { action: "set", types: ["STOCK"] },
+  manage_goal: { action: "set", target: 50_000, by: "2035-12-31", monthly: 200 },
   get_market_hours: { instrument: "AAPL" },
   get_holding_detail: { instrument: "AAPL" },
   app_get_holding: { instrument: "AAPL" },
@@ -58,7 +59,7 @@ describe("tool output schemas", () => {
     const client = new Client({ name: "test", version: "0" });
     await client.connect(clientSide);
     const tools = (await client.listTools()).tools;
-    expect(tools.length).toBe(58);
+    expect(tools.length).toBe(59);
     for (const tool of tools) {
       expect(TOOL_OUTPUT[tool.name], tool.name).toBeDefined();
       expect(tool.outputSchema, tool.name).toMatchObject({ type: "object", required: ["kind"] });

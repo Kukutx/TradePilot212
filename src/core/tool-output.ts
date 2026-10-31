@@ -121,6 +121,7 @@ export const TOOL_OUTPUT: Record<string, ReturnType<typeof payload>> = {
   search_trading212_instruments: payload("instrument_search", "environment:s query:s instruments:a credentials:o"),
   list_new_instruments: payload("new_listings", "environment:s days:n from:s listings:a total:n types:o catalogue:n undated:n timestamp:s credentials:o"),
   manage_listing_alert: payload("listing_alert", "environment:s watch:u webhook:b timestamp:s"),
+  manage_goal: payload("goal", "environment:s value:n currency:s goal:o projection:o timestamp:s credentials:o"),
   show_daily_trade_plan: payload("trade_plan", plan),
   test_notifications: payload("notification_test", "results:a locale:s quietHours:u timestamp:s"),
 };
