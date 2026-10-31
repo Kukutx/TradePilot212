@@ -41433,7 +41433,7 @@ var AccountAlerts = class {
 var APP_META = {
   name: "TradePilot 212",
   brokerName: "Trading 212 Invest",
-  version: "2.93.0",
+  version: "2.94.0",
   websiteUrl: "https://github.com/Kukutx/TradePilot212"
 };
 var APP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0e9f6e"/><stop offset=".62" stop-color="#1d6fd8"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 44l11-12 8 7 17-18" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="21" r="4" fill="#fff"/></svg>';
@@ -41442,6 +41442,7 @@ var APP_ICON_DATA_URI = `data:image/svg+xml;base64,${btoa(APP_ICON_SVG)}`;
 // src/shared/goal.ts
 var DEFAULT_GOAL_RETURN = 0.06;
 var DEFAULT_GOAL_VOLATILITY = 0.15;
+var DEFAULT_GOAL_INFLATION = 0.02;
 var MAX_GOAL_YEARS = 50;
 var Z90 = 1.2815515655446004;
 var BRACKET_LIMIT = 768;
@@ -41450,6 +41451,7 @@ function goalMilestone(value, target) {
   if (!(target > 0) || !Number.isFinite(value)) return 0;
   return GOAL_MILESTONES.filter((mark) => value >= target * mark / 100).at(-1) ?? 0;
 }
+var realReturn = (inputs) => inputs.inflation && inputs.inflation > 0 ? (1 + inputs.expectedReturn) / (1 + inputs.inflation) - 1 : inputs.expectedReturn;
 function normalCdf(z2) {
   const t = 1 / (1 + 0.3275911 * Math.abs(z2) / Math.SQRT2);
   const erf = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z2 * z2) / 2);
@@ -41468,10 +41470,23 @@ function grown(value, monthly, growth, months) {
   const annuity = Math.abs(step - 1) < 1e-12 ? months : (step ** months - 1) / (step - 1);
   return lump + monthly * annuity;
 }
+var medianGrowth = (inputs) => {
+  const sigma = Math.max(0, inputs.volatility);
+  return Math.log(1 + Math.max(-0.99, realReturn(inputs))) - sigma * sigma / 2;
+};
+function goalPace(goal, value, now = /* @__PURE__ */ new Date()) {
+  if (!goal.start) return void 0;
+  const since = new Date(goal.start.at);
+  if (!Number.isFinite(since.getTime())) return void 0;
+  const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 + now.getUTCMonth() - since.getUTCMonth() - (now.getUTCDate() < since.getUTCDate() ? 1 : 0);
+  if (months < 1) return void 0;
+  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months);
+  return { since: goal.start.at, months, expected, difference: value - expected };
+}
 function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
   const months = monthsUntil(inputs.by, now);
   const sigma = Math.max(0, inputs.volatility);
-  const median = Math.log(1 + Math.max(-0.99, inputs.expectedReturn)) - sigma * sigma / 2;
+  const median = medianGrowth(inputs);
   const at = (m, z2) => m === 0 ? value : grown(value, inputs.monthly, median + z2 * sigma / Math.sqrt(m / 12), m);
   const step = months > 120 ? 3 : 1;
   const points3 = [];
@@ -41505,6 +41520,7 @@ function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
   const lumpMid = months ? grown(value, 0, median, months) : value;
   const perMonth = months ? grown(0, 1, median, months) : 0;
   const neededMonthly = reached || lumpMid >= inputs.target || !perMonth ? 0 : (inputs.target - lumpMid) / perMonth;
+  const pace = goalPace(inputs, value, now);
   return {
     months,
     points: points3,
@@ -41512,7 +41528,8 @@ function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
     added: inputs.monthly * months,
     chance: Math.min(1, Math.max(0, chance)),
     neededMonthly,
-    reached
+    reached,
+    ...pace ? { pace } : {}
   };
 }
 
@@ -42759,15 +42776,16 @@ function goalProgressLine(goal, value, currency) {
 }
 function goalLines(goal, value, currency, now) {
   const money4 = (amount2) => `${num2(amount2)}${currency ? ` ${currency}` : ""}`;
-  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money4(goal.target)} by ${goal.by}, adding ${money4(goal.monthly)} a month, assuming ${num2(goal.expectedReturn * 100, 1)}% a year with ${num2(goal.volatility * 100, 1)}% volatility.`;
+  const head = `Goal${goal.name ? ` "${goal.name}"` : ""}: ${money4(goal.target)} by ${goal.by}, adding ${money4(goal.monthly)} a month, assuming ${num2(goal.expectedReturn * 100, 1)}% a year with ${num2(goal.volatility * 100, 1)}% volatility${goal.inflation ? ` and ${num2(goal.inflation * 100, 1)}% inflation, in today's money (the monthly amount rising with prices)` : ""}.`;
   if (value === void 0) return [head, "The account value could not be read, so there is no projection."];
   const projection = projectGoal(goal, value, now);
   return [
     head,
     `Now ${money4(value)} (${num2(value / goal.target * 100, 1)}% of the target)${projection.reached ? ", at or above it already" : ""}.`,
+    ...projection.pace && !projection.reached ? [`${money4(Math.abs(projection.pace.difference))} ${projection.pace.difference >= 0 ? "ahead of" : "behind"} plan: the middle line from ${money4(goal.start.value)} on ${projection.pace.since.slice(0, 10)} would be at ${money4(projection.pace.expected)} now.`] : [],
     ...projection.months ? [
       `By ${goal.by}: ${money4(projection.final.low)} to ${money4(projection.final.high)} (10th to 90th percentile), ${money4(projection.final.mid)} in the middle; ${money4(projection.added)} of it added from now.`,
-      `Chance of reaching it under these assumptions: ${num2(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money4(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: costs, taxes and inflation are left out.`
+      `Chance of reaching it under these assumptions: ${num2(projection.chance * 100, 0)}%.${projection.neededMonthly > 0 ? ` ${money4(projection.neededMonthly)} a month reaches it on the middle line.` : ""} A range from assumptions, not a forecast: ${goal.inflation ? "costs and taxes are" : "costs, taxes and inflation are"} left out.`
     ] : [`The date has passed.`]
   ];
 }
@@ -45417,7 +45435,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
     "manage_goal",
     {
       title: "Investment Goal",
-      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. It is a range from assumptions, not a forecast: it leaves out costs, taxes and inflation. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
+      description: `Show, set or remove the account's investment goal: an amount (target, in the account currency) to reach by a date (by, YYYY-MM-DD), adding monthly each month. get and set return the account value now and a projection: one point a month (a quarter beyond ten years) with a middle line and a low and high line, the 10th and 90th percentiles of growth at the assumed yearly expectedReturn (default ${DEFAULT_GOAL_RETURN}) and volatility (default ${DEFAULT_GOAL_VOLATILITY}), each a fraction; the chance of reaching the target by the date under those assumptions; and the monthly amount that reaches it on the middle line. With inflation assumed (default ${DEFAULT_GOAL_INFLATION} for a new goal), the target, monthly and projection are in today's money. Once a month has passed since the goal was set (or its target changed), projection.pace says how far the value now is ahead of or behind the middle line from the value then. It is a range from assumptions, not a forecast: it leaves out costs and taxes. A set keeps what it leaves out from the goal saved. Renders the Performance tab with the goal. It places nothing.`,
       inputSchema: external_exports.object({
         action: external_exports.enum(["get", "set", "remove"]).default("get"),
         environment: environmentWithDefault,
@@ -45426,6 +45444,7 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
         monthly: external_exports.number().min(0).optional(),
         expectedReturn: external_exports.number().min(-0.5).max(0.3).optional().describe("A fraction: 0.06 is 6% a year"),
         volatility: external_exports.number().min(0).max(1).optional().describe("A fraction: 0.15 is 15% a year"),
+        inflation: external_exports.number().min(0).max(0.2).optional().describe(`A fraction: 0.02 is 2% a year. Above 0, the target and monthly are in today's money. Default ${DEFAULT_GOAL_INFLATION} for a new goal`),
         name: external_exports.string().max(80).optional()
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -45453,8 +45472,10 @@ function createMcpServer({ trading, insights, automation: automation3, alerts, a
             ...input2.monthly === void 0 ? {} : { monthly: input2.monthly },
             ...input2.expectedReturn === void 0 ? {} : { expectedReturn: input2.expectedReturn },
             ...input2.volatility === void 0 ? {} : { volatility: input2.volatility },
+            ...input2.inflation === void 0 ? {} : { inflation: input2.inflation },
             ...input2.name === void 0 ? {} : { name: input2.name },
-            ...account?.currency ? { currency: account.currency } : {}
+            ...account?.currency ? { currency: account.currency } : {},
+            ...account?.totalValue === void 0 ? {} : { value: account.totalValue }
           });
         }
         const value = account?.totalValue;
@@ -46537,12 +46558,16 @@ var Goals = class {
     const monthly = input2.monthly ?? current?.monthly ?? 0;
     const expectedReturn = input2.expectedReturn ?? current?.expectedReturn ?? DEFAULT_GOAL_RETURN;
     const volatility = input2.volatility ?? current?.volatility ?? DEFAULT_GOAL_VOLATILITY;
+    const inflation = input2.inflation ?? (current ? current.inflation ?? 0 : DEFAULT_GOAL_INFLATION);
     if (!(monthly >= 0) || !Number.isFinite(monthly)) fail("INVALID_INPUT", "The monthly amount is 0 or more", { field: "monthly" });
     if (!(expectedReturn >= -0.5 && expectedReturn <= 0.3)) fail("INVALID_INPUT", "The yearly return is between -50% and 30%, as a fraction", { field: "expectedReturn" });
     if (!(volatility >= 0 && volatility <= 1)) fail("INVALID_INPUT", "The yearly volatility is between 0 and 100%, as a fraction", { field: "volatility" });
+    if (!(inflation >= 0 && inflation <= 0.2)) fail("INVALID_INPUT", "The yearly inflation is between 0 and 20%, as a fraction", { field: "inflation" });
     const name = input2.name === void 0 ? current?.name : input2.name.trim().slice(0, 80) || void 0;
     const currency = input2.currency ?? current?.currency;
-    const milestone = current && current.target === input2.target ? current.milestone : void 0;
+    const sameTarget = !!current && current.target === input2.target;
+    const milestone = sameTarget ? current.milestone : void 0;
+    const start = sameTarget && current.start ? current.start : input2.value !== void 0 && Number.isFinite(input2.value) ? { value: input2.value, at: now.toISOString() } : void 0;
     const goal = {
       environment: input2.environment,
       target: input2.target,
@@ -46550,9 +46575,11 @@ var Goals = class {
       monthly,
       expectedReturn,
       volatility,
+      inflation,
       ...currency ? { currency } : {},
       ...name ? { name } : {},
       ...milestone === void 0 ? {} : { milestone },
+      ...start ? { start } : {},
       createdAt: current?.createdAt ?? now.toISOString(),
       updatedAt: now.toISOString()
     };
