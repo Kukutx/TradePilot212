@@ -177,8 +177,9 @@ export function ukShareMatching(input: {
   const keyOf = keysBy(input.orders, input.holdings ?? []);
   const held = new Map<string, number>();
   for (const holding of input.holdings ?? []) held.set(keyOf(holding.ticker), (held.get(keyOf(holding.ticker)) ?? 0) + holding.quantity);
-  // Today's shares tell a split listed as the shares it added alone, whenever the history starts.
-  const restated = restateSplits(input.orders, keyOf, input.holdings ? (key) => held.get(key) ?? 0 : undefined);
+  // Today's shares tell a split listed as the shares it added alone, whenever the history starts; without them, only
+  // fills read from the first buy do.
+  const restated = restateSplits(input.orders, keyOf, input.holdings ? { held: (key) => held.get(key) ?? 0 } : { fromStart: input.complete });
   const splitsOf = new Map<string, Array<{ on: string; ratio: number }>>();
   for (const split of restated.splits) {
     const key = keyOf(split.ticker);

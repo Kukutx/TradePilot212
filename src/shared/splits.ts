@@ -12,6 +12,8 @@ const EVENT_MS = 86_400_000;
 const EPSILON = 1e-9;
 
 export const isSplitType = (type: string | undefined) => (type ?? "").toUpperCase() === SPLIT_FILL;
+/** A fill that was a trade: one without a type, or of type TRADE, not a split or another corporate action. */
+export const isTradeFill = (item: HistoryOrderItem) => !item.fill?.type || item.fill.type.toUpperCase() === "TRADE";
 
 /** A split read: `ratio` shares after it for each one before (2 for 2-for-1, 0.1 for a 1-for-10 consolidation). */
 export interface SplitEvent {
@@ -35,11 +37,11 @@ export interface SplitsRead<T> {
 /**
  * The splits among fills. A split listed as the old shares closed and the new opened has its ratio from the two. One
  * listed as the shares added or taken away alone has it from the shares held across it: worked back from `held`, the
- * shares held now, when it is given (every fill after the split is read, whenever the history starts), else from the
- * fills before it, which add up to the shares held only when the history is read from the first buy. When neither
- * tells, it is left as it was.
+ * shares held now, when it is given (every fill after the split is read, whenever the history starts), else, with
+ * `fromStart` (the history is read from the first buy), from the fills before it. When neither tells, or a trade
+ * falls among a one-sided split's fills, it is left as it was.
  */
-export function readSplits<T>(fills: readonly T[], read: (fill: T) => SplitRow | undefined, held?: (key: string) => number | undefined): SplitsRead<T> {
+export function readSplits<T>(fills: readonly T[], read: (fill: T) => SplitRow | undefined, options: { held?: (key: string) => number | undefined; fromStart?: boolean } = {}): SplitsRead<T> {
   const byKey = new Map<string, Array<{ fill: T; row: SplitRow }>>();
   for (const fill of fills) {
     const row = read(fill);
@@ -54,35 +56,38 @@ export function readSplits<T>(fills: readonly T[], read: (fill: T) => SplitRow |
   for (const [key, list] of byKey) {
     if (!list.some(({ row }) => row.split)) continue;
     list.sort((a, b) => a.row.time - b.row.time);
-    // Each split's fills: one and those right after it, within a day; with the shares they open and close.
-    const groups: Array<{ start: number; end: number; opened: number; closed: number; ratio?: number }> = [];
+    // Each split's fills: one and the split fills within a day after it, with any trades among them, and the shares
+    // they open and close.
+    const groups: Array<{ start: number; end: number; splits: number[]; trades: number; opened: number; closed: number; ratio?: number }> = [];
     for (let index = 0; index < list.length; index++) {
       const { row } = list[index]!;
       if (!row.split) continue;
+      const splits = [index];
       let end = index;
-      while (end + 1 < list.length && list[end + 1]!.row.split && list[end + 1]!.row.time - row.time <= EVENT_MS) end++;
-      let opened = 0, closed = 0;
-      for (let at = index; at <= end; at++) {
-        const quantity = list[at]!.row.quantity;
-        if (quantity > 0) opened += quantity; else closed -= quantity;
-      }
-      groups.push({ start: index, end, opened, closed, ...(opened > EPSILON && closed > EPSILON ? { ratio: opened / closed } : {}) });
+      for (let at = index + 1; at < list.length && list[at]!.row.time - row.time <= EVENT_MS; at++) if (list[at]!.row.split) { splits.push(at); end = at; }
+      let opened = 0, closed = 0, trades = 0;
+      for (const at of splits) { const quantity = list[at]!.row.quantity; if (quantity > 0) opened += quantity; else closed -= quantity; }
+      for (let at = index; at <= end; at++) if (!list[at]!.row.split) trades += list[at]!.row.quantity;
+      const mixed = end - index + 1 > splits.length;
+      groups.push({ start: index, end, splits, trades, opened, closed, ...(opened > EPSILON && closed > EPSILON ? { ratio: opened / closed } : mixed ? { ratio: NaN } : {}) });
       index = end;
     }
-    const now = held?.(key);
+    const now = options.held?.(key);
     if (now !== undefined && Number.isFinite(now)) {
-      // Back from the shares held now: right after a split, those before it are those after less what it added.
+      // Back from the shares held now: right after a split, those before it are those after less what it added. The
+      // trades among its fills are taken as after it.
       let shares = now;
       let next = list.length - 1;
       for (let group = groups.length - 1; group >= 0; group--) {
         const split = groups[group]!;
         for (; next > split.end; next--) shares -= list[next]!.row.quantity;
         next = split.start - 1;
+        shares -= split.trades;
         const before = shares - split.opened + split.closed;
         split.ratio ??= before > EPSILON && shares > EPSILON ? shares / before : undefined;
-        shares = split.ratio ? shares / split.ratio : before;
+        shares = split.ratio && Number.isFinite(split.ratio) ? shares / split.ratio : before;
       }
-    } else {
+    } else if (options.fromStart) {
       // On from the first fill read: the shares the fills before a split add up to.
       let shares = 0;
       let next = 0;
@@ -91,18 +96,28 @@ export function readSplits<T>(fills: readonly T[], read: (fill: T) => SplitRow |
         next = split.end + 1;
         const after = shares + split.opened - split.closed;
         split.ratio ??= shares > EPSILON && after > EPSILON ? after / shares : undefined;
-        shares = split.ratio ? shares * split.ratio : after;
+        shares = (split.ratio && Number.isFinite(split.ratio) ? shares * split.ratio : after) + split.trades;
       }
     }
     const found: SplitEvent[] = [];
     for (const split of groups) {
       if (split.ratio === undefined || !Number.isFinite(split.ratio) || !(split.ratio > 0) || Math.abs(split.ratio - 1) <= EPSILON) { unresolved.add(key); continue; }
       found.push({ at: new Date(list[split.start]!.row.time).toISOString(), ratio: Math.round(split.ratio * 1e8) / 1e8 });
-      for (let at = split.start; at <= split.end; at++) used.add(list[at]!.fill);
+      for (const at of split.splits) used.add(list[at]!.fill);
     }
     if (found.length) events.set(key, found);
   }
   return { events, used, unresolved };
+}
+
+/** A ratio as shares after for shares before in lowest terms (3 for 2 from 1.5, 1 for 10 from 0.1); undefined when no small fraction fits. */
+export function splitTerms(ratio: number): { after: number; before: number } | undefined {
+  if (!(ratio > 0) || !Number.isFinite(ratio)) return undefined;
+  for (let before = 1; before <= 1000; before++) {
+    const after = Math.round(ratio * before);
+    if (after >= 1 && Math.abs(after / before - ratio) <= ratio * 1e-6) return { after, before };
+  }
+  return undefined;
 }
 
 /** Today's shares for each share at `time`: the ratios of every split after it. */
@@ -130,13 +145,13 @@ export interface RestatedFills<T> {
 
 /**
  * History fills restated across the splits among them. `keyOf` groups an instrument's tickers (by ISIN), so a split
- * read under one applies to the fills of the other; `held` is the shares of each held now, where known.
+ * read under one applies to the fills of the other. `options` are readSplits'.
  */
-export function restateSplits<T extends HistoryOrderItem>(items: readonly T[], keyOf: (ticker: string) => string = (ticker) => ticker, held?: (key: string) => number | undefined): RestatedFills<T> {
+export function restateSplits<T extends HistoryOrderItem>(items: readonly T[], keyOf: (ticker: string) => string = (ticker) => ticker, options: { held?: (key: string) => number | undefined; fromStart?: boolean } = {}): RestatedFills<T> {
   const read = readSplits(items, (item) => {
     const ticker = tickerOf(item);
     return ticker && item.fill ? { key: keyOf(ticker), time: Date.parse(item.fill.filledAt ?? ""), quantity: signedFillQuantity(item), split: isSplitType(item.fill.type) } : undefined;
-  }, held);
+  }, options);
   const tickers = new Map<string, string>();
   for (const item of read.used) { const ticker = tickerOf(item)!; tickers.set(keyOf(ticker), ticker); }
   const splits = [...read.events].flatMap(([key, events]) => events.map((event) => ({ ...event, ticker: tickers.get(key) ?? key })))
@@ -159,18 +174,32 @@ export function restateSplits<T extends HistoryOrderItem>(items: readonly T[], k
   return { items: restated, splits, unresolved: read.unresolved };
 }
 
+/** A move from one close to the next this close to a split's 1 / ratio is the split, not the market. */
+const SPLIT_MOVE = 0.25;
+/** Splits smaller than this (a 5-for-4) are within a day's move: closes are taken as adjusted for them. */
+const SMALL_SPLIT = Math.log(1.3);
+
 /**
  * Whether closes are in today's units across a split: closes not adjusted for it fall (or rise) by its ratio from the
- * last close before it to the first after. Without closes on both sides, they are taken as adjusted.
+ * last close before it to the first after. Its first fill may be stamped the evening before its first day, so the
+ * gap into that day and into the next are both looked at, and the one nearer the split's move is taken. Unadjusted
+ * only when that gap is within a quarter of the split's own move; without closes on both sides, or for a split
+ * smaller than a day's move, adjusted.
  */
 export function closesAdjusted(closes: ReadonlyArray<{ date: string; close: number }>, split: SplitEvent): boolean {
+  const size = Math.abs(Math.log(split.ratio));
+  if (size < SMALL_SPLIT) return true;
+  const priced = closes.filter((point) => point.close > 0);
   const day = split.at.slice(0, 10);
-  const before = closes.filter((point) => point.date < day && point.close > 0).at(-1);
-  const after = closes.find((point) => point.date >= day && point.close > 0);
-  if (!before || !after) return true;
-  const move = after.close / before.close;
-  // Unadjusted, the move is about 1 / ratio; a day's own move is far less than a split's.
-  return !(Math.abs(Math.log(move * split.ratio)) < Math.abs(Math.log(split.ratio)) / 2);
+  const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  let nearest = Infinity;
+  for (const first of [day, next]) {
+    const before = priced.filter((point) => point.date < first).at(-1);
+    const after = priced.find((point) => point.date >= first);
+    if (!before || !after) continue;
+    nearest = Math.min(nearest, Math.abs(Math.log((after.close / before.close) * split.ratio)));
+  }
+  return !(nearest < size * SPLIT_MOVE);
 }
 
 /** Closes in today's units: those before a split they are not adjusted for, divided by its ratio. */

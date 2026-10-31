@@ -86,6 +86,17 @@ describe("gain attribution", () => {
     expect(result.total).toBe(0);
   });
 
+  it("lists an instrument with a split since the start, as its shares then and now are in other units", () => {
+    const from = at("2026-09-12");
+    const positions = [position("NVDA_US_EQ", "USD", 20, 120, 2181.82)];
+    const split = (side: "BUY" | "SELL", quantity: number) => ({ ...fill("NVDA_US_EQ", side, quantity, 0, "2026-09-20"), fill: { ...fill("NVDA_US_EQ", side, quantity, 0, "2026-09-20").fill, type: "STOCK_SPLIT" } });
+    const flows = holdingFlows([split("BUY", 20), split("SELL", 10)], [], from, at("2026-10-12"));
+    expect(flows.get("NVDA_US_EQ")).toMatchObject({ notTrades: 2, boughtQuantity: 0, soldQuantity: 0 });
+    const closes = new Map<string, StartClose>([["NVDA_US_EQ", { date: "2026-09-11", close: 110 }]]);
+    const result = attributeGains({ from, to: at("2026-10-12"), positions, flows, closes, currencies: new Map(), rates: { EUR: 1, USD: 1.1 } });
+    expect(result.missing).toEqual([{ ticker: "NVDA_US_EQ", reason: "quantity", problem: expect.stringMatching(/had a split or another corporate action since the start/) }]);
+  });
+
   it("over all history, adds Trading 212's realised and unrealised P/L and the dividends", () => {
     const positions = [position("AAPL_US_EQ", "USD", 10, 220, 2000, 300), position("KO_US_EQ", "USD", 5, 60, 272.73)];
     const flows = holdingFlows([fill("AAPL_US_EQ", "SELL", 2, 200, "2026-03-01", 360, 40), fill("TSLA_US_EQ", "SELL", 1, 250, "2026-04-01", 227, -12)],

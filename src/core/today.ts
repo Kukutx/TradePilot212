@@ -300,13 +300,14 @@ export async function dayCloseOf(
 }
 
 /** An instrument's fills since its session's previous close, from fill records as Trading 212's history gives them. */
-export function fillsOfDay(items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string }>, ticker: string, session: Session): DayFill[] {
+export function fillsOfDay(items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string; fillType?: string }>, ticker: string, session: Session): DayFill[] {
   const start = fillsFrom(session);
   return dayFillsOf(items).filter((fill) => fill.ticker === ticker && Date.parse(fill.at) >= start);
 }
 
-const dayFillsOf = (items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string }>): DayFill[] =>
-  items.flatMap((item) => (item.ticker && item.filledAt && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity
+/** The day's trades; a split or another corporate action moved shares without one, and is left out. */
+const dayFillsOf = (items: Array<{ ticker?: string; side?: string; quantity?: number; price?: number; filledAt?: string; fillType?: string }>): DayFill[] =>
+  items.flatMap((item) => (item.ticker && item.filledAt && (!item.fillType || item.fillType.toUpperCase() === "TRADE") && Number.isFinite(Date.parse(item.filledAt)) && item.price && item.price > 0 && item.quantity
     ? [{ ticker: item.ticker, side: sideOf(item), quantity: Math.abs(item.quantity), price: item.price, at: item.filledAt }]
     : []));
 

@@ -32,13 +32,15 @@ describe("splits", () => {
       fill("X", "BUY", 10, 150, "2024-05-01T14:00:00Z"),
     ];
     // Held now: 36. Before the sale 40, before the split 10: 4 for 1.
-    expect(restateSplits(items, undefined, () => 36).splits.map((split) => split.ratio)).toEqual([4]);
-    expect(restateSplits(items).splits.map((split) => split.ratio)).toEqual([4]);
+    expect(restateSplits(items, undefined, { held: () => 36 }).splits.map((split) => split.ratio)).toEqual([4]);
+    expect(restateSplits(items, undefined, { fromStart: true }).splits.map((split) => split.ratio)).toEqual([4]);
+    // Not read from the first buy, the fills cannot tell.
+    expect(restateSplits(items).unresolved).toEqual(new Set(["X"]));
     // The first buy before the history read: the fills say 0 before the split, and only the holding tells.
     const later = items.slice(0, 2);
-    expect(restateSplits(later).unresolved).toEqual(new Set(["X"]));
+    expect(restateSplits(later, undefined, { fromStart: true }).unresolved).toEqual(new Set(["X"]));
     expect(restateSplits(later).items).toHaveLength(2);
-    expect(restateSplits(later, undefined, () => 36).splits.map((split) => split.ratio)).toEqual([4]);
+    expect(restateSplits(later, undefined, { held: () => 36 }).splits.map((split) => split.ratio)).toEqual([4]);
   });
 
   it("restate a consolidation, and fills before two splits by both", () => {
@@ -62,8 +64,27 @@ describe("splits", () => {
       fill("SHEL_EQ", "BUY", 20, 0, "2024-06-10T08:00:00Z", "STOCK_SPLIT"),
       fill("SHEL_L_EQ", "BUY", 10, 30, "2024-05-01T14:00:00Z"),
     ];
-    const restated = restateSplits(items, () => "isin:GB00", () => 30);
+    const restated = restateSplits(items, () => "isin:GB00", { held: () => 30 });
     expect(restated.items.map((item) => item.fill?.quantity)).toEqual([30]);
+  });
+
+  it("take a pair broken by a trade as one split, the trade after it, and leave a one-sided split with a trade among its fills", () => {
+    const pair = [
+      fill("P", "BUY", 20, 5, "2024-06-10T15:00:00Z", "STOCK_SPLIT"),
+      fill("P", "BUY", 2, 5, "2024-06-10T14:00:00Z"),
+      fill("P", "SELL", 10, 10, "2024-06-10T05:00:00Z", "STOCK_SPLIT"),
+      fill("P", "BUY", 10, 10, "2024-05-01T14:00:00Z"),
+    ];
+    const restated = restateSplits(pair, undefined, { held: () => 22 });
+    expect(restated.splits.map((split) => split.ratio)).toEqual([2]);
+    expect(restated.items.map((item) => [item.fill?.quantity, item.fill?.price])).toEqual([[2, 5], [20, 5]]);
+    const oneSided = [
+      fill("Q", "BUY", 20, 0, "2024-06-10T15:00:00Z", "STOCK_SPLIT"),
+      fill("Q", "BUY", 2, 5, "2024-06-10T14:00:00Z"),
+      fill("Q", "BUY", 3, 0, "2024-06-10T05:00:00Z", "STOCK_SPLIT"),
+      fill("Q", "BUY", 10, 10, "2024-05-01T14:00:00Z"),
+    ];
+    expect(restateSplits(oneSided, undefined, { held: () => 35 }).unresolved).toEqual(new Set(["Q"]));
   });
 
   it("tell closes adjusted for a split from those that are not", () => {
@@ -77,5 +98,14 @@ describe("splits", () => {
     expect(adjustCloses(adjusted, [split])).toEqual(adjusted);
     expect(chartFactor([split], adjusted, Date.parse("2024-06-01"))).toBe(10);
     expect(chartFactor([split], raw, Date.parse("2024-06-01"))).toBe(1);
+    // A 3-for-2 split on closes adjusted for it, on a day that fell a fifth: a move, not the split.
+    const threeForTwo = { at: "2024-06-10T08:00:00.000Z", ratio: 1.5 };
+    expect(closesAdjusted([{ date: "2024-06-07", close: 100 }, { date: "2024-06-10", close: 80 }], threeForTwo)).toBe(true);
+    expect(closesAdjusted([{ date: "2024-06-07", close: 150 }, { date: "2024-06-10", close: 101 }], threeForTwo)).toBe(false);
+    // Stamped the evening before its first day: the gap into the next day is the split's.
+    const evening = { at: "2024-06-09T22:00:00.000Z", ratio: 10 };
+    expect(closesAdjusted([{ date: "2024-06-07", close: 1200 }, { date: "2024-06-10", close: 121 }], evening)).toBe(false);
+    // A 5-for-4 is within a day's move: taken as adjusted.
+    expect(closesAdjusted([{ date: "2024-06-07", close: 125 }, { date: "2024-06-10", close: 100 }], { at: "2024-06-10T08:00:00.000Z", ratio: 1.25 })).toBe(true);
   });
 });

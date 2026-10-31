@@ -93,14 +93,14 @@ export const MISSING_KEYS: Record<PricesMissing, MessageKey> = {
 };
 
 /**
- * The fills as chart markers, each saying what was traded at what price. A split's own fills are not trades and are
- * left out; `factorOf` is what a fill's price is divided by to sit on the closes (the splits after it they are
+ * The fills as chart markers, each saying what was traded at what price. A split's or another corporate action's
+ * fills are not trades and are left out; `factorOf` is what a fill's price is divided by to sit on the closes (the splits after it they are
  * adjusted for), and a marker moved so says it was before a split, at the price it was traded at.
  */
 export function chartTrades(fills: HoldingFill[], currency: string | undefined, t: Translator, locale: SupportedLocale, factorOf: (time: number) => number = () => 1): ChartTrade[] {
   return fills.flatMap((item, index) => {
     const time = item.filledAt ? Date.parse(item.filledAt) : Number.NaN;
-    if (!Number.isFinite(time) || !item.price || !(item.price > 0) || isSplitType(item.fillType)) return [];
+    if (!Number.isFinite(time) || !item.price || !(item.price > 0) || (item.fillType && item.fillType.toUpperCase() !== "TRADE")) return [];
     const sell = String(item.side ?? "").toUpperCase() === "SELL" || (item.quantity ?? 0) < 0;
     const factor = factorOf(time);
     const traded = fill(t(sell ? "priceSold" : "priceBought"), { quantity: qty(Math.abs(item.quantity ?? 0), locale), price: amount(item.price, item.priceCurrency ?? currency, locale) });
@@ -431,7 +431,7 @@ function FillsPanel({ fills, truncated, notes, locale, t, busy, formFor, form, o
                     : <><b className={`orderSide ${sell ? "sell" : "buy"}`}>{sell ? t("sell") : t("buy")}</b> {qty(Math.abs(item.quantity ?? 0), locale)} · {amount(item.price, item.priceCurrency, locale)}</>}</strong>
                   <small>
                     {item.filledAt ? dayLabel(item.filledAt, locale) : "—"}{item.type ? ` · ${orderTypeLabel(item.type, t)}` : ""}
-                    {!note && !writing && item.orderId && <>{" · "}<button type="button" className="inlineLink" disabled={busy} aria-label={`${t("journalAdd")}: ${sell ? t("sell") : t("buy")} ${qty(Math.abs(item.quantity ?? 0), locale)}${item.filledAt ? `, ${dayLabel(item.filledAt, locale)}` : ""}`} onClick={() => onAddNote(item.orderId!)}>{t("journalAdd")}</button></>}
+                    {!note && !writing && item.orderId && <>{" · "}<button type="button" className="inlineLink" disabled={busy} aria-label={`${t("journalAdd")}: ${action ?? (sell ? t("sell") : t("buy"))} ${qty(Math.abs(item.quantity ?? 0), locale)}${item.filledAt ? `, ${dayLabel(item.filledAt, locale)}` : ""}`} onClick={() => onAddNote(item.orderId!)}>{t("journalAdd")}</button></>}
                   </small>
                 </div>
                 <div className="historyAmount">

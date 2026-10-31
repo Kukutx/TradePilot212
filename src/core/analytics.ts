@@ -27,6 +27,7 @@ export { parseYearStart, validTimeZone } from "../shared/time-zone.js";
 import { calendarReturns } from "../shared/returns.js";
 import { riskOf } from "../shared/risk.js";
 import { resultSplit } from "../shared/result-split.js";
+import { isTradeFill } from "../shared/splits.js";
 import { addMonths, dividendSchedule, expectedPayments, monthStart, scheduleStart, type PaidDividend } from "./dividends.js";
 import { ukShareMatching } from "./uk-matching.js";
 
@@ -306,10 +307,13 @@ export function summarizePerformance(input: {
     const pnl = wallet?.realisedProfitLoss ?? 0;
     realized += pnl;
     tickerRow(ticker).realizedProfitLoss += pnl;
-    turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
     const side = (item.order?.side ?? "").toUpperCase();
     const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if (side === "SELL" || quantity < 0) sells++; else buys++;
+    // A split or another corporate action moved shares without a trade: neither a buy, a sell nor turnover.
+    if (isTradeFill(item)) {
+      turnover += Math.abs(wallet?.netValue ?? (item.fill?.price ?? 0) * (item.fill?.quantity ?? 0));
+      if (side === "SELL" || quantity < 0) sells++; else buys++;
+    }
     for (const tax of wallet?.taxes ?? []) {
       const amount = Math.abs(tax.quantity ?? 0);
       taxes.push({ key: tax.name ?? "OTHER", amount, ticker });
@@ -709,7 +713,8 @@ export function summarizeTaxYear(input: {
     const wallet = item.fill?.walletImpact;
     for (const tax of wallet?.taxes ?? []) costs.push({ key: tax.name ?? "OTHER", amount: Math.abs(tax.quantity ?? 0) });
     const quantity = item.fill?.quantity ?? item.order?.filledQuantity ?? 0;
-    if ((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) continue;
+    // The shares a split or another corporate action took away were not sold: no disposal.
+    if (((item.order?.side ?? "").toUpperCase() !== "SELL" && quantity >= 0) || !isTradeFill(item)) continue;
     const pnl = wallet?.realisedProfitLoss ?? 0;
     // Only Trading 212's account-currency value counts; price × quantity would be in the instrument's currency.
     const value = wallet?.netValue === undefined ? 0 : Math.abs(wallet.netValue);

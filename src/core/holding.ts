@@ -74,7 +74,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     deps.insights.cashHistory(environment, dividendWindow, { ticker, types: ["DIVIDEND"], limit: MAX_DIVIDENDS, maxPages: HISTORY_PAGES }),
   ]).catch((error: unknown) => asStructuredError(error));
   const fills = historyRead.then((read): PriceAnchor[] => (Array.isArray(read)
-    ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price ? [{ at: fill.filledAt, price: fill.price }] : []))
+    ? read[0].fills.flatMap((fill) => (fill.filledAt && fill.price && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE") ? [{ at: fill.filledAt, price: fill.price }] : []))
     : []));
   // Trading 212's holdings name an instrument without its exchange schedule: the instrument list has it. The history
   // read below waits for the same list (one shared request, cached ten minutes), so this adds no wait of its own.
@@ -129,7 +129,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
     ? readSplits(history[0].fills, (fill) => {
       const quantity = Math.abs(fill.quantity ?? 0);
       return { key: ticker, time: Date.parse(fill.filledAt ?? ""), quantity: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? -quantity : quantity, split: isSplitType(fill.fillType) };
-    }, () => position?.quantity ?? 0)
+    }, { held: () => position?.quantity ?? 0 })
     : undefined;
   const splits = splitRead?.events.get(ticker);
   /** A fill of a split read: its shares are the split's, not a trade's. */
@@ -207,7 +207,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
               ...(fill.fillType && fill.fillType.toUpperCase() !== "TRADE" ? { fillType: fill.fillType } : {}),
             })),
             ...(history[0].fills.length > MAX_FILLS ? {
-              olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => (fill.filledAt && fill.price && !splitFill(fill)
+              olderFills: history[0].fills.slice(MAX_FILLS).flatMap((fill) => (fill.filledAt && fill.price && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE")
                 ? [{ filledAt: fill.filledAt, side: String(fill.side ?? "").toUpperCase() === "SELL" || (fill.quantity ?? 0) < 0 ? "SELL" : "BUY", quantity: Math.abs(fill.quantity ?? 0), price: fill.price }]
                 : [])),
             } : {}),
@@ -221,7 +221,7 @@ export async function holdingDetail(deps: HoldingDeps, environment: TradingEnvir
             dividendTotal: history[1].totals.DIVIDEND ?? 0,
             dividendCount: history[1].count,
             fillsTruncated: history[0].truncated,
-            ...(history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price) && !splitFill(fill)) ? { fillsUnpriced: true as const } : {}),
+            ...(history[0].fills.some((fill) => fill.quantity && (!fill.filledAt || !fill.price) && (!fill.fillType || fill.fillType.toUpperCase() === "TRADE")) ? { fillsUnpriced: true as const } : {}),
             ...(history[0].fills.some((fill) => fill.fillType && fill.fillType.toUpperCase() !== "TRADE" && !splitFill(fill)) ? { fillsNotTrades: true as const } : {}),
             ...(splits ? { splits } : {}),
             dividendsTruncated: history[1].truncated,

@@ -2,6 +2,7 @@
 // average-price figures: the gain a return would start from, and why it differs. An estimate.
 
 import type { UkMatching } from "../../shared/history";
+import { splitTerms } from "../../shared/splits";
 import type { SupportedLocale } from "../i18n";
 import { dayLabel, num, money, qty, signedClass } from "../lib/format";
 import { instrumentLabel, type InstrumentBook } from "../lib/instruments";
@@ -23,11 +24,12 @@ export function rowProblems(row: UkMatching["byTicker"][number], locale: Support
   ];
 }
 
-/** Each split of an instrument, "2-for-1 split on 10 Jun 2026", or a consolidation's "10 into 1". */
+/** Each split of an instrument, "3-for-2 split on 10 Jun 2026", or a consolidation's "10-into-1". */
 export function splitText(row: UkMatching["byTicker"][number], locale: SupportedLocale, t: Translator): string[] {
-  return (row.splits ?? []).map((split) => split.ratio >= 1
-    ? fill(t("ukMatchingRowSplit"), { ratio: num(split.ratio, locale), date: dayLabel(split.on, locale) })
-    : fill(t("ukMatchingRowConsolidation"), { ratio: num(1 / split.ratio, locale), date: dayLabel(split.on, locale) }));
+  return (row.splits ?? []).map((split) => {
+    const terms = splitTerms(split.ratio) ?? (split.ratio >= 1 ? { after: split.ratio, before: 1 } : { after: 1, before: 1 / split.ratio });
+    return fill(t(split.ratio >= 1 ? "ukMatchingRowSplit" : "ukMatchingRowConsolidation"), { after: num(terms.after, locale), before: num(terms.before, locale), date: dayLabel(split.on, locale) });
+  });
 }
 
 export function UkMatchingPanel({ data, book, locale, t }: { data: UkMatching; book?: InstrumentBook; locale: SupportedLocale; t: Translator }) {
