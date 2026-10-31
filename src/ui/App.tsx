@@ -29,6 +29,7 @@ import { createTranslator, resolveLocale, type MessageKey, type SupportedLocale 
 import { ErrorCard, Icon, SkeletonView } from "./components/common";
 import { Menu, type MenuItem } from "./components/menu";
 import { TipLayer } from "./components/tips";
+import { joinPages } from "./lib/history-pages";
 import { canExport, exportFile, viewContext, type ExportFormat } from "./lib/bridge";
 import { bookFromPayload, mergeBooks, readSavedBook, saveBook, type InstrumentBook } from "./lib/instruments";
 import { envLabel, executionText, fill, formatProblem, verificationText, type ExecutionKind } from "./lib/messages";
@@ -129,13 +130,6 @@ const ASK_KEYS: Record<PortfolioTab, MessageKey> = {
   holdings: "askHoldings", watchlist: "askWatchlist", allocation: "askAllocation", performance: "askPerformance", income: "askIncome", journal_review: "askJournal",
   trade_history: "askTrades", cash_history: "askCash", tax_year: "askTaxYear", pies: "askPies", automation: "askAutomation",
 };
-/** Two pages' journal notes, each once: an order's fills can fall on both. */
-function joinedNotes(first: JournalEntry[] | undefined, second: JournalEntry[] | undefined): { journal?: JournalEntry[] } {
-  if (!first?.length && !second?.length) return {};
-  const seen = new Set((first ?? []).map((note) => note.id));
-  return { journal: [...(first ?? []), ...(second ?? []).filter((note) => !seen.has(note.id))] };
-}
-
 /** The tab strip, in order; "history" stands for whichever of its three pages was shown last. */
 const TABS = ["holdings", "watchlist", "allocation", "performance", "income", "history", "journal_review", "pies", "automation"] as const;
 /**
@@ -802,13 +796,7 @@ export default function App() {
       setInsights((shown) => {
         // A page read for a list since replaced (another period, account or filter) is dropped.
         if (shown[kind] !== current || next.kind !== kind) return shown;
-        // The pages joined start where the first did: a page the host showed may itself be a later one.
-        const { offset: _offset, ...rest } = next as TradeHistory | CashHistory;
-        const start = current.offset ? { offset: current.offset } : {};
-        const merged = current.kind === "trade_history" && rest.kind === "trade_history"
-          ? { ...rest, ...start, fills: [...current.fills, ...rest.fills], ...(current.unfilled ? { unfilled: current.unfilled } : {}), ...joinedNotes(current.journal, (rest as { journal?: JournalEntry[] }).journal) }
-          : current.kind === "cash_history" && rest.kind === "cash_history" ? { ...rest, ...start, items: [...current.items, ...rest.items] } : current;
-        return { ...shown, [kind]: merged };
+        return { ...shown, [kind]: joinPages(current, next as typeof current) };
       });
     } catch (requestError) {
       setProblem(problemFrom("errorTitleLoad", requestError, () => void loadMore(kind)));
