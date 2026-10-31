@@ -56,7 +56,7 @@ describe("tool output schemas", () => {
     const client = new Client({ name: "test", version: "0" });
     await client.connect(clientSide);
     const tools = (await client.listTools()).tools;
-    expect(tools.length).toBe(55);
+    expect(tools.length).toBe(56);
     for (const tool of tools) {
       expect(TOOL_OUTPUT[tool.name], tool.name).toBeDefined();
       expect(tool.outputSchema, tool.name).toMatchObject({ type: "object", required: ["kind"] });

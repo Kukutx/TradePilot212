@@ -44,7 +44,7 @@ import { TradePlanView } from "./views/TradePlanView";
 import { BasketView, type BasketDraftView } from "./views/BasketView";
 import { PieChangeView, PiesView } from "./views/PiesView";
 import type { PlanRequest, PlanSaveResult } from "./components/plans";
-import { AutomationView } from "./views/AutomationView";
+import { AutomationView, type NotifyTestResult } from "./views/AutomationView";
 import { HoldingView } from "./views/HoldingView";
 import { JournalReviewView } from "./views/JournalView";
 import { WatchlistView } from "./views/WatchlistView";
@@ -807,6 +807,15 @@ export default function App() {
    * Create, change, pause or delete an investment plan, then read the automation page again. Saving a plan places no
    * order. The plan is the automation page's account's, which can lag the switch while the other account's loads.
    */
+  /** A test message to each notification endpoint; what each answered. Nothing is traded. */
+  async function testNotifications(): Promise<NotifyTestResult[] | undefined> {
+    let results: NotifyTestResult[] | undefined;
+    await run("errorTitleNotifyTest", async () => {
+      results = (await callTool<{ results: NotifyTestResult[] }>("test_notifications", {})).results;
+    });
+    return results;
+  }
+
   async function changePlan(env: TradingEnvironment, input: Record<string, unknown>, inForm = false): Promise<PlanSaveResult> {
     // A form's failure is said in the form, beside what was typed; the list's buttons report at the top as elsewhere.
     let failure: string | undefined;
@@ -1414,6 +1423,7 @@ export default function App() {
             {portfolioLike && tab === "pies" && insights.pies && <PiesView payload={insights.pies} book={book} locale={locale} t={t} />}
             {portfolioLike && tab === "automation" && insights.automation && (
               <AutomationView data={insights.automation} book={book} locale={locale} t={t} busy={loading}
+                onTestNotifications={testNotifications}
                 onDeleteAlert={(alertId) => void changeAlert({ action: "delete", alertId })}
                 onRearmAlert={(alertId) => void changeAlert({ action: "rearm", alertId })}
                 onSaveAccountAlert={(request) => changeAccountAlert({ action: "create", ...request })}

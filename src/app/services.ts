@@ -8,7 +8,7 @@ import type { PricePoint } from "../shared/prices.js";
 import { InsightsService } from "../core/insights-service.js";
 import { TradeJournal } from "../core/journal.js";
 import { DailyDigest } from "../core/digest.js";
-import { createNotifier } from "../core/notify.js";
+import { createNotifications } from "../core/notify.js";
 import { OrderWatch } from "../core/order-watch.js";
 import { PiesService } from "../core/pies.js";
 import { createPriceHistory, settleWithin } from "../core/price-history.js";
@@ -51,7 +51,8 @@ export function createServices(input: ServiceDependencies) {
   const sampleFetcher = () => (input.fetcher ? createSampleBroker(input.fetcher) : (processSampleBroker ??= createSampleBroker()));
   const deps = input.config.sampleData ? { ...input, fetcher: sampleFetcher() } : input;
   // The closures only run after the services they call exist.
-  const notify = createNotifier(deps.config, deps.fetcher);
+  const notifications = createNotifications(deps.config, deps.store, deps.fetcher);
+  const notify = notifications?.send;
   // The sample account prices what it does not hold from its own list, offline.
   const quotes = deps.config.sampleData ? createSampleQuotes() : createQuoteProvider(deps.config, deps.fetcher);
   const trading = new TradingService({
@@ -131,6 +132,7 @@ export function createServices(input: ServiceDependencies) {
     accountAlerts: await stage("account alerts", () => accountAlerts.check()),
     targets: await stage("targets", () => targets.check()),
     digest: await stage("digest", () => digest.run()),
+    notifications: await stage("notifications", () => notifications?.flush() ?? Promise.resolve([])),
   });
   // A tick that outlasts the interval (slow broker, rate-limit waits) is joined, not overlapped.
   let running: ReturnType<typeof tick> | undefined;
@@ -177,7 +179,14 @@ export function createServices(input: ServiceDependencies) {
         demoAutomation: deps.config.demoAutomationEnabled,
         protectiveLinking: deps.config.protectiveLinking,
         orderWatch: deps.config.orderWatch,
-        webhook: !!deps.config.notifyWebhookUrl,
+        webhook: deps.config.notifyTargets.length > 0,
+        ...(deps.config.notifyTargets.length ? {
+          notifications: {
+            formats: deps.config.notifyTargets.map((target) => target.format),
+            locale: deps.config.notifyLocale,
+            ...(deps.config.notifyQuietHours ? { quietHours: deps.config.notifyQuietHours } : {}),
+          },
+        } : {}),
         digestHour: deps.config.digest?.hour ?? null,
         ...(deps.config.digest ? { digestTimeZone: deps.config.digest.timeZone } : {}),
         ...(deps.config.timeZone ? { timeZone: deps.config.timeZone } : {}),
@@ -187,5 +196,5 @@ export function createServices(input: ServiceDependencies) {
       timestamp: new Date().toISOString(),
     };
   };
-  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, journal, targets, pies, digest, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
+  return { trading, insights, automation, links, orders, values, alerts, accountAlerts, journal, targets, pies, digest, notifications, priceHistory, watchlist, schedules, today, closes, runScheduled, automationOverview };
 }

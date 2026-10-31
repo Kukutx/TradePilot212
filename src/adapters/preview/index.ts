@@ -30,8 +30,11 @@ const demo = args.includes("--demo");
 const port = Number(args.find((arg) => arg.startsWith("--port="))?.slice(7) ?? process.env.PREVIEW_PORT ?? 4212);
 const host = "127.0.0.1";
 
+/** Notifications go to the preview itself, which prints them: the automation page shows them set, and its test works. */
+const NOTIFY_HERE = { NOTIFY_WEBHOOK_URL: `http://${host}:${port}/__notify`, NOTIFY_QUIET_HOURS: "22-07" };
+
 function environment(): RuntimeEnv {
-  if (!demo) return { TRADEPILOT_SAMPLE_DATA: "true" };
+  if (!demo) return { TRADEPILOT_SAMPLE_DATA: "true", ...NOTIFY_HERE };
   dotenv.config({ path: path.join(root, ".env.local"), quiet: true });
   dotenv.config({ path: path.join(root, ".env"), quiet: true });
   if (!process.env.T212_DEMO_API_KEY || !process.env.T212_DEMO_API_SECRET) {
@@ -46,7 +49,8 @@ function environment(): RuntimeEnv {
     T212_LIVE_API_KEY: "",
     T212_LIVE_API_SECRET: "",
     AUTOMATION_DEMO_ENABLED: "false",
-    NOTIFY_WEBHOOK_URL: "",
+    // Yours are never sent to: notifications go to the preview.
+    ...NOTIFY_HERE,
   };
 }
 
@@ -347,6 +351,11 @@ const httpServer = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/host.js") return send(response, 200, "text/javascript; charset=utf-8", script);
     if (request.method === "GET" && url.pathname === "/widget.html") return send(response, 200, "text/html; charset=utf-8", await widgetHtml());
+    if (request.method === "POST" && url.pathname === "/__notify") {
+      const { text } = await readJson(request) as { text?: unknown };
+      console.log(`Notification: ${String(text)}`);
+      return send(response, 204, "text/plain", "");
+    }
     if (request.method === "POST" && url.pathname === "/api/call") {
       if (!origins.has(request.headers.origin ?? "") || request.headers["x-preview-token"] !== token) return send(response, 403, "text/plain", "Forbidden");
       const { name, arguments: input } = await readJson(request) as { name?: unknown; arguments?: unknown };

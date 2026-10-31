@@ -290,7 +290,7 @@ describe("account alert tools", () => {
 describe("notifications", () => {
   it("formats a readable line", () => {
     expect(notificationText({ id: "1", timestamp: "", environment: "live", type: "order_submitted", ticker: "AAPL_US_EQ", side: "buy", quantity: 2 }))
-      .toBe("[TradePilot LIVE] Order sent · AAPL_US_EQ · buy 2");
+      .toBe("[TradePilot LIVE] Order sent · AAPL_US_EQ · Buy 2");
   });
 
   it("only sends the configured event types and rejects plain HTTP", async () => {

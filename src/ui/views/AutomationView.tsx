@@ -1,9 +1,10 @@
+import { useState } from "react";
 import type { AutomationOverview, PriceAlert } from "../../shared/automation";
 import { localeTag, type SupportedLocale } from "../i18n";
 import { AccountAlertList, type AccountAlertRequest } from "../components/account-alerts";
 import { AlertActions } from "../components/alerts";
 import { PlanList, type PlanRequest, type PlanSaveResult } from "../components/plans";
-import { DetailRow, InstrumentName } from "../components/common";
+import { DetailRow, Icon, InstrumentName } from "../components/common";
 import { amount, dateTime, num, pct } from "../lib/format";
 import { instrumentCurrency, instrumentLabel, type InstrumentBook } from "../lib/instruments";
 import { alertConditionLabel, fill, instrumentTypeLabel, quoteProviderLabel, type Translator } from "../lib/messages";
@@ -67,12 +68,54 @@ export function alertTarget(alert: PriceAlert, book: InstrumentBook | undefined,
   return alert.price !== undefined ? amount(alert.price, instrumentCurrency(alert.ticker, book), locale) : `${num(alert.percent, locale, 2)}%`;
 }
 
-export function AutomationView({ data, book, locale, t, busy = false, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert, onSavePlan, onChangePlan, onSkipPlan, onDeletePlan, onReviewPlan }: {
+/** What a test message to each notification endpoint came back with. */
+export interface NotifyTestResult { format: string; host: string; ok: boolean; status?: number; error?: string }
+
+const FORMAT_LABEL: Record<string, string> = { slack: "Slack", discord: "Discord", telegram: "Telegram", ntfy: "ntfy", bark: "Bark", raw: "JSON" };
+
+/** Where notifications go, in which language, and when they hold back. */
+export function NotificationRows({ settings, t }: { settings: AutomationOverview["settings"]; t: Translator }) {
+  const notifications = settings.notifications;
+  const hour = (value: number) => `${String(value).padStart(2, "0")}:00`;
+  const where = notifications
+    ? `${[...new Set(notifications.formats)].map((format) => FORMAT_LABEL[format] ?? format).join(", ")} · ${notifications.locale === "zh-CN" ? "中文" : "English"}`
+    : settings.webhook ? t("settingOn") : t("settingOff");
+  return (
+    <>
+      <DetailRow label={t("settingWebhook")} value={where} />
+      {notifications?.quietHours && <DetailRow label={t("settingQuietHours")} value={`${hour(notifications.quietHours.start)}–${hour(notifications.quietHours.end)} ${settings.timeZone ?? "UTC"}`} />}
+    </>
+  );
+}
+
+/** A test message to each notification endpoint, and what each answered. */
+export function NotificationTest({ t, busy, onTest }: { t: Translator; busy: boolean; onTest: () => Promise<NotifyTestResult[] | undefined> }) {
+  const [results, setResults] = useState<NotifyTestResult[] | undefined>();
+  return (
+        <div className="notifyTest">
+          <button type="button" className="secondaryButton compactButton" aria-disabled={busy || undefined} title={t("notifyTestHint")}
+            onClick={() => { if (!busy) void onTest().then(setResults); }}>{t("notifyTest")}</button>
+          {results && (
+            <ul className="notifyResults" aria-live="polite">
+              {results.map((item, index) => (
+                <li key={`${item.host}-${index}`} className={item.ok ? "ok" : "failed"}>
+                  <Icon name={item.ok ? "check" : "alert"} />
+                  <span>{FORMAT_LABEL[item.format] ?? item.format} · {item.host} · {item.ok ? t("notifyDelivered") : fill(t("notifyFailed"), { reason: item.status ? `HTTP ${item.status}` : item.error ?? "" })}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+  );
+}
+
+export function AutomationView({ data, book, locale, t, busy = false, onTestNotifications, onDeleteAlert, onRearmAlert, onSaveAccountAlert, onDeleteAccountAlert, onRearmAccountAlert, onSavePlan, onChangePlan, onSkipPlan, onDeletePlan, onReviewPlan }: {
   data: AutomationOverview;
   book?: InstrumentBook;
   locale: SupportedLocale;
   t: Translator;
   busy?: boolean;
+  onTestNotifications?: () => Promise<NotifyTestResult[] | undefined>;
   onDeleteAlert?: (alertId: string) => void;
   onRearmAlert?: (alertId: string) => void;
   onSaveAccountAlert?: (request: AccountAlertRequest) => Promise<boolean>;
@@ -96,12 +139,13 @@ export function AutomationView({ data, book, locale, t, busy = false, onDeleteAl
           <DetailRow label={t("settingDemoAutomation")} value={on(data.settings.demoAutomation)} />
           <DetailRow label={t("settingLinking")} value={on(data.settings.protectiveLinking)} />
           <DetailRow label={t("settingOrderWatch")} value={on(data.settings.orderWatch)} />
-          <DetailRow label={t("settingWebhook")} value={on(data.settings.webhook)} />
+          <NotificationRows settings={data.settings} t={t} />
           <DetailRow label={t("settingDigest")} value={data.settings.digestHour === null ? t("settingOff") : `${String(data.settings.digestHour).padStart(2, "0")}:00 ${data.settings.digestTimeZone ?? "UTC"}`} />
           <DetailRow label={t("settingTimeZone")} value={data.settings.timeZone ?? "UTC"} />
           {data.settings.taxYearStart && <DetailRow label={t("settingTaxYear")} value={yearStartLabel(data.settings.taxYearStart, locale)} />}
           <DetailRow label={t("settingQuotes")} value={quoteProviderLabel(data.settings.quoteProvider, t)} />
         </div>
+        {data.settings.webhook && onTestNotifications && <NotificationTest t={t} busy={busy} onTest={onTestNotifications} />}
       </section>
       <TradingRules data={data} book={book} locale={locale} t={t} />
 
