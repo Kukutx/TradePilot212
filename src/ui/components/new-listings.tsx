@@ -93,7 +93,8 @@ export function NewListingsPanel({ initial, listed, busy, locale, t, onRead, onO
   const disabled = busy || reading;
   const now = data ? new Date(data.timestamp) : new Date();
   const types = data ? listingTypes(data.types) : [];
-  const typeKeys = [null, ...types.map(([type]) => type)];
+  // A chosen type the window has none of keeps its chip, so it can still be cleared.
+  const typeKeys = [null, ...types.map(([type]) => type), ...(data?.type && !data.types[data.type] ? [data.type] : [])];
   const total = types.reduce((sum, [, count]) => sum + count, 0);
   const windows: number[] = [...LISTING_WINDOWS];
 
@@ -126,14 +127,14 @@ export function NewListingsPanel({ initial, listed, busy, locale, t, onRead, onO
       )}
       {data && (
         <>
-          {types.length > 1 && (
+          {(types.length > 1 || data.type) && (
             <div className="filterChips" role="radiogroup" onKeyDown={radioKeys} aria-label={t("listingsType")}>
               {typeKeys.map((type) => {
                 const checked = (data.type ?? null) === type;
                 return (
                   <button key={type ?? "all"} type="button" role="radio" aria-checked={checked} tabIndex={radioTab(checked)} className={checked ? "active" : ""} disabled={disabled}
                     onClick={() => { if (!checked) void read(asked({ type: type ?? undefined })); }}>
-                    {type === null ? `${t("historyAll")} ${total}` : `${instrumentTypeLabel(type, t)} ${data.types[type]}`}
+                    {type === null ? `${t("historyAll")} ${total}` : `${instrumentTypeLabel(type, t)} ${data.types[type] ?? 0}`}
                   </button>
                 );
               })}

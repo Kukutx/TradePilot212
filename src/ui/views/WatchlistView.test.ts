@@ -53,6 +53,13 @@ describe("new listings", () => {
     expect(html).not.toContain('aria-label="Add Tesla to the watchlist"');
   });
 
+  it("keeps a chosen type's chip, with All, when the window has none of that type", () => {
+    const html = render(data, "en", { ...listings, type: "ETF", listings: [], total: 0, types: { STOCK: 2 } });
+    expect(html).toContain("All 2");
+    expect(html).toContain('aria-checked="true" tabindex="0" class="active">ETFs 0');
+    expect(html).toContain("Trading 212 added nothing like this in the last 30 days.");
+  });
+
   it("reads in Chinese", () => {
     const html = render(data, "zh-CN", listings);
     expect(html).toContain("Trading 212 新上架");
