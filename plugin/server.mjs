@@ -41480,7 +41480,8 @@ function goalPace(goal, value, now = /* @__PURE__ */ new Date()) {
   if (!Number.isFinite(since.getTime())) return void 0;
   const months = (now.getUTCFullYear() - since.getUTCFullYear()) * 12 + now.getUTCMonth() - since.getUTCMonth() - (now.getUTCDate() < since.getUTCDate() ? 1 : 0);
   if (months < 1) return void 0;
-  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months);
+  const prices = goal.inflation && goal.inflation > 0 ? (1 + goal.inflation) ** (months / 12) : 1;
+  const expected = grown(goal.start.value, goal.monthly, medianGrowth(goal), months) * prices;
   return { since: goal.start.at, months, expected, difference: value - expected };
 }
 function projectGoal(inputs, value, now = /* @__PURE__ */ new Date()) {
