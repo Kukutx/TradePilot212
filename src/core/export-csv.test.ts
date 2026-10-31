@@ -102,6 +102,16 @@ describe("CSV export", () => {
     expect(shown.withholdingBasis).toBe("net");
     expect(shown.withholding?.[0]).toMatchObject({ gross: 25, rate: 0.15 });
 
+    // A payment in pence, its Total in dollars at a rate per pence: read as pounds, and the gross figure found.
+    const pennies = summarizeExport([header,
+      "Dividend (Ordinary),2026-02-15 08:00:00,GB00B03MLX29,SHEL,100,100,GBX,0.0125,106.25,USD,1500,GBX",
+    ].join("\n")).summary;
+    expect(pennies.withholdingBasis).toBe("gross");
+    expect(pennies.withholding?.[0]).toMatchObject({ currency: "GBP", gross: 100, withheld: 15, rate: 0.15 });
+    // Every row unreadable: none to list, and the count to say so.
+    expect(summarizeExport([header, "Dividend (Ordinary),2026-03-26 08:00:00,DE0007164600,SAP,1,1.50,EUR,1,1.50,EUR,0.50,USD"].join("\n")).summary)
+      .toMatchObject({ withholding: [], withholdingUnread: 1 });
+
     // Without Totals to go by, the figure is taken as after withholding.
     const bare = summarizeExport("Action,ISIN,Ticker,No. of shares,Price / share,Currency (Price / share),Withholding tax,Currency (Withholding tax)\nDividend (Ordinary),US0378331005,AAPL,10,0.2125,USD,0.375,USD").summary;
     expect(bare.withholdingBasis).toBe("assumed");

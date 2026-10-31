@@ -145,9 +145,11 @@ export function summarizeExport(text: string): { summary: ExportSummary; records
       currency: pounds(priceCode), ...(ticker ? { ticker } : {}),
       paid: quantity * perShare / (pence(priceCode) ? 100 : 1),
       withheld: withheld / (pence(withheldCode) ? 100 : 1),
-      // The net in the paying currency, both ways the exchange rate could be quoted (paying currency = Total ÷ rate, or ×).
+      // The net in the paying currency, both ways the exchange rate could be quoted (paying currency = Total ÷ rate, or ×);
+      // for a payment in pence, the rate may be per pence, so each way also has its result counted as pence.
       ...(Number.isFinite(totalValue) && totalValue > 0 && totalCode
-        ? pounds(totalCode) === pounds(priceCode) ? { nets: [totalValue / (pence(totalCode) ? 100 : 1)] } : rate > 0 ? { nets: [totalValue / rate, totalValue * rate] } : {}
+        ? pounds(totalCode) === pounds(priceCode) ? { nets: [[totalValue / (pence(totalCode) ? 100 : 1)]] }
+          : rate > 0 ? { nets: [totalValue / rate, totalValue * rate].map((net) => (pence(priceCode) ? [net, net / 100] : [net])) } : {}
         : {}),
     });
   }
@@ -159,7 +161,7 @@ const round = (value: number) => Math.round(value * 1e8) / 1e8;
 const pence = (code: string) => /^GBX$/i.test(code) || code === "GBp";
 const pounds = (code: string) => (pence(code) ? "GBP" : code.toUpperCase());
 
-interface PaidRow { country: string; currency: string; ticker?: string; paid: number; withheld: number; nets?: number[] }
+interface PaidRow { country: string; currency: string; ticker?: string; paid: number; withheld: number; nets?: number[][] }
 
 /**
  * The tax withheld from dividends, by country and currency. Whether the report's per-share figure is before or after
@@ -175,8 +177,8 @@ function withholdingOf(rows: PaidRow[], unreadable: number, way?: number): Pick<
   const priced = rows.filter((row) => row.nets && row.withheld > 0);
   const paid = priced.reduce((sum, row) => sum + row.paid, 0);
   const misfit = (gross: boolean, way: number) => priced.reduce((sum, row) => {
-    const net = row.nets![Math.min(way, row.nets!.length - 1)]!;
-    return sum + Math.abs(row.paid - (gross ? net + row.withheld : net));
+    const nets = row.nets![Math.min(way, row.nets!.length - 1)]!;
+    return sum + Math.min(...nets.map((net) => Math.abs(row.paid - (gross ? net + row.withheld : net))));
   }, 0) / paid;
   // The way the orders show; with none to go by, either way (and a rate near 1/0.85 can then fit both readings).
   const fits = (gross: boolean) => (way === undefined ? Math.min(misfit(gross, 0), misfit(gross, 1)) : misfit(gross, way));

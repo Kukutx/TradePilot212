@@ -163,7 +163,7 @@ function WithholdingPanel({ summary, rows, locale, t }: { summary: ExportSummary
     <section className="dataPanel">
       <div className="pieHeader"><h2>{t("withholdingTitle")}</h2></div>
       {high.length > 0 && <div className="notice warning compactNotice" role="note">{fill(t("withholdingHigh"), { tickers: high.join(", ") })}</div>}
-      <ul className="historyList">
+      {rows.length > 0 && <ul className="historyList">
         {rows.map((row) => (
           <li key={`${row.country}:${row.currency}`} className="historyRow">
             <div className="historyWho"><div>
@@ -176,11 +176,11 @@ function WithholdingPanel({ summary, rows, locale, t }: { summary: ExportSummary
             </div>
           </li>
         ))}
-      </ul>
+      </ul>}
       <p className="panelNote">
-        {[t(basis === "net" ? "withholdingBasisNet" : basis === "gross" ? "withholdingBasisGross" : "withholdingBasisAssumed"),
+        {[rows.length > 0 && t(basis === "net" ? "withholdingBasisNet" : basis === "gross" ? "withholdingBasisGross" : "withholdingBasisAssumed"),
           summary.withholdingUnread ? plural(summary.withholdingUnread, locale, t("withholdingUnreadOne"), t("withholdingUnread")) : "",
-          t("withholdingNote")].filter(Boolean).join(locale === "zh-CN" ? "" : " ")}
+          rows.length > 0 && t("withholdingNote")].filter(Boolean).join(locale === "zh-CN" ? "" : " ")}
       </p>
     </section>
   );
@@ -227,7 +227,7 @@ export function ExportView({ data, locale, t, busy, onRead, onList, onBack }: {
               <div className="confirmationRows">{summary.charges.map((charge) => <DetailRow key={charge.name} label={charge.name} value={totalsText(charge.totals, locale)} />)}</div>
             </section>
           )}
-          {summary.withholding && summary.withholding.length > 0 && <WithholdingPanel summary={summary} rows={summary.withholding} locale={locale} t={t} />}
+          {summary.withholding && (summary.withholding.length > 0 || !!summary.withholdingUnread) && <WithholdingPanel summary={summary} rows={summary.withholding} locale={locale} t={t} />}
           <section className="dataPanel">
             <div className="pieHeader"><h2>{t("exportActions")}</h2></div>
             <ul className="historyList">
