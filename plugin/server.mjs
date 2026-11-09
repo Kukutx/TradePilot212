@@ -39,322 +39,395 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/dotenv@17.4.2/node_modules/dotenv/lib/main.js
-var require_main = __commonJS({
-  "node_modules/.pnpm/dotenv@17.4.2/node_modules/dotenv/lib/main.js"(exports2, module) {
-    var fs3 = __require("fs");
-    var path3 = __require("path");
-    var os2 = __require("os");
-    var crypto2 = __require("crypto");
-    var TIPS = [
-      "\u25C8 encrypted .env [www.dotenvx.com]",
-      "\u25C8 secrets for agents [www.dotenvx.com]",
-      "\u2301 auth for agents [www.vestauth.com]",
-      "\u2318 custom filepath { path: '/custom/path/.env' }",
-      "\u2318 enable debugging { debug: true }",
-      "\u2318 override existing { override: true }",
-      "\u2318 suppress logs { quiet: true }",
-      "\u2318 multiple files { path: ['.env.local', '.env'] }"
-    ];
-    function _getRandomTip() {
-      return TIPS[Math.floor(Math.random() * TIPS.length)];
-    }
-    function parseBoolean(value) {
-      if (typeof value === "string") {
-        return !["false", "0", "no", "off", ""].includes(value.toLowerCase());
-      }
-      return Boolean(value);
-    }
-    function supportsAnsi() {
-      return process.stdout.isTTY;
-    }
-    function dim(text) {
-      return supportsAnsi() ? `\x1B[2m${text}\x1B[0m` : text;
-    }
-    var LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg;
-    function parse3(src) {
-      const obj = {};
-      let lines = src.toString();
-      lines = lines.replace(/\r\n?/mg, "\n");
-      let match;
-      while ((match = LINE.exec(lines)) != null) {
-        const key = match[1];
-        let value = match[2] || "";
-        value = value.trim();
-        const maybeQuote = value[0];
-        value = value.replace(/^(['"`])([\s\S]*)\1$/mg, "$2");
-        if (maybeQuote === '"') {
-          value = value.replace(/\\n/g, "\n");
-          value = value.replace(/\\r/g, "\r");
-        }
-        obj[key] = value;
-      }
-      return obj;
-    }
-    function _parseVault(options) {
-      options = options || {};
-      const vaultPath = _vaultPath(options);
-      options.path = vaultPath;
-      const result2 = DotenvModule.configDotenv(options);
-      if (!result2.parsed) {
-        const err = new Error(`MISSING_DATA: Cannot parse ${vaultPath} for an unknown reason`);
-        err.code = "MISSING_DATA";
-        throw err;
-      }
-      const keys = _dotenvKey(options).split(",");
-      const length = keys.length;
-      let decrypted;
-      for (let i = 0; i < length; i++) {
-        try {
-          const key = keys[i].trim();
-          const attrs = _instructions(result2, key);
-          decrypted = DotenvModule.decrypt(attrs.ciphertext, attrs.key);
-          break;
-        } catch (error62) {
-          if (i + 1 >= length) {
-            throw error62;
-          }
-        }
-      }
-      return DotenvModule.parse(decrypted);
-    }
-    function _warn(message) {
-      console.error(`\u26A0 ${message}`);
-    }
-    function _debug(message) {
-      console.log(`\u2506 ${message}`);
-    }
-    function _log(message) {
-      console.log(`\u25C7 ${message}`);
-    }
-    function _dotenvKey(options) {
-      if (options && options.DOTENV_KEY && options.DOTENV_KEY.length > 0) {
-        return options.DOTENV_KEY;
-      }
-      if (process.env.DOTENV_KEY && process.env.DOTENV_KEY.length > 0) {
-        return process.env.DOTENV_KEY;
-      }
-      return "";
-    }
-    function _instructions(result2, dotenvKey) {
-      let uri;
+// node_modules/.pnpm/dotenv@18.0.9/node_modules/dotenv/dist/index.cjs
+var require_dist2 = __commonJS({
+  "node_modules/.pnpm/dotenv@18.0.9/node_modules/dotenv/dist/index.cjs"(exports2, module) {
+    var j2 = (e, n) => () => {
       try {
-        uri = new URL(dotenvKey);
-      } catch (error62) {
-        if (error62.code === "ERR_INVALID_URL") {
-          const err = new Error("INVALID_DOTENV_KEY: Wrong format. Must be in valid uri format like dotenv://:key_1234@dotenvx.com/vault/.env.vault?environment=development");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        }
-        throw error62;
+        return n || e((n = { exports: {} }).exports, n), n.exports;
+      } catch (t) {
+        throw n = 0, t;
       }
-      const key = uri.password;
-      if (!key) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing key part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environment = uri.searchParams.get("environment");
-      if (!environment) {
-        const err = new Error("INVALID_DOTENV_KEY: Missing environment part");
-        err.code = "INVALID_DOTENV_KEY";
-        throw err;
-      }
-      const environmentKey = `DOTENV_VAULT_${environment.toUpperCase()}`;
-      const ciphertext = result2.parsed[environmentKey];
-      if (!ciphertext) {
-        const err = new Error(`NOT_FOUND_DOTENV_ENVIRONMENT: Cannot locate environment ${environmentKey} in your .env.vault file.`);
-        err.code = "NOT_FOUND_DOTENV_ENVIRONMENT";
-        throw err;
-      }
-      return { ciphertext, key };
-    }
-    function _vaultPath(options) {
-      let possibleVaultPath = null;
-      if (options && options.path && options.path.length > 0) {
-        if (Array.isArray(options.path)) {
-          for (const filepath of options.path) {
-            if (fs3.existsSync(filepath)) {
-              possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
-            }
-          }
-        } else {
-          possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
-        }
-      } else {
-        possibleVaultPath = path3.resolve(process.cwd(), ".env.vault");
-      }
-      if (fs3.existsSync(possibleVaultPath)) {
-        return possibleVaultPath;
-      }
-      return null;
-    }
-    function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path3.join(os2.homedir(), envPath.slice(1)) : envPath;
-    }
-    function _configVault(options) {
-      const debug = parseBoolean(process.env.DOTENV_CONFIG_DEBUG || options && options.debug);
-      const quiet = parseBoolean(process.env.DOTENV_CONFIG_QUIET || options && options.quiet);
-      if (debug || !quiet) {
-        _log("loading env from encrypted .env.vault");
-      }
-      const parsed = DotenvModule._parseVault(options);
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      DotenvModule.populate(processEnv, parsed, options);
-      return { parsed };
-    }
-    function configDotenv(options) {
-      const dotenvPath = path3.resolve(process.cwd(), ".env");
-      let encoding = "utf8";
-      let processEnv = process.env;
-      if (options && options.processEnv != null) {
-        processEnv = options.processEnv;
-      }
-      let debug = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || options && options.debug);
-      let quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || options && options.quiet);
-      if (options && options.encoding) {
-        encoding = options.encoding;
-      } else {
-        if (debug) {
-          _debug("no encoding is specified (UTF-8 is used by default)");
-        }
-      }
-      let optionPaths = [dotenvPath];
-      if (options && options.path) {
-        if (!Array.isArray(options.path)) {
-          optionPaths = [_resolveHome(options.path)];
-        } else {
-          optionPaths = [];
-          for (const filepath of options.path) {
-            optionPaths.push(_resolveHome(filepath));
-          }
-        }
-      }
-      let lastError;
-      const parsedAll = {};
-      for (const path4 of optionPaths) {
-        try {
-          const parsed = DotenvModule.parse(fs3.readFileSync(path4, { encoding }));
-          DotenvModule.populate(parsedAll, parsed, options);
-        } catch (e) {
-          if (debug) {
-            _debug(`failed to load ${path4} ${e.message}`);
-          }
-          lastError = e;
-        }
-      }
-      const populated = DotenvModule.populate(processEnv, parsedAll, options);
-      debug = parseBoolean(processEnv.DOTENV_CONFIG_DEBUG || debug);
-      quiet = parseBoolean(processEnv.DOTENV_CONFIG_QUIET || quiet);
-      if (debug || !quiet) {
-        const keysCount = Object.keys(populated).length;
-        const shortPaths = [];
-        for (const filePath of optionPaths) {
-          try {
-            const relative = path3.relative(process.cwd(), filePath);
-            shortPaths.push(relative);
-          } catch (e) {
-            if (debug) {
-              _debug(`failed to load ${filePath} ${e.message}`);
-            }
-            lastError = e;
-          }
-        }
-        _log(`injected env (${keysCount}) from ${shortPaths.join(",")} ${dim(`// tip: ${_getRandomTip()}`)}`);
-      }
-      if (lastError) {
-        return { parsed: parsedAll, error: lastError };
-      } else {
-        return { parsed: parsedAll };
-      }
-    }
-    function config3(options) {
-      if (_dotenvKey(options).length === 0) {
-        return DotenvModule.configDotenv(options);
-      }
-      const vaultPath = _vaultPath(options);
-      if (!vaultPath) {
-        _warn(`you set DOTENV_KEY but you are missing a .env.vault file at ${vaultPath}`);
-        return DotenvModule.configDotenv(options);
-      }
-      return DotenvModule._configVault(options);
-    }
-    function decrypt(encrypted, keyStr) {
-      const key = Buffer.from(keyStr.slice(-64), "hex");
-      let ciphertext = Buffer.from(encrypted, "base64");
-      const nonce = ciphertext.subarray(0, 12);
-      const authTag = ciphertext.subarray(-16);
-      ciphertext = ciphertext.subarray(12, -16);
-      try {
-        const aesgcm = crypto2.createDecipheriv("aes-256-gcm", key, nonce);
-        aesgcm.setAuthTag(authTag);
-        return `${aesgcm.update(ciphertext)}${aesgcm.final()}`;
-      } catch (error62) {
-        const isRange = error62 instanceof RangeError;
-        const invalidKeyLength = error62.message === "Invalid key length";
-        const decryptionFailed = error62.message === "Unsupported state or unable to authenticate data";
-        if (isRange || invalidKeyLength) {
-          const err = new Error("INVALID_DOTENV_KEY: It must be 64 characters long (or more)");
-          err.code = "INVALID_DOTENV_KEY";
-          throw err;
-        } else if (decryptionFailed) {
-          const err = new Error("DECRYPTION_FAILED: Please check your DOTENV_KEY");
-          err.code = "DECRYPTION_FAILED";
-          throw err;
-        } else {
-          throw error62;
-        }
-      }
-    }
-    function populate(processEnv, parsed, options = {}) {
-      const debug = Boolean(options && options.debug);
-      const override = Boolean(options && options.override);
-      const populated = {};
-      if (typeof parsed !== "object") {
-        const err = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
-        err.code = "OBJECT_REQUIRED";
-        throw err;
-      }
-      for (const key of Object.keys(parsed)) {
-        if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
-          if (override === true) {
-            processEnv[key] = parsed[key];
-            populated[key] = parsed[key];
-          }
-          if (debug) {
-            if (override === true) {
-              _debug(`"${key}" is already defined and WAS overwritten`);
-            } else {
-              _debug(`"${key}" is already defined and was NOT overwritten`);
-            }
-          }
-        } else {
-          processEnv[key] = parsed[key];
-          populated[key] = parsed[key];
-        }
-      }
-      return populated;
-    }
-    var DotenvModule = {
-      configDotenv,
-      _configVault,
-      _parseVault,
-      config: config3,
-      decrypt,
-      parse: parse3,
-      populate
     };
-    module.exports.configDotenv = DotenvModule.configDotenv;
-    module.exports._configVault = DotenvModule._configVault;
-    module.exports._parseVault = DotenvModule._parseVault;
-    module.exports.config = DotenvModule.config;
-    module.exports.decrypt = DotenvModule.decrypt;
-    module.exports.parse = DotenvModule.parse;
-    module.exports.populate = DotenvModule.populate;
-    module.exports = DotenvModule;
+    var k = j2((xe, U) => {
+      function G2(e) {
+        return typeof e == "string" ? !["false", "0", "no", "off", ""].includes(e.toLowerCase()) : !!e;
+      }
+      function Y(e = process.env) {
+        let n = {};
+        for (let t of ["ENCODING", "PATH", "QUIET", "DEBUG", "OVERRIDE", "FAST"]) {
+          let o = e[`DOTENV_${t}`] != null ? e[`DOTENV_${t}`] : e[`DOTENV_CONFIG_${t}`];
+          o != null && (n[t.toLowerCase()] = t === "ENCODING" || t === "PATH" ? o : G2(o));
+        }
+        return n;
+      }
+      U.exports = { parseBoolean: G2, optionsFromEnv: Y };
+    });
+    var N = j2((ye, x) => {
+      var z2 = __require("fs"), I = __require("path"), Z = __require("os"), { URL: ee, fileURLToPath: te } = __require("url"), { parseBoolean: $, optionsFromEnv: B } = k(), re = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg, b = new Uint8Array(256);
+      for (let e = 48; e <= 57; e++) b[e] = 1;
+      for (let e = 65; e <= 90; e++) b[e] = 1;
+      for (let e = 97; e <= 122; e++) b[e] = 1;
+      b[45] = 1;
+      b[46] = 1;
+      b[95] = 1;
+      function ne(e) {
+        let n = {}, t = e.toString();
+        t = t.replace(/\r\n?/mg, `
+`);
+        let o;
+        for (; (o = re.exec(t)) != null; ) {
+          let r = o[1], s = o[2] || "";
+          s = s.trim();
+          let i = s[0];
+          s = s.replace(/^(['"`])([\s\S]*)\1$/mg, "$2"), i === '"' && (s = s.replace(/\\n/g, `
+`), s = s.replace(/\\r/g, "\r")), n[r] = s;
+        }
+        return n;
+      }
+      function w(e) {
+        return e <= 32 ? e === 32 || e >= 9 && e <= 13 : e >= 160 && (e === 160 || e === 5760 || e >= 8192 && e <= 8202 || e === 8232 || e === 8233 || e === 8239 || e === 8287 || e === 12288 || e === 65279);
+      }
+      function q(e) {
+        return e === 10 || e === 8232 || e === 8233;
+      }
+      function oe(e) {
+        let n = {}, t = typeof e == "string" ? e : e.toString();
+        t.indexOf("\r") !== -1 && (t = t.replace(/\r\n?/g, `
+`));
+        let o = t.length, r = 0;
+        for (; r < o; ) {
+          let s = t.charCodeAt(r);
+          for (; r < o && w(s); ) r++, s = t.charCodeAt(r);
+          if (r >= o) break;
+          if (s === 35) {
+            for (; r < o && !q(t.charCodeAt(r)); ) r++;
+            continue;
+          }
+          let i = -1;
+          if (s === 101 && r + 6 < o && t.charCodeAt(r + 1) === 120 && t.charCodeAt(r + 2) === 112 && t.charCodeAt(r + 3) === 111 && t.charCodeAt(r + 4) === 114 && t.charCodeAt(r + 5) === 116) {
+            let v = t.charCodeAt(r + 6);
+            if (w(v)) {
+              let u = r + 7;
+              for (; u < o && w(t.charCodeAt(u)); ) u++;
+              b[t.charCodeAt(u)] && (i = r + 6, r = u);
+            } else s = t.charCodeAt(r);
+          }
+          let l = r, d = 0;
+          for (; r < o && (d = t.charCodeAt(r), b[d]); ) r++;
+          if (r === l) {
+            for (; r < o && !q(t.charCodeAt(r)); ) r++;
+            continue;
+          }
+          let h = t.slice(l, r), f = r;
+          if (r >= o && (d = 0), w(d)) do
+            r++, d = r < o ? t.charCodeAt(r) : 0;
+          while (w(d));
+          if (d === 61) r++;
+          else if (d === 58 && r === f && r + 1 < o && w(t.charCodeAt(r + 1))) r += 2;
+          else {
+            for (r = i === -1 ? f : i; r < o && !q(t.charCodeAt(r)); ) r++;
+            continue;
+          }
+          let c = r, a = r;
+          for (; a < o && w(t.charCodeAt(a)); ) a++;
+          let g = t.charCodeAt(a), p, y = false;
+          if (g === 39 || g === 34 || g === 96) {
+            let v = t[a], u = t.indexOf(v, a + 1), m = -1, C = -1;
+            for (; u !== -1; ) {
+              let O = t.charCodeAt(u - 1) === 92, E = u + 1;
+              for (; E < o && !q(t.charCodeAt(E)) && w(t.charCodeAt(E)); ) E++;
+              if ((E === o || q(t.charCodeAt(E)) || t.charCodeAt(E) === 35) && (m = u, C = E), !O) break;
+              u = t.indexOf(v, u + 1);
+            }
+            if (m !== -1) {
+              if (p = t.slice(a + 1, m), r = C, t.charCodeAt(r) === 35) for (; r < o && !q(t.charCodeAt(r)); ) r++;
+              y = true;
+            }
+          }
+          if (!y) {
+            let v = t.indexOf(`
+`, c);
+            v === -1 && (v = o);
+            let u;
+            if (o < 4096) u = t.indexOf("#", c), (u === -1 || u > v) && (u = v);
+            else for (u = c; u < v && t.charCodeAt(u) !== 35; ) u++;
+            let m = c, C = u;
+            for (; m < C && w(t.charCodeAt(m)); ) m++;
+            for (; C > m && w(t.charCodeAt(C - 1)); ) C--;
+            let O = t.charCodeAt(m);
+            if (p = t.slice(m, C), p.includes("\u2028") || p.includes("\u2029") ? p = p.replace(/^(['"`])([\s\S]*)\1$/mg, "$2") : C - m >= 2 && (O === 39 || O === 34 || O === 96) && t.charCodeAt(C - 1) === O && (p = t.slice(m + 1, C - 1)), r = u, u < v) for (; r < o && !q(t.charCodeAt(r)); ) r++;
+          }
+          g === 34 && (y || a < r) && p.indexOf("\\") !== -1 && (p = p.replace(/\\n/g, `
+`).replace(/\\r/g, "\r")), n[h] = p;
+        }
+        return n;
+      }
+      function se(e, n) {
+        return n && $(n.fast) ? oe(e) : ne(e);
+      }
+      function T(e) {
+        console.log(`\u2506 ${e}`);
+      }
+      function ie(e) {
+        console.error(`\u25C7 ${e}`);
+      }
+      function V(e) {
+        return e[0] === "~" ? I.join(Z.homedir(), e.slice(1)) : e;
+      }
+      function ce(e = {}) {
+        let n = { ...e };
+        for (let t of Object.keys(n)) n[t] === void 0 && delete n[t];
+        return { ...B(), ...n };
+      }
+      function ae(e) {
+        e = ce(e);
+        let n = I.resolve(process.cwd(), ".env"), t = "utf8", o = process.env;
+        e && e.processEnv != null && (o = e.processEnv);
+        let r = $(e && e.debug);
+        e && e.encoding ? t = e.encoding : r && T("no encoding is specified (UTF-8 is used by default)");
+        let s = [n];
+        if (e && e.path) if (!Array.isArray(e.path)) s = [V(e.path)];
+        else {
+          s = [];
+          for (let c of e.path) s.push(V(c));
+        }
+        let i, l = {}, d = { fast: e.fast };
+        for (let c of s) try {
+          let a = A.parse(z2.readFileSync(c, { encoding: t }), d);
+          A.populate(l, a, e);
+        } catch (a) {
+          r && T(`failed to load ${c} ${a.message}`), i = a;
+        }
+        let h = A.populate(o, l, e), f = $(Object.prototype.hasOwnProperty.call(e, "quiet") ? e.quiet : B(o).quiet);
+        if (r || !f) {
+          let c = Object.keys(h).length, a = [];
+          for (let g of s) try {
+            let p = I.relative(process.cwd(), g instanceof ee ? te(g) : g);
+            a.push(p);
+          } catch (p) {
+            r && T(`failed to load ${g} ${p.message}`), i = p;
+          }
+          ie(`injected env (${c}) from ${a.join(",")}`);
+        }
+        return i ? { parsed: l, error: i } : { parsed: l };
+      }
+      function le(e) {
+        return A.configDotenv(e);
+      }
+      function fe(e, n, t = {}) {
+        let o = $(t && t.debug), r = $(t && t.override), s = {};
+        if (e === null || typeof e != "object" || n === null || typeof n != "object") {
+          let i = new Error("OBJECT_REQUIRED: Please check the processEnv argument being passed to populate");
+          throw i.code = "OBJECT_REQUIRED", i;
+        }
+        for (let i of Object.keys(n)) Object.prototype.hasOwnProperty.call(e, i) ? (r === true && (e[i] = n[i], s[i] = n[i]), o && T(r === true ? `"${i}" is already defined and WAS overwritten` : `"${i}" is already defined and was NOT overwritten`)) : (e[i] = n[i], s[i] = n[i]);
+        return s;
+      }
+      var A = { configDotenv: ae, config: le, parse: se, populate: fe };
+      x.exports.configDotenv = A.configDotenv;
+      x.exports.config = A.config;
+      x.exports.parse = A.parse;
+      x.exports.populate = A.populate;
+      x.exports = A;
+    });
+    var M = j2((Te, W2) => {
+      var _ = __require("child_process"), ue = __require("fs"), L2 = __require("path");
+      function de(e) {
+        let n = ['"'], t = 0;
+        for (let o of e) {
+          if (o === "\\") {
+            t++;
+            continue;
+          }
+          o === '"' ? n.push("\\".repeat(t * 2 + 1), '"') : n.push("\\".repeat(t), o), t = 0;
+        }
+        return n.push("\\".repeat(t * 2), '"'), n.join("");
+      }
+      function H2(e, n = 1) {
+        for (let t = 0; t < n; t++) {
+          let o = [];
+          for (let r of e) {
+            let s = r.charCodeAt(0), i = s >= 48 && s <= 57 || s >= 65 && s <= 90 || s >= 97 && s <= 122, l = "\\/:._-".includes(r);
+            !i && !l && s < 128 && o.push("^"), o.push(r);
+          }
+          e = o.join("");
+        }
+        return e;
+      }
+      function P(e, n) {
+        let t = Object.keys(e).reverse().find((o) => o.toUpperCase() === n);
+        return t === void 0 ? void 0 : e[t];
+      }
+      function pe(e, n, t) {
+        let o = (P(n, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean), s = o.some((l) => e.toLowerCase().endsWith(l.toLowerCase())) ? ["", ...o] : [...o, ""], i = /[\\/]/.test(e) ? [t] : [t, ...(P(n, "PATH") || "").split(";")];
+        for (let l of i) for (let d of s) {
+          let h = L2.resolve(t, l.replace(/^"|"$/g, ""), e + d);
+          try {
+            if (ue.statSync(h).isFile()) return h;
+          } catch {
+          }
+        }
+      }
+      function he(e, n, t) {
+        if (process.platform !== "win32") return _.spawn(e, n, t);
+        let o = t.env || process.env, r = pe(e, o, t.cwd || process.cwd());
+        if (r && /\.(?:exe|com)$/i.test(r)) return _.spawn(r, n, t);
+        let s = /\.(?:bat|cmd)$/i.test(r || e), i = [H2(L2.normalize(r || e))];
+        for (let d of n) i.push(H2(de(d), s ? 2 : 1));
+        let l = i.join(" ");
+        return _.spawn(P(o, "COMSPEC") || "cmd.exe", ["/d", "/v:off", "/s", "/c", `"${l}"`], { ...t, windowsVerbatimArguments: true });
+      }
+      W2.exports = he;
+    });
+    var X = j2(($e, F) => {
+      var ge = __require("fs"), me = __require("os"), Q = __require("path"), ve = __require("child_process"), Ce = M(), R = N(), { optionsFromEnv: J } = k();
+      function D2() {
+        console.log(["Usage: dotenv run [--help] [-q|--quiet] [--debug] [--override] [--fast] [-f|--file <paths>] [--] <command> [args...]", "", "Run a command with environment variables from a .env file.", "Place dotenv options before the command; all following arguments go to the command.", "", "Options:", "  -f, --file <paths>  .env paths, comma-separated or repeated (default: .env)", "  -q, --quiet suppress the injected env message", "  --debug     enable debug logging", "  --override  override existing environment variables", "  --fast      use the faster character-scanner parser", "", "Environment variables (DOTENV_CONFIG_* names remain as fallbacks):", "  DOTENV_PATH, DOTENV_ENCODING, DOTENV_QUIET,", "  DOTENV_DEBUG, DOTENV_OVERRIDE,", "  DOTENV_FAST"].join(`
+`));
+      }
+      function we(e) {
+        let n = [], t = false, o, r, s, i, l = -1;
+        for (let h = 0; h < e.length; h++) {
+          let f = e[h];
+          if (f === "--") {
+            l = h + 1;
+            break;
+          }
+          if (f === "--help" || f === "-h") return { help: true };
+          if (f === "--quiet" || f === "-q") {
+            o = true;
+            continue;
+          }
+          if (f === "--debug") {
+            r = true;
+            continue;
+          }
+          if (f === "--override") {
+            s = true;
+            continue;
+          }
+          if (f === "--fast") {
+            i = true;
+            continue;
+          }
+          if (f === "-f" || f === "--file" || f.startsWith("-f=") || f.startsWith("--file=")) {
+            let c = f.indexOf("="), a = c === -1 ? f : f.slice(0, c), g = c === -1 ? e[++h] : f.slice(c + 1);
+            if (!g || g === "--") return { error: `${a} requires a path` };
+            let p = g.split(",").map((y) => y.trim()).filter(Boolean);
+            if (p.length === 0) return { error: `${a} requires a path` };
+            n.push(...p), t = true;
+            continue;
+          }
+          if (f.startsWith("-")) return { error: `unknown option: ${f}` };
+          l = h;
+          break;
+        }
+        let d = l === -1 ? [] : e.slice(l);
+        return { paths: n, pathSet: t, quiet: o, debug: r, override: s, fast: i, command: d };
+      }
+      function Ae(e) {
+        return e[0] === "~" ? Q.join(me.homedir(), e.slice(1)) : e;
+      }
+      function Ee(e) {
+        let n = J(), t = { encoding: n.encoding || "utf8", quiet: n.quiet, debug: n.debug === true, override: n.override === true, fast: n.fast === true, paths: [".env"], defaultPath: true };
+        return n.path && (t.paths = [n.path], t.defaultPath = false), e.pathSet && (t.paths = e.paths, t.defaultPath = false), e.quiet != null && (t.quiet = e.quiet), e.debug != null && (t.debug = e.debug), e.override != null && (t.override = e.override), e.fast != null && (t.fast = e.fast), t;
+      }
+      function be(e) {
+        let n = {}, t = [], o = { override: e.override, debug: e.debug };
+        for (let s of e.paths) {
+          let i = Q.resolve(process.cwd(), Ae(s));
+          try {
+            let l = R.parse(ge.readFileSync(i, { encoding: e.encoding }), { fast: e.fast });
+            R.populate(n, l, o), t.push(s);
+          } catch (l) {
+            if (e.debug && console.log(`\u2506 failed to load ${s} ${l.message}`), !(e.defaultPath && l.code === "ENOENT")) throw l;
+          }
+        }
+        return { injected: R.populate(process.env, n, o), loadedPaths: t };
+      }
+      function K(e) {
+        let n = e[0];
+        if (n === "--help" || n === "-h") {
+          D2();
+          return;
+        }
+        if (n !== "run") {
+          D2(), process.exitCode = 1;
+          return;
+        }
+        let t = we(e.slice(1));
+        if (t.help) {
+          D2();
+          return;
+        }
+        if (t.error) {
+          console.error(`dotenv: ${t.error}`), D2(), process.exitCode = 1;
+          return;
+        }
+        if (t.command.length === 0) {
+          D2(), process.exitCode = 1;
+          return;
+        }
+        let o = Ee(t);
+        try {
+          let c = be(o);
+          if (!(o.quiet == null ? J().quiet : o.quiet)) {
+            let g = `\u25C7 injected env (${Object.keys(c.injected).length})`;
+            c.loadedPaths.length > 0 && (g += ` from ${c.loadedPaths.join(", ")}`), console.error(g);
+          }
+        } catch (c) {
+          console.error(`dotenv: ${c.message}`), process.exitCode = 1;
+          return;
+        }
+        let r = !!process.stdin.isTTY, s = process.platform !== "win32" && !r, i = Ce(t.command[0], t.command.slice(1), { stdio: "inherit", detached: s }), l = /* @__PURE__ */ new Map(), d = 0;
+        function h(c) {
+          if (!(!i.pid || i.exitCode !== null || i.signalCode !== null)) {
+            if (process.platform === "win32") {
+              ve.spawnSync("taskkill", ["/pid", String(i.pid), "/T", "/F"], { stdio: "ignore" });
+              return;
+            }
+            try {
+              process.kill(s ? -i.pid : i.pid, c);
+            } catch (a) {
+              if (a.code !== "ESRCH") throw a;
+            }
+          }
+        }
+        function f() {
+          for (let [c, a] of l) process.removeListener(c, a);
+        }
+        for (let c of ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"]) {
+          let a = () => {
+            if (c === "SIGINT") {
+              if (d++, r && process.platform !== "win32" && d === 1) return;
+              if (d > 1) {
+                h(d === 2 ? "SIGTERM" : "SIGKILL");
+                return;
+              }
+            }
+            h(c);
+          };
+          l.set(c, a), process.on(c, a);
+        }
+        i.on("error", function(c) {
+          f(), console.error(`dotenv: ${c.message}`), process.exitCode = 1;
+        }), i.on("exit", function(c, a) {
+          f(), typeof c == "number" ? process.exit(c) : (setInterval(() => {
+          }, 1e3), process.kill(process.pid, a));
+        });
+      }
+      F.exports = K;
+      __require.main === F && K(process.argv.slice(2));
+    });
+    var S = N();
+    var qe = X();
+    module.exports = S;
+    module.exports.config = S.config;
+    module.exports.configDotenv = S.configDotenv;
+    module.exports.parse = S.parse;
+    module.exports.populate = S.populate;
+    __require.main === module && qe(process.argv.slice(2));
   }
 });
 
@@ -365,7 +438,7 @@ import path2 from "node:path";
 import process3 from "node:process";
 import { fileURLToPath } from "node:url";
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/chunk-Br0eD_fh.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/chunk-vYduTEsO.mjs
 var __create2 = Object.create;
 var __defProp2 = Object.defineProperty;
 var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
@@ -405,7 +478,7 @@ var __toESM2 = (mod, isNodeMode, target) => (target = mod != null ? __create2(__
   enumerable: true
 }) : target, mod));
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/dialects-DoSzNhcb.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/dialects-CDpMbily.mjs
 var DRAFT_2020_12_URIS = /* @__PURE__ */ new Set(["https://json-schema.org/draft/2020-12/schema", "http://json-schema.org/draft/2020-12/schema"]);
 var DRAFT_2019_09_URIS = /* @__PURE__ */ new Set(["https://json-schema.org/draft/2019-09/schema", "http://json-schema.org/draft/2019-09/schema"]);
 var DRAFT_07_URIS = /* @__PURE__ */ new Set(["https://json-schema.org/draft-07/schema", "http://json-schema.org/draft-07/schema"]);
@@ -20139,7 +20212,7 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+core@2.3.1/node_modules/@modelcontextprotocol/core/dist/auth-BNDyLTqp.mjs
+// node_modules/.pnpm/@modelcontextprotocol+core@2.4.0/node_modules/@modelcontextprotocol/core/dist/schemas-DscsoNZN.mjs
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [
   LATEST_PROTOCOL_VERSION,
@@ -20927,6 +21000,8 @@ var ServerResultSchema = union([
   ListToolsResultSchema,
   SubscriptionsListenResultSchema
 ]);
+
+// node_modules/.pnpm/@modelcontextprotocol+core@2.4.0/node_modules/@modelcontextprotocol/core/dist/auth-UMQCo-ad.mjs
 var SafeUrlSchema = url().superRefine((val, ctx) => {
   if (!URL.canParse(val)) {
     ctx.addIssue({
@@ -21080,7 +21155,7 @@ var OAuthTokenRevocationRequestSchema = object({
   token_type_hint: string2().optional()
 }).strip();
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/src-Cqbh3MYc.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/src-DdvbAHrR.mjs
 var BRANDS = /* @__PURE__ */ Symbol.for("mcp.sdk.errorBrands");
 function stampErrorBrands(instance, ctor) {
   const brands = /* @__PURE__ */ new Set();
@@ -21270,6 +21345,7 @@ function missingClientCapabilities(required2, declared) {
   return Object.keys(missing).length > 0 ? missing : void 0;
 }
 var FIRST_MODERN_PROTOCOL_VERSION = "2026-07-28";
+var SUPPORTED_MODERN_PROTOCOL_VERSIONS = [FIRST_MODERN_PROTOCOL_VERSION];
 function isModernProtocolVersion(version2) {
   return version2 >= FIRST_MODERN_PROTOCOL_VERSION;
 }
@@ -24019,12 +24095,12 @@ var RFC9110_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 var PERMITTED_X_MCP_HEADER_TYPES = /* @__PURE__ */ new Set([
   "string",
   "integer",
-  "boolean",
-  "number"
+  "boolean"
 ]);
 function scanXMcpHeaderDeclarations(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
+  let numberFault;
   const visit2 = (node2, path3, reachable) => {
     if (node2 === null || typeof node2 !== "object") return void 0;
     const schema = node2;
@@ -24034,7 +24110,11 @@ function scanXMcpHeaderDeclarations(inputSchema) {
       if (typeof raw !== "string" || raw.length === 0) return `${pathName(path3)}: x-mcp-header MUST be a non-empty string`;
       if (!RFC9110_TOKEN.test(raw)) return `${pathName(path3)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path3)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) {
+        const fault$1 = `${pathName(path3)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+        if (type !== "number") return fault$1;
+        numberFault ??= fault$1;
+      }
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
@@ -24061,12 +24141,17 @@ function scanXMcpHeaderDeclarations(inputSchema) {
     }
   };
   const fault = visit2(inputSchema, [], true);
-  return fault === void 0 ? {
+  if (fault !== void 0) return {
+    valid: false,
+    reason: numberFault ?? fault
+  };
+  return numberFault === void 0 ? {
     valid: true,
     declarations
   } : {
     valid: false,
-    reason: fault
+    reason: numberFault,
+    declarations
   };
 }
 var NON_REACHABLE_SUBSCHEMA_KEYWORDS = [
@@ -24228,15 +24313,18 @@ function standardSchemaToJsonSchema(schema, io = "input") {
     ...result2
   };
 }
-function isProvablyObjectShapedRoot(schema) {
+var LOCAL_DEFINITION_REF = /^#\/(\$defs|definitions)\/([^/~%]+)$/;
+function isProvablyObjectShapedRoot(schema, root2 = schema) {
   if ("properties" in schema || "patternProperties" in schema || "additionalProperties" in schema || "required" in schema) return true;
+  const ref = typeof schema.$ref === "string" && LOCAL_DEFINITION_REF.exec(schema.$ref);
+  if (ref && root2[ref[1]]?.[ref[2]]?.type === "object") return true;
   for (const key of [
     "oneOf",
     "anyOf",
     "allOf"
   ]) {
     const members2 = schema[key];
-    if (Array.isArray(members2) && members2.length > 0) return members2.every((m) => m !== null && typeof m === "object" && (m.type === "object" || isProvablyObjectShapedRoot(m)));
+    if (Array.isArray(members2) && members2.length > 0) return members2.every((m) => m !== null && typeof m === "object" && (m.type === "object" || isProvablyObjectShapedRoot(m, "$id" in m ? {} : root2)));
   }
   return false;
 }
@@ -25700,7 +25788,7 @@ function normalizeRawShapeSchema(schema) {
   return schema;
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/ajvProvider-CEoC__sr.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/ajvProvider-DyjnscPj.mjs
 var require_code$1 = /* @__PURE__ */ __commonJSMin(((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.regexpCode = exports2.getEsmExportName = exports2.getProperty = exports2.safeStringify = exports2.stringify = exports2.strConcat = exports2.addCodeArg = exports2.str = exports2._ = exports2.nil = exports2._Code = exports2.Name = exports2.IDENTIFIER = exports2._CodeOrName = void 0;
@@ -28382,6 +28470,22 @@ var require_data = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
 var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   const isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
   const isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
+  const isPort = RegExp.prototype.test.bind(/^\d*$/u);
+  const isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
+  const isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
+  const isPathCharacter = RegExp.prototype.test.bind(/^[A-Za-z0-9\-._~!$&'()*+,;=:@/]$/u);
+  const isQueryFragmentCharacter = RegExp.prototype.test.bind(/^[A-Za-z0-9\-._~!$&'()*+,;=:@/?]$/u);
+  const isUserinfoCharacter = RegExp.prototype.test.bind(/^[A-Za-z0-9\-._~!$&'()*+,;=:]$/u);
+  const BYTE_HEX = new Array(256);
+  {
+    const HEX_DIGITS = "0123456789ABCDEF";
+    for (let i = 0; i < 256; i++) BYTE_HEX[i] = "%" + HEX_DIGITS[i >> 4] + HEX_DIGITS[i & 15];
+  }
+  function percentEncodeNonAscii(cp) {
+    if (cp < 2048) return BYTE_HEX[192 | cp >> 6] + BYTE_HEX[128 | cp & 63];
+    if (cp < 65536) return BYTE_HEX[224 | cp >> 12] + BYTE_HEX[128 | cp >> 6 & 63] + BYTE_HEX[128 | cp & 63];
+    return BYTE_HEX[240 | cp >> 18] + BYTE_HEX[128 | cp >> 12 & 63] + BYTE_HEX[128 | cp >> 6 & 63] + BYTE_HEX[128 | cp & 63];
+  }
   function stringArrayToHexStripped(input2) {
     let acc = "";
     let code = 0;
@@ -28400,83 +28504,120 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
     }
     return acc;
   }
+  const isHextet = RegExp.prototype.test.bind(/^[\dA-Fa-f]{1,4}$/);
+  const isIPvFuture = RegExp.prototype.test.bind(/^[vV][\dA-Fa-f]+\.[A-Za-z\d\-._~!$&'()*+,;=:]+$/);
+  const isZoneCharacter = RegExp.prototype.test.bind(/^[A-Za-z\d\-._~]$/);
   const nonSimpleDomain = RegExp.prototype.test.bind(/[^!"$&'()*+,\-.;=_`a-z{}~]/u);
-  function consumeIsZone(buffer) {
-    buffer.length = 0;
-    return true;
-  }
-  function consumeHextets(buffer, address, output2) {
-    if (buffer.length) {
-      const hex3 = stringArrayToHexStripped(buffer);
-      if (hex3 !== "") address.push(hex3);
-      else {
-        output2.error = true;
-        return false;
+  function isZoneIdentifier(zone) {
+    if (zone.length === 0) return false;
+    for (let i = 0; i < zone.length; i++) {
+      if (isZoneCharacter(zone[i])) continue;
+      if (zone[i] === "%" && i + 2 < zone.length && isHexPair(zone.slice(i + 1, i + 3))) {
+        i += 2;
+        continue;
       }
-      buffer.length = 0;
+      return false;
     }
     return true;
   }
-  function getIPV6(input2) {
-    let tokenCount = 0;
-    const output2 = {
-      error: false,
-      address: "",
-      zone: ""
-    };
-    const address = [];
-    const buffer = [];
-    let endipv6Encountered = false;
-    let endIpv6 = false;
-    let consume = consumeHextets;
-    for (let i = 0; i < input2.length; i++) {
-      const cursor = input2[i];
-      if (cursor === "[" || cursor === "]") continue;
-      if (cursor === ":") {
-        if (endipv6Encountered === true) endIpv6 = true;
-        if (!consume(buffer, address, output2)) break;
-        if (++tokenCount > 7) {
-          output2.error = true;
-          break;
-        }
-        if (i > 0 && input2[i - 1] === ":") endipv6Encountered = true;
-        address.push(":");
-        continue;
-      } else if (cursor === "%") {
-        if (!consume(buffer, address, output2)) break;
-        consume = consumeIsZone;
-      } else {
-        buffer.push(cursor);
+  function compressIPv6ZeroRun(hextets) {
+    let bestStart = -1;
+    let bestLength = 0;
+    let runStart = -1;
+    let runLength = 0;
+    for (let i = 0; i < hextets.length; i++) if (hextets[i] === "0") {
+      if (runStart === -1) runStart = i;
+      runLength++;
+      if (runLength > bestLength) {
+        bestLength = runLength;
+        bestStart = runStart;
+      }
+    } else {
+      runStart = -1;
+      runLength = 0;
+    }
+    if (bestLength < 2) return hextets.join(":");
+    const head = hextets.slice(0, bestStart).join(":");
+    const tail = hextets.slice(bestStart + bestLength).join(":");
+    return head + "::" + tail;
+  }
+  function normalizeIPv6Address(input2) {
+    const compression = input2.indexOf("::");
+    if (compression !== -1 && input2.indexOf("::", compression + 1) !== -1) return void 0;
+    const left = compression === -1 ? input2.split(":") : input2.slice(0, compression).split(":");
+    const right = compression === -1 ? [] : input2.slice(compression + 2).split(":");
+    if (compression !== -1) {
+      if (left.length === 1 && left[0] === "") left.length = 0;
+      if (right.length === 1 && right[0] === "") right.length = 0;
+    }
+    const parts = left.concat(right);
+    let hextetCount = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (part === "") return void 0;
+      if (part.indexOf(".") !== -1) {
+        if (i !== parts.length - 1 || compression !== -1 && right.length === 0 || !isIPv4(part)) return void 0;
+        hextetCount += 2;
         continue;
       }
+      if (!isHextet(part)) return void 0;
+      parts[i] = parseInt(part, 16).toString(16);
+      hextetCount++;
     }
-    if (buffer.length) if (consume === consumeIsZone) output2.zone = buffer.join("");
-    else if (endIpv6) address.push(buffer.join(""));
-    else address.push(stringArrayToHexStripped(buffer));
-    output2.address = address.join("");
-    return output2;
+    if (compression === -1) {
+      if (hextetCount !== 8) return void 0;
+      return compressIPv6ZeroRun(parts);
+    }
+    if (hextetCount >= 8) return void 0;
+    const expanded = parts.slice(0, left.length);
+    for (let i = hextetCount; i < 8; i++) expanded.push("0");
+    for (let i = left.length; i < parts.length; i++) expanded.push(parts[i]);
+    return compressIPv6ZeroRun(expanded);
   }
   function normalizeIPv6(host) {
-    if (findToken(host, ":") < 2) return {
+    const bracketed = host[0] === "[" && host[host.length - 1] === "]";
+    if ((host[0] === "[" || host[host.length - 1] === "]") && !bracketed) return {
       host,
-      isIPV6: false
+      isIPV6: false,
+      error: true
     };
-    const ipv63 = getIPV6(host);
-    if (!ipv63.error) {
-      let newHost = ipv63.address;
-      let escapedHost = ipv63.address;
-      if (ipv63.zone) {
-        newHost += "%" + ipv63.zone;
-        escapedHost += "%25" + ipv63.zone;
-      }
+    let input2 = bracketed ? host.slice(1, -1) : host;
+    if (bracketed && isIPvFuture(input2)) {
+      input2 = input2.toLowerCase();
       return {
-        host: newHost,
-        isIPV6: true,
-        escapedHost
+        host: `[${input2}]`,
+        escapedHost: input2,
+        isIPV6: false,
+        isIPVFuture: true
       };
-    } else return {
+    }
+    if (findToken(input2, ":") < 2) return {
       host,
-      isIPV6: false
+      isIPV6: false,
+      error: bracketed
+    };
+    let zoneIdentifier = "";
+    const zoneSeparator = input2.indexOf("%");
+    if (zoneSeparator !== -1) {
+      const separatorLength = input2.slice(zoneSeparator, zoneSeparator + 3).toLowerCase() === "%25" ? 3 : 1;
+      zoneIdentifier = input2.slice(zoneSeparator + separatorLength);
+      if (!isZoneIdentifier(zoneIdentifier)) return {
+        host,
+        isIPV6: false,
+        error: true
+      };
+      input2 = input2.slice(0, zoneSeparator);
+    }
+    const address = normalizeIPv6Address(input2);
+    if (address === void 0) return {
+      host,
+      isIPV6: false,
+      error: true
+    };
+    return {
+      host: address + (zoneIdentifier ? "%" + zoneIdentifier : ""),
+      escapedHost: address + (zoneIdentifier ? "%25" + zoneIdentifier : ""),
+      isIPV6: true
     };
   }
   function findToken(str, token) {
@@ -28552,41 +28693,225 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
     }
     return output2.join("");
   }
-  function normalizeComponentEncoding(component, esc2) {
-    const func = esc2 !== true ? escape : unescape;
-    if (component.scheme !== void 0) component.scheme = func(component.scheme);
-    if (component.userinfo !== void 0) component.userinfo = func(component.userinfo);
-    if (component.host !== void 0) component.host = func(component.host);
-    if (component.path !== void 0) component.path = func(component.path);
-    if (component.query !== void 0) component.query = func(component.query);
-    if (component.fragment !== void 0) component.fragment = func(component.fragment);
-    return component;
+  const HOST_DELIMS = {
+    "@": "%40",
+    "/": "%2F",
+    "?": "%3F",
+    "#": "%23",
+    ":": "%3A"
+  };
+  const HOST_DELIM_RE = /[@/?#:]/g;
+  const HOST_DELIM_NO_COLON_RE = /[@/?#]/g;
+  function reescapeHostDelimiters(host, isIP) {
+    const re = isIP ? HOST_DELIM_NO_COLON_RE : HOST_DELIM_RE;
+    re.lastIndex = 0;
+    return host.replace(re, (ch) => HOST_DELIMS[ch]);
+  }
+  function normalizePercentEncoding(input2, decodeUnreserved = false) {
+    if (input2.indexOf("%") === -1) return input2;
+    let output2 = "";
+    for (let i = 0; i < input2.length; i++) {
+      if (input2[i] === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          const normalizedHex = hex3.toUpperCase();
+          const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
+          if (decodeUnreserved && isUnreserved(decoded)) output2 += decoded;
+          else output2 += "%" + normalizedHex;
+          i += 2;
+          continue;
+        }
+      }
+      output2 += input2[i];
+    }
+    return output2;
+  }
+  function normalizePathEncoding(input2) {
+    let output2 = "";
+    for (let i = 0; i < input2.length; i++) {
+      const ch = input2[i];
+      if (ch === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          const normalizedHex = hex3.toUpperCase();
+          const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
+          if (decoded !== "." && isUnreserved(decoded)) output2 += decoded;
+          else output2 += "%" + normalizedHex;
+          i += 2;
+          continue;
+        }
+      }
+      if (isPathCharacter(ch)) output2 += ch;
+      else {
+        const code = input2.charCodeAt(i);
+        if (code < 128) output2 += isEscapeSafe(code) ? ch : BYTE_HEX[code];
+        else if (code < 55296 || code > 57343) output2 += percentEncodeNonAscii(code);
+        else if (code <= 56319 && i + 1 < input2.length) {
+          const low = input2.charCodeAt(i + 1);
+          if (low >= 56320 && low <= 57343) {
+            output2 += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
+            i++;
+          } else output2 += percentEncodeNonAscii(65533);
+        } else output2 += percentEncodeNonAscii(65533);
+      }
+    }
+    return output2;
+  }
+  function serializePathEncoding(input2, pathNoScheme = false) {
+    let output2 = "";
+    let firstSegment = pathNoScheme && input2[0] !== "/";
+    for (let i = 0; i < input2.length; i++) {
+      const ch = input2[i];
+      if (ch === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          output2 += "%" + hex3.toUpperCase();
+          i += 2;
+          continue;
+        }
+      }
+      if (ch === "/") firstSegment = false;
+      if (isPathCharacter(ch) && (ch !== ":" || !firstSegment)) output2 += ch;
+      else {
+        const code = input2.charCodeAt(i);
+        if (code < 128) output2 += BYTE_HEX[code];
+        else if (code < 55296 || code > 57343) output2 += percentEncodeNonAscii(code);
+        else if (code <= 56319 && i + 1 < input2.length) {
+          const low = input2.charCodeAt(i + 1);
+          if (low >= 56320 && low <= 57343) {
+            output2 += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
+            i++;
+          } else output2 += percentEncodeNonAscii(65533);
+        } else output2 += percentEncodeNonAscii(65533);
+      }
+    }
+    return output2;
+  }
+  function encodeComponent(input2, isAllowed) {
+    let output2 = "";
+    for (let i = 0; i < input2.length; i++) {
+      const ch = input2[i];
+      if (ch === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          output2 += "%" + hex3.toUpperCase();
+          i += 2;
+          continue;
+        }
+      }
+      if (isAllowed(ch)) output2 += ch;
+      else {
+        const code = input2.charCodeAt(i);
+        if (code < 128) output2 += BYTE_HEX[code];
+        else if (code < 55296 || code > 57343) output2 += percentEncodeNonAscii(code);
+        else if (code <= 56319 && i + 1 < input2.length) {
+          const low = input2.charCodeAt(i + 1);
+          if (low >= 56320 && low <= 57343) {
+            output2 += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
+            i++;
+          } else output2 += percentEncodeNonAscii(65533);
+        } else output2 += percentEncodeNonAscii(65533);
+      }
+    }
+    return output2;
+  }
+  function encodeUserinfo(input2) {
+    return encodeComponent(input2, isUserinfoCharacter);
+  }
+  function encodeQuery(input2) {
+    return encodeComponent(input2, isQueryFragmentCharacter);
+  }
+  function encodeFragment(input2) {
+    return encodeComponent(input2, isQueryFragmentCharacter);
+  }
+  function isEscapeSafe(cp) {
+    return cp >= 48 && cp <= 57 || cp >= 65 && cp <= 90 || cp >= 97 && cp <= 122 || cp === 42 || cp === 43 || cp === 45 || cp === 46 || cp === 47 || cp === 64 || cp === 95;
+  }
+  function normalizeQueryFragmentEncoding(input2) {
+    let output2 = "";
+    for (let i = 0; i < input2.length; i++) {
+      const ch = input2[i];
+      if (ch === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          const normalizedHex = hex3.toUpperCase();
+          const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
+          if (isUnreserved(decoded)) output2 += decoded;
+          else output2 += "%" + normalizedHex;
+          i += 2;
+          continue;
+        }
+      }
+      if (isQueryFragmentCharacter(ch)) output2 += ch;
+      else {
+        const code = input2.charCodeAt(i);
+        if (code < 128) output2 += isEscapeSafe(code) ? ch : BYTE_HEX[code];
+        else if (code < 55296 || code > 57343) output2 += percentEncodeNonAscii(code);
+        else if (code <= 56319 && i + 1 < input2.length) {
+          const low = input2.charCodeAt(i + 1);
+          if (low >= 56320 && low <= 57343) {
+            output2 += percentEncodeNonAscii(65536 + (code - 55296 << 10) + (low - 56320));
+            i++;
+          } else output2 += percentEncodeNonAscii(65533);
+        } else output2 += percentEncodeNonAscii(65533);
+      }
+    }
+    return output2;
+  }
+  function escapePreservingEscapes(input2) {
+    let output2 = "";
+    for (let i = 0; i < input2.length; i++) {
+      if (input2[i] === "%" && i + 2 < input2.length) {
+        const hex3 = input2.slice(i + 1, i + 3);
+        if (isHexPair(hex3)) {
+          output2 += "%" + hex3.toUpperCase();
+          i += 2;
+          continue;
+        }
+      }
+      output2 += escape(input2[i]);
+    }
+    return output2;
   }
   function recomposeAuthority(component) {
     const uriTokens = [];
     if (component.userinfo !== void 0) {
-      uriTokens.push(component.userinfo);
+      uriTokens.push(encodeUserinfo(component.userinfo));
       uriTokens.push("@");
     }
     if (component.host !== void 0) {
-      let host = unescape(component.host);
+      let host = component.host;
       if (!isIPv4(host)) {
-        const ipV6res = normalizeIPv6(host);
-        if (ipV6res.isIPV6 === true) host = `[${ipV6res.escapedHost}]`;
-        else host = component.host;
+        let ipV6res = normalizeIPv6(host);
+        if (ipV6res.isIPV6 !== true && ipV6res.isIPVFuture !== true) {
+          host = normalizePercentEncoding(host, true);
+          ipV6res = normalizeIPv6(host);
+        }
+        if (ipV6res.isIPV6 === true || ipV6res.isIPVFuture === true) host = `[${ipV6res.escapedHost}]`;
+        else host = reescapeHostDelimiters(host, false);
       }
       uriTokens.push(host);
     }
     if (typeof component.port === "number" || typeof component.port === "string") {
+      const port = String(component.port);
+      if (!isPort(port)) throw new TypeError("URI port is malformed.");
       uriTokens.push(":");
-      uriTokens.push(String(component.port));
+      uriTokens.push(port);
     }
     return uriTokens.length ? uriTokens.join("") : void 0;
   }
   module.exports = {
     nonSimpleDomain,
     recomposeAuthority,
-    normalizeComponentEncoding,
+    reescapeHostDelimiters,
+    normalizePercentEncoding,
+    normalizePathEncoding,
+    serializePathEncoding,
+    normalizeQueryFragmentEncoding,
+    encodeUserinfo,
+    encodeQuery,
+    encodeFragment,
+    escapePreservingEscapes,
     removeDotSegments,
     isIPv4,
     isUUID,
@@ -28596,7 +28921,7 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
 }));
 var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   const { isUUID } = require_utils();
-  const URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
+  const URN_REG = /^([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-./:;=@]|%[\da-f]{2})+)$/iu;
   const supportedSchemeNames = [
     "http",
     "https",
@@ -28638,9 +28963,10 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path3, query] = wsComponent.resourceName.split("?");
+      const queryIndex = wsComponent.resourceName.indexOf("?");
+      const path3 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
       wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
-      wsComponent.query = query;
+      wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
       wsComponent.resourceName = void 0;
     }
     wsComponent.fragment = void 0;
@@ -28652,7 +28978,7 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
       return urnComponent;
     }
     const matches = urnComponent.path.match(URN_REG);
-    if (matches) {
+    if (matches && matches[0] === urnComponent.path) {
       const scheme = options.scheme || urnComponent.scheme || "urn";
       urnComponent.nid = matches[1].toLowerCase();
       urnComponent.nss = matches[2];
@@ -28742,16 +29068,32 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
   };
 }));
 var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
-  const { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
+  const { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, serializePathEncoding, normalizeQueryFragmentEncoding, encodeQuery, encodeFragment, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
   const { SCHEMES, getSchemeHandler } = require_schemes();
+  const VALID_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*$/u;
+  const MALFORMED_SCHEME_ERROR = "URI scheme is malformed.";
+  function decodeValidScheme(scheme) {
+    const decodedScheme = unescape(String(scheme));
+    if (!VALID_SCHEME.test(decodedScheme)) throw new TypeError(MALFORMED_SCHEME_ERROR);
+    return decodedScheme;
+  }
   function normalize(uri, options) {
-    if (typeof uri === "string") uri = serialize(parse3(uri, options), options);
+    if (typeof uri === "string") uri = normalizeString(uri, options);
     else if (typeof uri === "object") uri = parse3(serialize(uri, options), options);
     return uri;
   }
   function resolve(baseURI, relativeURI, options) {
     const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-    const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
+    const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed, malformedPercentEncoding: baseMalformedPercentEncoding, malformedSchemeSpecific: baseMalformedSchemeSpecific, malformedHost: baseMalformedHost, malformedScheme: baseMalformedScheme } = parseWithStatus(baseURI, schemelessOptions);
+    const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed, malformedPercentEncoding: relativeMalformedPercentEncoding, malformedSchemeSpecific: relativeMalformedSchemeSpecific, malformedHost: relativeMalformedHost, malformedScheme: relativeMalformedScheme } = parseWithStatus(relativeURI, schemelessOptions);
+    if (baseMalformed || relativeMalformed || baseMalformedPercentEncoding || relativeMalformedPercentEncoding || baseMalformedSchemeSpecific || relativeMalformedSchemeSpecific || baseMalformedHost || relativeMalformedHost || baseMalformedScheme || relativeMalformedScheme) throw new Error(baseParsed.error || relativeParsed.error || "URI is malformed.");
+    const resolved = resolveComponent(baseParsed, relativeParsed, schemelessOptions, true);
+    const resolvedSchemeHandler = getSchemeHandler(options && options.scheme || resolved.scheme);
+    const resolvedHost = resolved.host;
+    const resolvedHostIsIP = resolvedHost !== void 0 && resolvedHost !== "" && (isIPv4(resolvedHost) || normalizeIPv6(resolvedHost).isIPV6);
+    canonicalizeHost(resolved, options || {}, resolvedSchemeHandler, resolvedHostIsIP);
+    const encodedASCIIHost = resolvedHost && resolvedHost.indexOf("%") !== -1 && !new RegExp("\\P{ASCII}", "u").test(resolvedHost);
+    if (resolved.error && !encodedASCIIHost) throw new Error(resolved.error);
     schemelessOptions.skipEscape = true;
     return serialize(resolved, schemelessOptions);
   }
@@ -28801,27 +29143,9 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
     return target;
   }
   function equal(uriA, uriB, options) {
-    if (typeof uriA === "string") {
-      uriA = unescape(uriA);
-      uriA = serialize(normalizeComponentEncoding(parse3(uriA, options), true), {
-        ...options,
-        skipEscape: true
-      });
-    } else if (typeof uriA === "object") uriA = serialize(normalizeComponentEncoding(uriA, true), {
-      ...options,
-      skipEscape: true
-    });
-    if (typeof uriB === "string") {
-      uriB = unescape(uriB);
-      uriB = serialize(normalizeComponentEncoding(parse3(uriB, options), true), {
-        ...options,
-        skipEscape: true
-      });
-    } else if (typeof uriB === "object") uriB = serialize(normalizeComponentEncoding(uriB, true), {
-      ...options,
-      skipEscape: true
-    });
-    return uriA.toLowerCase() === uriB.toLowerCase();
+    const normalizedA = normalizeComparableURI(uriA, options);
+    const normalizedB = normalizeComparableURI(uriB, options);
+    return normalizedA !== void 0 && normalizedB !== void 0 && normalizedA === normalizedB;
   }
   function serialize(cmpts, opts) {
     const component = {
@@ -28842,13 +29166,17 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
     };
     const options = Object.assign({}, opts);
     const uriTokens = [];
+    if (component.scheme) component.scheme = decodeValidScheme(component.scheme);
     const schemeHandler = getSchemeHandler(options.scheme || component.scheme);
     if (schemeHandler && schemeHandler.serialize) schemeHandler.serialize(component, options);
-    if (component.path !== void 0) if (!options.skipEscape) {
-      component.path = escape(component.path);
-      if (component.scheme !== void 0) component.path = component.path.split("%3A").join(":");
-    } else component.path = unescape(component.path);
-    if (options.reference !== "suffix" && component.scheme) uriTokens.push(component.scheme, ":");
+    const hasAuthority = component.userinfo !== void 0 || component.host !== void 0 || component.port !== void 0;
+    const pathNoScheme = !options.skipEscape && component.scheme === void 0 && !hasAuthority;
+    if (component.path !== void 0) if (!options.skipEscape) component.path = serializePathEncoding(component.path, pathNoScheme);
+    else component.path = normalizePercentEncoding(component.path);
+    if (options.reference !== "suffix" && component.scheme) {
+      component.scheme = decodeValidScheme(component.scheme);
+      uriTokens.push(component.scheme, ":");
+    }
     const authority = recomposeAuthority(component);
     if (authority !== void 0) {
       if (options.reference !== "suffix") uriTokens.push("//");
@@ -28858,15 +29186,47 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
     if (component.path !== void 0) {
       let s = component.path;
       if (!options.absolutePath && (!schemeHandler || !schemeHandler.absolutePath)) s = removeDotSegments(s);
+      if (pathNoScheme) s = serializePathEncoding(s, true);
       if (authority === void 0 && s[0] === "/" && s[1] === "/") s = "/%2F" + s.slice(2);
       uriTokens.push(s);
     }
-    if (component.query !== void 0) uriTokens.push("?", component.query);
-    if (component.fragment !== void 0) uriTokens.push("#", component.fragment);
+    if (component.query !== void 0) uriTokens.push("?", encodeQuery(component.query));
+    if (component.fragment !== void 0) uriTokens.push("#", encodeFragment(component.fragment));
     return uriTokens.join("");
   }
   const URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-  function parse3(uri, opts) {
+  const AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
+  const AUTHORITY_INTRODUCER_REGION = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
+  function getParseError(parsed, matches) {
+    if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") return 'URI path must start with "/" when authority is present.';
+    if (typeof parsed.port === "number" && (parsed.port < 0 || parsed.port > 65535)) return "URI port is malformed.";
+  }
+  function hasMalformedPercentEncoding(component) {
+    if (component === void 0) return false;
+    let percent = component.indexOf("%");
+    while (percent !== -1) {
+      if (percent + 2 >= component.length || !/^[\da-f]{2}$/iu.test(component.slice(percent + 1, percent + 3))) return true;
+      percent = component.indexOf("%", percent + 3);
+    }
+    return false;
+  }
+  function isIPLiteral(host) {
+    return host[0] === "[" && host[host.length - 1] === "]";
+  }
+  function hasMalformedComponentPercentEncoding(matches) {
+    const host = matches[4];
+    return hasMalformedPercentEncoding(matches[3]) || host !== void 0 && !isIPLiteral(host) && hasMalformedPercentEncoding(host) || hasMalformedPercentEncoding(matches[6]) || hasMalformedPercentEncoding(matches[7]) || hasMalformedPercentEncoding(matches[8]);
+  }
+  function canonicalizeHost(parsed, options, schemeHandler, isIP) {
+    if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport) && parsed.host && !isIPLiteral(parsed.host) && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) try {
+      parsed.host = new URL("http://" + parsed.host).hostname;
+    } catch (e) {
+      parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
+      return true;
+    }
+    return false;
+  }
+  function parseWithStatus(uri, opts) {
     const options = Object.assign({}, opts);
     const parsed = {
       scheme: void 0,
@@ -28877,9 +29237,34 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
       query: void 0,
       fragment: void 0
     };
+    let malformedAuthorityOrPort = false;
+    let malformedPercentEncoding = false;
+    let malformedSchemeSpecific = false;
+    let malformedHost = false;
+    let malformedIPLiteral = false;
+    let malformedScheme = false;
     let isIP = false;
     if (options.reference === "suffix") if (options.scheme) uri = options.scheme + ":" + uri;
     else uri = "//" + uri;
+    const authorityMatch = uri.match(AUTHORITY_PREFIX);
+    if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
+      parsed.error = "URI authority must not contain a literal backslash.";
+      malformedAuthorityOrPort = true;
+    }
+    const introducerMatch = uri.match(AUTHORITY_INTRODUCER_REGION);
+    if (introducerMatch !== null) {
+      const region = introducerMatch[1];
+      const normalizedRegion = region.replace(/[\t\n\r]/g, "");
+      if (normalizedRegion.length >= 2) {
+        if (normalizedRegion.slice(0, 2) !== "//") {
+          parsed.error = parsed.error || "URI authority must not contain a literal backslash.";
+          malformedAuthorityOrPort = true;
+        } else if (region.length !== normalizedRegion.length) {
+          parsed.error = parsed.error || "URI authority introducer must not contain whitespace.";
+          malformedAuthorityOrPort = true;
+        }
+      }
+    }
     const matches = uri.match(URI_PARSE);
     if (matches) {
       parsed.scheme = matches[1];
@@ -28889,11 +29274,33 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
       parsed.path = matches[6] || "";
       parsed.query = matches[7];
       parsed.fragment = matches[8];
+      if (parsed.scheme !== void 0) {
+        const decodedScheme = unescape(parsed.scheme);
+        if (VALID_SCHEME.test(decodedScheme)) parsed.scheme = decodedScheme.toLowerCase();
+        else {
+          parsed.error = parsed.error || MALFORMED_SCHEME_ERROR;
+          malformedScheme = true;
+        }
+      }
+      malformedPercentEncoding = hasMalformedComponentPercentEncoding(matches);
+      if (malformedPercentEncoding) parsed.error = parsed.error || "URI contains malformed percent-encoding.";
       if (isNaN(parsed.port)) parsed.port = matches[5];
+      const parseError = getParseError(parsed, matches);
+      if (parseError !== void 0) {
+        parsed.error = parsed.error || parseError;
+        malformedAuthorityOrPort = true;
+      }
       if (parsed.host) if (isIPv4(parsed.host) === false) {
+        const bracketedIPLiteral = isIPLiteral(parsed.host);
+        const hasIPLiteralBracket = parsed.host.indexOf("[") !== -1 || parsed.host.indexOf("]") !== -1;
         const ipv6result = normalizeIPv6(parsed.host);
-        parsed.host = ipv6result.host.toLowerCase();
-        isIP = ipv6result.isIPV6;
+        isIP = ipv6result.isIPV6 || ipv6result.isIPVFuture === true;
+        malformedIPLiteral = hasIPLiteralBracket && (!bracketedIPLiteral || ipv6result.error === true);
+        parsed.host = isIP ? ipv6result.host : ipv6result.host.toLowerCase();
+        if (malformedIPLiteral) {
+          parsed.error = parsed.error || "URI host is malformed.";
+          malformedAuthorityOrPort = true;
+        }
       } else isIP = true;
       if (parsed.scheme === void 0 && parsed.userinfo === void 0 && parsed.host === void 0 && parsed.port === void 0 && parsed.query === void 0 && !parsed.path) parsed.reference = "same-document";
       else if (parsed.scheme === void 0) parsed.reference = "relative";
@@ -28901,24 +29308,58 @@ var require_fast_uri = /* @__PURE__ */ __commonJSMin(((exports2, module) => {
       else parsed.reference = "uri";
       if (options.reference && options.reference !== "suffix" && options.reference !== parsed.reference) parsed.error = parsed.error || "URI is not a " + options.reference + " reference.";
       const schemeHandler = getSchemeHandler(options.scheme || parsed.scheme);
-      if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport)) {
-        if (parsed.host && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) try {
-          parsed.host = URL.domainToASCII(parsed.host.toLowerCase());
-        } catch (e) {
-          parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
-        }
+      if (!malformedIPLiteral) malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
+      if (uri.indexOf("%") !== -1 && parsed.host !== void 0 && !malformedIPLiteral) {
+        let host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
+        if (!isIP) host = normalizePercentEncoding(host.toLowerCase());
+        parsed.host = reescapeHostDelimiters(host, isIP);
       }
       if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
-        if (uri.indexOf("%") !== -1) {
-          if (parsed.scheme !== void 0) parsed.scheme = unescape(parsed.scheme);
-          if (parsed.host !== void 0) parsed.host = unescape(parsed.host);
-        }
-        if (parsed.path) parsed.path = escape(unescape(parsed.path));
-        if (parsed.fragment) parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
+        if (parsed.path) parsed.path = normalizePathEncoding(parsed.path);
+        if (parsed.query) parsed.query = normalizeQueryFragmentEncoding(parsed.query);
+        if (parsed.fragment) parsed.fragment = normalizeQueryFragmentEncoding(parsed.fragment);
       }
-      if (schemeHandler && schemeHandler.parse) schemeHandler.parse(parsed, options);
+      if (schemeHandler && schemeHandler.parse) {
+        schemeHandler.parse(parsed, options);
+        if (schemeHandler === SCHEMES.urn && parsed.nid === void 0) malformedSchemeSpecific = true;
+      }
     } else parsed.error = parsed.error || "URI can not be parsed.";
-    return parsed;
+    return {
+      parsed,
+      malformedAuthorityOrPort,
+      malformedPercentEncoding,
+      malformedSchemeSpecific,
+      malformedHost,
+      malformedScheme
+    };
+  }
+  function parse3(uri, opts) {
+    return parseWithStatus(uri, opts).parsed;
+  }
+  function normalizeString(uri, opts) {
+    return normalizeStringWithStatus(uri, opts).normalized;
+  }
+  function normalizeStringWithStatus(uri, opts) {
+    const { parsed, malformedAuthorityOrPort, malformedPercentEncoding, malformedSchemeSpecific, malformedHost, malformedScheme } = parseWithStatus(uri, opts);
+    return {
+      normalized: malformedAuthorityOrPort || malformedPercentEncoding || malformedSchemeSpecific || malformedHost || malformedScheme ? uri : serialize(parsed, opts),
+      malformedAuthorityOrPort,
+      malformedPercentEncoding,
+      malformedSchemeSpecific,
+      malformedHost,
+      malformedScheme
+    };
+  }
+  function normalizeComparableURI(uri, opts) {
+    if (typeof uri !== "string" && typeof uri !== "object") return;
+    let value;
+    try {
+      value = typeof uri === "string" ? uri : serialize(uri, opts);
+    } catch {
+      return;
+    }
+    const { normalized, malformedAuthorityOrPort, malformedPercentEncoding, malformedSchemeSpecific, malformedHost, malformedScheme } = normalizeStringWithStatus(value, opts);
+    return malformedAuthorityOrPort || malformedPercentEncoding || malformedSchemeSpecific || malformedHost || malformedScheme ? void 0 : normalized;
   }
   const fastUri = {
     SCHEMES,
@@ -32710,10 +33151,10 @@ var AjvJsonSchemaValidator = class {
 };
 var Ajv = import_ajv.Ajv;
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/shimsNode.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/shimsNode.mjs
 import process2 from "node:process";
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/mcp-DIH4cS6P.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/mcp-oHn3ureC.mjs
 var COMPLETABLE_SYMBOL = /* @__PURE__ */ Symbol.for("mcp.completable");
 function completable(schema, complete) {
   Object.defineProperty(schema, COMPLETABLE_SYMBOL, {
@@ -32730,7 +33171,236 @@ function isCompletable(schema) {
 function getCompleter(schema) {
   return schema[COMPLETABLE_SYMBOL]?.complete;
 }
+var DEFAULT_SSE_KEEP_ALIVE_MS = 15e3;
 var MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+function armSseKeepAlive(intervalMs, onTick) {
+  if (!Number.isFinite(intervalMs) || intervalMs < 1) return;
+  const timer = setInterval(onTick, Math.min(intervalMs, MAX_TIMER_DELAY_MS));
+  timer.unref?.();
+  return timer;
+}
+var readClassification;
+var PerRequestHTTPServerTransport = class {
+  static {
+    readClassification = (transport) => transport._classification;
+  }
+  onclose;
+  onerror;
+  onmessage;
+  _classification;
+  _responseMode;
+  _started = false;
+  _used = false;
+  _closed = false;
+  _terminalDelivered = false;
+  /**
+  * `true` only while the inbound message is being delivered synchronously
+  * to the connected protocol layer. The pre-handler gates (the era
+  * registry gate, the edge→instance handoff check, the missing-handler
+  * rejection) answer inside this window; request handlers always run
+  * after it (the protocol layer defers them to a microtask). An error
+  * sent inside the window is therefore ladder-originated, and an error
+  * sent after it is handler-produced.
+  */
+  _dispatchWindowOpen = false;
+  _requestId;
+  _deferredResponse;
+  _sse;
+  _abortCleanup;
+  _keepAliveMs;
+  constructor(options) {
+    this._classification = options.classification;
+    this._responseMode = options.responseMode ?? "auto";
+    this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+  }
+  async start() {
+    if (this._started) throw new Error("PerRequestHTTPServerTransport is already started");
+    this._started = true;
+  }
+  /**
+  * Serves the single exchange: delivers the classified message to the
+  * connected server instance and resolves with the HTTP response.
+  *
+  * Throws when called a second time (the transport is strictly
+  * single-use), or before a server has been connected to the transport.
+  * The returned promise rejects with a connection-closed error when the
+  * transport is closed before a response was produced (for example because
+  * the client disconnected).
+  */
+  async handleMessage(message, extra) {
+    if (this._used) throw new Error("PerRequestHTTPServerTransport serves exactly one exchange; construct a new transport per request");
+    if (!this._started || this.onmessage === void 0) throw new Error("PerRequestHTTPServerTransport is not connected: connect a server to this transport before handling a message");
+    if (this._closed) throw new Error("PerRequestHTTPServerTransport is closed");
+    this._used = true;
+    const signal = extra?.request?.signal;
+    if (signal?.aborted) {
+      await this.close();
+      throw new SdkError(SdkErrorCode.ConnectionClosed, "The request was aborted before it could be handled");
+    }
+    const messageExtra = {
+      classification: this._classification,
+      ...extra?.request !== void 0 && { request: extra.request },
+      ...extra?.authInfo !== void 0 && { authInfo: extra.authInfo }
+    };
+    if (isJSONRPCRequest(message)) {
+      this._requestId = message.id;
+      let resolve;
+      let reject;
+      const promise2 = new Promise((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+      });
+      this._deferredResponse = {
+        promise: promise2,
+        resolve,
+        reject,
+        settled: false
+      };
+      if (signal !== void 0) {
+        const onAbort = () => void this.close();
+        signal.addEventListener("abort", onAbort, { once: true });
+        this._abortCleanup = () => signal.removeEventListener("abort", onAbort);
+      }
+      this._dispatchWindowOpen = true;
+      try {
+        this.onmessage(message, messageExtra);
+      } finally {
+        this._dispatchWindowOpen = false;
+      }
+      if (this._responseMode === "sse" && !this._closed && !this._deferredResponse.settled) this.upgradeToSse();
+      return promise2;
+    }
+    this.onmessage(message, messageExtra);
+    return new Response(null, { status: 202 });
+  }
+  async send(message, options) {
+    if (this._closed) return;
+    const isResponse = isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message);
+    const relatedId = isResponse ? message.id : options?.relatedRequestId;
+    if (this._requestId === void 0 || relatedId === void 0 || relatedId !== this._requestId) {
+      if (isResponse) this.onerror?.(/* @__PURE__ */ new Error(`Received a response for an unknown request id: ${String(message.id)}`));
+      return;
+    }
+    if (isResponse) {
+      if (this._terminalDelivered) return;
+      this._terminalDelivered = true;
+      const errorCode = isJSONRPCErrorResponse(message) ? message.error.code : void 0;
+      const ladderStatus = errorCode !== void 0 && (this._dispatchWindowOpen || errorCode === ProtocolErrorCode.MissingRequiredClientCapability) ? LADDER_ERROR_HTTP_STATUS[errorCode] : void 0;
+      if (ladderStatus !== void 0 && this._sse === void 0) {
+        this.settleResponse(Response.json(message, {
+          status: ladderStatus,
+          headers: { "Content-Type": "application/json" }
+        }));
+        queueMicrotask(() => void this.close());
+        return;
+      }
+      if (this._sse !== void 0 || this._responseMode === "sse") {
+        if (this._sse === void 0) this.upgradeToSse();
+        this.writeMessageFrame(message);
+        this.finalizeStream();
+        return;
+      }
+      this.settleResponse(Response.json(message, {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }));
+      queueMicrotask(() => void this.close());
+      return;
+    }
+    if (this._responseMode === "json") return;
+    if (this._sse === void 0) this.upgradeToSse();
+    this.writeMessageFrame(message);
+  }
+  /**
+  * Writes an SSE comment frame (a keep-alive heartbeat). Dropped when the
+  * exchange is not currently streaming.
+  */
+  writeCommentFrame(comment) {
+    if (this._closed || this._sse === void 0 || this._sse.closed) return;
+    const frame = comment.split("\n").map((line) => `: ${line}`).join("\n");
+    this.writeFrame(`${frame}
+
+`);
+  }
+  async close() {
+    if (this._closed) return;
+    this._closed = true;
+    this._abortCleanup?.();
+    this._abortCleanup = void 0;
+    if (this._sse?.keepAliveTimer !== void 0) clearInterval(this._sse.keepAliveTimer);
+    if (this._sse !== void 0 && !this._sse.closed) {
+      this._sse.closed = true;
+      try {
+        this._sse.controller.close();
+      } catch {
+      }
+    }
+    if (this._deferredResponse !== void 0 && !this._deferredResponse.settled) {
+      this._deferredResponse.settled = true;
+      this._deferredResponse.reject(new SdkError(SdkErrorCode.ConnectionClosed, "Connection closed before a response was produced"));
+    }
+    this.onclose?.();
+  }
+  settleResponse(response) {
+    if (this._deferredResponse === void 0 || this._deferredResponse.settled) return;
+    this._deferredResponse.settled = true;
+    this._deferredResponse.resolve(response);
+  }
+  upgradeToSse() {
+    let controller;
+    const readable = new ReadableStream({
+      start: (streamController) => {
+        controller = streamController;
+      },
+      cancel: () => {
+        this.close();
+      }
+    });
+    this._sse = {
+      controller,
+      encoder: new TextEncoder(),
+      closed: false
+    };
+    this._sse.keepAliveTimer = armSseKeepAlive(this._keepAliveMs, () => this.writeCommentFrame("keepalive"));
+    this.settleResponse(new Response(readable, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no"
+      }
+    }));
+  }
+  finalizeStream() {
+    if (this._sse?.keepAliveTimer !== void 0) clearInterval(this._sse.keepAliveTimer);
+    if (this._sse !== void 0 && !this._sse.closed) {
+      this._sse.closed = true;
+      try {
+        this._sse.controller.close();
+      } catch {
+      }
+    }
+    queueMicrotask(() => void this.close());
+  }
+  writeMessageFrame(message) {
+    this.writeFrame(`event: message
+data: ${JSON.stringify(message)}
+
+`);
+  }
+  writeFrame(frame) {
+    if (this._sse === void 0 || this._sse.closed) return;
+    try {
+      this._sse.controller.enqueue(this._sse.encoder.encode(frame));
+    } catch (error62) {
+      this.onerror?.(/* @__PURE__ */ new Error(`Failed to write to the response stream: ${error62}`));
+    }
+  }
+};
+function perRequestClassificationOf(transport) {
+  return transport instanceof PerRequestHTTPServerTransport ? readClassification(transport) : void 0;
+}
 function supportsScopeChallengeResolver(transport) {
   return typeof transport === "object" && transport !== null && "setScopeChallengeResolver" in transport && typeof transport.setScopeChallengeResolver === "function";
 }
@@ -32893,6 +33563,7 @@ var Server = class extends Protocol {
   _requestStateVerify;
   _inputRequiredServing;
   _legacyShim;
+  _boundFromTransport = false;
   /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
   _legacyInputRequiredShim() {
     return this._legacyShim ??= new LegacyInputRequiredShim({
@@ -32932,6 +33603,15 @@ var Server = class extends Protocol {
   /** Attaches to the given transport; rejects while this instance is connected to another one. */
   async connect(transport) {
     if (this.transport !== void 0) throw new SdkError(SdkErrorCode.AlreadyConnected, "Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.");
+    if (this._boundFromTransport) {
+      this._boundFromTransport = false;
+      this._negotiatedProtocolVersion = void 0;
+    }
+    const revision = perRequestClassificationOf(transport)?.revision;
+    if (revision !== void 0 && !this._servedModernEra() && SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(revision) && modernProtocolVersions(this._supportedProtocolVersions).includes(revision)) {
+      this._negotiatedProtocolVersion = revision;
+      this._boundFromTransport = true;
+    }
     await super.connect(transport);
   }
   /**
@@ -33257,8 +33937,8 @@ var Server = class extends Protocol {
   * @deprecated Read client identity from the per-request handler context instead: on
   * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
   * declared capabilities, while on 2025-era connections this accessor keeps returning the
-  * `initialize`-scoped value. The accessor remains functional — instances serving the
-  * 2026-07-28 era are backfilled per request from the validated envelope.
+  * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+  * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
   */
   getClientCapabilities() {
     return this._clientCapabilities;
@@ -33269,8 +33949,8 @@ var Server = class extends Protocol {
   * @deprecated Read client identity from the per-request handler context instead: on
   * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
   * name and version, while on 2025-era connections this accessor keeps returning the
-  * `initialize`-scoped value. The accessor remains functional — instances serving the
-  * 2026-07-28 era are backfilled per request from the validated envelope.
+  * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+  * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
   */
   getClientVersion() {
     return this._clientVersion;
@@ -33845,8 +34525,14 @@ var McpServer = class {
           if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
         }
         if (updates.name !== void 0) registeredResource.name = updates.name;
-        if (updates.title !== void 0) registeredResource.title = updates.title;
         if (updates.metadata !== void 0) registeredResource.metadata = updates.metadata;
+        if (updates.title !== void 0) {
+          registeredResource.title = updates.title;
+          registeredResource.metadata = {
+            ...registeredResource.metadata,
+            title: updates.title
+          };
+        }
         if (updates.callback !== void 0) registeredResource.readCallback = updates.callback;
         if (updates.scopeChallenge !== void 0) registeredResource.scopeChallenge = updates.scopeChallenge === null ? void 0 : updates.scopeChallenge;
         if (updates.enabled !== void 0) registeredResource.enabled = updates.enabled;
@@ -33872,9 +34558,15 @@ var McpServer = class {
           delete this._registeredResourceTemplates[name];
           if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
         }
-        if (updates.title !== void 0) registeredResourceTemplate.title = updates.title;
         if (updates.template !== void 0) registeredResourceTemplate.resourceTemplate = updates.template;
         if (updates.metadata !== void 0) registeredResourceTemplate.metadata = updates.metadata;
+        if (updates.title !== void 0) {
+          registeredResourceTemplate.title = updates.title;
+          registeredResourceTemplate.metadata = {
+            ...registeredResourceTemplate.metadata,
+            title: updates.title
+          };
+        }
         if (updates.callback !== void 0) registeredResourceTemplate.readCallback = updates.callback;
         if (updates.scopeChallenge !== void 0) registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? void 0 : updates.scopeChallenge;
         if (updates.enabled !== void 0) registeredResourceTemplate.enabled = updates.enabled;
@@ -34130,7 +34822,7 @@ function unwrapOptionalSchema(schema) {
   return schema.def?.innerType ?? schema;
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/stdio.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/stdio.mjs
 var swallowsErrorsAfterClose = /* @__PURE__ */ Symbol("swallowsErrorsAfterClose");
 var StdioServerTransport = class {
   _readBuffer;
@@ -34233,7 +34925,7 @@ var StdioServerTransport = class {
 };
 
 // src/adapters/stdio/index.ts
-var import_dotenv = __toESM(require_main(), 1);
+var import_dotenv = __toESM(require_dist2(), 1);
 
 // src/core/sample-broker.ts
 var SAMPLE_BASE_URL = "https://sample.tradepilot.invalid/api/v0";
@@ -36034,7 +36726,7 @@ function requireCredentials(config3, environment) {
   if (!status[environment]) fail("CREDENTIALS_NOT_CONFIGURED", `${environment.toUpperCase()} credentials are not configured`, { environment, demo: status.demo, live: status.live });
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+ext-apps@2.0.3_@modelcontextprotocol+client@2.3.1_@modelcontextpr_7117abbcf88bf5aba5c23038faa00a3c/node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
+// node_modules/.pnpm/@modelcontextprotocol+ext-apps@2.0.4_@modelcontextprotocol+client@2.4.0_@modelcontextpr_fb5c80dda1a266aabc30a0f021c945eb/node_modules/@modelcontextprotocol/ext-apps/dist/src/server/index.js
 var D = "ui/resourceUri";
 var L = "text/html;profile=mcp-app";
 function j(B, Q, F, V) {
@@ -36052,7 +36744,7 @@ function H(B) {
   return B.extensions?.[W];
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+server@2.3.1/node_modules/@modelcontextprotocol/server/dist/index.mjs
+// node_modules/.pnpm/@modelcontextprotocol+server@2.4.0/node_modules/@modelcontextprotocol/server/dist/index.mjs
 var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 
 // src/core/tool-output.ts
