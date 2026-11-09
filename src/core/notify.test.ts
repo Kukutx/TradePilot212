@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivityEvent } from "../shared/contracts.js";
 import { createConfig, isLoopbackHost, type RuntimeEnv } from "./config.js";
 import { deliveryFor, inQuietHours, Notifications, notificationMessage, notificationText, parseNotifyLocale, parseNotifyTargets, parseQuietHours, quietHoursEnd } from "./notify.js";
@@ -98,7 +98,10 @@ describe("notification text", () => {
 
 function setup(env: RuntimeEnv, answer: (url: string, body: string) => number) {
   const calls: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
-  const clock = { now: Date.parse("2026-10-31T12:00:00Z") };
+  // One clock for the test, the notifications and the store, which expires what they keep by its own Date.now().
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-31T12:00:00Z"));
+  const clock = { get now() { return Date.now(); }, set now(value: number) { vi.setSystemTime(value); } };
   const store = new MemoryStateStore();
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const call = { url: String(input), body: String(init?.body), headers: init?.headers as Record<string, string> };
@@ -108,6 +111,8 @@ function setup(env: RuntimeEnv, answer: (url: string, body: string) => number) {
   const notifications = new Notifications({ config: createConfig(env), store, fetcher, now: () => clock.now });
   return { notifications, calls, clock, store };
 }
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe("sending notifications", () => {
   it("sends to every endpoint, signs each body, and tries again later where one failed, giving up after five more tries", async () => {
